@@ -515,11 +515,12 @@ const resolveActiveHighlightRange = (
     options: SyncChatHighlightOptions,
 ): Range | null => {
     if (matchedTargetRange) return matchedTargetRange;
-    const inMessage = findFirstRangeInMessage(
-        collected,
-        options.targetMessageIndex,
-    );
-    return inMessage ?? resolveClampedRangeAt(collected, options.activeIndex);
+    if (typeof options.targetMessageIndex === "number") {
+        return typeof options.targetOccurrenceInMessage === "number"
+            ? null
+            : findFirstRangeInMessage(collected, options.targetMessageIndex);
+    }
+    return resolveClampedRangeAt(collected, options.activeIndex);
 };
 
 /** Registers or clears `CSS.highlights` entries for `collected` and `activeRange`. */

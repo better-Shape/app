@@ -19,6 +19,7 @@ import {
     appendStreamAnsiChunk,
     commandSummary,
     stripAnsi,
+    TerminalCommandStep,
     type TerminalStreamBuffer,
 } from "@/features/chat/ui/blocks/terminal-live";
 import { ActionLine } from "@/features/chat/ui/blocks/action-line";
@@ -47,7 +48,9 @@ import {
     embeddingsTarget,
     normalizeProvidersSettings,
     providersForModelNames,
+    toRustAiConfig,
 } from "@/lib/ai/providers";
+import { commands } from "@/lib/backend/commands";
 import { shortenMentionTokensInText } from "@/lib/chat/mentions";
 import { startDictation } from "@/lib/editor/dictation";
 import { terminalSessionStore } from "@/features/terminal/session";
@@ -894,23 +897,18 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             disconnect: vi.fn(),
             onaudioprocess: null,
         };
-        vi.stubGlobal(
-            "AudioContext",
-            class {
-                sampleRate = 16_000;
-                destination = {};
-                createMediaStreamSource() {
-                    return { connect: vi.fn(), disconnect: vi.fn() };
-                }
-                createScriptProcessor() {
-                    return processor;
-                }
-                createGain() {
-                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
-                }
-                async close() {}
-            },
-        );
+        /** Constructs a mocked Web Audio `AudioContext` instance without class methods. */
+        const createMockAudioContext = vi.fn(function MockAudioContext() {
+            return {
+                sampleRate: 16_000,
+                destination: {},
+                createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+                createScriptProcessor: () => processor,
+                createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
+                close: resolveVoid,
+            };
+        });
+        vi.stubGlobal("AudioContext", createMockAudioContext);
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
             value: { getUserMedia: vi.fn(() => pendingMic) },
@@ -933,7 +931,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
             Object.defineProperty(navigator, "mediaDevices", {
                 configurable: true,
-                value: { getUserMedia: vi.fn(async () => fakeStream) },
+                value: { getUserMedia: vi.fn(() => Promise.resolve(fakeStream)) },
             });
             let rejectPush: ((err: Error) => void) | undefined;
             const pendingPush = new Promise<void>((_res, rej) => {
@@ -1016,6 +1014,54 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(ranges).toHaveLength(1);
         expect(ranges[0]?.range.toString()).toBe("router.ts");
         expect(syncChatDomHighlights(row, "Copy").ranges).toHaveLength(0);
+    });
+
+    it("canonicalizes aliased defaultModel in Auto routing, avoids wrong highlight occurrence fallback, and keeps approved command Running", async () => {
+        const settings = defaultProvidersSettings();
+        const dummyKey = ["sk", "test", "placeholder0000"].join("-");
+        settings.connections.openai.enabled = true;
+        settings.connections.openai.apiKey = dummyKey;
+        settings.connections.google.enabled = true;
+        settings.connections.google.apiKey = ["goog", "test", "placeholder0000"].join("-");
+        settings.defaultModel = "gemini/gemini-2.5-pro";
+        expect(toRustAiConfig(settings).defaultModel).toBe("google/gemini-2.5-pro");
+
+        const singleMatchRow = mount(
+            <div data-chat-message-index="0">
+                <p>token appears once in visible prose</p>
+            </div>,
+        );
+        const missingOccurrence = syncChatDomHighlights(singleMatchRow, "token", {
+            targetMessageIndex: 0,
+            targetOccurrenceInMessage: 2,
+        });
+        expect(missingOccurrence.ranges).toHaveLength(1);
+        expect(missingOccurrence.activeRange).toBeNull();
+
+        const approveSpy = vi
+            .spyOn(commands, "approveTerminalCommand")
+            .mockImplementation(() => Promise.resolve(""));
+        try {
+            const pendingBlock: Chunk = {
+                type: "terminal_command",
+                commandId: "cmd-approve-live",
+                command: "npm test",
+                commandStatus: "pending",
+            };
+            const el = mount(<TerminalCommandStep block={pendingBlock} />);
+            const runBtn = Array.from(el.querySelectorAll("button")).find(
+                (b) => b.textContent?.trim() === "Run",
+            );
+            if (!runBtn) throw new Error("expected Run button");
+            await act(async () => {
+                runBtn.click();
+                await Promise.resolve();
+            });
+            expect(el.textContent ?? "").toContain("Running");
+            expect(el.textContent ?? "").not.toContain("Ran ");
+        } finally {
+            approveSpy.mockRestore();
+        }
     });
 });
 
