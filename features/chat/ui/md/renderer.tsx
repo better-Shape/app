@@ -259,7 +259,6 @@ const SEARCH_TAGS: SearchTagSpec[] = [
     { type: "grep", start: "<grep", end: "</grep>" },
     { type: "web_search", start: "<web_search", end: "</web_search>" },
     { type: "status", start: "<status", end: "</status>" },
-    { type: "think", start: "<think>", end: "</think>" },
     { type: "think", start: "<think", end: "</think>" },
     { type: "thought", start: "<thought", end: "</thought>" },
     { type: "plan", start: "<plan", end: "</plan>" },
@@ -308,12 +307,15 @@ const SEARCH_TAGS: SearchTagSpec[] = [
     { type: "tool_result", start: "<pre_dispatch_explanation", end: "</pre_dispatch_explanation>" },
     { type: "tool_result", start: "<tools", end: "</tools>" },
     { type: "tool_result", start: "<new_path", end: "</new_path>" },
-    { type: "tool_result", start: "<content", end: "</content>" },
     { type: "tool_result", start: "<analysis", end: "</analysis>" },
     { type: "tool_result", start: "<file_content", end: "</file_content>" },
     { type: "attached_image", start: "<attached_image", end: "</attached_image>" },
     { type: "sent_file", start: "<sent_file", end: "</sent_file>" },
 ];
+
+const SEARCH_TAG_BY_PREFIX: ReadonlyMap<string, SearchTagSpec> = new Map(
+    SEARCH_TAGS.map((spec) => [spec.start, spec]),
+);
 
 /** Extracts the hostname from a URL string via the shared favicon helper. */
 const hostnameFromUrl = (url: string): string => hostnameOf(url);
@@ -1075,7 +1077,42 @@ const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
 
 /** Checks whether `ch` is a valid delimiter immediately following an open XML tag name. */
 const isOpenTagNameDelimiter = (ch: string | undefined): boolean =>
-    ch === undefined || ch === ">" || ch === "/" || /\s/u.test(ch);
+    ch === undefined || ch === ">" || ch === "/" || ch === "=" || /\s/u.test(ch);
+
+/** Checks whether UTF-16 code unit `code` can appear in a structured tag identifier (`a-z`, `_`, `:`). */
+const isStructuredTagNameChar = (code: number): boolean =>
+    (code >= 97 && code <= 122) || code === 95 || code === 58;
+
+/** Scans contiguous structured-tag identifier characters starting at `start`. */
+const readStructuredTagEnd = (text: string, start: number): number => {
+    let cursor = start;
+    while (
+        cursor < text.length &&
+        isStructuredTagNameChar(text.charCodeAt(cursor))
+    ) {
+        cursor += 1;
+    }
+    return cursor;
+};
+
+/** Attempts an $O(1)$ lookup for a structured open tag anchored at `<` (`ltIndex`). */
+const matchStructuredTagAt = (
+    text: string,
+    ltIndex: number,
+): MatchedTagRange | null => {
+    const nameEnd = readStructuredTagEnd(text, ltIndex + 1);
+    if (nameEnd === ltIndex + 1 || !isOpenTagNameDelimiter(text[nameEnd])) {
+        return null;
+    }
+    const spec = SEARCH_TAG_BY_PREFIX.get(text.slice(ltIndex, nameEnd));
+    if (!spec) return null;
+    return {
+        type: spec.type,
+        index: ltIndex,
+        startTag: spec.start,
+        endTag: spec.end,
+    };
+};
 
 /** Returns the end offset of a fenced code range containing `index`, or `-1` when outside fences. */
 const findContainingFenceEnd = (
@@ -1089,72 +1126,26 @@ const findContainingFenceEnd = (
     return -1;
 };
 
-/** Checks whether `startTag` at `index` has a valid open-tag boundary. */
-const hasValidTagStartBoundary = (
-    text: string,
-    startTag: string,
-    index: number,
-): boolean =>
-    startTag.endsWith(">") ||
-    isOpenTagNameDelimiter(text[index + startTag.length]);
-
-/** Finds the first boundary-valid, non-fenced occurrence of `startTag` at or after `fromIndex`. */
-const findBoundaryTagStart = (
-    text: string,
-    startTag: string,
-    fromIndex: number,
-    fenceRanges: ReadonlyArray<readonly [number, number]>,
-): number => {
-    let cursor = fromIndex;
-    while (cursor < text.length) {
-        const index = text.indexOf(startTag, cursor);
-        if (index === -1) return -1;
-        const fenceEnd = findContainingFenceEnd(index, fenceRanges);
-        if (fenceEnd !== -1) {
-            cursor = fenceEnd;
-        } else if (hasValidTagStartBoundary(text, startTag, index)) {
-            return index;
-        } else {
-            cursor = index + startTag.length;
-        }
-    }
-    return -1;
-};
-
-/** Checks whether `candidate` beats `best` at an earlier index or longer same-index tag prefix. */
-const isBetterTagMatch = (
-    best: MatchedTagRange | null,
-    index: number,
-    tag: SearchTagSpec,
-): boolean => {
-    if (!best || index < best.index) return true;
-    return index === best.index && tag.start.length > best.startTag.length;
-};
-
-/** Finds the earliest structured XML tag outside Markdown code fences starting at or after `fromIndex`. */
+/** Finds the earliest structured XML tag outside `fenceRanges` in a single linear `<` pass. */
 const findNextStructuredTag = (
     text: string,
     fromIndex: number,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
 ): MatchedTagRange | null => {
-    const fenceRanges = scanMarkdownCodeFences(text, fromIndex).ranges;
-    let firstMatch: MatchedTagRange | null = null;
-    for (const tag of SEARCH_TAGS) {
-        const index = findBoundaryTagStart(
-            text,
-            tag.start,
-            fromIndex,
-            fenceRanges,
-        );
-        if (index !== -1 && isBetterTagMatch(firstMatch, index, tag)) {
-            firstMatch = {
-                type: tag.type,
-                index,
-                startTag: tag.start,
-                endTag: tag.end,
-            };
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const ltIndex = text.indexOf("<", cursor);
+        if (ltIndex === -1) return null;
+        const fenceEnd = findContainingFenceEnd(ltIndex, fenceRanges);
+        if (fenceEnd !== -1) {
+            cursor = fenceEnd;
+        } else {
+            const matched = matchStructuredTagAt(text, ltIndex);
+            if (matched) return matched;
+            cursor = ltIndex + 1;
         }
     }
-    return firstMatch;
+    return null;
 };
 
 /** Appends a chunk to `chunks`, replacing any prior `todos` chunk in place. */
@@ -1256,11 +1247,16 @@ const consumeMatchedTagAt = (
 /** Parse message content into chronological prose, workflow, and rich card chunks. */
 export const parseMessageContent = (rawText: string): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
+    const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
     const chunks: Chunk[] = [];
     let currentIndex = 0;
 
     while (currentIndex < text.length) {
-        const firstMatch = findNextStructuredTag(text, currentIndex);
+        const firstMatch = findNextStructuredTag(
+            text,
+            currentIndex,
+            fenceRanges,
+        );
         if (!firstMatch) {
             pushSanitizedTextSlice(chunks, text, currentIndex);
             break;

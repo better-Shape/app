@@ -12,7 +12,11 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { classifyAiError, errorDocsUrl } from "@/lib/errors/catalog";
+import {
+    BETTERSHAPE_ERRORS,
+    classifyAiError,
+    errorDocsUrl,
+} from "@/lib/errors/catalog";
 import { commands } from "@/lib/backend";
 
 const QUOTA_ERROR_RE =
@@ -250,6 +254,16 @@ const resolveChatErrorDocsUrl = (
     return billingUrl ?? errorDocsUrl(code);
 };
 
+/** Checks whether `ChatErrorDialog` should expose `onRetry` ("Try again") for a classified error. */
+const isRetryableChatError = (
+    code: number,
+    isQuota: boolean,
+    isContextOverflow: boolean,
+): boolean =>
+    !isQuota &&
+    !isContextOverflow &&
+    code !== BETTERSHAPE_ERRORS.AI_KEY_MISSING;
+
 /** Computes title, hint, detail, docs link, and action flags for `ChatErrorDialog`. */
 const deriveChatErrorViewModel = (rawMessage: string) => {
     const hasMessage = rawMessage.length > 0;
@@ -285,7 +299,7 @@ const deriveChatErrorViewModel = (rawMessage: string) => {
         hint,
         detail: resolveChatErrorDetail(rawMessage, title, hint),
         isContextOverflow,
-        isTransient,
+        canRetry: isRetryableChatError(entry.code, isQuota, isContextOverflow),
         hasBillingProvider: Boolean(billingProvider),
         docsUrl: resolveChatErrorDocsUrl(billingProvider, entry.code),
     };
@@ -339,7 +353,7 @@ const ChatErrorDialogFooter = ({
         return <ContextOverflowFooter onDismiss={onDismiss} />;
     }
     const secondaryLabel = view.hasBillingProvider ? "Add credits" : "Learn more";
-    const retryHandler = view.isTransient ? onRetry : undefined;
+    const retryHandler = view.canRetry ? onRetry : undefined;
     return (
         <div className="contents">
             <Button

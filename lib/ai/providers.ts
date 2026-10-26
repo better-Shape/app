@@ -1118,7 +1118,7 @@ const normalizeStringList = (raw: unknown): string[] =>
 const normalizeStringField = (raw: unknown, fallback = ""): string =>
   typeof raw === "string" ? raw : fallback;
 
-const VALID_SEARCH_PROVIDERS = new Set(["tavily", "exa", "serper"]);
+const VALID_SEARCH_PROVIDERS = new Set(["tavily", "brave"]);
 
 /** Coerces an unknown search provider value to a valid `AiServicesSettings["search"]["provider"]`. */
 const normalizeSearchProvider = (
