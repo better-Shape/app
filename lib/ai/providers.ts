@@ -1114,30 +1114,49 @@ const normalizeStringList = (raw: unknown): string[] =>
         .filter(Boolean)
     : [];
 
+/** Coerces an unknown persisted field to a string, falling back when malformed. */
+const normalizeStringField = (raw: unknown, fallback = ""): string =>
+  typeof raw === "string" ? raw : fallback;
+
+const VALID_SEARCH_PROVIDERS = new Set(["tavily", "exa", "serper"]);
+
+/** Coerces an unknown search provider value to a valid `AiServicesSettings["search"]["provider"]`. */
+const normalizeSearchProvider = (
+  raw: unknown,
+): AiServicesSettings["search"]["provider"] =>
+  typeof raw === "string" && VALID_SEARCH_PROVIDERS.has(raw)
+    ? (raw as AiServicesSettings["search"]["provider"])
+    : "none";
+
 /** Normalizes a single saved `ProviderConnection` against its preset defaults. */
 const normalizeSingleConnection = (
   preset: ProviderPreset,
   saved: Partial<ProviderConnection> | undefined,
-): ProviderConnection => ({
-  ...emptyConnection(preset),
-  ...(saved ?? {}),
-  models: normalizeStringList(saved?.models),
-  extraModels: normalizeStringList(saved?.extraModels),
-  headers: normalizeHeaders(saved?.headers),
-  authStyle: isAuthStyle(saved?.authStyle) ? saved.authStyle : "",
-});
+): ProviderConnection => {
+  const defaults = emptyConnection(preset);
+  return {
+    apiKey: normalizeStringField(saved?.apiKey, defaults.apiKey),
+    baseUrl: normalizeStringField(saved?.baseUrl, defaults.baseUrl),
+    enabled:
+      typeof saved?.enabled === "boolean" ? saved.enabled : defaults.enabled,
+    models: normalizeStringList(saved?.models),
+    extraModels: normalizeStringList(saved?.extraModels),
+    headers: normalizeHeaders(saved?.headers),
+    authStyle: isAuthStyle(saved?.authStyle) ? saved.authStyle : "",
+  };
+};
 
 /** Normalizes `services` settings with `"none"` and empty-key defaults. */
 const normalizeServicesSettings = (
   rawServices: Partial<AiServicesSettings> | undefined,
 ): AiServicesSettings => ({
   search: {
-    provider: rawServices?.search?.provider ?? "none",
-    apiKey: rawServices?.search?.apiKey ?? "",
+    provider: normalizeSearchProvider(rawServices?.search?.provider),
+    apiKey: normalizeStringField(rawServices?.search?.apiKey),
   },
   composio: {
-    apiKey: rawServices?.composio?.apiKey ?? "",
-    userId: rawServices?.composio?.userId ?? "",
+    apiKey: normalizeStringField(rawServices?.composio?.apiKey),
+    userId: normalizeStringField(rawServices?.composio?.userId),
   },
 });
 
@@ -1156,8 +1175,8 @@ export const normalizeProvidersSettings = (
   }
   return {
     connections,
-    defaultModel: raw.defaultModel ?? base.defaultModel,
-    embeddingModel: raw.embeddingModel ?? "",
+    defaultModel: normalizeStringField(raw.defaultModel, base.defaultModel),
+    embeddingModel: normalizeStringField(raw.embeddingModel),
     services: normalizeServicesSettings(raw.services),
   };
 };

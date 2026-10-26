@@ -324,6 +324,14 @@ const insertSpacedTokenAtCaret = (
 const appendAttachedPromptLine = (cur: string, prompt: string): string =>
   cur.trim() ? `${cur.trimEnd()}\n${prompt}` : prompt;
 
+/** Collapses leading horizontal spaces on `after` and prefixes a single space when needed after `text`. */
+const formatDictatedSuffix = (text: string, after: string): string => {
+  const trimmedAfter = after.replace(/^[ \t]+/u, "");
+  if (!trimmedAfter) return "";
+  const needsSpace = !/^\s/u.test(trimmedAfter) && !/\s$/u.test(text);
+  return `${needsSpace ? " " : ""}${trimmedAfter}`;
+};
+
 /** Inserts dictated speech text around `caret` with clean single-space padding and returns next caret. */
 export const insertDictatedSlice = (
   val: string,
@@ -334,10 +342,8 @@ export const insertDictatedSlice = (
   const before = val.slice(0, clampedCaret);
   const after = val.slice(clampedCaret);
   const pad = before && !/\s$/u.test(before) ? " " : "";
-  const trimmedAfter = after.replace(/^\s/u, "");
-  const suffixPad = trimmedAfter && !/\s$/u.test(text) ? " " : "";
   return {
-    next: `${before}${pad}${text}${suffixPad}${trimmedAfter}`,
+    next: `${before}${pad}${text}${formatDictatedSuffix(text, after)}`,
     caret: before.length + pad.length + text.length,
   };
 };

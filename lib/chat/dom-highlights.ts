@@ -11,7 +11,7 @@ export const CHAT_FIND_ACTIVE_HIGHLIGHT_NAME = "chat-find-active";
 
 const HIGHLIGHT_STYLE_ID = "bettershape-chat-find-highlights";
 
-const IGNORED_TEXT_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
+const IGNORED_TEXT_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "BR"]);
 
 const SKIPPED_ANCESTOR_ATTRS = [
     "inert",
