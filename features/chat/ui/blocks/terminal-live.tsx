@@ -74,13 +74,79 @@ type AgentTerminalEvent = {
     cancelled?: boolean;
 };
 
+/** Advances an index while `predicate` holds on `input.charCodeAt(cursor)`. */
+const advanceWhileCharCode = (
+    input: string,
+    start: number,
+    predicate: (code: number) => boolean,
+): number => {
+    let cursor = start;
+    while (cursor < input.length && predicate(input.charCodeAt(cursor))) {
+        cursor += 1;
+    }
+    return cursor;
+};
+
+/** Returns true when `code` belongs to an ANSI CSI parameter byte (`0-9`, `;`, `?`). */
+const isCsiParameterByte = (code: number): boolean =>
+    (code >= 0x30 && code <= 0x39) || code === 0x3b || code === 0x3f;
+
+/** Skips an ANSI CSI sequence (`ESC [` ... `@-~`), falling back to `start` if unterminated. */
+const skipCsiSequence = (input: string, start: number): number => {
+    const afterParams = advanceWhileCharCode(input, start, isCsiParameterByte);
+    const afterIntermediates = advanceWhileCharCode(
+        input,
+        afterParams,
+        (code) => code >= 0x20 && code <= 0x2f,
+    );
+    const finalCode = input.charCodeAt(afterIntermediates);
+    return finalCode >= 0x40 && finalCode <= 0x7e
+        ? afterIntermediates + 1
+        : start;
+};
+
+/** Skips an ANSI OSC sequence (`ESC ]` ... `BEL` or `ESC \\`), falling back to `start` if unterminated. */
+const skipOscSequence = (input: string, start: number): number => {
+    const end = advanceWhileCharCode(
+        input,
+        start,
+        (code) => code !== 0x07 && code !== 0x1b,
+    );
+    if (input.charCodeAt(end) === 0x07) return end + 1;
+    if (input.charCodeAt(end) === 0x1b && input.charCodeAt(end + 1) === 0x5c) {
+        return end + 2;
+    }
+    return start;
+};
+
+/** Returns true when `ch` is undefined or a line-break character (`\n` / `\r`). */
+const isLineBreakOrEmpty = (ch: string | undefined): boolean =>
+    !ch || ch === "\n" || ch === "\r";
+
+/** Returns the index immediately after an ANSI escape sequence starting at `escIndex`. */
+const advanceAnsiEscape = (input: string, escIndex: number): number => {
+    const next = input[escIndex + 1];
+    if (isLineBreakOrEmpty(next)) return escIndex + 1;
+    if (next === "]") return skipOscSequence(input, escIndex + 2);
+    if (next === "[") return skipCsiSequence(input, escIndex + 2);
+    return escIndex + 2;
+};
+
 /** Strip ANSI CSI/OSC escapes and carriage returns for readable chat output. */
-export const stripAnsi = (input: string): string =>
-    input
-        .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
-        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
-        .replace(/\u001b./g, "")
-        .replace(/\r/g, "");
+export const stripAnsi = (input: string): string => {
+    const escChar = String.fromCharCode(0x1b);
+    if (!input.includes(escChar)) return input.replaceAll("\r", "");
+    let output = "";
+    let cursor = 0;
+    let escIndex = input.indexOf(escChar, cursor);
+    while (escIndex !== -1) {
+        output += input.slice(cursor, escIndex);
+        cursor = advanceAnsiEscape(input, escIndex);
+        escIndex = input.indexOf(escChar, cursor);
+    }
+    output += input.slice(cursor);
+    return output.replaceAll("\r", "");
+};
 
 /** Segments `text` into user-perceived grapheme clusters (or Unicode code points as fallback). */
 const splitGraphemeUnits = (text: string): string[] => {
@@ -95,7 +161,7 @@ const splitGraphemeUnits = (text: string): string[] => {
 
 /** Truncates a shell command onto one line without splitting UTF-16 surrogates or emoji graphemes. */
 export const commandSummary = (command: string, max = 56): string => {
-    const one = command.replace(/\s+/g, " ").trim();
+    const one = command.replace(/\s+/gu, " ").trim();
     if (!one) return "";
     const units = splitGraphemeUnits(one);
     if (units.length <= max) return one;

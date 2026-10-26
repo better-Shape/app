@@ -728,8 +728,7 @@ const extractClipboardFiles = (
 ): { hadFileItem: boolean; filesToAdd: File[] } => {
   let hadFileItem = false;
   const filesToAdd: File[] = [];
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
+  for (const item of Array.from(items)) {
     if (item.kind !== "file") continue;
     hadFileItem = true;
     const file = item.getAsFile();
