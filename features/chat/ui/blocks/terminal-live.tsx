@@ -346,6 +346,7 @@ export const useAgentTerminalStream = (
 
     useEffect(() => {
         if (!commandId || !enabled) return undefined;
+        bufferRef.current = "";
         let disposed = false;
         const unlistenStream = safeListen<AgentTerminalEvent>(
             "agent-terminal-stream",

@@ -3,10 +3,7 @@
 import React from "react";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context";
 import { BETTERSHAPE_CLIP_CODE } from "@/features/chat/lib/bettershape-clip";
-import {
-  describeProviderSetupGap,
-  hasAnyUsableProvider,
-} from "@/lib/ai/providers";
+import { hasAnyUsableProvider } from "@/lib/ai/providers";
 import { getProjectPath } from "@/lib/backend";
 import type { BrowserPickedElement } from "@/lib/backend/types";
 import {
@@ -71,6 +68,7 @@ import {
   resolveArrowDownAction,
   resolveArrowUpAction,
   resolveAutoTargetModel,
+  resolveComposerSetupGap,
   resolveEscapeDraftRestore,
   resolveModelTriggerMeta,
   resolveVesselRadiusClass,
@@ -158,18 +156,6 @@ const safeReadProjectPath = (): string | null => {
   }
 };
 
-/** Resolves human-readable provider setup gap (`"..."`) when `needsSignIn` is true, or `null` when ready. */
-const resolveComposerSetupGap = (
-  needsSignIn: boolean,
-  providers: ReturnType<typeof useSettings>["ai"]["providers"] | undefined,
-): string | null => {
-  if (!needsSignIn) return null;
-  const raw = providers
-    ? describeProviderSetupGap(providers)
-    : "Add an API key in Settings -> Providers";
-  return raw.replace(" -> ", " → ");
-};
-
 /** Resolves ARIA label for the composer `<textarea>` based on provider setup state. */
 const resolveComposerAriaLabel = (setupGap: string | null): string =>
   setupGap ? `${setupGap} to chat` : IDLE_COMPOSER_HINTS[0];
@@ -192,7 +178,14 @@ const areAttachmentsBlockingSend = (
   return isLoading && uploadedFiles.length > 0;
 };
 
-/** Checks whether a trimmed prompt can be saved to prompt history on submit. */
+/** Checks whether composer state blocks immediate dispatch (so prompt is unset or queued). */
+const isComposerBlockedForImmediateSend = (opts: {
+  needsSignIn: boolean;
+  isPreparing: boolean;
+  isLoading: boolean;
+}): boolean => opts.needsSignIn || opts.isPreparing || opts.isLoading;
+
+/** Checks whether a trimmed prompt is immediately dispatched (not queued) and eligible for history. */
 const isPromptEligibleForHistory = (opts: {
   trimmed: string;
   needsSignIn: boolean;
@@ -200,11 +193,11 @@ const isPromptEligibleForHistory = (opts: {
   isLoading: boolean;
   uploadedFiles: ComposerAttachment[];
 }): boolean => {
-  if (!opts.trimmed || opts.needsSignIn || opts.isPreparing) return false;
-  if (areAttachmentsBlockingSend(opts.isLoading, opts.uploadedFiles)) {
+  if (!opts.trimmed || isComposerBlockedForImmediateSend(opts)) return false;
+  if (opts.uploadedFiles.some((att) => att.status === "processing")) {
     return false;
   }
-  return !/^\/compact\b/i.test(opts.trimmed);
+  return !/^\/compact\b/iu.test(opts.trimmed);
 };
 
 /** Appends `trimmed` to `prev` when not an immediate duplicate (capped at 50). */
@@ -603,8 +596,13 @@ const useComposerModelCatalog = (
     [allModels],
   );
   const setupGap = React.useMemo(
-    () => resolveComposerSetupGap(needsSignIn, settings.ai.providers),
-    [needsSignIn, settings.ai.providers],
+    () =>
+      resolveComposerSetupGap(
+        needsSignIn,
+        concreteAllModels.length,
+        settings.ai.providers,
+      ),
+    [concreteAllModels.length, needsSignIn, settings.ai.providers],
   );
   const resolvedAutoModel = React.useMemo(
     () =>

@@ -217,18 +217,42 @@ const resolveChatErrorHint = ({
 };
 
 const SECRET_ASSIGNMENT_RE =
-    /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{8,}/giu;
+    /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?\s*[:=]\s*["']?)(?:(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}|[A-Za-z0-9._~+/=-]{8,})/giu;
 const BEARER_TOKEN_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
+const BASIC_TOKEN_CANDIDATE_RE = /\b(Basic\s+)([A-Za-z0-9+/=_-]{4,})\b/gu;
+const URL_USERINFO_SECRET_RE = /(https?:\/\/[^/\s:@]+:)[^/\s@]+(@)/giu;
 const QUERY_SECRET_RE =
     /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
 const KNOWN_KEY_PREFIX_RE =
     /\b(?:(?:sk|xai|pplx|csk|nvapi|tvly)-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|dapi[0-9a-f]{16,}|BSA[0-9A-Za-z_-]{16,}|(?:tgp_v1|doo_v1|oc_sk|VENICE_INFERENCE_KEY|llmgtwy|kilo|vck|sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
 
-/** Redacts echoed bearer tokens, provider API keys, and query secrets from raw error details. */
+/** Decodes a standard/URL-safe base64 token, returning `""` when malformed. */
+const safeDecodeBase64 = (token: string): string => {
+    const std = token.replace(/-/gu, "+").replace(/_/gu, "/");
+    if (std.length % 4 !== 0 || typeof atob !== "function") return "";
+    try {
+        return atob(std);
+    } catch {
+        return "";
+    }
+};
+
+/** Checks whether `token` is an RFC 7617 `user:pass` base64 credential or opaque secret token. */
+const isBasicAuthCredentialToken = (token: string): boolean => {
+    const decoded = safeDecodeBase64(token);
+    if (decoded.includes(":") && /^[ -~]+$/u.test(decoded)) return true;
+    return token.length >= 8 && /[0-9+/=_-]/u.test(token);
+};
+
+/** Redacts echoed bearer/basic tokens, URL credentials, API keys, and query secrets from error details. */
 export const redactErrorSecrets = (raw: string): string =>
     raw
         .replace(SECRET_ASSIGNMENT_RE, "$1[REDACTED]")
         .replace(BEARER_TOKEN_RE, "Bearer [REDACTED]")
+        .replace(BASIC_TOKEN_CANDIDATE_RE, (full, prefix: string, token: string) =>
+            isBasicAuthCredentialToken(token) ? `${prefix}[REDACTED]` : full,
+        )
+        .replace(URL_USERINFO_SECRET_RE, "$1[REDACTED]$2")
         .replace(QUERY_SECRET_RE, "$1[REDACTED]")
         .replace(KNOWN_KEY_PREFIX_RE, "[REDACTED]");
 

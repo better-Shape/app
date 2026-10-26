@@ -472,11 +472,15 @@ const parseEditBlock = (block: string, isGenerating: boolean): Chunk => ({
 });
 
 /** Parses an `<edit_pending>` approval block into a structured pending-edit chunk. */
-const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => ({
+const parseEditPendingBlock = (
+    tagHeader: string,
+    block: string,
+    isGenerating: boolean,
+): Chunk => ({
     type: "edit_pending",
-    file: readOptionalAttr(block, "file"),
-    commandId: readOptionalAttr(block, "id"),
-    commandStatus: readOptionalAttr(block, "status") ?? "pending",
+    file: readOptionalAttr(tagHeader, "file"),
+    commandId: readOptionalAttr(tagHeader, "id"),
+    commandStatus: readOptionalAttr(tagHeader, "status") ?? "pending",
     original: getInnerTagContent(block, "original") ?? "",
     replacement: getInnerTagContent(block, "replacement") ?? "",
     isGenerating,
@@ -494,10 +498,14 @@ const resolvePlanSavedMarkdown = (
 };
 
 /** Parses a `<plan_saved>` tag into a saved-plan card chunk. */
-const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => ({
+const parsePlanSavedBlock = (
+    tagHeader: string,
+    block: string,
+    innerContent?: string,
+): Chunk => ({
     type: "plan_saved",
-    file: readOptionalAttr(block, "path"),
-    content: readOptionalAttr(block, "title") ?? "Implementation Plan",
+    file: readOptionalAttr(tagHeader, "path"),
+    content: readOptionalAttr(tagHeader, "title") ?? "Implementation Plan",
     planMarkdown: resolvePlanSavedMarkdown(block, innerContent),
 });
 
@@ -686,42 +694,30 @@ const parseDesignPreviewsBlock = (block: string): Chunk => {
 };
 
 /** Parses a `<review_debate>` panel block. */
-const parseReviewDebateBlock = (block: string): Chunk => ({
+const parseReviewDebateBlock = (tagHeader: string, content: string): Chunk => ({
     type: "review_debate",
-    content: block
-        .replace(/^<review_debate[^>]*>\s*/i, "")
-        .replace(/(?<!\s)\s*<\/review_debate>$/i, "")
-        .trim(),
-    reviewModel: block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i)?.[1],
+    content: content.trim(),
+    reviewModel: readOptionalAttr(tagHeader, "model"),
 });
 
 /** Parses a `<persona_review>` panel block. */
-const parsePersonaReviewBlock = (block: string): Chunk => {
-    const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] ?? "";
-    return {
-        type: "persona_review",
-        content: block
-            .replace(/^<persona_review[^>]*>\s*/i, "")
-            .replace(/(?<!\s)\s*<\/persona_review>$/i, "")
-            .trim(),
-        commandId: readOptionalAttr(open, "id"),
-        commandStatus: readOptionalAttr(open, "status"),
-        visitUrl: readOptionalAttr(open, "url"),
-    };
-};
+const parsePersonaReviewBlock = (tagHeader: string, content: string): Chunk => ({
+    type: "persona_review",
+    content: content.trim(),
+    commandId: readOptionalAttr(tagHeader, "id"),
+    commandStatus: readOptionalAttr(tagHeader, "status"),
+    visitUrl: readOptionalAttr(tagHeader, "url"),
+});
 
 /** Parses a `<question>` or `<questions>` interactive prompt card block. */
-const parseQuestionBlock = (block: string): Chunk => {
-    const inner = block
-        .replace(/^<questions?[^>]*>/i, "")
-        .replace(/<\/questions?>\s*$/i, "")
-        .trim();
+const parseQuestionBlock = (tagHeader: string, content: string): Chunk => {
+    const inner = content.trim();
     const { questions, answers } = parseQuestionsPayload(inner);
     return {
         type: "question",
         content: inner,
-        commandId: readOptionalAttr(block, "id"),
-        commandStatus: readOptionalAttr(block, "status"),
+        commandId: readOptionalAttr(tagHeader, "id"),
+        commandStatus: readOptionalAttr(tagHeader, "status"),
         questions,
         answers,
     };
@@ -999,9 +995,14 @@ const buildGeneratedMediaFromCtx = (ctx: TagSliceContext): Chunk =>
 const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
     edit: (ctx) => parseEditBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
     edit_pending: (ctx) =>
-        parseEditPendingBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+        parseEditPendingBlock(
+            ctx.tagHeader,
+            ctx.fullBlock,
+            Boolean(ctx.isGenerating),
+        ),
     plan: (ctx) => parsePlanBlock(ctx.fullBlock),
-    plan_saved: (ctx) => parsePlanSavedBlock(ctx.fullBlock, ctx.content),
+    plan_saved: (ctx) =>
+        parsePlanSavedBlock(ctx.tagHeader, ctx.fullBlock, ctx.content),
     todos: (ctx) => parseTodosBlock(ctx.fullBlock),
     terminal_command: (ctx) =>
         parseTerminalCommandBlock(
@@ -1019,7 +1020,7 @@ const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
     cat: (ctx) =>
         parseCatBlock(ctx.tagHeader, ctx.content, Boolean(ctx.isGenerating)),
     subagent_ref: (ctx) =>
-        parseSubagentRefBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+        parseSubagentRefBlock(ctx.tagHeader, Boolean(ctx.isGenerating)),
     subagent: (ctx) =>
         parseSubagentBlock(
             ctx.tagHeader,
@@ -1027,10 +1028,10 @@ const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
             Boolean(ctx.isGenerating),
         ),
     design_previews: (ctx) => parseDesignPreviewsBlock(ctx.fullBlock),
-    review_debate: (ctx) => parseReviewDebateBlock(ctx.fullBlock),
-    persona_review: (ctx) => parsePersonaReviewBlock(ctx.fullBlock),
-    question: (ctx) => parseQuestionBlock(ctx.fullBlock),
-    questions: (ctx) => parseQuestionBlock(ctx.fullBlock),
+    review_debate: (ctx) => parseReviewDebateBlock(ctx.tagHeader, ctx.content),
+    persona_review: (ctx) => parsePersonaReviewBlock(ctx.tagHeader, ctx.content),
+    question: (ctx) => parseQuestionBlock(ctx.tagHeader, ctx.content),
+    questions: (ctx) => parseQuestionBlock(ctx.tagHeader, ctx.content),
     run: buildRunChunk,
     web_result: buildQueryResultChunk,
     search_result: buildQueryResultChunk,
@@ -1183,6 +1184,96 @@ const pushSanitizedTextSlice = (
     }
 };
 
+/** Counts consecutive backticks (`96`) starting at `from` up to `limit`. */
+const countBacktickRun = (text: string, from: number, limit: number): number => {
+    let idx = from;
+    while (idx < limit && text.charCodeAt(idx) === 96) {
+        idx += 1;
+    }
+    return idx - from;
+};
+
+/** Finds the end of a paragraph block (`\n\n` or `\r\n\r\n`) within `[from, limit)`. */
+const findParagraphBreakBound = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    const lfBreak = text.indexOf("\n\n", from);
+    const crlfBreak = text.indexOf("\r\n\r\n", from);
+    let end = limit;
+    if (lfBreak !== -1 && lfBreak < end) end = lfBreak;
+    if (crlfBreak !== -1 && crlfBreak < end) end = crlfBreak;
+    return end;
+};
+
+/** Finds the end offset of a matching `runLen` closing backtick run in `[from, bound)`, or `-1`. */
+const findMatchingBacktickClose = (
+    text: string,
+    from: number,
+    bound: number,
+    runLen: number,
+): number => {
+    let idx = from;
+    while (idx < bound) {
+        const tick = text.indexOf("`", idx);
+        if (tick === -1 || tick >= bound) return -1;
+        const candLen = countBacktickRun(text, tick, bound);
+        if (candLen === runLen) return tick + candLen;
+        idx = tick + candLen;
+    }
+    return -1;
+};
+
+/** Appends closed CommonMark inline backtick code spans in `[segStart, segEnd)` to `out`. */
+const appendInlineCodeSpansInGap = (
+    text: string,
+    segStart: number,
+    segEnd: number,
+    out: Array<readonly [number, number]>,
+): void => {
+    let cursor = segStart;
+    while (cursor < segEnd) {
+        const openIdx = text.indexOf("`", cursor);
+        if (openIdx === -1 || openIdx >= segEnd) return;
+        const runLen = countBacktickRun(text, openIdx, segEnd);
+        const bound = findParagraphBreakBound(text, openIdx + runLen, segEnd);
+        const closeEnd = findMatchingBacktickClose(
+            text,
+            openIdx + runLen,
+            bound,
+            runLen,
+        );
+        if (closeEnd !== -1) {
+            out.push([openIdx, closeEnd]);
+            cursor = closeEnd;
+        } else {
+            cursor = openIdx + runLen;
+        }
+    }
+};
+
+/** Collects sorted non-overlapping fenced and inline code ranges across `text`. */
+const collectProtectedCodeRanges = (
+    text: string,
+): Array<readonly [number, number]> => {
+    const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
+    if (!text.includes("`")) return fenceRanges;
+    const out: Array<readonly [number, number]> = [];
+    let cursor = 0;
+    for (const [start, end] of fenceRanges) {
+        if (start > cursor) {
+            appendInlineCodeSpansInGap(text, cursor, start, out);
+        }
+        out.push([start, end]);
+        cursor = end;
+    }
+    if (cursor < text.length) {
+        appendInlineCodeSpansInGap(text, cursor, text.length, out);
+    }
+    return out;
+};
+
 /** Checks whether the opening tag ending at `gtIndex` is self-closing (`/>`). */
 const isSelfClosingTagAt = (
     text: string,
@@ -1190,12 +1281,70 @@ const isSelfClosingTagAt = (
     gtIndex: number,
 ): boolean => gtIndex > tagStartIndex && text[gtIndex - 1] === "/";
 
+/** Advances past a quoted XML attribute value starting at `openIdx` (`"` or `'`). */
+const skipQuotedTagAttr = (
+    text: string,
+    openIdx: number,
+    quoteCode: number,
+): number => {
+    let idx = openIdx + 1;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 92) {
+            idx += 2;
+            continue;
+        }
+        if (code === quoteCode) return idx + 1;
+        if (code === 10) return -2;
+        idx += 1;
+    }
+    return -1;
+};
+
+/** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
+const isAsciiQuoteCode = (code: number): boolean => code === 34 || code === 39;
+
+/** Resolves scanner continuation offset after a quoted attribute inside an opening tag. */
+const resolveAfterQuotedAttr = (
+    text: string,
+    idx: number,
+    code: number,
+    fromIndex: number,
+): { done: true; gtIndex: number } | { done: false; nextIdx: number } => {
+    const afterQuote = skipQuotedTagAttr(text, idx, code);
+    if (afterQuote === -1) return { done: true, gtIndex: -1 };
+    if (afterQuote === -2) {
+        return { done: true, gtIndex: text.indexOf(">", fromIndex) };
+    }
+    return { done: false, nextIdx: afterQuote };
+};
+
+/** Finds the closing `>` of an XML opening tag starting at `fromIndex`, ignoring quoted `>`. */
+const findTagHeaderCloseIndex = (text: string, fromIndex: number): number => {
+    let idx = fromIndex;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 62) return idx;
+        if (isAsciiQuoteCode(code)) {
+            const step = resolveAfterQuotedAttr(text, idx, code, fromIndex);
+            if (step.done) return step.gtIndex;
+            idx = step.nextIdx;
+        } else {
+            idx += 1;
+        }
+    }
+    return -1;
+};
+
 /** Resolves a matched XML tag at `match` into a `TagSliceContext` and next scanner cursor. */
 const consumeMatchedTagAt = (
     text: string,
     match: MatchedTagRange,
 ): { slice: TagSliceContext; nextIndex: number } => {
-    const gtIndex = text.indexOf(">", match.index);
+    const gtIndex = findTagHeaderCloseIndex(
+        text,
+        match.index + match.startTag.length,
+    );
     if (gtIndex === -1) {
         const rawRest = text.slice(match.index);
         return {
@@ -1257,7 +1406,7 @@ const consumeMatchedTagAt = (
 /** Parse message content into chronological prose, workflow, and rich card chunks. */
 export const parseMessageContent = (rawText: string): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
-    const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
+    const fenceRanges = collectProtectedCodeRanges(text);
     const fenceCursor = { idx: 0 };
     const chunks: Chunk[] = [];
     let currentIndex = 0;

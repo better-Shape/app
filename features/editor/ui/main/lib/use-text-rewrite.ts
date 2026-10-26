@@ -30,12 +30,22 @@ const ACTION_PROMPTS: Record<TextRewriteAction, string> = {
         "Rewrite the following text in a friendly tone. Return only the rewritten text:",
 };
 
+/** Unwraps a matching outer single- or double-quote pair around `value`. */
+const unwrapMatchingOuterQuotes = (value: string): string => {
+    if (value.length < 2) return value;
+    const first = value.charAt(0);
+    if ((first === '"' || first === "'") && value.endsWith(first)) {
+        return value.slice(1, -1);
+    }
+    return value;
+};
+
 /** Unwraps optional Markdown fences or surrounding quote characters from a rewrite reply. */
 const stripAssistantResponse = (raw: string): string => {
     const trimmed = raw.trim();
-    const codeFence = trimmed.match(/^```(?:\w+)?\n?([\s\S]*?)\n?```$/);
+    const codeFence = trimmed.match(/^```(?:\w+)?\n?([\s\S]*?)\n?```$/u);
     if (codeFence) return codeFence[1].trim();
-    return trimmed.replace(/^["']|["']$/g, "");
+    return unwrapMatchingOuterQuotes(trimmed);
 };
 
 /** Formats an unknown caught rewrite error into a displayable message string. */

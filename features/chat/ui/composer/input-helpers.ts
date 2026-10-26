@@ -23,6 +23,7 @@ import {
   type PromptHistoryCursor,
 } from "@/lib/chat/prompt-history";
 import { getCatalogProviderOrder } from "@/lib/catalog/store";
+import type { ProvidersSettings } from "@/lib/ai/providers";
 import type { ModelInfo } from "@/lib/settings/models";
 import { notify } from "@/features/notifications";
 
@@ -216,6 +217,104 @@ export const hasActiveTauriBridge = (): boolean => {
   return (
     typeof tauri.invoke === "function" &&
     typeof tauri.transformCallback === "function"
+  );
+};
+
+const NEEDS_BASE_URL_IDS = new Set([
+  "azure",
+  "cloudflare-gateway",
+  "cloudflare",
+  "databricks",
+  "custom",
+]);
+const KEYLESS_PROVIDER_IDS = new Set(["ollama", "lmstudio", "vllm", "custom"]);
+const PRESET_MODELLESS_IDS = new Set(["lmstudio", "vllm", "custom"]);
+
+type ProviderConnEntry = {
+  enabled?: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+  authStyle?: string;
+  models?: string[];
+  extraModels?: string[];
+};
+
+/** Checks whether `conn` has an API key or permits keyless authentication. */
+const hasConnectionCredentials = (id: string, conn: ProviderConnEntry): boolean =>
+  Boolean(conn.apiKey?.trim()) ||
+  KEYLESS_PROVIDER_IDS.has(id) ||
+  conn.authStyle === "none";
+
+/** Checks whether an enabled connection has both credentials and any required `baseUrl`. */
+const isUsableConfiguredEntry = (
+  id: string,
+  conn: ProviderConnEntry | undefined,
+): boolean => {
+  if (!conn?.enabled || !hasConnectionCredentials(id, conn)) return false;
+  return NEEDS_BASE_URL_IDS.has(id) ? Boolean(conn.baseUrl?.trim()) : true;
+};
+
+/** Checks whether an enabled authenticated/keyless connection lacks only its required `baseUrl`. */
+const isMissingBaseUrlEntry = (
+  id: string,
+  conn: ProviderConnEntry | undefined,
+): conn is ProviderConnEntry => {
+  if (!conn?.enabled || !NEEDS_BASE_URL_IDS.has(id) || Boolean(conn.baseUrl?.trim())) {
+    return false;
+  }
+  return hasConnectionCredentials(id, conn);
+};
+
+/** Checks whether `items` contains at least one non-blank string entry. */
+const hasNonBlankEntry = (items: string[] | undefined): boolean =>
+  Boolean(items?.some((item) => typeof item === "string" && item.trim().length > 0));
+
+/** Checks whether `conn` has user-configured model IDs (`models` or `extraModels`). */
+const hasUserPinnedModels = (conn: ProviderConnEntry): boolean =>
+  hasNonBlankEntry(conn.models) || hasNonBlankEntry(conn.extraModels);
+
+/** Checks whether `conn` has built-in preset models or user-added model IDs. */
+const entryHasAnyModelIds = (id: string, conn: ProviderConnEntry): boolean =>
+  !PRESET_MODELLESS_IDS.has(id) || hasUserPinnedModels(conn);
+
+/** Formats missing-`baseUrl` guidance for an enabled provider entry `[id, conn]`. */
+const findMissingBaseUrlGuidance = (
+  entries: Array<[string, ProviderConnEntry | undefined]>,
+): string | null => {
+  for (const [id, conn] of entries) {
+    if (isMissingBaseUrlEntry(id, conn)) {
+      return entryHasAnyModelIds(id, conn)
+        ? "Set a base URL in Settings → Providers"
+        : "Set a base URL and model ID in Settings → Providers";
+    }
+  }
+  return null;
+};
+
+/** Checks whether setup is blocked solely because usable providers have zero models. */
+const hasUsableEntryWithoutModels = (
+  concreteCount: number,
+  entries: Array<[string, ProviderConnEntry | undefined]>,
+): boolean =>
+  concreteCount === 0 &&
+  entries.some(([id, conn]) => isUsableConfiguredEntry(id, conn));
+
+/** Resolves BYOK setup guidance for the composer without pulling runtime provider presets. */
+export const resolveComposerSetupGap = (
+  needsSignIn: boolean,
+  concreteCount: number,
+  providers: Partial<ProvidersSettings> | undefined,
+): string | null => {
+  if (!needsSignIn) return null;
+  const entries = Object.entries(providers?.connections ?? {}) as Array<
+    [string, ProviderConnEntry | undefined]
+  >;
+  if (hasUsableEntryWithoutModels(concreteCount, entries)) {
+    return "Add or import a model ID in Settings → Providers";
+  }
+  return (
+    findMissingBaseUrlGuidance(entries) ??
+    "Add an API key in Settings → Providers"
   );
 };
 
