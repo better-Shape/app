@@ -74,19 +74,6 @@ export const IDLE_COMPOSER_HINTS = [
   "Visual: ask to compare UI directions",
 ] as const;
 
-const SETUP_COMPOSER_HINTS = [
-  "Add an API key in Settings → Providers to chat",
-  "Ask a task. @ for files, / for workflows.",
-  "Drop a screenshot or file to inspect",
-  "Paste a stack trace to debug",
-] as const;
-
-const MISSING_MODELS_COMPOSER_HINTS = [
-  "Add or import a model ID in Settings → Providers to chat",
-  "Ask a task. @ for files, / for workflows.",
-  "Drop a screenshot or file to inspect",
-] as const;
-
 const ACTIVE_COMPOSER_HINTS = [
   "Queue a follow-up, or press Esc to stop",
   "Type ahead to queue your next message",
@@ -266,21 +253,22 @@ export const ModelItem = ({
 const selectHintRotationList = (
   mode: "idle" | "active" | "preparing",
   needsProvider: boolean,
-  missingModels: boolean,
+  setupGap: string | null | undefined,
 ): readonly string[] => {
   if (mode === "active") return ACTIVE_COMPOSER_HINTS;
   if (!needsProvider) return IDLE_COMPOSER_HINTS;
-  return missingModels ? MISSING_MODELS_COMPOSER_HINTS : SETUP_COMPOSER_HINTS;
+  const lead = `${setupGap ?? "Add an API key in Settings → Providers"} to chat`;
+  return [lead, ...IDLE_COMPOSER_HINTS.slice(0, 3)];
 };
 
 /** Builds a stable mode key string for `RotatingComposerHint` resets. */
 const buildHintModeKey = (
   mode: "idle" | "active" | "preparing",
   needsProvider: boolean,
-  missingModels: boolean,
+  setupGap: string | null | undefined,
 ): string => {
   if (!needsProvider) return `${mode}:ready`;
-  return `${mode}:${missingModels ? "models" : "setup"}`;
+  return `${mode}:${setupGap ?? "setup"}`;
 };
 
 /** Checks whether hint marquee rotation should pause. */
@@ -336,15 +324,18 @@ const RotatingComposerHintInner = ({
   paused,
   mode,
   needsProvider = false,
-  missingModels = false,
+  setupGap = null,
 }: {
   paused: boolean;
   mode: "idle" | "active" | "preparing";
   needsProvider?: boolean;
-  missingModels?: boolean;
+  setupGap?: string | null;
 }) => {
-  const hints = selectHintRotationList(mode, needsProvider, missingModels);
-  const modeKey = buildHintModeKey(mode, needsProvider, missingModels);
+  const hints = React.useMemo(
+    () => selectHintRotationList(mode, needsProvider, setupGap),
+    [mode, needsProvider, setupGap],
+  );
+  const modeKey = buildHintModeKey(mode, needsProvider, setupGap);
   const [index, setIndex] = React.useState(0);
   const [phase, setPhase] = React.useState<"in" | "out" | "enter">("in");
   const [prevModeKey, setPrevModeKey] = React.useState(modeKey);
@@ -1255,15 +1246,14 @@ const ProviderModelGroups = ({
 
 /** Renders the `Open Providers` marquee button when BYOK setup is incomplete. */
 const OpenProvidersTriggerButton = ({
-  missingModelsOnly,
+  setupGap,
   onOpenProviders,
 }: {
-  missingModelsOnly: boolean;
+  setupGap: string | null;
   onOpenProviders: () => void;
 }) => {
-  const tip = missingModelsOnly
-    ? "Add or import a model ID in Settings → Providers"
-    : "Configure an API key or local runtime in Settings → Providers";
+  const tip =
+    setupGap ?? "Configure an API key or local runtime in Settings → Providers";
   return (
     <Tooltip content={tip}>
       <Button
@@ -1491,7 +1481,7 @@ export const ComposerFooterBar = ({
   selectedMode,
   setSelectedMode,
   needsSignIn,
-  missingModelsOnly,
+  setupGap,
   modelMenuOpen,
   setModelMenuOpen,
   modelQuery,
@@ -1515,7 +1505,7 @@ export const ComposerFooterBar = ({
   selectedMode: string;
   setSelectedMode: (m: string) => void;
   needsSignIn: boolean;
-  missingModelsOnly: boolean;
+  setupGap: string | null;
   modelMenuOpen: boolean;
   setModelMenuOpen: (open: boolean) => void;
   modelQuery: string;
@@ -1549,7 +1539,7 @@ export const ComposerFooterBar = ({
     <div className="flex min-w-0 shrink items-center gap-0.5">
       {needsSignIn ? (
         <OpenProvidersTriggerButton
-          missingModelsOnly={missingModelsOnly}
+          setupGap={setupGap}
           onOpenProviders={() => {
             setModelMenuOpen(false);
             openSettingsWindow({ category: "providers" }).catch(

@@ -3,7 +3,10 @@
 import React from "react";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context";
 import { BETTERSHAPE_CLIP_CODE } from "@/features/chat/lib/bettershape-clip";
-import { hasAnyUsableProvider } from "@/lib/ai/providers";
+import {
+  describeProviderSetupGap,
+  hasAnyUsableProvider,
+} from "@/lib/ai/providers";
 import { getProjectPath } from "@/lib/backend";
 import type { BrowserPickedElement } from "@/lib/backend/types";
 import {
@@ -54,7 +57,6 @@ import {
   COMPOSER_LINE_HEIGHT,
   buildComposerScrollMaskImage,
   buildProviderDisplayOrder,
-  computeMissingModelsOnly,
   detectComposerTrigger,
   hasActiveTauriBridge,
   hasAtLeastTwoNewlines,
@@ -156,16 +158,21 @@ const safeReadProjectPath = (): string | null => {
   }
 };
 
-/** Resolves ARIA label for the composer `<textarea>` based on provider setup state. */
-const resolveComposerAriaLabel = (
+/** Resolves human-readable provider setup gap (`"..."`) when `needsSignIn` is true, or `null` when ready. */
+const resolveComposerSetupGap = (
   needsSignIn: boolean,
-  missingModelsOnly: boolean,
-): string => {
-  if (!needsSignIn) return IDLE_COMPOSER_HINTS[0];
-  return missingModelsOnly
-    ? "Add or fetch a model ID in Settings → Providers to chat"
-    : "Add an API key in Settings → Providers to chat";
+  providers: ReturnType<typeof useSettings>["ai"]["providers"] | undefined,
+): string | null => {
+  if (!needsSignIn) return null;
+  const raw = providers
+    ? describeProviderSetupGap(providers)
+    : "Add an API key in Settings -> Providers";
+  return raw.replace(" -> ", " → ");
 };
+
+/** Resolves ARIA label for the composer `<textarea>` based on provider setup state. */
+const resolveComposerAriaLabel = (setupGap: string | null): string =>
+  setupGap ? `${setupGap} to chat` : IDLE_COMPOSER_HINTS[0];
 
 /** Resolves placeholder hint mode from `isPreparing` and `isLoading`. */
 const resolveComposerHintMode = (
@@ -290,17 +297,21 @@ const scheduleFocusAtPosition = (
   });
 };
 
-/** Builds text with `token` inserted at the last `triggerChar` before `caret`. */
+/** Builds text and post-insertion caret offset with `token` inserted at the last `triggerChar` before `caret`. */
 const replaceTriggerAtCaret = (
   inputValue: string,
   caret: number,
   triggerChar: "@" | "/",
   token: string,
-): string | null => {
+): { next: string; caret: number } | null => {
   const before = inputValue.slice(0, caret);
   const idx = before.lastIndexOf(triggerChar);
   if (idx === -1) return null;
-  return `${before.slice(0, idx)}${token}${inputValue.slice(caret)}`;
+  const prefix = before.slice(0, idx);
+  return {
+    next: `${prefix}${token}${inputValue.slice(caret)}`,
+    caret: prefix.length + token.length,
+  };
 };
 
 /** Builds padded inline insertion text around `caret`. */
@@ -591,14 +602,9 @@ const useComposerModelCatalog = (
     () => allModels.filter((m) => m.id !== "auto"),
     [allModels],
   );
-  const missingModelsOnly = React.useMemo(
-    () =>
-      computeMissingModelsOnly(
-        needsSignIn,
-        concreteAllModels.length,
-        settings.ai.providers,
-      ),
-    [concreteAllModels.length, needsSignIn, settings.ai.providers],
+  const setupGap = React.useMemo(
+    () => resolveComposerSetupGap(needsSignIn, settings.ai.providers),
+    [needsSignIn, settings.ai.providers],
   );
   const resolvedAutoModel = React.useMemo(
     () =>
@@ -661,7 +667,7 @@ const useComposerModelCatalog = (
   return {
     workflows: settings.ai.workflows ?? [],
     needsSignIn,
-    missingModelsOnly,
+    setupGap,
     resolvedAutoModel,
     models,
     autoModel,
@@ -1117,7 +1123,7 @@ const ComposerEditorColumn = ({
   setIsEditorFocused,
   hintMode,
   needsSignIn,
-  missingModelsOnly,
+  setupGap,
   composerBreakAll,
   composerAriaLabel,
   onChange,
@@ -1138,7 +1144,7 @@ const ComposerEditorColumn = ({
   setIsEditorFocused: (focused: boolean) => void;
   hintMode: "idle" | "active" | "preparing";
   needsSignIn: boolean;
-  missingModelsOnly: boolean;
+  setupGap: string | null;
   composerBreakAll: boolean;
   composerAriaLabel: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -1169,7 +1175,7 @@ const ComposerEditorColumn = ({
           paused={isEditorFocused}
           mode={hintMode}
           needsProvider={needsSignIn}
-          missingModels={missingModelsOnly}
+          setupGap={setupGap}
         />
       ) : null}
       <ComposerHighlightMirror
@@ -1299,11 +1305,11 @@ const useComposerTextController = ({
       const textarea = textareaRef.current;
       if (!textarea) return;
       const caret = textarea.selectionStart ?? inputValue.length;
-      const next = replaceTriggerAtCaret(inputValue, caret, char, token);
-      if (next === null) return;
-      applyProgrammaticInputValue(next);
+      const replaced = replaceTriggerAtCaret(inputValue, caret, char, token);
+      if (replaced === null) return;
+      applyProgrammaticInputValue(replaced.next);
       closeTriggers();
-      requestAnimationFrame(() => textarea.focus());
+      scheduleFocusAtPosition(textareaRef, replaced.caret);
     },
     [applyProgrammaticInputValue, closeTriggers, inputValue, textareaRef],
   );
@@ -1403,7 +1409,7 @@ const ComposerVesselCard = ({
   setIsEditorFocused,
   hintMode,
   needsSignIn,
-  missingModelsOnly,
+  setupGap,
   composerBreakAll,
   composerAriaLabel,
   onInputChange,
@@ -1455,7 +1461,7 @@ const ComposerVesselCard = ({
   setIsEditorFocused: (focused: boolean) => void;
   hintMode: "idle" | "active" | "preparing";
   needsSignIn: boolean;
-  missingModelsOnly: boolean;
+  setupGap: string | null;
   composerBreakAll: boolean;
   composerAriaLabel: string;
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -1557,7 +1563,7 @@ const ComposerVesselCard = ({
           setIsEditorFocused={setIsEditorFocused}
           hintMode={hintMode}
           needsSignIn={needsSignIn}
-          missingModelsOnly={missingModelsOnly}
+          setupGap={setupGap}
           composerBreakAll={composerBreakAll}
           composerAriaLabel={composerAriaLabel}
           onChange={onInputChange}
@@ -2071,12 +2077,9 @@ const ChatInputInner = ({
             setIsEditorFocused={setIsEditorFocused}
             hintMode={resolveComposerHintMode(isPreparing, isLoading)}
             needsSignIn={catalogState.needsSignIn}
-            missingModelsOnly={catalogState.missingModelsOnly}
+            setupGap={catalogState.setupGap}
             composerBreakAll={composerBreakAll}
-            composerAriaLabel={resolveComposerAriaLabel(
-              catalogState.needsSignIn,
-              catalogState.missingModelsOnly,
-            )}
+            composerAriaLabel={resolveComposerAriaLabel(catalogState.setupGap)}
             onInputChange={textCtrl.handleInputChangeWithMentions}
             onKeyDown={historyKeys.onComposerKeyDown}
             onPaste={handlePaste}
@@ -2102,7 +2105,7 @@ const ChatInputInner = ({
             selectedMode={selectedMode}
             setSelectedMode={setSelectedMode}
             needsSignIn={catalogState.needsSignIn}
-            missingModelsOnly={catalogState.missingModelsOnly}
+            setupGap={catalogState.setupGap}
             modelMenuOpen={modelMenuOpen}
             setModelMenuOpen={setModelMenuOpen}
             modelQuery={modelQuery}
