@@ -393,6 +393,28 @@ const createActiveDictationSession = (
     };
 };
 
+/** Disposes audio context, media stream tracks, and backend recognizer after a startup failure. */
+const cleanupFailedAudioSession = async (
+    context: AudioContext | null,
+    stream: MediaStream,
+    invoke: DictationInvokeBridge,
+    setState: (state: DictationState) => void,
+    onError: (message: string) => void,
+    err: unknown,
+): Promise<void> => {
+    if (context) {
+        context.close().catch(() => {
+            /* ignore audio context close failure */
+        });
+    }
+    stopMediaStreamTracks(stream);
+    await invoke.stop().catch(() => {
+        /* ignore recognizer stop failure */
+    });
+    setState("error");
+    onError(err instanceof Error ? err.message : String(err));
+};
+
 /** Record one utterance and push it to the recognizer. */
 export const startDictation = async (
     handlers: DictationHandlers,
@@ -418,11 +440,25 @@ export const startDictation = async (
         throw new Error("AudioContext unavailable");
     }
 
-    return createActiveDictationSession(
-        new AudioCtor(),
-        stream,
-        handlers,
-        invoke,
-        setState,
-    );
+    let context: AudioContext | null = null;
+    try {
+        context = new AudioCtor();
+        return createActiveDictationSession(
+            context,
+            stream,
+            handlers,
+            invoke,
+            setState,
+        );
+    } catch (err) {
+        await cleanupFailedAudioSession(
+            context,
+            stream,
+            invoke,
+            setState,
+            handlers.onError,
+            err,
+        );
+        throw err;
+    }
 };

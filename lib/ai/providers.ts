@@ -1105,9 +1105,14 @@ export const defaultProvidersSettings = (): ProvidersSettings => {
   };
 };
 
-/** Filters an unknown list of model IDs into non-empty strings. */
+/** Filters an unknown list of model IDs into trimmed non-empty strings. */
 const normalizeStringList = (raw: unknown): string[] =>
-  Array.isArray(raw) ? raw.filter(Boolean) : [];
+  Array.isArray(raw)
+    ? raw
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
 
 /** Normalizes a single saved `ProviderConnection` against its preset defaults. */
 const normalizeSingleConnection = (

@@ -420,15 +420,24 @@ export const stripLeakedToolMarkup = (text: string): string => {
     return collapseExcessNewlines(out);
 };
 
-/** Strips fenced code blocks (closed or mid-stream) whose bodies are leaked tool calls. */
+/** Replaces a fenced block with `""` when its body matches `looksLikeLeakedToolCode`. */
+const replaceLeakedFenceMatch = (
+    full: string,
+    _fence: string,
+    body: string,
+): string => (looksLikeLeakedToolCode(body) ? "" : full);
+
+/** Strips backtick- or tilde-fenced code blocks (closed or mid-stream) whose bodies are leaked tool calls. */
 const stripLeakedFencedToolBlocks = (text: string): string => {
-    if (!text.includes("```")) return text;
+    if (!text.includes("```") && !text.includes("~~~")) return text;
     return text
-        .replace(/```[\w-]*\s*\n([\s\S]*?)```/g, (full, body: string) =>
-            looksLikeLeakedToolCode(body) ? "" : full,
+        .replace(
+            /(`{3,}|~{3,})[\w-]*[ \t]*\r?\n([\s\S]*?)\1/gu,
+            replaceLeakedFenceMatch,
         )
-        .replace(/```[\w-]*\s*\n([\s\S]*)$/g, (full, body: string) =>
-            looksLikeLeakedToolCode(body) ? "" : full,
+        .replace(
+            /(`{3,}|~{3,})[\w-]*[ \t]*\r?\n([\s\S]*)$/gu,
+            replaceLeakedFenceMatch,
         );
 };
 

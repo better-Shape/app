@@ -324,12 +324,22 @@ const insertSpacedTokenAtCaret = (
 const appendAttachedPromptLine = (cur: string, prompt: string): string =>
   cur.trim() ? `${cur.trimEnd()}\n${prompt}` : prompt;
 
-/** Inserts dictated speech text around `caret` with clean single-space padding. */
-const insertDictatedSlice = (val: string, caret: number, text: string): string => {
-  const before = val.slice(0, caret);
-  const after = val.slice(caret);
-  const pad = before && !/\s$/.test(before) ? " " : "";
-  return `${before}${pad}${text}${after.replace(/^\s/, "")}`;
+/** Inserts dictated speech text around `caret` with clean single-space padding and returns next caret. */
+export const insertDictatedSlice = (
+  val: string,
+  caret: number,
+  text: string,
+): { next: string; caret: number } => {
+  const clampedCaret = Math.max(0, Math.min(caret, val.length));
+  const before = val.slice(0, clampedCaret);
+  const after = val.slice(clampedCaret);
+  const pad = before && !/\s$/u.test(before) ? " " : "";
+  const trimmedAfter = after.replace(/^\s/u, "");
+  const suffixPad = trimmedAfter && !/\s$/u.test(text) ? " " : "";
+  return {
+    next: `${before}${pad}${text}${suffixPad}${trimmedAfter}`,
+    caret: before.length + pad.length + text.length,
+  };
 };
 
 /** Subscribes to external composer DOM custom events (`quote`, `focus`, `element`, `files`, `dictation`, `media`). */
@@ -530,11 +540,15 @@ const useComposerWindowBridges = (opts: {
       if (!text) return;
       const val = inputValueRef.current;
       const caret = textareaRef.current?.selectionStart ?? val.length;
-      applyProgrammaticInputValue(insertDictatedSlice(val, caret, text));
+      const inserted = insertDictatedSlice(val, caret, text);
+      applyProgrammaticInputValue(inserted.next);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = 0;
-        textareaRef.current?.focus();
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(inserted.caret, inserted.caret);
       });
     };
     window.addEventListener(
@@ -763,15 +777,30 @@ const shouldVesselPointerFocusTextarea = (
   );
 };
 
-/** Computes adjusted caret index after collapsing long `@mention` path tokens. */
-const computeShortenedCaret = (
-  rawLen: number,
-  shortenedLen: number,
+/** Advances `index` to the next whitespace boundary in `text` (or `text.length`). */
+const findTokenEndFromCaret = (text: string, index: number): number => {
+  const rest = text.slice(index);
+  const wsOffset = rest.search(/\s/u);
+  return wsOffset === -1 ? text.length : index + wsOffset;
+};
+
+/** Computes adjusted caret index after collapsing long `@mention` path tokens, independent of suffix length. */
+export const computeShortenedCaret = (
+  raw: string,
+  shortened: string,
   caretRaw: number,
 ): number => {
-  const delta = rawLen - shortenedLen;
-  const shift = delta > 0 && caretRaw > shortenedLen ? delta : 0;
-  return Math.max(0, caretRaw - shift);
+  const clamped = Math.max(0, Math.min(caretRaw, raw.length));
+  const prefixShort = shortenMentionTokensInText(raw.slice(0, clamped));
+  const suffixShort = shortenMentionTokensInText(raw.slice(clamped));
+  if (`${prefixShort}${suffixShort}` === shortened) {
+    return Math.min(prefixShort.length, shortened.length);
+  }
+  const tokenEnd = findTokenEndFromCaret(raw, clamped);
+  return Math.min(
+    shortenMentionTokensInText(raw.slice(0, tokenEnd)).length,
+    shortened.length,
+  );
 };
 
 /** Applies shortened or raw `<textarea>` change event and returns the effective caret. */
@@ -787,10 +816,7 @@ const emitInputChangeAndResolveCaret = (
     onInputChange(e);
     return caretRaw;
   }
-  const pos = Math.min(
-    computeShortenedCaret(raw.length, shortened.length, caretRaw),
-    shortened.length,
-  );
+  const pos = computeShortenedCaret(raw, shortened, caretRaw);
   onInputChange({
     target: { value: shortened },
   } as React.ChangeEvent<HTMLTextAreaElement>);

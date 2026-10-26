@@ -1069,6 +1069,32 @@ const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
     );
 };
 
+/** Checks whether `ch` is a valid delimiter immediately following an open XML tag name. */
+const isOpenTagNameDelimiter = (ch: string | undefined): boolean =>
+    ch === undefined || ch === ">" || ch === "/" || /\s/u.test(ch);
+
+/** Finds the first boundary-valid occurrence of `startTag` at or after `fromIndex`. */
+const findBoundaryTagStart = (
+    text: string,
+    startTag: string,
+    fromIndex: number,
+): number => {
+    const selfDelimited = startTag.endsWith(">");
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const index = text.indexOf(startTag, cursor);
+        if (index === -1) return -1;
+        if (
+            selfDelimited ||
+            isOpenTagNameDelimiter(text[index + startTag.length])
+        ) {
+            return index;
+        }
+        cursor = index + startTag.length;
+    }
+    return -1;
+};
+
 /** Checks whether `candidate` beats `best` at an earlier index or longer same-index tag prefix. */
 const isBetterTagMatch = (
     best: MatchedTagRange | null,
@@ -1086,7 +1112,7 @@ const findNextStructuredTag = (
 ): MatchedTagRange | null => {
     let firstMatch: MatchedTagRange | null = null;
     for (const tag of SEARCH_TAGS) {
-        const index = text.indexOf(tag.start, fromIndex);
+        const index = findBoundaryTagStart(text, tag.start, fromIndex);
         if (index !== -1 && isBetterTagMatch(firstMatch, index, tag)) {
             firstMatch = {
                 type: tag.type,
