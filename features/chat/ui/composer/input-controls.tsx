@@ -645,13 +645,15 @@ const PlusMenuPluginRows = ({
   );
   if (matches.length === 0) {
     return (
-      <DropdownMenuItem disabled>
-        {plugins.length === 0 ? "No plugins" : "No matches"}
-      </DropdownMenuItem>
+      <div className="max-h-40 overflow-y-auto">
+        <DropdownMenuItem disabled>
+          {plugins.length === 0 ? "No plugins" : "No matches"}
+        </DropdownMenuItem>
+      </div>
     );
   }
   return (
-    <div className="contents">
+    <div className="max-h-40 overflow-y-auto">
       {matches.map((plugin) => (
         <DropdownMenuItem
           key={plugin.toolkit}
@@ -762,13 +764,11 @@ export const ComposerPlusMenu = ({
                 onKeyUp={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
               />
-              <div className="max-h-40 overflow-y-auto">
-                <PlusMenuPluginRows
-                  plugins={plusPlugins}
-                  query={pluginQuery}
-                  appendToken={appendToken}
-                />
-              </div>
+              <PlusMenuPluginRows
+                plugins={plusPlugins}
+                query={pluginQuery}
+                appendToken={appendToken}
+              />
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSub>

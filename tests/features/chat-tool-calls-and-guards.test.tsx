@@ -22,6 +22,7 @@ import {
     insertDictatedSlice,
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
+import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
 import { parseMessageContent, type Chunk } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
@@ -742,6 +743,90 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         ).join("\nProse between tools.\n");
         const parsedMany = parseMessageContent(manyTools);
         expect(parsedMany.filter((chunk) => chunk.type === "cat")).toHaveLength(200);
+    });
+
+    it("handles quoted '>' in tool attributes, inline code spans, blockquote fences, bounded bare tool_code, Basic auth redaction, and setup gaps", () => {
+        const redirChunks = parseMessageContent(
+            '<terminal_command id="cmd-r1" command="echo hi > out.txt" status="pending">echo hi > out.txt\nAwaiting approval: redirection</terminal_command>',
+        );
+        const term = redirChunks.find((c) => c.type === "terminal_command");
+        expect(term?.commandId).toBe("cmd-r1");
+        expect(term?.commandStatus).toBe("pending");
+        expect(term?.command).toBe("echo hi > out.txt");
+
+        const inlineCodeProse = parseMessageContent(
+            'Run `<cat path="src/main.rs">` in docs, then read the summary below.\n\nTrailing paragraph stays visible.',
+        );
+        expect(inlineCodeProse.some((c) => c.type === "cat")).toBe(false);
+        expect(inlineCodeProse[0]?.content).toContain("Trailing paragraph stays visible.");
+
+        const quotedFence = [
+            "> ```xml",
+            '> <cat path="quoted.ts">inside blockquote fence</cat>',
+            "> ```",
+            "",
+            "Outside summary.",
+        ].join("\n");
+        const quotedChunks = parseMessageContent(quotedFence);
+        expect(quotedChunks.some((c) => c.type === "cat")).toBe(false);
+        expect(quotedChunks[0]?.content).toContain("Outside summary.");
+
+        const bareLeakWithTail = [
+            "Intro paragraph.",
+            '{ "tool_code": "print(render_design_previews(concepts=[]))" }',
+            "",
+            "Keep this concluding paragraph.",
+        ].join("\n");
+        const cleanedBare = preprocessChatMarkdown(bareLeakWithTail);
+        expect(cleanedBare).not.toContain("render_design_previews");
+        expect(cleanedBare).toContain("Keep this concluding paragraph.");
+
+        const benignFenceThenPrint = [
+            "```json",
+            '{ "tool_code": "echo sample" }',
+            "```",
+            "",
+            "In Python, call print(value) to inspect output.",
+        ].join("\n");
+        const keptBenign = preprocessChatMarkdown(benignFenceThenPrint);
+        expect(keptBenign).toContain('{ "tool_code": "echo sample" }');
+        expect(keptBenign).toContain("In Python, call print(value)");
+
+        const b64Pair = btoa(["svc", "topsecret99"].join(":"));
+        const b64Short = btoa(["u", "p"].join(":"));
+        const rawAuthErr = [
+            `Header Authorization: Basic ${b64Pair} rejected;`,
+            `echoed Basic ${b64Short} and`,
+            ["https://svc:", "topsecret99", "@llm.internal/v1"].join(""),
+        ].join(" ");
+        const redactedAuth = redactErrorSecrets(rawAuthErr);
+        expect(redactedAuth).not.toContain(b64Pair);
+        expect(redactedAuth).not.toContain(b64Short);
+        expect(redactedAuth).not.toContain("topsecret99");
+        expect(redactErrorSecrets("401 Basic authentication failed")).toBe(
+            "401 Basic authentication failed",
+        );
+
+        expect(resolveComposerSetupGap(true, 0, {})).toBe(
+            "Add an API key in Settings → Providers",
+        );
+        const customNoUrl = defaultProvidersSettings();
+        customNoUrl.connections.custom = {
+            ...customNoUrl.connections.custom,
+            enabled: true,
+            baseUrl: "",
+        };
+        expect(resolveComposerSetupGap(true, 0, customNoUrl)).toBe(
+            "Set a base URL and model ID in Settings → Providers",
+        );
+        const lmstudioNoModels = defaultProvidersSettings();
+        lmstudioNoModels.connections.lmstudio = {
+            ...lmstudioNoModels.connections.lmstudio,
+            enabled: true,
+        };
+        expect(resolveComposerSetupGap(true, 0, lmstudioNoModels)).toBe(
+            "Add or import a model ID in Settings → Providers",
+        );
     });
 });
 
