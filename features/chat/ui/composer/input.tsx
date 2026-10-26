@@ -359,7 +359,7 @@ const useComposerWindowBridges = (opts: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   inputValueRef: React.RefObject<string>;
   historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
-  applyProgrammaticInputValue: (next: string) => void;
+  applyProgrammaticInputValue: (next: string, caret?: number) => void;
   addUploadedFiles: (files: File[]) => void;
   setMediaViewer: React.Dispatch<
     React.SetStateAction<{
@@ -454,7 +454,7 @@ const useComposerWindowBridges = (opts: {
       const val = inputValueRef.current;
       const caret = textareaRef.current?.selectionStart ?? val.length;
       const { next, pos } = insertSpacedTokenAtCaret(val, caret, token);
-      applyProgrammaticInputValue(next);
+      applyProgrammaticInputValue(next, pos);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = 0;
@@ -551,7 +551,7 @@ const useComposerWindowBridges = (opts: {
       const val = inputValueRef.current;
       const caret = textareaRef.current?.selectionStart ?? val.length;
       const inserted = insertDictatedSlice(val, caret, text);
-      applyProgrammaticInputValue(inserted.next);
+      applyProgrammaticInputValue(inserted.next, inserted.caret);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         raf = 0;
@@ -1274,19 +1274,25 @@ const useComposerTextController = ({
   }, []);
 
   const applyProgrammaticInputValue = React.useCallback(
-    (nextValue: string) => {
+    (nextValue: string, caret = nextValue.length) => {
       historyCursorRef.current = null;
       onInputChange({
         target: { value: nextValue },
       } as React.ChangeEvent<HTMLTextAreaElement>);
+      setTrigger(detectComposerTrigger(nextValue, caret));
     },
     [historyCursorRef, onInputChange],
   );
 
   React.useEffect(() => {
     const shortened = shortenMentionTokensInText(inputValue);
-    if (shortened !== inputValue) applyProgrammaticInputValue(shortened);
-  }, [applyProgrammaticInputValue, inputValue]);
+    if (shortened !== inputValue) {
+      historyCursorRef.current = null;
+      onInputChange({
+        target: { value: shortened },
+      } as React.ChangeEvent<HTMLTextAreaElement>);
+    }
+  }, [historyCursorRef, inputValue, onInputChange]);
 
   const handleInputChangeWithMentions = React.useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {

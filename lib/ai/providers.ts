@@ -1043,6 +1043,21 @@ export const canonicalProviderId = (prefix: string): ProviderId | null => {
   return PROVIDER_ALIASES[trimmed.toLowerCase()] ?? null;
 };
 
+/**
+ * Rewrite an imported model id onto our provider names:
+ * `gemini/gemini-2.5-pro` -> `google/gemini-2.5-pro`. Ids this app already
+ * understands come back untouched.
+ */
+export const translateModelId = (model: string): string => {
+  const trimmed = model.trim();
+  const separator = trimmed.indexOf("/");
+  if (separator <= 0) return trimmed;
+  const currentPrefix = trimmed.slice(0, separator);
+  const canonical = canonicalProviderId(currentPrefix);
+  if (!canonical || canonical === currentPrefix) return trimmed;
+  return `${canonical}/${trimmed.slice(separator + 1)}`;
+};
+
 /** Type-guards whether an unknown value is a supported HTTP auth header style. */
 const isAuthStyle = (value: unknown): value is AuthStyle | "" =>
   typeof value === "string" && VALID_AUTH_STYLES.has(value);
@@ -1548,7 +1563,7 @@ const resolveDefaultModel = (
   settings: ProvidersSettings,
   providers: RustAiProviderEntry[],
 ): string => {
-  const wanted = settings.defaultModel.trim();
+  const wanted = translateModelId(settings.defaultModel);
   const usableIds = new Set(providers.flatMap((provider) => provider.models));
   if (wanted && wanted !== "auto" && usableIds.has(wanted)) return wanted;
   const pinned = providers.find((provider) => provider.models.length > 0);
@@ -1944,21 +1959,6 @@ export const maskApiKey = (apiKey: string): string => {
 /* -------------------------------------------------------------------------- */
 /* Model ids arriving from somewhere else                                      */
 /* -------------------------------------------------------------------------- */
-
-/**
- * Model id rewritten onto the id this app stores, e.g.
- * `gemini/gemini-2.5-pro` → `google/gemini-2.5-pro`. Ids this app already
- * understands come back untouched.
- */
-export const translateModelId = (model: string): string => {
-  const trimmed = model.trim();
-  const separator = trimmed.indexOf("/");
-  if (separator <= 0) return trimmed;
-  const currentPrefix = trimmed.slice(0, separator);
-  const canonical = canonicalProviderId(currentPrefix);
-  if (!canonical || canonical === currentPrefix) return trimmed;
-  return `${canonical}/${trimmed.slice(separator + 1)}`;
-};
 
 /** Extracts the trailing `/`-delimited segment of a model identifier. */
 const extractLastPathSegment = (value: string): string => {

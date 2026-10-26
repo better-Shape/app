@@ -956,22 +956,6 @@ const isLiveStreamPhase = (
 ): phase is "running" | "background" =>
     phase === "running" || phase === "background";
 
-const UNSETTLED_APPROVED_STATUSES = new Set(["pending", "running"]);
-
-/** Resolves fallback status from `localStatus` and `chunkStatus` when `stream` is idle. */
-const resolveIdleFallbackStatus = (
-    localStatus: string | null,
-    chunkStatus: string,
-    isGenerating: boolean | undefined,
-): string => {
-    if (localStatus === "running" && !isGenerating) {
-        return UNSETTLED_APPROVED_STATUSES.has(chunkStatus)
-            ? "completed"
-            : chunkStatus;
-    }
-    return localStatus ?? chunkStatus;
-};
-
 /** Computes the effective status of a terminal command step across stream, local, and persisted state. */
 const computeEffectiveCommandStatus = (
     stream: StreamState,
@@ -982,7 +966,7 @@ const computeEffectiveCommandStatus = (
     if (stream.phase === "finished") return resolveFinishedStreamStatus(stream);
     if (isTranscriptChunkSettled(chunkStatus, isGenerating)) return chunkStatus;
     if (isLiveStreamPhase(stream.phase)) return stream.phase;
-    return resolveIdleFallbackStatus(localStatus, chunkStatus, isGenerating);
+    return localStatus ?? chunkStatus;
 };
 
 /** Resolves the command text from `block.command` or `block.content`. */
