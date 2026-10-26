@@ -15,7 +15,7 @@ import { findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { ChatErrorDialog } from "@/features/chat/ui/blocks/error";
-import { commandSummary } from "@/features/chat/ui/blocks/terminal-live";
+import { commandSummary, stripAnsi } from "@/features/chat/ui/blocks/terminal-live";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import { shouldComposerBreakAll } from "@/features/chat/ui/composer/input";
 import { preprocessChatMarkdown } from "@/features/chat/ui/md/stream";
@@ -60,9 +60,9 @@ afterEach(() => {
     clearChatDomHighlights();
     terminalSessionStore.pendingCommandInsert = null;
     if (root) {
-        const r = root;
+        const mountedRoot = root;
         root = null;
-        act(() => r.unmount());
+        act(() => mountedRoot.unmount());
     }
     if (host) {
         host.remove();
@@ -81,9 +81,9 @@ describe("Composer undo-safe insertion, prompt recall guards, and shell prompt s
 
             const execSpy = vi.fn((cmd: string, _ui?: boolean, val?: string) => {
                 if (cmd === "insertText" && typeof val === "string") {
-                    const s = ta.selectionStart;
-                    const e = ta.selectionEnd;
-                    ta.value = `${ta.value.slice(0, s)}${val}${ta.value.slice(e)}`;
+                    const startOffset = ta.selectionStart;
+                    const endOffset = ta.selectionEnd;
+                    ta.value = `${ta.value.slice(0, startOffset)}${val}${ta.value.slice(endOffset)}`;
                     return true;
                 }
                 return false;
@@ -215,13 +215,15 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
     it("routes Ctrl+Enter to only the earliest pending ApprovalCard when multiple cards are mounted", () => {
         const acceptFirst = vi.fn();
         const acceptSecond = vi.fn();
+        const skipFirst = vi.fn();
+        const skipSecond = vi.fn();
 
         const Harness = ({ showFirst }: { showFirst: boolean }) => (
             <div>
                 {showFirst ? (
-                    <ApprovalCard title="Approve db migration" onAccept={acceptFirst} onSkip={() => {}} />
+                    <ApprovalCard title="Approve db migration" onAccept={acceptFirst} onSkip={skipFirst} />
                 ) : null}
-                <ApprovalCard title="Approve deploy" onAccept={acceptSecond} onSkip={() => {}} />
+                <ApprovalCard title="Approve deploy" onAccept={acceptSecond} onSkip={skipSecond} />
             </div>
         );
 
@@ -389,11 +391,17 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         mount(
             <ChatErrorDialog
                 message="401 invalid_api_key: model 'gpt-5-private' rejected for key sk-***9a"
-                onDismiss={() => {}}
+                onDismiss={vi.fn()}
             />,
         );
         const bodyText = document.body.textContent ?? "";
         expect(bodyText).toContain("model 'gpt-5-private' rejected");
+    });
+
+    it("strips ANSI CSI, OSC, two-byte escapes, and carriage returns cleanly", () => {
+        const raw =
+            "\u001b]0;build-title\u0007\u001b[32mPASS\u001b[0m \u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\\r\n\u001bcok";
+        expect(stripAnsi(raw)).toBe("PASS link\nok");
     });
 
     it("truncates terminal command summaries on grapheme cluster boundaries without splitting surrogates or ZWJ emoji", () => {

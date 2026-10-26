@@ -45,10 +45,10 @@ import {
   ComposerHighlightMirror,
   ComposerPlusMenu,
   ComposerQuotesStrip,
+  ComposerRightActions,
   IDLE_COMPOSER_HINTS,
   RotatingComposerHint,
 } from "./input-controls";
-import { ComposerRightActions } from "./input-controls";
 import {
   ACCEPT_STRING,
   COMPOSER_LINE_HEIGHT,

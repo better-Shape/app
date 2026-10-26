@@ -1190,10 +1190,9 @@ export const providerHeaders = (
     ...(preset.headers ?? {}),
     ...normalizeHeaders(connection?.headers),
   };
-  for (const [name, value] of Object.entries(merged)) {
-    if (!value.trim()) delete merged[name];
-  }
-  return merged;
+  return Object.fromEntries(
+    Object.entries(merged).filter(([, value]) => Boolean(value.trim())),
+  );
 };
 
 /** Parses a single `Name: Value` header line when non-comment and colon-delimited. */

@@ -648,8 +648,10 @@ const PlusMenuPluginRows = ({
   query: string;
   appendToken: (token: string) => void;
 }) => {
-  const q = query.trim().toLowerCase();
-  const matches = plugins.filter((plugin) => matchesPluginSearch(plugin, q));
+  const normalizedQuery = query.trim().toLowerCase();
+  const matches = plugins.filter((plugin) =>
+    matchesPluginSearch(plugin, normalizedQuery),
+  );
   if (matches.length === 0) {
     return (
       <DropdownMenuItem disabled>
@@ -1285,6 +1287,118 @@ const OpenProvidersTriggerButton = ({
   );
 };
 
+/** Renders the scrollable body inside the model picker dropdown menu. */
+const ModelDropdownMenuContent = ({
+  modelQuery,
+  setModelQuery,
+  multiSelectModels,
+  autoModel,
+  modelSearch,
+  models,
+  providerOrder,
+  selectedModel,
+  selectedWorkerModels,
+  setSelectedModel,
+  setSelectedWorkerModels,
+  reasoningEffort,
+  resolvedAutoModel,
+  hasAnyModelMatch,
+}: {
+  modelQuery: string;
+  setModelQuery: (q: string) => void;
+  multiSelectModels: boolean;
+  autoModel: ModelInfo;
+  modelSearch: string;
+  models: ModelInfo[];
+  providerOrder: string[];
+  selectedModel: string;
+  selectedWorkerModels: string[];
+  setSelectedModel: (id: string) => void;
+  setSelectedWorkerModels?: (ids: string[]) => void;
+  reasoningEffort: ReasoningEffort;
+  resolvedAutoModel: ModelInfo | null;
+  hasAnyModelMatch: boolean;
+}) => (
+  <DropdownMenuContent
+    align="end"
+    className="w-70 max-w-[calc(100vw-24px)]"
+  >
+    <SearchInput
+      ref={focusSearchOnMount}
+      borderless
+      placeholder="Search models"
+      value={modelQuery}
+      onChange={(e) => setModelQuery(e.target.value)}
+      onKeyDown={(e) => e.stopPropagation()}
+      onKeyUp={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    />
+    <div className="custom-scrollbar max-h-[280px] overflow-y-auto">
+      {multiSelectModels ? (
+        <div className="px-2.5 py-1.5 text-xs text-text-muted">
+          Orchestrator uses the primary model. Extra picks become the worker
+          pool.
+        </div>
+      ) : null}
+      <AutoModelDropdownEntry
+        autoModel={autoModel}
+        modelSearch={modelSearch}
+        multiSelectModels={multiSelectModels}
+        selectedModel={selectedModel}
+        selectedWorkerModels={selectedWorkerModels}
+        setSelectedModel={setSelectedModel}
+        setSelectedWorkerModels={setSelectedWorkerModels}
+        reasoningEffort={reasoningEffort}
+        resolvedAutoModel={resolvedAutoModel}
+      />
+      <ProviderModelGroups
+        providerOrder={providerOrder}
+        models={models}
+        modelSearch={modelSearch}
+        multiSelectModels={multiSelectModels}
+        selectedModel={selectedModel}
+        selectedWorkerModels={selectedWorkerModels}
+        setSelectedModel={setSelectedModel}
+        setSelectedWorkerModels={setSelectedWorkerModels}
+        reasoningEffort={reasoningEffort}
+      />
+      {hasAnyModelMatch ? null : (
+        <div className="px-2.5 py-3 text-sm text-text-muted">
+          No models match
+        </div>
+      )}
+    </div>
+  </DropdownMenuContent>
+);
+
+/** Renders the trigger button inside the model picker dropdown. */
+const ModelDropdownTriggerButton = ({
+  modelName,
+  activeTriggerIconId,
+}: {
+  modelName: string;
+  activeTriggerIconId: string;
+}) => (
+  <DropdownMenuTrigger asChild>
+    <Button
+      variant="ghost"
+      size="xs"
+      className={cn(
+        "h-7 min-w-0 max-w-44 shrink rounded-md px-2 font-normal text-text-muted sm:max-w-[220px]",
+        "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
+        "hover:bg-[var(--btn-hover)] hover:text-text-primary enabled:active:scale-[0.97]",
+        "data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary",
+      )}
+      aria-label={modelName}
+    >
+      <span className="flex min-w-0 items-center gap-1.5 text-sm">
+        {providerIcon(activeTriggerIconId, 14)}
+        <span className="min-w-0 truncate">{modelName}</span>
+      </span>
+    </Button>
+  </DropdownMenuTrigger>
+);
+
 /** Renders the model dropdown + thinking effort controls when a provider is ready. */
 const ActiveModelAndEffortControls = ({
   modelMenuOpen,
@@ -1339,75 +1453,27 @@ const ActiveModelAndEffortControls = ({
           if (!open) setModelQuery("");
         }}
       >
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="xs"
-            className={cn(
-              "h-7 min-w-0 max-w-44 shrink rounded-md px-2 font-normal text-text-muted sm:max-w-[220px]",
-              "transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
-              "hover:bg-[var(--btn-hover)] hover:text-text-primary enabled:active:scale-[0.97]",
-              "data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary",
-            )}
-            aria-label={modelName}
-          >
-            <div className="flex min-w-0 items-center gap-1.5 text-sm">
-              {providerIcon(activeTriggerIconId, 14)}
-              <span className="min-w-0 truncate">{modelName}</span>
-            </div>
-          </Button>
-        </DropdownMenuTrigger>
+        <ModelDropdownTriggerButton
+          modelName={modelName}
+          activeTriggerIconId={activeTriggerIconId}
+        />
         {modelMenuOpen ? (
-          <DropdownMenuContent
-            align="end"
-            className="w-70 max-w-[calc(100vw-24px)]"
-          >
-            <SearchInput
-              ref={focusSearchOnMount}
-              borderless
-              placeholder="Search models"
-              value={modelQuery}
-              onChange={(e) => setModelQuery(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              onKeyUp={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            />
-            <div className="custom-scrollbar max-h-[280px] overflow-y-auto">
-              {multiSelectModels ? (
-                <div className="px-2.5 py-1.5 text-xs text-text-muted">
-                  Orchestrator uses the primary model. Extra picks become the
-                  worker pool.
-                </div>
-              ) : null}
-              <AutoModelDropdownEntry
-                autoModel={autoModel}
-                modelSearch={modelSearch}
-                multiSelectModels={multiSelectModels}
-                selectedModel={selectedModel}
-                selectedWorkerModels={selectedWorkerModels}
-                setSelectedModel={setSelectedModel}
-                setSelectedWorkerModels={setSelectedWorkerModels}
-                reasoningEffort={reasoningEffort}
-                resolvedAutoModel={resolvedAutoModel}
-              />
-              <ProviderModelGroups
-                providerOrder={providerOrder}
-                models={models}
-                modelSearch={modelSearch}
-                multiSelectModels={multiSelectModels}
-                selectedModel={selectedModel}
-                selectedWorkerModels={selectedWorkerModels}
-                setSelectedModel={setSelectedModel}
-                setSelectedWorkerModels={setSelectedWorkerModels}
-                reasoningEffort={reasoningEffort}
-              />
-              {hasAnyModelMatch ? null : (
-                <div className="px-2.5 py-3 text-sm text-text-muted">
-                  No models match
-                </div>
-              )}
-            </div>
-          </DropdownMenuContent>
+          <ModelDropdownMenuContent
+            modelQuery={modelQuery}
+            setModelQuery={setModelQuery}
+            multiSelectModels={multiSelectModels}
+            autoModel={autoModel}
+            modelSearch={modelSearch}
+            models={models}
+            providerOrder={providerOrder}
+            selectedModel={selectedModel}
+            selectedWorkerModels={selectedWorkerModels}
+            setSelectedModel={setSelectedModel}
+            setSelectedWorkerModels={setSelectedWorkerModels}
+            reasoningEffort={reasoningEffort}
+            resolvedAutoModel={resolvedAutoModel}
+            hasAnyModelMatch={hasAnyModelMatch}
+          />
         ) : null}
       </DropdownMenu>
       <ThinkingEffortControl

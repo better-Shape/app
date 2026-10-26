@@ -1043,13 +1043,15 @@ export const preprocessChatMarkdown = (
     text: string,
     options?: { trim?: boolean; streaming?: boolean },
 ): string => {
-    let s = stripOrphanThinkTags(text);
-    s = stripLeakedToolCode(s);
-    s = stripRawHtml(s);
-    s = unwrapOuterProseFence(s);
-    s = demoteIndentedMarkdown(s);
-    s = finalizeStreamOrStaticMarkdown(s, options?.streaming);
-    s = s.replace(/^[•●▪◦]\s+/gm, "- ").replace(/^\s*[-*_]{3,}\s*$/gm, "");
-    s = collapseExcessNewlines(s);
-    return options?.trim !== false ? s.trim() : s;
+    let normalized = stripOrphanThinkTags(text);
+    normalized = stripLeakedToolCode(normalized);
+    normalized = stripRawHtml(normalized);
+    normalized = unwrapOuterProseFence(normalized);
+    normalized = demoteIndentedMarkdown(normalized);
+    normalized = finalizeStreamOrStaticMarkdown(normalized, options?.streaming);
+    normalized = normalized
+        .replace(/^[•●▪◦]\s+/gmu, "- ")
+        .replace(/^\s*[-*_]{3,}\s*$/gmu, "");
+    normalized = collapseExcessNewlines(normalized);
+    return options?.trim !== false ? normalized.trim() : normalized;
 };
