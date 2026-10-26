@@ -16,7 +16,10 @@ import {
 import { TurnWorkflowSummary } from "../blocks/turn";
 import { GeneratingIndicator } from "../blocks/generating";
 import { PlanningBlock, PlanSavedBlock } from "../blocks/plan";
-import type { DesignPreviewItem } from "../blocks/gallery";
+import {
+    DesignPreviewGallery,
+    type DesignPreviewItem,
+} from "../blocks/gallery";
 import { GeneratedMediaCard } from "../blocks/generated-media";
 import { SentFileCard } from "../blocks/sent-file";
 import { ReviewDebatePanel } from "../blocks/debate";
@@ -796,7 +799,7 @@ const parseDesignPreviewsBlock = (block: string): Chunk => {
     return {
         type: "design_previews",
         designPreviews: previews,
-        selectedConcept: readAttr(block, "selected"),
+        selectedConcept: readAttr(open, "selected"),
         commandId: readOptionalAttr(open, "id"),
         commandStatus: readOptionalAttr(open, "status"),
     };
@@ -1931,27 +1934,17 @@ const renderAttachedImageChunkView: ChunkViewRenderer = (chunk) => {
     );
 };
 
-/** Formats the summary text line for a `<design_previews>` chunk. */
-const formatDesignPreviewsSummary = (
-    previews: DesignPreviewItem[],
-): string => {
-    const names = previews
-        .map((preview) => preview.name)
-        .filter(Boolean)
-        .join(" · ");
-    if (names) return names;
-    const count = previews.length;
-    return `${count} design concept${count === 1 ? "" : "s"}`;
-};
-
-/** Renders a `<design_previews>` caption summary when at least one preview exists. */
+/** Renders an interactive `<design_previews>` gallery when at least one preview exists. */
 const renderDesignPreviewsChunkView: ChunkViewRenderer = (chunk) => {
     const previews = chunk.designPreviews;
     if (!previews?.length) return null;
     return (
-        <p className="my-1 text-sm text-text-muted">
-            {formatDesignPreviewsSummary(previews)}
-        </p>
+        <DesignPreviewGallery
+            previews={previews}
+            selectedId={chunk.selectedConcept}
+            pickId={chunk.commandId}
+            status={chunk.commandStatus}
+        />
     );
 };
 

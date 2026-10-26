@@ -164,10 +164,10 @@ const advanceAnsiEscape = (input: string, escIndex: number): number => {
     return escIndex + 2;
 };
 
-/** Strip ANSI CSI/OSC escapes and carriage returns for readable chat output. */
-export const stripAnsi = (input: string): string => {
+/** Strips ANSI CSI/OSC/two-byte escape sequences while preserving `\r` and `\n` control characters. */
+const stripAnsiSequences = (input: string): string => {
     const escChar = String.fromCharCode(0x1b);
-    if (!input.includes(escChar)) return input.replaceAll("\r", "");
+    if (!input.includes(escChar)) return input;
     let output = "";
     let cursor = 0;
     let escIndex = input.indexOf(escChar, cursor);
@@ -176,41 +176,104 @@ export const stripAnsi = (input: string): string => {
         cursor = advanceAnsiEscape(input, escIndex);
         escIndex = input.indexOf(escChar, cursor);
     }
-    output += input.slice(cursor);
-    return output.replaceAll("\r", "");
+    return output + input.slice(cursor);
 };
+
+/** Returns true when `code` is ASCII carriage return (`0x0D`). */
+const isCarriageReturnCode = (code: number): boolean => code === 0x0d;
+
+/** Resolves the replacement token after a `\r+` run ending at `nextChar`. */
+const resolveCarriageRunToken = (nextChar: string | undefined): string => {
+    if (!nextChar || nextChar === "\n") return "";
+    return "\r";
+};
+
+/** Normalizes CRLF sequences and trailing carriage returns so remaining `\r` bytes represent in-place rewinds. */
+const normalizeCarriageReturnRuns = (input: string): string => {
+    if (!input.includes("\r")) return input;
+    let result = "";
+    let cursor = 0;
+    let crIndex = input.indexOf("\r", cursor);
+    while (crIndex !== -1) {
+        result += input.slice(cursor, crIndex);
+        cursor = advanceWhileCharCode(input, crIndex, isCarriageReturnCode);
+        result += resolveCarriageRunToken(input[cursor]);
+        crIndex = input.indexOf("\r", cursor);
+    }
+    return result + input.slice(cursor);
+};
+
+/** Rewinds `output` back to the start of its current line (immediately after the last `\n`). */
+const rewindCurrentTerminalLine = (output: string): string => {
+    const lastNewline = output.lastIndexOf("\n");
+    return lastNewline === -1 ? "" : output.slice(0, lastNewline + 1);
+};
+
+/** Applies `incoming` text onto `baseOutput`, rewinding the active line on standalone `\r` progress updates. */
+const applyTerminalCarriageReturns = (
+    baseOutput: string,
+    incoming: string,
+): string => {
+    const normalized = normalizeCarriageReturnRuns(incoming);
+    if (!normalized.includes("\r")) return baseOutput + normalized;
+    const segments = normalized.split("\r");
+    let output = baseOutput + (segments[0] ?? "");
+    for (let index = 1; index < segments.length; index += 1) {
+        output = rewindCurrentTerminalLine(output) + (segments[index] ?? "");
+    }
+    return output;
+};
+
+/** Strip ANSI CSI/OSC escapes and collapse in-place `\r` progress redraws for readable chat output. */
+export const stripAnsi = (input: string): string =>
+    applyTerminalCarriageReturns("", stripAnsiSequences(input));
 
 export type TerminalStreamBuffer = {
     output: string;
     carry: string;
 };
 
-/** Strips complete ANSI escapes from `combined` while holding any split trailing escape in `carry`. */
+/** Splits any trailing `\r` run off `text` so split `\r\n` or `\r\x1b[2K` across PTY chunks stays intact. */
+const splitTrailingCarriageReturns = (
+    text: string,
+): { body: string; trailingCr: string } => {
+    let end = text.length;
+    while (end > 0 && text.charCodeAt(end - 1) === 0x0d) {
+        end -= 1;
+    }
+    return end === text.length
+        ? { body: text, trailingCr: "" }
+        : { body: text.slice(0, end), trailingCr: "\r" };
+};
+
+/** Strips complete ANSI escapes from `combined` while holding split trailing escapes or `\r` in `carry`. */
 const consumeStreamingAnsi = (
     combined: string,
     flush: boolean,
 ): { stripped: string; carry: string } => {
-    if (flush) return { stripped: stripAnsi(combined), carry: "" };
+    if (flush) return { stripped: stripAnsiSequences(combined), carry: "" };
     const escChar = String.fromCharCode(0x1b);
-    if (!combined.includes(escChar)) {
-        return { stripped: combined.replaceAll("\r", ""), carry: "" };
-    }
     let output = "";
-    let cursor = 0;
-    let escIndex = combined.indexOf(escChar, cursor);
-    while (escIndex !== -1) {
-        output += combined.slice(cursor, escIndex);
-        if (isIncompleteAnsiAtEnd(combined, escIndex)) {
-            return {
-                stripped: output.replaceAll("\r", ""),
-                carry: combined.slice(escIndex),
-            };
+    let ansiCarry = "";
+    if (!combined.includes(escChar)) {
+        output = combined;
+    } else {
+        let cursor = 0;
+        let escIndex = combined.indexOf(escChar, cursor);
+        while (escIndex !== -1) {
+            output += combined.slice(cursor, escIndex);
+            if (isIncompleteAnsiAtEnd(combined, escIndex)) {
+                ansiCarry = combined.slice(escIndex);
+                cursor = combined.length;
+                break;
+            }
+            cursor = advanceAnsiEscape(combined, escIndex);
+            escIndex = combined.indexOf(escChar, cursor);
         }
-        cursor = advanceAnsiEscape(combined, escIndex);
-        escIndex = combined.indexOf(escChar, cursor);
+        output += combined.slice(cursor);
     }
-    output += combined.slice(cursor);
-    return { stripped: output.replaceAll("\r", ""), carry: "" };
+    const { body, trailingCr } = splitTrailingCarriageReturns(output);
+    return { stripped: body, carry: trailingCr + ansiCarry };
 };
 
 /** Segments `text` into user-perceived grapheme clusters (or Unicode code points as fallback). */
@@ -235,7 +298,7 @@ export const commandSummary = (command: string, max = 56): string => {
 
 /** Output portion of a persisted terminal chunk (body minus the command line). */
 const stripTerminalChunkOutput = (block: Chunk): string => {
-    const content = block.content ?? "";
+    const content = stripAnsi(block.content ?? "");
     const command = (block.command ?? "").trim();
     const lines = content.split("\n");
     if (lines[0]?.trim() === command) {
@@ -254,7 +317,7 @@ const safeListen = <T,>(
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
 
-/** Appends a PTY chunk onto `buffer`, carrying split ANSI escape prefixes across chunks. */
+/** Appends a PTY chunk onto `buffer`, carrying split ANSI escapes and applying `\r` line rewinds. */
 export const appendStreamAnsiChunk = (
     buffer: TerminalStreamBuffer,
     chunk: string | undefined,
@@ -266,7 +329,9 @@ export const appendStreamAnsiChunk = (
         flush,
     );
     return {
-        output: (buffer.output + stripped).slice(-OUTPUT_CAP),
+        output: applyTerminalCarriageReturns(buffer.output, stripped).slice(
+            -OUTPUT_CAP,
+        ),
         carry,
     };
 };

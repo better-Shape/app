@@ -50,6 +50,18 @@ const attachSafeListener = <T,>(
         });
 };
 
+const BASE_PROCESSING_TIMEOUT_MS = 30_000;
+
+/** Computes the recognition safety timeout (ms), scaling linearly with recorded duration above a 30s floor. */
+export const computeProcessingSafetyTimeoutMs = (
+    recordedMs: number,
+): number => {
+    const safeRecordedMs = Number.isFinite(recordedMs)
+        ? Math.max(0, Math.ceil(recordedMs))
+        : 0;
+    return BASE_PROCESSING_TIMEOUT_MS + safeRecordedMs;
+};
+
 type DictationRefs = {
     session: React.MutableRefObject<DictationSession | null>;
     startingRef: React.MutableRefObject<boolean>;
@@ -57,6 +69,8 @@ type DictationRefs = {
     startAttemptIdRef: React.MutableRefObject<number>;
     recognizerAttemptIdRef: React.MutableRefObject<number>;
     abortRef: React.MutableRefObject<AbortController | null>;
+    listenStartedAtRef: React.MutableRefObject<number>;
+    processingTimeoutMsRef: React.MutableRefObject<number>;
 };
 
 /** Checks whether dictation currently owns an active session, startup, or recognizer push. */
@@ -186,12 +200,21 @@ const startListeningTimer = (
     }, 500);
 };
 
-/** Starts a 10-second safety timeout while `isProcessing` is active, returning its timer ID. */
+/** Starts a duration-scaled safety timeout while `isProcessing` is active, returning its timer ID. */
 const startProcessingSafetyTimeout = (
     isProcessing: boolean,
+    timeoutMs: number,
     dispose: () => void,
-): number | null =>
-    isProcessing ? window.setTimeout(dispose, 10_000) : null;
+): number | null => {
+    if (!isProcessing) return null;
+    return window.setTimeout(() => {
+        notificationStore.add(
+            "Dictation timed out while transcribing audio.",
+            "error",
+        );
+        dispose();
+    }, timeoutMs);
+};
 
 /** Clears nullable `intervalId` and `timeoutId` browser timers. */
 const clearOptionalTimers = (
@@ -215,6 +238,7 @@ const useDictationTimersAndEscape = (
         const timer = startListeningTimer(isListening, setElapsedSec);
         const processingTimeout = startProcessingSafetyTimeout(
             isProcessing,
+            refs.processingTimeoutMsRef.current,
             dispose,
         );
         /** Cancels active or pending dictation capture when Escape is pressed. */
@@ -232,6 +256,24 @@ const useDictationTimersAndEscape = (
             window.removeEventListener("keydown", onKey, true);
         };
     }, [dispose, isListening, isProcessing, isStarting, refs, setElapsedSec]);
+};
+
+/** Updates capture start timestamp and scaled recognition timeout on `refs` when `next` changes. */
+const updateTimingRefsForDictationState = (
+    next: DictationState,
+    refs: DictationRefs,
+): void => {
+    if (next === "listening") {
+        refs.listenStartedAtRef.current = Date.now();
+        return;
+    }
+    if (next === "processing") {
+        const startedAt = refs.listenStartedAtRef.current;
+        const recordedMs = startedAt > 0 ? Date.now() - startedAt : 0;
+        refs.processingTimeoutMsRef.current =
+            computeProcessingSafetyTimeoutMs(recordedMs);
+    }
+    refs.listenStartedAtRef.current = 0;
 };
 
 /** Builds attempt-scoped `DictationHandlers` carrying `signal` for cancellation safety. */
@@ -258,6 +300,7 @@ const buildAttemptDictationHandlers = (
     },
     onState: (next) => {
         if (refs.startAttemptIdRef.current !== attemptId) return;
+        updateTimingRefsForDictationState(next, refs);
         refs.processingRef.current = next === "processing";
         ui.setState(next);
     },
@@ -444,6 +487,8 @@ const DictationButtonInner = (): React.ReactElement => {
     const startAttemptIdRef = useRef(0);
     const recognizerAttemptIdRef = useRef(-1);
     const abortRef = useRef<AbortController | null>(null);
+    const listenStartedAtRef = useRef(0);
+    const processingTimeoutMsRef = useRef(BASE_PROCESSING_TIMEOUT_MS);
 
     const refs = React.useMemo<DictationRefs>(
         () => ({
@@ -453,6 +498,8 @@ const DictationButtonInner = (): React.ReactElement => {
             startAttemptIdRef,
             recognizerAttemptIdRef,
             abortRef,
+            listenStartedAtRef,
+            processingTimeoutMsRef,
         }),
         [],
     );
@@ -469,9 +516,13 @@ const DictationButtonInner = (): React.ReactElement => {
             startAttemptIdRef,
             recognizerAttemptIdRef,
             abortRef,
+            listenStartedAtRef,
+            processingTimeoutMsRef,
         };
         const hadActive = hasPendingOrActiveDictation(currentRefs);
         abortPendingDictationPhases(currentRefs, setIsStarting);
+        listenStartedAtRef.current = 0;
+        processingTimeoutMsRef.current = BASE_PROCESSING_TIMEOUT_MS;
         session.current?.dispose();
         session.current = null;
         setLevel(0);

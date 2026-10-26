@@ -29,6 +29,7 @@ import {
     insertDictatedSlice,
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
+import { computeProcessingSafetyTimeoutMs } from "@/features/chat/ui/composer/dictation-button";
 import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
 import {
     MessageRenderer,
@@ -1063,5 +1064,59 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             approveSpy.mockRestore();
         }
     });
+
+    it("rewinds standalone carriage-return PTY progress updates, scales dictation timeouts, and mounts interactive design previews", async () => {
+        expect(
+            stripAnsi(
+                "Building crate\nDownloading 10%\rDownloading 45%\r\u001b[2KDownloading 100%\r\nDone\r",
+            ),
+        ).toBe("Building crate\nDownloading 100%\nDone");
+
+        let buf: TerminalStreamBuffer = { output: "", carry: "" };
+        buf = appendStreamAnsiChunk(buf, "Step 1\nProgress 10%\r", false);
+        expect(buf.output).toBe("Step 1\nProgress 10%");
+        expect(buf.carry).toBe("\r");
+        buf = appendStreamAnsiChunk(buf, "\u001b[", false);
+        expect(buf.carry).toBe("\r\u001b[");
+        buf = appendStreamAnsiChunk(buf, "2KProgress 80%\r", false);
+        expect(buf.output).toBe("Step 1\nProgress 80%");
+        buf = appendStreamAnsiChunk(buf, "\nComplete", true);
+        expect(buf.output).toBe("Step 1\nProgress 80%\nComplete");
+        expect(buf.carry).toBe("");
+
+        expect(computeProcessingSafetyTimeoutMs(0)).toBe(30_000);
+        expect(computeProcessingSafetyTimeoutMs(300_000)).toBe(330_000);
+
+        const selectSpy = vi
+            .spyOn(commands, "selectDesignPreview")
+            .mockImplementation(() => Promise.resolve());
+        try {
+            const galleryMarkup = [
+                '<design_previews id="dp-pick-1" status="pending" selected="">',
+                '<design_preview id="card-a" name="Soft Button" style="ghost" width="640" height="360" kind="html">&lt;button&gt;Soft&lt;/button&gt;</design_preview>',
+                '<design_preview id="card-b" name="Solid Button" style="filled" width="640" height="360" kind="html">&lt;button&gt;Solid&lt;/button&gt;</design_preview>',
+                "</design_previews>",
+            ].join("\n");
+            const el = mount(<MessageRenderer content={galleryMarkup} />);
+            expect(el.querySelector("[data-pending-approval='true']")).not.toBeNull();
+            const useBtn = el.querySelector<HTMLButtonElement>(
+                "button[aria-label='Use this variant']",
+            );
+            expect(useBtn).not.toBeNull();
+            await act(async () => {
+                useBtn?.click();
+                await Promise.resolve();
+            });
+            expect(selectSpy).toHaveBeenCalledWith(
+                "dp-pick-1",
+                "card-a",
+                false,
+                expect.any(String),
+            );
+        } finally {
+            selectSpy.mockRestore();
+        }
+    });
 });
+
 
