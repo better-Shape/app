@@ -395,14 +395,24 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
 
 describe("Regression guards for error details, grapheme truncation, HTML tag boundaries, and provider setup gaps", () => {
     it("preserves raw provider error details alongside classified descriptions in ChatErrorDialog", () => {
+        const onRetry = vi.fn();
         mount(
             <ChatErrorDialog
                 message="401 invalid_api_key: model 'gpt-5-private' rejected for key sk-***9a"
                 onDismiss={vi.fn()}
+                onRetry={onRetry}
             />,
         );
         const bodyText = document.body.textContent ?? "";
         expect(bodyText).toContain("model 'gpt-5-private' rejected");
+        const retryBtn = Array.from(document.body.querySelectorAll("button")).find(
+            (btn) => btn.textContent === "Try again",
+        );
+        expect(retryBtn).toBeDefined();
+        act(() => {
+            retryBtn?.click();
+        });
+        expect(onRetry).toHaveBeenCalledTimes(1);
     });
 
     it("strips ANSI CSI, OSC, two-byte escapes, and carriage returns cleanly", () => {
@@ -632,6 +642,10 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
     it("normalizes non-string provider credentials, redacts echoed error secrets, collapses dictation spaces, and breaks highlight runs on br", () => {
         const normalized = normalizeProvidersSettings({
             defaultModel: "openai/gpt-5",
+            services: {
+                search: { provider: "brave", apiKey: "bsa-123" },
+                composio: { apiKey: "", userId: "" },
+            },
             connections: {
                 openai: {
                     apiKey: 12345 as unknown as string,
@@ -646,6 +660,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         });
         expect(normalized.connections.openai.apiKey).toBe("");
         expect(normalized.connections.openai.baseUrl).toBe("");
+        expect(normalized.services.search.provider).toBe("brave");
         expect(describeProviderSetupGap(normalized)).toMatch(/key/iu);
 
         const scrubbed = redactErrorSecrets(
@@ -678,6 +693,20 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         } finally {
             container.remove();
         }
+
+        const proseWithContentTag = parseMessageContent(
+            "Example payload: <content>visible text</content>",
+        );
+        expect(proseWithContentTag).toEqual([
+            { type: "text", content: "Example payload: <content>visible text</content>" },
+        ]);
+
+        const manyTools = Array.from(
+            { length: 200 },
+            (_, idx) => `<cat path="file-${idx}.ts">body-${idx}</cat>`,
+        ).join("\nProse between tools.\n");
+        const parsedMany = parseMessageContent(manyTools);
+        expect(parsedMany.filter((chunk) => chunk.type === "cat")).toHaveLength(200);
     });
 });
 
