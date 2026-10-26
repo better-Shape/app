@@ -1617,16 +1617,40 @@ const buildSegments = (chunks: Chunk[]): Segment[] => {
     return segments;
 };
 
-/** Clears residual `isGenerating` flags once the message turn itself has completed. */
+/** Checks whether a pending `edit_pending` chunk has already been applied in the workspace. */
+const isPendingEditAlreadyApplied = (
+    chunk: Chunk,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): boolean =>
+    chunk.type === "edit_pending" &&
+    (chunk.commandStatus ?? "pending") === "pending" &&
+    Boolean(chunk.file && isFileEditResolved?.(chunk.file, chunk.replacement));
+
+/** Normalizes one parsed chunk for settled turn state and workspace-resolved edits. */
+const finalizeSingleParsedChunk = (
+    chunk: Chunk,
+    isGenerating?: boolean,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): Chunk => {
+    let next = chunk;
+    if (isPendingEditAlreadyApplied(next, isFileEditResolved)) {
+        next = { ...next, commandStatus: "applied" };
+    }
+    if (!isGenerating && next.isGenerating) {
+        next = { ...next, isGenerating: false };
+    }
+    return next;
+};
+
+/** Clears residual `isGenerating` flags and promotes workspace-applied edits on parsed chunks. */
 const finalizeParsedChunks = (
     parsed: Chunk[],
     isGenerating?: boolean,
-): Chunk[] => {
-    if (isGenerating) return parsed;
-    return parsed.map((chunk) =>
-        chunk.isGenerating ? { ...chunk, isGenerating: false } : chunk,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): Chunk[] =>
+    parsed.map((chunk) =>
+        finalizeSingleParsedChunk(chunk, isGenerating, isFileEditResolved),
     );
-};
 
 /** Checks whether a later `persona_review` chunk with the same `commandId` supersedes `index`. */
 const isSupersededPersonaReview = (
@@ -2078,6 +2102,7 @@ export const MessageRenderer = ({
     content,
     isGenerating,
     activityLabel,
+    isFileEditResolved,
     durationMs,
     skipSubagentSync,
 }: {
@@ -2089,8 +2114,13 @@ export const MessageRenderer = ({
     skipSubagentSync?: boolean;
 }) => {
     const chunks = useMemo(
-        () => finalizeParsedChunks(parseMessageContent(content), isGenerating),
-        [content, isGenerating],
+        () =>
+            finalizeParsedChunks(
+                parseMessageContent(content),
+                isGenerating,
+                isFileEditResolved,
+            ),
+        [content, isGenerating, isFileEditResolved],
     );
 
     useEffect(() => {

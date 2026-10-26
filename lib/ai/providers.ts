@@ -1469,6 +1469,18 @@ const selectPreferredEmbeddingProvider = (
   ids.find((id) => id === "openrouter") ??
   ids[0];
 
+/** Checks whether any entry in `extraModels` matches `model` verbatim or after provider-prefix canonicalization. */
+const extraModelsAdvertiseModel = (
+  id: ProviderId,
+  extraModels: string[],
+  model: string,
+): boolean =>
+  extraModels.some((raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return false;
+    return trimmed === model || normalizeExtraModelEntry(id, trimmed) === model;
+  });
+
 /** Checks whether connection `id` explicitly advertises or pins `model`. */
 const connectionAdvertisesEmbeddingModel = (
   settings: ProvidersSettings,
@@ -1480,7 +1492,8 @@ const connectionAdvertisesEmbeddingModel = (
   const connection = settings.connections[id];
   if (!connection) return false;
   return (
-    connection.models.includes(model) || connection.extraModels.includes(model)
+    connection.models.includes(model) ||
+    extraModelsAdvertiseModel(id, connection.extraModels, model)
   );
 };
 

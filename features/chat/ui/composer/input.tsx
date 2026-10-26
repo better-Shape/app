@@ -1018,10 +1018,15 @@ const handleComposerKeyDownFlow = (opts: {
   ) => void;
   isBusy: boolean;
   recordIfEligible: () => void;
+  runNewChatIfMatched: () => boolean;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }): void => {
   if (consumeComposerInterceptKey(opts)) return;
   if (isPlainEnterSubmit(opts.e)) {
+    if (opts.runNewChatIfMatched()) {
+      opts.e.preventDefault();
+      return;
+    }
     opts.recordIfEligible();
     opts.historyCursorRef.current = null;
   }
@@ -1605,6 +1610,12 @@ const canToggleComposerExpansion = (
 ): boolean =>
   canExpandComposer || isExpanded || (Boolean(inputValue) && composerTall);
 
+/** Checks whether `value` is a built-in `/new` or `/clear` chat reset command. */
+const isNewChatSlashCommand = (value: string): boolean => {
+  const trimmed = value.trim();
+  return trimmed === "/new" || trimmed === "/clear";
+};
+
 /** Coordinates prompt-history recall, send recording, and `onKeyDown` delegation. */
 const useComposerHistoryAndKeys = ({
   inputValue,
@@ -1618,6 +1629,7 @@ const useComposerHistoryAndKeys = ({
   onInputChange,
   onKeyDown,
   onSendMessage,
+  onNewChat,
   textareaRef,
   historyCursorRef,
   canExpandComposer,
@@ -1638,6 +1650,7 @@ const useComposerHistoryAndKeys = ({
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onSendMessage: () => void;
+  onNewChat?: () => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
   canExpandComposer: boolean;
@@ -1654,6 +1667,16 @@ const useComposerHistoryAndKeys = ({
     () => mergeNewestFirstPrompts(promptHistory, sessionSentPrompts),
     [promptHistory, sessionSentPrompts],
   );
+  const runNewChatIfMatched = React.useCallback((): boolean => {
+    if (!onNewChat || !isNewChatSlashCommand(inputValue)) return false;
+    historyCursorRef.current = null;
+    closeTriggers();
+    onInputChange({
+      target: { value: "" },
+    } as React.ChangeEvent<HTMLTextAreaElement>);
+    onNewChat();
+    return true;
+  }, [closeTriggers, historyCursorRef, inputValue, onInputChange, onNewChat]);
   const recordIfEligible = React.useCallback(() => {
     const trimmed = inputValue.trim();
     if (
@@ -1669,10 +1692,11 @@ const useComposerHistoryAndKeys = ({
     }
   }, [inputValue, isLoading, isPreparing, needsSignIn, uploadedFiles]);
   const handleSendWithHistory = React.useCallback(() => {
+    if (runNewChatIfMatched()) return;
     recordIfEligible();
     historyCursorRef.current = null;
     onSendMessage();
-  }, [historyCursorRef, onSendMessage, recordIfEligible]);
+  }, [historyCursorRef, onSendMessage, recordIfEligible, runNewChatIfMatched]);
   const applySteppedHistory = React.useCallback(
     (
       e: React.KeyboardEvent<HTMLTextAreaElement>,
@@ -1717,6 +1741,7 @@ const useComposerHistoryAndKeys = ({
         applySteppedHistory,
         isBusy: isLoading || isPreparing,
         recordIfEligible,
+        runNewChatIfMatched,
         onKeyDown,
       }),
     [
@@ -1733,6 +1758,7 @@ const useComposerHistoryAndKeys = ({
       queuedMessages,
       recallablePrompts,
       recordIfEligible,
+      runNewChatIfMatched,
       setIsExpanded,
     ],
   );
@@ -1831,7 +1857,7 @@ const ChatInputInner = ({
   quotedExcerpts,
   onRemoveQuote,
   promptHistory = [],
-  onNewChat: _onNewChat,
+  onNewChat,
   variant = "default",
 }: Omit<ChatInputProps, "webSearch" | "setWebSearch" | "handleFileUpload">) => {
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -1929,6 +1955,7 @@ const ChatInputInner = ({
       onInputChange,
       onKeyDown,
       onSendMessage,
+      onNewChat,
       textareaRef,
       historyCursorRef,
       canExpandComposer: layout.canExpandComposer,

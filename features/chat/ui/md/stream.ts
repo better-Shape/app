@@ -258,6 +258,75 @@ const mapOutsideCodeFences = (
     return out.join("");
 };
 
+/** Counts consecutive backticks starting at `start`. */
+const countBacktickRun = (input: string, start: number): number => {
+    let end = start;
+    while (end < input.length && input.charCodeAt(end) === 96) end += 1;
+    return end - start;
+};
+
+/** Finds the closing backtick run of exact length `runLen`, or `-1` if unclosed. */
+const findMatchingBackticks = (
+    input: string,
+    from: number,
+    runLen: number,
+): number => {
+    let pos = from;
+    while (pos < input.length) {
+        const next = input.indexOf("`", pos);
+        if (next === -1) return -1;
+        const count = countBacktickRun(input, next);
+        if (count === runLen) return next + count;
+        pos = next + count;
+    }
+    return -1;
+};
+
+/** Checks whether `[tick, closeEnd]` forms a valid single-paragraph inline code span. */
+const isValidInlineCodeSpan = (
+    input: string,
+    tick: number,
+    closeEnd: number,
+): boolean => closeEnd !== -1 && !input.slice(tick, closeEnd).includes("\n\n");
+
+/** Collects `[start, end]` offsets for closed inline backtick code spans. */
+const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
+    if (!input.includes("`")) return [];
+    const ranges: Array<[number, number]> = [];
+    let pos = 0;
+    while (pos < input.length) {
+        const tick = input.indexOf("`", pos);
+        if (tick === -1) break;
+        const runLen = countBacktickRun(input, tick);
+        const closeEnd = findMatchingBackticks(input, tick + runLen, runLen);
+        if (isValidInlineCodeSpan(input, tick, closeEnd)) {
+            ranges.push([tick, closeEnd]);
+            pos = closeEnd;
+        } else {
+            pos = tick + runLen;
+        }
+    }
+    return ranges;
+};
+
+/** Applies `fn` only to prose slices outside closed inline backtick code spans. */
+const mapOutsideInlineCodeSpans = (
+    prose: string,
+    fn: (slice: string) => string,
+): string => {
+    const ranges = collectInlineCodeRanges(prose);
+    if (ranges.length === 0) return fn(prose);
+    const parts: string[] = [];
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+        if (start > cursor) parts.push(fn(prose.slice(cursor, start)));
+        parts.push(prose.slice(start, end));
+        cursor = end;
+    }
+    if (cursor < prose.length) parts.push(fn(prose.slice(cursor)));
+    return parts.join("");
+};
+
 export type CodeFenceState = {
     ranges: Array<readonly [number, number]>;
     fenceStart: number;
@@ -370,7 +439,9 @@ const stripOrphanThinkTagsInProse = (prose: string): string => {
 /** Remove stray thinking tags that leaked into plain text. */
 export const stripOrphanThinkTags = (text: string): string => {
     if (!text.includes("<")) return text;
-    return mapOutsideCodeFences(text, stripOrphanThinkTagsInProse);
+    return mapOutsideCodeFences(text, (prose) =>
+        mapOutsideInlineCodeSpans(prose, stripOrphanThinkTagsInProse),
+    );
 };
 
 const LEAKED_TOOL_CALL_FN_RE =
@@ -615,7 +686,9 @@ export const stripLeakedToolMarkup = (text: string): string => {
             out = out.replace(pattern, "");
         }
     }
-    out = mapOutsideCodeFences(out, sanitizeProseToolMarkup);
+    out = mapOutsideCodeFences(out, (prose) =>
+        mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
+    );
     return collapseExcessNewlines(out);
 };
 
@@ -1026,57 +1099,6 @@ const DISALLOWED_UNQUOTED_TAG_CHARS = new Set([
     "(",
     ")",
 ]);
-
-/** Counts consecutive backticks starting at `start`. */
-const countBacktickRun = (input: string, start: number): number => {
-    let end = start;
-    while (end < input.length && input.charCodeAt(end) === 96) end += 1;
-    return end - start;
-};
-
-/** Finds the closing backtick run of exact length `runLen`, or `-1` if unclosed. */
-const findMatchingBackticks = (
-    input: string,
-    from: number,
-    runLen: number,
-): number => {
-    let pos = from;
-    while (pos < input.length) {
-        const next = input.indexOf("`", pos);
-        if (next === -1) return -1;
-        const count = countBacktickRun(input, next);
-        if (count === runLen) return next + count;
-        pos = next + count;
-    }
-    return -1;
-};
-
-/** Checks whether `[tick, closeEnd]` forms a valid single-paragraph inline code span. */
-const isValidInlineCodeSpan = (
-    input: string,
-    tick: number,
-    closeEnd: number,
-): boolean => closeEnd !== -1 && !input.slice(tick, closeEnd).includes("\n\n");
-
-/** Collects `[start, end]` offsets for closed inline backtick code spans. */
-const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
-    if (!input.includes("`")) return [];
-    const ranges: Array<[number, number]> = [];
-    let pos = 0;
-    while (pos < input.length) {
-        const tick = input.indexOf("`", pos);
-        if (tick === -1) break;
-        const runLen = countBacktickRun(input, tick);
-        const closeEnd = findMatchingBackticks(input, tick + runLen, runLen);
-        if (isValidInlineCodeSpan(input, tick, closeEnd)) {
-            ranges.push([tick, closeEnd]);
-            pos = closeEnd;
-        } else {
-            pos = tick + runLen;
-        }
-    }
-    return ranges;
-};
 
 /** True when `ch` is an ASCII letter (`A-Z` or `a-z`). */
 const isAsciiAlpha = (ch: string): boolean => {
