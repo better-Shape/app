@@ -1234,7 +1234,7 @@ export const MessageRenderer = ({
                     x={x}
                     y={y}
                     consoleLines={consoleLines}
-                    followLive={pos === lastBrowseIndex}
+                    followLive
                 />
             );
         }
