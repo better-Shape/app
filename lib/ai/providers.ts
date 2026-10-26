@@ -1357,17 +1357,43 @@ export const hasAnyConfiguredConnection = (
     isConnectionUsable(preset.id, settings.connections),
   );
 
-/** Checks whether an enabled keyless/`authStyle: "none"` connection is missing only its `baseUrl`. */
-const hasEnabledKeylessMissingBaseUrl = (
-  settings: ProvidersSettings,
+/** Checks whether `conn` has any configured or preset model IDs. */
+const connectionHasAnyModelId = (
+  preset: ProviderPreset,
+  conn: ProviderConnection,
 ): boolean =>
-  PROVIDER_PRESETS.some((preset) => {
+  preset.models.length > 0 ||
+  conn.models.length > 0 ||
+  conn.extraModels.length > 0;
+
+/** Checks whether an enabled connection already has credentials or keyless auth and lacks only `baseUrl`. */
+const isAuthenticatedMissingBaseUrl = (
+  preset: ProviderPreset,
+  conn: ProviderConnection | undefined,
+): conn is ProviderConnection => {
+  if (!conn?.enabled || !preset.needsBaseUrl || Boolean(conn.baseUrl.trim())) {
+    return false;
+  }
+  return (
+    Boolean(conn.apiKey.trim()) ||
+    connectionAllowsKeylessAuth(preset.id, preset, conn)
+  );
+};
+
+/** Resolves missing-base-URL setup guidance when an authenticated connection still needs an endpoint. */
+const findMissingBaseUrlSetupGap = (
+  settings: ProvidersSettings,
+): string | null => {
+  for (const preset of PROVIDER_PRESETS) {
     const conn = settings.connections[preset.id];
-    if (!conn?.enabled || !preset.needsBaseUrl || conn.baseUrl.trim()) {
-      return false;
+    if (isAuthenticatedMissingBaseUrl(preset, conn)) {
+      return connectionHasAnyModelId(preset, conn)
+        ? "Set a base URL in Settings -> Providers"
+        : "Set a base URL and model ID in Settings -> Providers";
     }
-    return connectionAllowsKeylessAuth(preset.id, preset, conn);
-  });
+  }
+  return null;
+};
 
 /** Diagnostics for why no provider model is currently routable, or `null` when ready. */
 export const providerSetupIssue = (
@@ -1386,10 +1412,10 @@ export const describeProviderSetupGap = (
   if (hasAnyConfiguredConnection(settings)) {
     return "Add a model ID in Settings -> Providers";
   }
-  if (hasEnabledKeylessMissingBaseUrl(settings)) {
-    return "Set a base URL and model ID in Settings -> Providers";
-  }
-  return "Add an API key in Settings -> Providers";
+  return (
+    findMissingBaseUrlSetupGap(settings) ??
+    "Add an API key in Settings -> Providers"
+  );
 };
 
 /** Checks whether `wanted` names a specific model ID present in `models`. */

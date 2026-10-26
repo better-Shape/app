@@ -222,7 +222,7 @@ const BEARER_TOKEN_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
 const QUERY_SECRET_RE =
     /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
 const KNOWN_KEY_PREFIX_RE =
-    /\b(?:sk-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|(?:sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
+    /\b(?:(?:sk|xai|pplx|csk|nvapi|tvly)-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|dapi[0-9a-f]{16,}|BSA[0-9A-Za-z_-]{16,}|(?:tgp_v1|doo_v1|oc_sk|VENICE_INFERENCE_KEY|llmgtwy|kilo|vck|sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
 
 /** Redacts echoed bearer tokens, provider API keys, and query secrets from raw error details. */
 export const redactErrorSecrets = (raw: string): string =>
