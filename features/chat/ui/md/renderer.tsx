@@ -1,135 +1,60 @@
 "use client";
 
-
 import React, { useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
-import { stripLeakedToolCode, stripOrphanThinkTags } from "./stream";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
+import {
+    appendInlineCodeSpansInRange,
+    readLineSliceAt,
+    scanMarkdownCodeFences,
+    stripLeakedToolCode,
+    stripOrphanThinkTags,
+} from "./stream";
 import { ChatMarkdown } from "./view";
 import { syncSubagentsFromChunks } from "@/features/agent/subagents/store";
-
 import {
     isRenderableWorkflowBlock,
     WORKFLOW_CHUNK_TYPES,
-} from '../blocks/workflow';
-import { TurnWorkflowSummary } from '../blocks/turn';
-import { GeneratingIndicator } from '../blocks/generating';
-import { PlanningBlock, PlanSavedBlock } from '../blocks/plan';
-import type { DesignPreviewItem } from '../blocks/gallery';
-import { GeneratedMediaCard } from '../blocks/generated-media';
-import { SentFileCard } from '../blocks/sent-file';
-import { ReviewDebatePanel } from '../blocks/debate';
-import { PersonaReviewPanel } from '../blocks/persona-review';
-import { BrowseChatCard } from '../blocks/browse-frame';
-import { ChartBlock, InsightCard } from '../blocks/chart';
-import { OpenUIBlock } from '../blocks/openui';
-import { QuestionsCard, parseQuestionsPayload, type AgentQuestion, type QuestionAnswers } from '../blocks/questions';
-import { hostnameOf } from '@/lib/ui/favicon';
+} from "../blocks/workflow";
+import { TurnWorkflowSummary } from "../blocks/turn";
+import { GeneratingIndicator } from "../blocks/generating";
+import { PlanningBlock, PlanSavedBlock } from "../blocks/plan";
+import {
+    DesignPreviewGallery,
+    type DesignPreviewItem,
+} from "../blocks/gallery";
+import { GeneratedMediaCard } from "../blocks/generated-media";
+import { SentFileCard } from "../blocks/sent-file";
+import { ReviewDebatePanel } from "../blocks/debate";
+import { PersonaReviewPanel } from "../blocks/persona-review";
+import { BrowseChatCard } from "../blocks/browse-frame";
+import { ChartBlock, InsightCard } from "../blocks/chart";
+import { OpenUIBlock } from "../blocks/openui";
+import {
+    QuestionsCard,
+    parseQuestionsPayload,
+    type AgentQuestion,
+    type QuestionAnswers,
+} from "../blocks/questions";
+import { hostnameOf } from "@/lib/ui/favicon";
+import {
+    decodeBasicXmlEntities,
+    parseWebResults,
+    type WebSearchResultItem,
+} from "@/lib/chat/transcript-search";
 
-function hostnameFromUrl(url: string): string {
-    return hostnameOf(url);
-}
-
-/** Decode the XML entities models emit inside tag attributes. */
-const decodeXmlAttr = (raw: string): string =>
-    raw
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&");
-
-function parseCardJson<T>(raw: string | undefined): T | null {
-    const text = (raw || "").trim();
-    if (!text) return null;
-    try {
-        return JSON.parse(text) as T;
-    } catch {
-        return null;
-    }
-}
-
-function decodeXml(value: string): string {
-    return value
-        .replace(/&quot;/g, '"')
-        .replace(/&lt;/g, "<")
-        .replace(/&amp;/g, "&");
-}
-
-const TERMINAL_STATUS_RANK: Record<string, number> = {
-    pending: 1,
-    blocked: 2,
-    running: 3,
-    background: 3,
-    rejected: 4,
-    error: 4,
-    cancelled: 4,
-    failed: 5,
-    completed: 5,
-};
-
-/** Pending edit lifecycle rank: later states replace the pending card. */
-const EDIT_PENDING_STATUS_RANK: Record<string, number> = {
-    pending: 1,
-    cancelled: 2,
-    rejected: 3,
-    applied: 4,
-};
-
-const PLUGIN_STATUS_RANK: Record<string, number> = {
-    pending: 1,
-    rejected: 4,
-    cancelled: 4,
-    error: 4,
-    ok: 5,
-};
-
-/** Keep one terminal_command / edit_pending block per id (or per command when pending). Prefer higher status. */
-export function dedupeTerminalChunks(chunks: Chunk[]): Chunk[] {
-    const skip = new Set<number>();
-
-    const rank = (chunk: Chunk) => {
-        if (chunk.type === 'edit_pending') return EDIT_PENDING_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-        if (chunk.type === 'plugin_call') return PLUGIN_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-        return TERMINAL_STATUS_RANK[chunk.commandStatus || ''] ?? 0;
-    };
-
-    const byId = new Map<string, number>();
-    chunks.forEach((chunk, index) => {
-        if ((chunk.type !== 'terminal_command' && chunk.type !== 'edit_pending' && chunk.type !== 'plugin_call') || !chunk.commandId) return;
-        const key = `${chunk.type}:${chunk.commandId}`;
-        const existing = byId.get(key);
-        if (existing === undefined) {
-            byId.set(key, index);
-            return;
-        }
-        if (rank(chunk) >= rank(chunks[existing])) {
-            skip.add(existing);
-            byId.set(key, index);
-        } else {
-            skip.add(index);
-        }
-    });
-
-    const byPendingCommand = new Map<string, number>();
-    chunks.forEach((chunk, index) => {
-        if (skip.has(index)) return;
-        if (chunk.type !== 'terminal_command' || chunk.commandStatus !== 'pending') return;
-        const cmd = chunk.command?.trim();
-        if (!cmd) return;
-        const existing = byPendingCommand.get(cmd);
-        if (existing === undefined) {
-            byPendingCommand.set(cmd, index);
-            return;
-        }
-        skip.add(existing);
-        byPendingCommand.set(cmd, index);
-    });
-
-    return chunks.filter((_, index) => !skip.has(index));
-}
+export { parseWebResults, type WebSearchResultItem };
 
 export type Chunk = {
-    type: 'text' | 'openui' | 'edit' | 'edit_pending' | 'search' | 'grep' | 'status' | 'web_search' | 'think' | 'thought' | 'search_result' | 'web_result' | 'web_visit' | 'inspect_runtime' | 'terminal_command' | 'git_operation' | 'run' | 'ls' | 'cat' | 'create_file' | 'mkdir' | 'delete_file' | 'rename_file' | 'rename_chat' | 'tool_result' | 'plan' | 'plan_saved' | 'todos' | 'attached_image' | 'sent_file' | 'subagent' | 'subagent_ref' | 'design_previews' | 'review_debate' | 'persona_review' | 'question' | 'questions' | 'plugin_call' | 'generated_svg' | 'generated_image' | 'generated_audio' | 'browse_session' | 'chart' | 'insight_card';
+    type:
+        | "text" | "openui" | "edit" | "edit_pending" | "search" | "grep" | "status"
+        | "web_search" | "think" | "thought" | "search_result" | "web_result"
+        | "web_visit" | "inspect_runtime" | "terminal_command" | "git_operation"
+        | "run" | "ls" | "cat" | "create_file" | "mkdir" | "delete_file"
+        | "rename_file" | "rename_chat" | "tool_result" | "plan" | "plan_saved"
+        | "todos" | "attached_image" | "sent_file" | "subagent" | "subagent_ref"
+        | "design_previews" | "review_debate" | "persona_review" | "question"
+        | "questions" | "plugin_call" | "generated_svg" | "generated_image"
+        | "generated_audio" | "browse_session" | "chart" | "insight_card";
     content?: string;
     file?: string;
     query?: string;
@@ -154,7 +79,11 @@ export type Chunk = {
     reviewModel?: string;
     /** Inline plan markdown when the saved file is not on disk yet. */
     planMarkdown?: string;
-    todos?: Array<{ id: string; label: string; status: "done" | "active" | "pending" | "cancelled" }>;
+    todos?: Array<{
+        id: string;
+        label: string;
+        status: "done" | "active" | "pending" | "cancelled";
+    }>;
     visitUrl?: string;
     visitHost?: string;
     visitTitle?: string;
@@ -173,8 +102,1319 @@ export type Chunk = {
     sourceStart?: number;
 };
 
+type TodoStepStatus = "done" | "active" | "pending" | "cancelled";
+
+type GeneratedMediaChunkType =
+    | "generated_svg"
+    | "generated_image"
+    | "generated_audio";
+
+type SearchTagSpec = {
+    type: Chunk["type"];
+    start: string;
+    end: string;
+};
+
+type MatchedTagRange = {
+    type: Chunk["type"];
+    index: number;
+    startTag: string;
+    endTag: string;
+};
+
+type TagSliceContext = {
+    type: Chunk["type"];
+    tagHeader: string;
+    fullBlock: string;
+    content: string;
+    isGenerating?: boolean;
+    defaultTerminalStatus: "pending" | "completed";
+};
+
+type TagChunkBuilder = (ctx: TagSliceContext) => Chunk;
+
+/**
+ * A message is a chronological sequence of segments. A sentence between
+ * tool runs splits the rail, so the line stops and starts again around it.
+ */
+type Segment =
+    | { kind: "workflow"; blocks: Chunk[] }
+    | { kind: "chunk"; chunk: Chunk };
+
+type WorkflowSegment = Extract<Segment, { kind: "workflow" }>;
+
+type ChunkRenderContext = {
+    pos: number;
+    lastBrowseIndex: number;
+    isGenerating?: boolean;
+    isLastSegment: boolean;
+};
+
+type ChunkViewRenderer = (
+    chunk: Chunk,
+    ctx: ChunkRenderContext,
+) => React.ReactElement | null;
+
+const TERMINAL_STATUS_RANK: Partial<Record<string, number>> = {
+    pending: 1,
+    blocked: 2,
+    running: 3,
+    background: 3,
+    rejected: 4,
+    error: 4,
+    cancelled: 4,
+    failed: 5,
+    completed: 5,
+};
+
+/** Pending edit lifecycle rank: later states replace the pending card. */
+const EDIT_PENDING_STATUS_RANK: Partial<Record<string, number>> = {
+    pending: 1,
+    cancelled: 2,
+    rejected: 3,
+    applied: 4,
+};
+
+const PLUGIN_STATUS_RANK: Partial<Record<string, number>> = {
+    pending: 1,
+    rejected: 4,
+    cancelled: 4,
+    error: 4,
+    ok: 5,
+};
+
+const STATUS_RANK_BY_CHUNK_TYPE: Partial<
+    Record<Chunk["type"], Partial<Record<string, number>>>
+> = {
+    edit_pending: EDIT_PENDING_STATUS_RANK,
+    plugin_call: PLUGIN_STATUS_RANK,
+    terminal_command: TERMINAL_STATUS_RANK,
+};
+
+const DEDUPABLE_COMMAND_TYPES = new Set<Chunk["type"]>([
+    "terminal_command",
+    "edit_pending",
+    "plugin_call",
+]);
+
+const TODO_STATUS_MAP: Partial<Record<string, TodoStepStatus>> = {
+    completed: "done",
+    done: "done",
+    complete: "done",
+    in_progress: "active",
+    active: "active",
+    cancelled: "cancelled",
+    canceled: "cancelled",
+};
+
+const PREVIEW_KIND_MAP: Partial<Record<string, DesignPreviewItem["kind"]>> = {
+    html: "html",
+    png: "png",
+    react: "react",
+};
+
+const GENERATED_MEDIA_KINDS: Record<
+    GeneratedMediaChunkType,
+    "svg" | "audio" | "image"
+> = {
+    generated_svg: "svg",
+    generated_audio: "audio",
+    generated_image: "image",
+};
+
+/** Builds a paired `<tag ...>...</tag>` search spec whose `Chunk["type"]` equals `tag`. */
+const buildDirectTagSpec = (tag: Chunk["type"]): SearchTagSpec => ({
+    type: tag,
+    start: `<${tag}`,
+    end: `</${tag}>`,
+});
+
+/** Builds a paired `<tag ...>...</tag>` search spec mapped to hidden `tool_result`. */
+const buildHiddenToolTagSpec = (tag: string): SearchTagSpec => ({
+    type: "tool_result",
+    start: `<${tag}`,
+    end: `</${tag}>`,
+});
+
+const DIRECT_PAIRED_TAG_PREFIX = (
+    "edit edit_pending design_previews review_debate persona_review questions question " +
+    "inspect_runtime search_result search grep web_search status think thought plan " +
+    "plan_saved todos web_result web_visit generated_svg"
+).split(" ") as Array<Chunk["type"]>;
+
+const DIRECT_PAIRED_TAG_MID = (
+    "generated_image generated_audio plugin_call browse_session chart insight_card " +
+    "ls cat run create_file mkdir delete_file rename_file rename_chat"
+).split(" ") as Array<Chunk["type"]>;
+
+const HIDDEN_TOOL_TAG_NAMES = (
+    "tool_result terminal_read terminal_input list_terminals tool_code tool_call " +
+    "tool_calls tool_response function_call function_calls function_response " +
+    "minimax:tool_call invoke parameter arg_key arg_value pre_dispatch_explanation " +
+    "tools new_path analysis file_content"
+).split(" ");
+
+const SEARCH_TAGS: SearchTagSpec[] = [
+    ...DIRECT_PAIRED_TAG_PREFIX.map(buildDirectTagSpec),
+    { type: "generated_svg", start: "<recraft_svg", end: "</recraft_svg>" },
+    ...DIRECT_PAIRED_TAG_MID.map(buildDirectTagSpec),
+    { type: "subagent_ref", start: "<subagent_ref", end: "/>" },
+    buildDirectTagSpec("subagent"),
+    buildDirectTagSpec("terminal_command"),
+    buildDirectTagSpec("git_operation"),
+    ...HIDDEN_TOOL_TAG_NAMES.map(buildHiddenToolTagSpec),
+    buildDirectTagSpec("attached_image"),
+    buildDirectTagSpec("sent_file"),
+];
+
+const SEARCH_TAG_BY_PREFIX: ReadonlyMap<string, SearchTagSpec> = new Map(
+    SEARCH_TAGS.map((spec) => [spec.start, spec]),
+);
+
+/** Extracts the hostname from a URL string via the shared favicon helper. */
+const hostnameFromUrl = (url: string): string => hostnameOf(url);
+
+/** Parses optional JSON payload text for rich chat cards, returning `null` when empty or invalid. */
+const parseCardJson = <T,>(raw: string | undefined): T | null => {
+    const text = (raw ?? "").trim();
+    if (!text) return null;
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        return null;
+    }
+};
+
+/** Unescapes XML character entities including `&gt;` in serialized preview markup. */
+const unescapeXml = (value: string): string =>
+    value
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&");
+
+/** Decodes XML attribute entities (`&quot;`, `&#39;`, `&apos;`, `&lt;`, `&gt;`, `&amp;`) in card and command tags. */
+const decodeXmlAttr = decodeBasicXmlEntities;
+
+/** Decodes XML character entities inside card attributes. */
+const decodeXml = decodeBasicXmlEntities;
+
+/** Checks whether `tagText[pos]` sits on an attribute-name boundary. */
+const isAttrNameStartAt = (tagText: string, pos: number): boolean =>
+    pos === 0 || !/[A-Za-z0-9_]/u.test(tagText[pos - 1]);
+
+/** Reads a double-quoted XML attribute value (`name="..."`) case-insensitively from an opening tag string. */
+const readAttr = (tagText: string, name: string): string => {
+    const lowerTag = tagText.toLowerCase();
+    const prefix = `${name.toLowerCase()}="`;
+    let from = 0;
+    while (from < lowerTag.length) {
+        const hit = lowerTag.indexOf(prefix, from);
+        if (hit === -1) return "";
+        if (isAttrNameStartAt(tagText, hit)) {
+            const valStart = hit + prefix.length;
+            const valEnd = tagText.indexOf('"', valStart);
+            return valEnd === -1 ? "" : tagText.slice(valStart, valEnd);
+        }
+        from = hit + 1;
+    }
+    return "";
+};
+
+/** Reads an optional non-empty XML attribute value, returning `undefined` when absent or blank. */
+const readOptionalAttr = (tagText: string, name: string): string | undefined => {
+    const value = readAttr(tagText, name);
+    return value ? value : undefined;
+};
+
+/** Decodes an XML attribute when non-empty, returning `fallback` otherwise. */
+const decodeAttrOr = (
+    tagFull: string,
+    name: string,
+    fallback: string,
+): string => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : fallback;
+};
+
+/** Decodes an optional XML attribute when non-empty, returning `undefined` otherwise. */
+const decodeOptionalAttr = (
+    tagFull: string,
+    name: string,
+): string | undefined => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : undefined;
+};
+
+/** Parses a positive integer attribute value or returns `fallback`. */
+const parsePositiveIntOr = (raw: string, fallback: number): number => {
+    const parsed = Number.parseInt(raw, 10);
+    return parsed > 0 ? parsed : fallback;
+};
+
+/** Parses an optional integer attribute value, returning `undefined` when missing or NaN. */
+const parseOptionalInt = (raw: string | undefined): number | undefined => {
+    if (!raw) return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+/** Attaches `isGenerating` only when defined so self-closing chunk shapes stay exact. */
+const withOptionalGenerating = (
+    chunk: Chunk,
+    isGenerating: boolean | undefined,
+): Chunk => (isGenerating === undefined ? chunk : { ...chunk, isGenerating });
+
+/** Computes the lifecycle rank for a deduplicable command, edit, or plugin chunk. */
+const rankCommandChunk = (chunk: Chunk): number => {
+    const table = STATUS_RANK_BY_CHUNK_TYPE[chunk.type];
+    const status = chunk.commandStatus;
+    if (!table || !status) return 0;
+    return table[status] ?? 0;
+};
+
+/** Builds a deduplication key (`type:commandId`) when a chunk carries a command identifier. */
+const commandDedupeKey = (chunk: Chunk): string | null => {
+    if (!DEDUPABLE_COMMAND_TYPES.has(chunk.type) || !chunk.commandId) return null;
+    return `${chunk.type}:${chunk.commandId}`;
+};
+
+/** Marks superseded command chunks in `skip` by comparing lifecycle ranks per `commandId`. */
+const markSupersededByCommandId = (chunks: Chunk[], skip: Set<number>): void => {
+    const byId = new Map<string, number>();
+    for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        const key = commandDedupeKey(chunk);
+        if (!key) continue;
+        const existing = byId.get(key);
+        if (existing === undefined) {
+            byId.set(key, index);
+        } else if (rankCommandChunk(chunk) >= rankCommandChunk(chunks[existing])) {
+            skip.add(existing);
+            byId.set(key, index);
+        } else {
+            skip.add(index);
+        }
+    }
+};
+
+/** Extracts the trimmed pending terminal command key, or `null` when not applicable. */
+const pendingTerminalCommandKey = (chunk: Chunk): string | null => {
+    if (chunk.type !== "terminal_command" || chunk.commandStatus !== "pending") {
+        return null;
+    }
+    const cmd = chunk.command?.trim();
+    return cmd ? cmd : null;
+};
+
+/**
+ * Collapses superseded pending `terminal_command` transcript blocks with identical command text
+ * so only the latest pending entry renders; Rust `run_with_approval` blocks sequentially on one
+ * pending command at a time, and interactive approval cards read from `agent-command-pending` IPC.
+ */
+const markDuplicatePendingCommands = (chunks: Chunk[], skip: Set<number>): void => {
+    const byPendingCommand = new Map<string, number>();
+    for (let index = 0; index < chunks.length; index += 1) {
+        if (skip.has(index)) continue;
+        const cmd = pendingTerminalCommandKey(chunks[index]);
+        if (!cmd) continue;
+        const existing = byPendingCommand.get(cmd);
+        if (existing !== undefined) {
+            skip.add(existing);
+        }
+        byPendingCommand.set(cmd, index);
+    }
+};
+
+/** Keep one terminal_command / edit_pending block per id (or per command when pending). Prefer higher status. */
+export const dedupeTerminalChunks = (chunks: Chunk[]): Chunk[] => {
+    const skip = new Set<number>();
+    markSupersededByCommandId(chunks, skip);
+    markDuplicatePendingCommands(chunks, skip);
+    return chunks.filter((_, index) => !skip.has(index));
+};
+
+/** Converts ASCII uppercase `A-Z` to `a-z` while preserving exact UTF-16 code-unit indices. */
+const toAsciiLower = (text: string): string =>
+    text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
+
+/** Extracts inner tag content `<tag>...</tag>` case-insensitively from a serialized block string. */
+const getInnerTagContent = (block: string, tag: string): string | undefined => {
+    const lowerBlock = toAsciiLower(block);
+    const lowerTag = toAsciiLower(tag);
+    const startTag = `<${lowerTag}>`;
+    const start = lowerBlock.indexOf(startTag);
+    if (start === -1) return undefined;
+    const end = lowerBlock.indexOf(`</${lowerTag}>`, start + startTag.length);
+    const slice =
+        end === -1
+            ? block.slice(start + startTag.length)
+            : block.slice(start + startTag.length, end);
+    return slice.replace(/^\n|\n$/g, "");
+};
+
+/** Parses an `<edit>` diff block into a structured edit chunk. */
+const parseEditBlock = (
+    tagHeader: string,
+    block: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "edit",
+    file: decodeOptionalAttr(tagHeader, "file"),
+    original: getInnerTagContent(block, "original") ?? "",
+    replacement: getInnerTagContent(block, "replacement") ?? "",
+    isGenerating,
+});
+
+/** Parses an `<edit_pending>` approval block into a structured pending-edit chunk. */
+const parseEditPendingBlock = (
+    tagHeader: string,
+    block: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "edit_pending",
+    file: decodeOptionalAttr(tagHeader, "file"),
+    commandId: readOptionalAttr(tagHeader, "id"),
+    commandStatus: readOptionalAttr(tagHeader, "status") ?? "pending",
+    original: getInnerTagContent(block, "original") ?? "",
+    replacement: getInnerTagContent(block, "replacement") ?? "",
+    isGenerating,
+});
+
+/** Resolves inline markdown body for a `<plan_saved>` block when present. */
+const resolvePlanSavedMarkdown = (
+    block: string,
+    innerContent?: string,
+): string | undefined => {
+    const trimmedInner = innerContent?.trim();
+    if (trimmedInner) return trimmedInner;
+    const fallback = getInnerTagContent(block, "plan_saved");
+    return fallback ? fallback : undefined;
+};
+
+/** Parses a `<plan_saved>` tag into a saved-plan card chunk. */
+const parsePlanSavedBlock = (
+    tagHeader: string,
+    block: string,
+    innerContent?: string,
+): Chunk => ({
+    type: "plan_saved",
+    file: decodeOptionalAttr(tagHeader, "path"),
+    content: decodeOptionalAttr(tagHeader, "title") ?? "Implementation Plan",
+    planMarkdown: resolvePlanSavedMarkdown(block, innerContent),
+});
+
+/** Parses a `<plan>` step-list tag into a plan chunk. */
+const parsePlanBlock = (tagHeader: string, block: string): Chunk => ({
+    type: "plan",
+    content: block,
+    file: decodeOptionalAttr(tagHeader, "title") ?? "Plan",
+});
+
+/** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
+const isAsciiQuoteCode = (code: number): boolean => code === 34 || code === 39;
+
+/** Checks whether `text` begins a closing XML tag (`</`) at `idx`. */
+const isClosingXmlTagStart = (text: string, idx: number): boolean =>
+    text.charCodeAt(idx) === 60 && text.charCodeAt(idx + 1) === 47;
+
+/** Checks whether `text` hits a newline or `</` closing tag before closing a quote. */
+const isUnterminatedQuoteBreak = (
+    text: string,
+    idx: number,
+    code: number,
+): boolean => code === 10 || isClosingXmlTagStart(text, idx);
+
+/** Checks whether `idx` sits on the unclosed `mcp=">` marker emitted by Rust MCP approvals. */
+const isUnclosedMcpMarkerAt = (text: string, idx: number): boolean =>
+    idx >= 4 && text.slice(idx - 4, idx + 2) === 'mcp=">';
+
+/** Advances past a quoted XML attribute value starting at `openIdx` (`"` or `'`). */
+const skipQuotedTagAttr = (
+    text: string,
+    openIdx: number,
+    quoteCode: number,
+): number => {
+    let idx = openIdx + 1;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 92) {
+            idx += 2;
+            continue;
+        }
+        if (code === quoteCode) return idx + 1;
+        if (isUnterminatedQuoteBreak(text, idx, code)) return -2;
+        idx += 1;
+    }
+    return -1;
+};
+
+/** Resolves scanner continuation offset after a quoted attribute inside an opening tag. */
+const resolveAfterQuotedAttr = (
+    text: string,
+    idx: number,
+    code: number,
+): { done: true; gtIndex: number } | { done: false; nextIdx: number } => {
+    if (isUnclosedMcpMarkerAt(text, idx)) {
+        return { done: true, gtIndex: idx + 1 };
+    }
+    const afterQuote = skipQuotedTagAttr(text, idx, code);
+    if (afterQuote === -1) return { done: true, gtIndex: -1 };
+    if (afterQuote === -2) {
+        return { done: true, gtIndex: text.indexOf(">", idx + 1) };
+    }
+    return { done: false, nextIdx: afterQuote };
+};
+
+/** Finds the closing `>` of an XML opening tag starting at `fromIndex`, ignoring quoted `>`. */
+const findTagHeaderCloseIndex = (text: string, fromIndex: number): number => {
+    let idx = fromIndex;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 62) return idx;
+        if (isAsciiQuoteCode(code)) {
+            const step = resolveAfterQuotedAttr(text, idx, code);
+            if (step.done) return step.gtIndex;
+            idx = step.nextIdx;
+        } else {
+            idx += 1;
+        }
+    }
+    return -1;
+};
+
+type ChildXmlMatch = {
+    attrs: string;
+    body: string;
+};
+
+type ChildXmlScanInput = {
+    block: string;
+    lowerBlock: string;
+    openPrefix: string;
+    closeTag: string;
+};
+
+const XML_CHILD_BOUNDARY_CODES = new Set([9, 10, 13, 32, 47, 62]);
+
+/** Reads body and closing tag of a non-self-closing child XML element after `gtIdx`. */
+const readPairedChildXmlBody = (
+    scan: ChildXmlScanInput,
+    afterName: number,
+    gtIdx: number,
+): { item: ChildXmlMatch | null; nextCursor: number } => {
+    const closeIdx = scan.lowerBlock.indexOf(scan.closeTag, gtIdx + 1);
+    if (closeIdx === -1) return { item: null, nextCursor: scan.block.length };
+    return {
+        item: {
+            attrs: scan.block.slice(afterName, gtIdx),
+            body: scan.block.slice(gtIdx + 1, closeIdx),
+        },
+        nextCursor: closeIdx + scan.closeTag.length,
+    };
+};
+
+/** Consumes one `<tagName ...>...</tagName>` or `<tagName .../>` at `openIdx`, or `null`. */
+const readChildXmlElementAt = (
+    scan: ChildXmlScanInput,
+    openIdx: number,
+): { item: ChildXmlMatch | null; nextCursor: number } => {
+    const afterName = openIdx + scan.openPrefix.length;
+    if (!XML_CHILD_BOUNDARY_CODES.has(scan.block.charCodeAt(afterName))) {
+        return { item: null, nextCursor: afterName };
+    }
+    const gtIdx = findTagHeaderCloseIndex(scan.block, afterName);
+    if (gtIdx === -1) return { item: null, nextCursor: scan.block.length };
+    if (scan.block.charCodeAt(gtIdx - 1) === 47) {
+        return {
+            item: { attrs: scan.block.slice(afterName, gtIdx - 1), body: "" },
+            nextCursor: gtIdx + 1,
+        };
+    }
+    return readPairedChildXmlBody(scan, afterName, gtIdx);
+};
+
+/** Scans all `<tagName ...>` child elements case-insensitively in linear time without regexes. */
+const scanChildXmlElements = (
+    block: string,
+    tagName: string,
+    closeTag: string,
+): ChildXmlMatch[] => {
+    const scan: ChildXmlScanInput = {
+        block,
+        lowerBlock: toAsciiLower(block),
+        openPrefix: `<${toAsciiLower(tagName)}`,
+        closeTag: toAsciiLower(closeTag),
+    };
+    const results: ChildXmlMatch[] = [];
+    let cursor = 0;
+    while (cursor < block.length) {
+        const openIdx = scan.lowerBlock.indexOf(scan.openPrefix, cursor);
+        if (openIdx === -1) break;
+        const step = readChildXmlElementAt(scan, openIdx);
+        if (step.item) results.push(step.item);
+        cursor = step.nextCursor;
+    }
+    return results;
+};
+
+/** Parses a single `<todo ...>label</todo>` child element into a normalized todo item. */
+const parseTodoEntry = (
+    entry: ChildXmlMatch,
+): { id: string; label: string; status: TodoStepStatus } => {
+    const statusRaw = (
+        readOptionalAttr(entry.attrs, "status") ?? "pending"
+    ).toLowerCase();
+    return {
+        id: readAttr(entry.attrs, "id"),
+        label: entry.body.trim(),
+        status: TODO_STATUS_MAP[statusRaw] ?? "pending",
+    };
+};
+
+/** Reads the opening XML tag header (`<tag ...>`) from `block`. */
+const readOpeningTagHeader = (block: string): string => {
+    const gtIdx = findTagHeaderCloseIndex(block, 0);
+    return gtIdx === -1 ? block : block.slice(0, gtIdx + 1);
+};
+
+/** Parses a `<todos>` block into a normalized todo-list chunk. */
+const parseTodosBlock = (block: string): Chunk => {
+    const title = decodeAttrOr(readOpeningTagHeader(block), "title", "Todos");
+    const todoMatches = scanChildXmlElements(block, "todo", "</todo>");
+    return {
+        type: "todos",
+        content: title,
+        todos: todoMatches.map(parseTodoEntry),
+    };
+};
+
+/** Resolves subagent name attribute (`agent` preferred over `name`). */
+const resolveSubagentName = (tagFull: string): string => {
+    const agent = decodeAttrOr(tagFull, "agent", "");
+    return agent ? agent : decodeAttrOr(tagFull, "name", "");
+};
+
+/** Resolves status attribute with a streaming-aware fallback (`running` vs `done`). */
+const resolveRunOrDoneStatus = (
+    tagFull: string,
+    isGenerating: boolean,
+    doneLabel: string,
+): string => {
+    const explicit = readAttr(tagFull, "status");
+    if (explicit) return explicit;
+    return isGenerating ? "running" : doneLabel;
+};
+
+/** Parses a `<subagent>` block into a subagent transcript chunk. */
+const parseSubagentBlock = (
+    tagFull: string,
+    inner: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "subagent",
+    file: decodeAttrOr(tagFull, "id", ""),
+    query: resolveSubagentName(tagFull),
+    command: decodeAttrOr(tagFull, "model", ""),
+    content: inner.trim(),
+    commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
+    isGenerating,
+});
+
+/** Parses a self-closing `<subagent_ref ... />` tag into a subagent reference chunk. */
+const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => ({
+    type: "subagent_ref",
+    file: decodeAttrOr(tagFull, "id", ""),
+    query: decodeAttrOr(tagFull, "agent", ""),
+    command: decodeAttrOr(tagFull, "model", ""),
+    content: decodeAttrOr(tagFull, "task", ""),
+    commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
+    isGenerating,
+});
+
+/** Parses a `<git_operation>` tag into a git workflow chunk. */
+const parseGitOperationBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "git_operation",
+    content,
+    gitOp: decodeOptionalAttr(tagFull, "op"),
+    gitStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "completed"),
+    isGenerating,
+});
+
+/** Resolves the first defined attribute from two candidate attribute names. */
+const readAttrPair = (
+    tagFull: string,
+    primary: string,
+    secondary: string,
+): string | undefined =>
+    readOptionalAttr(tagFull, primary) ?? readOptionalAttr(tagFull, secondary);
+
+/** Parses a `<cat>` file-read block with optional line-range bounds. */
+const parseCatBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "cat",
+    content: decodeOptionalAttr(tagFull, "path") ?? content.trim(),
+    catStartLine: parseOptionalInt(readAttrPair(tagFull, "start", "startLine")),
+    catEndLine: parseOptionalInt(readAttrPair(tagFull, "end", "endLine")),
+    isGenerating,
+});
+
+/** Resolves inline source markup for a `<design_preview>` item when present. */
+const resolvePreviewSource = (attrs: string, inner: string): string => {
+    const fromInner = unescapeXml(inner).trim();
+    return fromInner ? fromInner : unescapeXml(readAttr(attrs, "source")).trim();
+};
+
+/** Builds a `DesignPreviewItem` from tag attributes and inner text, or `null` when incomplete. */
+const buildDesignPreviewItem = (
+    attrs: string,
+    inner: string,
+): DesignPreviewItem | null => {
+    const previewId = decodeAttrOr(attrs, "id", "");
+    const path = decodeAttrOr(attrs, "path", "");
+    const source = resolvePreviewSource(attrs, inner);
+    if (!previewId.trim() || (!path.trim() && !source)) return null;
+    return {
+        id: previewId,
+        name: decodeAttrOr(attrs, "name", ""),
+        style: decodeAttrOr(attrs, "style", ""),
+        path,
+        source: source ? source : undefined,
+        width: parsePositiveIntOr(readAttr(attrs, "width"), 1280),
+        height: parsePositiveIntOr(readAttr(attrs, "height"), 800),
+        renderMs: parseOptionalInt(readOptionalAttr(attrs, "render_ms")),
+        kind: PREVIEW_KIND_MAP[readAttr(attrs, "kind")],
+    };
+};
+
+/** Reads a regex capture group as a string, defaulting to `""`. */
+const captureOrEmpty = (value: string | undefined): string => value ?? "";
+
+/** Appends unique `<design_preview>` child elements from `block` into `previews`. */
+const collectDesignPreviewElements = (block: string): DesignPreviewItem[] => {
+    const previews: DesignPreviewItem[] = [];
+    const seenIds = new Set<string>();
+    for (const entry of scanChildXmlElements(
+        block,
+        "design_preview",
+        "</design_preview>",
+    )) {
+        const item = buildDesignPreviewItem(entry.attrs, entry.body);
+        if (item && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            previews.push(item);
+        }
+    }
+    return previews;
+};
+
+/** Parses a `<design_previews>` gallery block into a structured chunk. */
+const parseDesignPreviewsBlock = (block: string): Chunk => {
+    const openEnd = findTagHeaderCloseIndex(block, 0);
+    const open = openEnd === -1 ? "" : block.slice(0, openEnd + 1);
+    const previews = collectDesignPreviewElements(block);
+    return {
+        type: "design_previews",
+        designPreviews: previews,
+        selectedConcept: readAttr(open, "selected"),
+        commandId: readOptionalAttr(open, "id"),
+        commandStatus: readOptionalAttr(open, "status"),
+    };
+};
+
+/** Parses a `<review_debate>` panel block. */
+const parseReviewDebateBlock = (tagHeader: string, content: string): Chunk => ({
+    type: "review_debate",
+    content: content.trim(),
+    reviewModel: readOptionalAttr(tagHeader, "model"),
+});
+
+/** Parses a `<persona_review>` panel block. */
+const parsePersonaReviewBlock = (tagHeader: string, content: string): Chunk => ({
+    type: "persona_review",
+    content: content.trim(),
+    commandId: readOptionalAttr(tagHeader, "id"),
+    commandStatus: readOptionalAttr(tagHeader, "status"),
+    visitUrl: decodeOptionalAttr(tagHeader, "url"),
+});
+
+/** Parses a `<question>` or `<questions>` interactive prompt card block. */
+const parseQuestionBlock = (tagHeader: string, content: string): Chunk => {
+    const inner = content.trim();
+    const { questions, answers } = parseQuestionsPayload(inner);
+    return {
+        type: "question",
+        content: inner,
+        commandId: readOptionalAttr(tagHeader, "id"),
+        commandStatus: readOptionalAttr(tagHeader, "status"),
+        questions,
+        answers,
+    };
+};
+
+/** Parses a `<plugin_call>` block into a plugin execution chunk. */
+const parsePluginCallBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "plugin_call",
+    content,
+    pluginToolkit: decodeOptionalAttr(tagFull, "toolkit"),
+    pluginSlug: decodeOptionalAttr(tagFull, "slug"),
+    pluginLabel: decodeOptionalAttr(tagFull, "label"),
+    commandId: readOptionalAttr(tagFull, "id"),
+    commandStatus: readOptionalAttr(tagFull, "status") ?? "ok",
+    isGenerating,
+});
+
+/** Parses a `<sent_file>` attachment block into a sent-file card chunk. */
+const parseSentFileBlock = (tagFull: string, content: string): Chunk => ({
+    type: "sent_file",
+    file: decodeAttrOr(tagFull, "name", "File"),
+    query: decodeOptionalAttr(tagFull, "type") ?? "application/octet-stream",
+    mediaPrompt: decodeOptionalAttr(tagFull, "title"),
+    content: content.trim(),
+});
+
+/** Parses generated SVG, image, or audio blocks into a unified media chunk. */
+const parseGeneratedMediaBlock = (
+    type: GeneratedMediaChunkType,
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => {
+    const prompt = decodeOptionalAttr(tagFull, "prompt");
+    return {
+        type,
+        content: content.trim(),
+        mediaPrompt: prompt,
+        mediaCredits: decodeOptionalAttr(tagFull, "credits"),
+        query: prompt,
+        isGenerating,
+    };
+};
+
+/** Parses a rich card tag (`<browse_session>`, etc.) carrying optional URL/title/status metadata. */
+const parseRichCard = (
+    type: Chunk["type"],
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type,
+    content,
+    visitUrl: decodeOptionalAttr(tagFull, "url"),
+    visitTitle: decodeOptionalAttr(tagFull, "title"),
+    commandId: readOptionalAttr(tagFull, "id"),
+    commandStatus: readOptionalAttr(tagFull, "status"),
+    isGenerating,
+});
+
+/** Parses a `<web_visit>` citation block with XML-decoded URL/host/title metadata. */
+const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
+    const url = decodeAttrOr(tagFull, "url", "");
+    const host = decodeOptionalAttr(tagFull, "host") ?? hostnameFromUrl(url);
+    return {
+        type: "web_visit",
+        visitUrl: url,
+        visitHost: host,
+        visitTitle: decodeOptionalAttr(tagFull, "title") ?? host,
+        content: host,
+        isGenerating,
+    };
+};
+
+/** Finds the index of the last non-blank line in `lines`, or `-1` when all lines are blank. */
+const findLastNonEmptyLineIndex = (lines: string[]): number => {
+    for (let idx = lines.length - 1; idx >= 0; idx -= 1) {
+        if (lines[idx].trim().length > 0) return idx;
+    }
+    return -1;
+};
+
+const APPROVAL_COMMAND_STATUSES = new Set(["pending", "blocked"]);
+
+/** Reads the last non-blank line at `footerIdx`, or `""` when `footerIdx < 0`. */
+const readLineAtOrEmpty = (lines: string[], idx: number): string =>
+    idx >= 0 ? lines[idx] : "";
+
+/** Extracts trailing approval/blocked footer metadata from a pending or blocked terminal block. */
+const extractApprovalFooter = (
+    rawLines: string[],
+    commandStatus: string,
+): { reasonIdx: number; footerReason?: string } => {
+    if (!APPROVAL_COMMAND_STATUSES.has(commandStatus)) return { reasonIdx: -1 };
+    const footerIdx = findLastNonEmptyLineIndex(rawLines);
+    const footerLine = readLineAtOrEmpty(rawLines, footerIdx);
+    if (!/^(?:Awaiting approval:|Blocked:)\s/.test(footerLine)) {
+        return { reasonIdx: -1 };
+    }
+    return {
+        reasonIdx: footerIdx,
+        footerReason: footerLine
+            .replace(/^(?:Awaiting approval:|Blocked:)\s*/, "")
+            .trim(),
+    };
+};
+
+/** Resolves the approval/blocked reason from `reason="..."` attribute or trailing footer line. */
+const resolveTerminalCommandReason = (
+    tagFull: string,
+    footerReason: string | undefined,
+): string | undefined => {
+    const rawAttr = readOptionalAttr(tagFull, "reason");
+    const fromAttr = rawAttr ? decodeXmlAttr(rawAttr).trim() : "";
+    return fromAttr ? fromAttr : footerReason;
+};
+
+/** Collects leading backslash-continued shell lines from completed terminal block content. */
+const collectCompletedShellCommand = (rawLines: string[]): string => {
+    const nonEmptyStart = rawLines.findIndex((line) => line.trim().length > 0);
+    if (nonEmptyStart === -1) return "";
+    const collected: string[] = [];
+    for (let idx = nonEmptyStart; idx < rawLines.length; idx += 1) {
+        const line = rawLines[idx];
+        collected.push(line);
+        if (!/\\\s*$/.test(line)) break;
+    }
+    return collected.join("\n").trim();
+};
+
+const FULL_BODY_COMMAND_STATUSES = new Set([
+    "running",
+    "rejected",
+    "cancelled",
+]);
+
+/** Slices terminal command lines prior to an approval footer index when present. */
+const sliceApprovalCommandLines = (
+    rawLines: string[],
+    reasonIdx: number,
+): string => {
+    const slice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
+    return slice.join("\n").trim();
+};
+
+/** Extracts the shell command text from `<terminal_command>` attributes or body lines. */
+const resolveParsedTerminalCommand = (
+    tagFull: string,
+    content: string,
+    rawLines: string[],
+    commandStatus: string,
+    reasonIdx: number,
+): string => {
+    const cmdAttr = readOptionalAttr(tagFull, "command");
+    if (cmdAttr) return decodeXmlAttr(cmdAttr).trim();
+    if (APPROVAL_COMMAND_STATUSES.has(commandStatus)) {
+        return sliceApprovalCommandLines(rawLines, reasonIdx);
+    }
+    if (FULL_BODY_COMMAND_STATUSES.has(commandStatus)) {
+        return content.trim();
+    }
+    return collectCompletedShellCommand(rawLines);
+};
+
+/** Parses the exit code from `exit_code="..."` or `exit="..."` on `<terminal_command>`. */
+const parseTerminalExitCode = (tagFull: string): number | undefined => {
+    const raw = tagFull.match(/\b(?:exit_code|exit)="(-?\d+)"/)?.[1];
+    return raw ? Number(raw) : undefined;
+};
+
+/** Parses a `<terminal_command>` block into a structured terminal chunk. */
+const parseTerminalCommandBlock = (
+    tagFull: string,
+    content: string,
+    defaultStatus: string,
+    isGenerating?: boolean,
+): Chunk => {
+    const commandStatus = readOptionalAttr(tagFull, "status") ?? defaultStatus;
+    const rawLines = content.split("\n");
+    const { reasonIdx, footerReason } = extractApprovalFooter(
+        rawLines,
+        commandStatus,
+    );
+    const sessionRaw = tagFull.match(/\bsession="(\d+)"/)?.[1];
+    return withOptionalGenerating(
+        {
+            type: "terminal_command",
+            content,
+            command: resolveParsedTerminalCommand(
+                tagFull,
+                content,
+                rawLines,
+                commandStatus,
+                reasonIdx,
+            ),
+            commandId: readOptionalAttr(tagFull, "id"),
+            commandStatus,
+            commandReason: resolveTerminalCommandReason(tagFull, footerReason),
+            sessionId: sessionRaw ? Number(sessionRaw) : undefined,
+            exitCode: parseTerminalExitCode(tagFull),
+        },
+        isGenerating,
+    );
+};
+
+/** Parses an `<inspect_runtime>` browser/runtime inspection block. */
+const parseInspectRuntimeBlock = (
+    tagFull: string,
+    content: string,
+    isGenerating: boolean,
+): Chunk => ({
+    type: "inspect_runtime",
+    query: decodeAttrOr(tagFull, "url", ""),
+    inspectKind: decodeAttrOr(tagFull, "kind", ""),
+    content,
+    isGenerating,
+});
+
+/** Parses `<web_result>`, `<search_result>`, and `<grep>` blocks with optional `query` attribute. */
+const buildQueryResultChunk = (ctx: TagSliceContext): Chunk => {
+    const rawQuery = readOptionalAttr(ctx.tagHeader, "query");
+    return withOptionalGenerating(
+        {
+            type: ctx.type,
+            content: ctx.content,
+            query: rawQuery ? decodeXmlAttr(rawQuery) : undefined,
+        },
+        ctx.isGenerating,
+    );
+};
+
+/** Parses a `<run>` command block, trimming command text when content is present. */
+const buildRunChunk = (ctx: TagSliceContext): Chunk =>
+    withOptionalGenerating(
+        {
+            type: "run",
+            content: ctx.content,
+            command: ctx.isGenerating === undefined ? "" : ctx.content.trim(),
+        },
+        ctx.isGenerating,
+    );
+
+/** Builds a generated media chunk from a `TagSliceContext`. */
+const buildGeneratedMediaFromCtx = (ctx: TagSliceContext): Chunk =>
+    parseGeneratedMediaBlock(
+        ctx.type as GeneratedMediaChunkType,
+        ctx.tagHeader,
+        ctx.content,
+        Boolean(ctx.isGenerating),
+    );
+
+const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
+    edit: (ctx) =>
+        parseEditBlock(
+            ctx.tagHeader,
+            ctx.fullBlock,
+            Boolean(ctx.isGenerating),
+        ),
+    edit_pending: (ctx) =>
+        parseEditPendingBlock(
+            ctx.tagHeader,
+            ctx.fullBlock,
+            Boolean(ctx.isGenerating),
+        ),
+    plan: (ctx) => parsePlanBlock(ctx.tagHeader, ctx.fullBlock),
+    plan_saved: (ctx) =>
+        parsePlanSavedBlock(ctx.tagHeader, ctx.fullBlock, ctx.content),
+    todos: (ctx) => parseTodosBlock(ctx.fullBlock),
+    terminal_command: (ctx) =>
+        parseTerminalCommandBlock(
+            ctx.tagHeader,
+            ctx.content,
+            ctx.defaultTerminalStatus,
+            ctx.isGenerating,
+        ),
+    git_operation: (ctx) =>
+        parseGitOperationBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    cat: (ctx) =>
+        parseCatBlock(ctx.tagHeader, ctx.content, Boolean(ctx.isGenerating)),
+    subagent_ref: (ctx) =>
+        parseSubagentRefBlock(ctx.tagHeader, Boolean(ctx.isGenerating)),
+    subagent: (ctx) =>
+        parseSubagentBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    design_previews: (ctx) => parseDesignPreviewsBlock(ctx.fullBlock),
+    review_debate: (ctx) => parseReviewDebateBlock(ctx.tagHeader, ctx.content),
+    persona_review: (ctx) => parsePersonaReviewBlock(ctx.tagHeader, ctx.content),
+    question: (ctx) => parseQuestionBlock(ctx.tagHeader, ctx.content),
+    questions: (ctx) => parseQuestionBlock(ctx.tagHeader, ctx.content),
+    run: buildRunChunk,
+    web_result: buildQueryResultChunk,
+    search_result: buildQueryResultChunk,
+    grep: buildQueryResultChunk,
+    web_visit: (ctx) =>
+        parseWebVisitBlock(ctx.tagHeader, Boolean(ctx.isGenerating)),
+    inspect_runtime: (ctx) =>
+        parseInspectRuntimeBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    browse_session: (ctx) =>
+        parseRichCard(
+            ctx.type,
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    plugin_call: (ctx) =>
+        parsePluginCallBlock(
+            ctx.tagHeader,
+            ctx.content,
+            Boolean(ctx.isGenerating),
+        ),
+    generated_svg: buildGeneratedMediaFromCtx,
+    generated_image: buildGeneratedMediaFromCtx,
+    generated_audio: buildGeneratedMediaFromCtx,
+    sent_file: (ctx) => parseSentFileBlock(ctx.tagHeader, ctx.content),
+};
+
+/** Builds a `Chunk` from a matched tag slice using `TAG_CHUNK_BUILDERS` or generic fallback. */
+const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
+    const builder = TAG_CHUNK_BUILDERS[ctx.type];
+    if (builder) return builder(ctx);
+    return withOptionalGenerating(
+        {
+            type: ctx.type,
+            content: ctx.content,
+        },
+        ctx.isGenerating,
+    );
+};
+
+/** Checks whether `ch` is a valid delimiter immediately following an open XML tag name. */
+const isOpenTagNameDelimiter = (ch: string | undefined): boolean =>
+    ch === undefined || ch === ">" || ch === "/" || ch === "=" || /\s/u.test(ch);
+
+/** Checks whether UTF-16 code unit `code` can appear in a structured tag identifier (`A-Z`, `a-z`, `_`, `:`). */
+const isStructuredTagNameChar = (code: number): boolean =>
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    code === 95 ||
+    code === 58;
+
+/** Scans contiguous structured-tag identifier characters starting at `start`. */
+const readStructuredTagEnd = (text: string, start: number): number => {
+    let cursor = start;
+    while (
+        cursor < text.length &&
+        isStructuredTagNameChar(text.charCodeAt(cursor))
+    ) {
+        cursor += 1;
+    }
+    return cursor;
+};
+
+/** Attempts an $O(1)$ case-insensitive lookup for a structured open tag anchored at `<` (`ltIndex`). */
+const matchStructuredTagAt = (
+    text: string,
+    ltIndex: number,
+): MatchedTagRange | null => {
+    const nameEnd = readStructuredTagEnd(text, ltIndex + 1);
+    if (nameEnd === ltIndex + 1 || !isOpenTagNameDelimiter(text[nameEnd])) {
+        return null;
+    }
+    const spec = SEARCH_TAG_BY_PREFIX.get(
+        text.slice(ltIndex, nameEnd).toLowerCase(),
+    );
+    if (!spec) return null;
+    return {
+        type: spec.type,
+        index: ltIndex,
+        startTag: spec.start,
+        endTag: spec.end,
+    };
+};
+
+/** Returns the end offset of a fenced code range containing `index` in amortized $O(1)$ via `fenceCursor`. */
+const findContainingFenceEnd = (
+    index: number,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
+    fenceCursor: { idx: number },
+): number => {
+    while (
+        fenceCursor.idx < fenceRanges.length &&
+        fenceRanges[fenceCursor.idx][1] <= index
+    ) {
+        fenceCursor.idx += 1;
+    }
+    if (fenceCursor.idx >= fenceRanges.length) return -1;
+    const [start, end] = fenceRanges[fenceCursor.idx];
+    return index >= start ? end : -1;
+};
+
+/** Finds the earliest structured XML tag outside `fenceRanges` in a single linear `<` pass. */
+const findNextStructuredTag = (
+    text: string,
+    fromIndex: number,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
+    fenceCursor: { idx: number },
+): MatchedTagRange | null => {
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const ltIndex = text.indexOf("<", cursor);
+        if (ltIndex === -1) return null;
+        const fenceEnd = findContainingFenceEnd(
+            ltIndex,
+            fenceRanges,
+            fenceCursor,
+        );
+        if (fenceEnd !== -1) {
+            cursor = fenceEnd;
+        } else {
+            const matched = matchStructuredTagAt(text, ltIndex);
+            if (matched) return matched;
+            cursor = ltIndex + 1;
+        }
+    }
+    return null;
+};
+
+/** Appends a chunk to `chunks`, replacing any prior `todos` chunk in place. */
+const pushParsedChunk = (chunks: Chunk[], chunk: Chunk): void => {
+    if (chunk.type === "todos") {
+        const existingIdx = chunks.findIndex((item) => item.type === "todos");
+        if (existingIdx >= 0) {
+            chunks[existingIdx] = chunk;
+            return;
+        }
+    }
+    chunks.push(chunk);
+};
+
+/** Appends sanitized plain-text segment between `start` and `end` when non-empty. */
+const pushSanitizedTextSlice = (
+    chunks: Chunk[],
+    text: string,
+    sourceOffset: number,
+    start: number,
+    end?: number,
+): void => {
+    const cleaned = stripOrphanThinkTags(text.slice(start, end));
+    if (cleaned) {
+        chunks.push({
+            type: "text",
+            content: cleaned,
+            sourceStart: sourceOffset + start,
+        });
+    }
+};
+
+/** Collects sorted non-overlapping fenced and inline code ranges across `text`. */
+const collectProtectedCodeRanges = (
+    text: string,
+): Array<readonly [number, number]> => {
+    const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
+    if (!text.includes("`")) return fenceRanges;
+    const out: Array<[number, number]> = [];
+    let cursor = 0;
+    for (const [start, end] of fenceRanges) {
+        if (start > cursor) {
+            appendInlineCodeSpansInRange(text, cursor, start, out);
+        }
+        out.push([start, end]);
+        cursor = end;
+    }
+    if (cursor < text.length) {
+        appendInlineCodeSpansInRange(text, cursor, text.length, out);
+    }
+    return out;
+};
+
+/** Checks whether the opening tag ending at `gtIndex` is self-closing (`/>`). */
+const isSelfClosingTagAt = (
+    text: string,
+    tagStartIndex: number,
+    gtIndex: number,
+): boolean => gtIndex > tagStartIndex && text[gtIndex - 1] === "/";
+
+/** Resolves a matched XML tag at `match` into a `TagSliceContext` and next scanner cursor. */
+const consumeMatchedTagAt = (
+    text: string,
+    lowerText: string,
+    match: MatchedTagRange,
+): { slice: TagSliceContext; nextIndex: number } => {
+    const gtIndex = findTagHeaderCloseIndex(
+        text,
+        match.index + match.startTag.length,
+    );
+    if (gtIndex === -1) {
+        const rawRest = text.slice(match.index);
+        return {
+            slice: {
+                type: match.type,
+                tagHeader: rawRest,
+                fullBlock: rawRest,
+                content: "",
+                isGenerating: true,
+                defaultTerminalStatus: "pending",
+            },
+            nextIndex: text.length,
+        };
+    }
+    if (isSelfClosingTagAt(text, match.index, gtIndex)) {
+        const selfTag = text.slice(match.index, gtIndex + 1);
+        return {
+            slice: {
+                type: match.type,
+                tagHeader: selfTag,
+                fullBlock: selfTag,
+                content: "",
+                isGenerating: undefined,
+                defaultTerminalStatus: "completed",
+            },
+            nextIndex: gtIndex + 1,
+        };
+    }
+    const contentStart = gtIndex + 1;
+    const tagHeader = text.slice(match.index, contentStart);
+    const endIndex = lowerText.indexOf(toAsciiLower(match.endTag), contentStart);
+    if (endIndex === -1) {
+        return {
+            slice: {
+                type: match.type,
+                tagHeader,
+                fullBlock: text.slice(match.index),
+                content: text.slice(contentStart),
+                isGenerating: true,
+                defaultTerminalStatus: "pending",
+            },
+            nextIndex: text.length,
+        };
+    }
+    const nextIndex = endIndex + match.endTag.length;
+    return {
+        slice: {
+            type: match.type,
+            tagHeader,
+            fullBlock: text.slice(match.index, nextIndex),
+            content: text.slice(contentStart, endIndex),
+            isGenerating: false,
+            defaultTerminalStatus: "completed",
+        },
+        nextIndex,
+    };
+};
+
 const MAX_OPENUI_SOURCE_LENGTH = 32_000;
 const MAX_OPENUI_BLOCKS_PER_MESSAGE = 3;
+const MAX_TAG_NAME_LENGTH = 128;
 
 type OpenUIFence = {
     start: number;
@@ -190,10 +1430,12 @@ type OpenUIFenceScan = { fences: OpenUIFence[]; overflow?: OpenUIFenceOverflow }
 type PendingTag = {
     name: string;
     closing: boolean;
-    quote: "\"" | "'" | null;
+    quote: '"' | "'" | null;
     lastNonWhitespace: string;
     readingName: boolean;
 };
+
+type PendingTagStep = { tag: PendingTag | null; consumed: boolean };
 
 type ActiveOpenUIFence = {
     marker: string;
@@ -207,158 +1449,176 @@ type OpenUIFenceScannerState = {
     activeFence: ActiveOpenUIFence | null;
     activeMessageTags: Map<string, number>;
     pendingMessageTag: PendingTag | null;
+    inlineCodeEnd: number;
+    paragraphEnd: number;
+    unmatchedTickLengths: Set<number>;
     overflow?: OpenUIFenceOverflow;
 };
 
-const MESSAGE_BLOCK_TAGS: Array<{ type: Chunk["type"]; start: string; end: string }> = [
-    { type: 'edit', start: '<edit', end: '</edit>' },
-    // Longer tag wins the same-index tie-break against '<edit'.
-    { type: 'edit_pending', start: '<edit_pending', end: '</edit_pending>' },
-    { type: 'design_previews', start: '<design_previews', end: '</design_previews>' },
-    { type: 'review_debate', start: '<review_debate', end: '</review_debate>' },
-    { type: 'persona_review', start: '<persona_review', end: '</persona_review>' },
-    { type: 'questions', start: '<questions', end: '</questions>' },
-    { type: 'question', start: '<question', end: '</question>' },
-    { type: 'inspect_runtime', start: '<inspect_runtime', end: '</inspect_runtime>' },
-    { type: 'search_result', start: '<search_result', end: '</search_result>' },
-    { type: 'search', start: '<search', end: '</search>' },
-    { type: 'grep', start: '<grep', end: '</grep>' },
-    { type: 'web_search', start: '<web_search', end: '</web_search>' },
-    { type: 'status', start: '<status', end: '</status>' },
-    { type: 'think', start: '<think>', end: '</think>' },
-    { type: 'think', start: '<think', end: '</think>' },
-    { type: 'thought', start: '<thought', end: '</thought>' },
-    { type: 'plan', start: '<plan', end: '</plan>' },
-    { type: 'plan_saved', start: '<plan_saved', end: '</plan_saved>' },
-    { type: 'todos', start: '<todos', end: '</todos>' },
-    { type: 'web_result', start: '<web_result', end: '</web_result>' },
-    { type: 'web_visit', start: '<web_visit', end: '</web_visit>' },
-    { type: 'generated_svg', start: '<generated_svg', end: '</generated_svg>' },
-    { type: 'generated_svg', start: '<recraft_svg', end: '</recraft_svg>' },
-    { type: 'generated_image', start: '<generated_image', end: '</generated_image>' },
-    { type: 'generated_audio', start: '<generated_audio', end: '</generated_audio>' },
-    { type: 'plugin_call', start: '<plugin_call', end: '</plugin_call>' },
-    { type: 'browse_session', start: '<browse_session', end: '</browse_session>' },
-    { type: 'chart', start: '<chart', end: '</chart>' },
-    { type: 'insight_card', start: '<insight_card', end: '</insight_card>' },
-    { type: 'ls', start: '<ls', end: '</ls>' },
-    { type: 'cat', start: '<cat', end: '</cat>' },
-    { type: 'run', start: '<run', end: '</run>' },
-    { type: 'create_file', start: '<create_file', end: '</create_file>' },
-    { type: 'mkdir', start: '<mkdir', end: '</mkdir>' },
-    { type: 'delete_file', start: '<delete_file', end: '</delete_file>' },
-    { type: 'rename_file', start: '<rename_file', end: '</rename_file>' },
-    { type: 'rename_chat', start: '<rename_chat', end: '</rename_chat>' },
-    { type: 'subagent_ref', start: '<subagent_ref', end: '/>' },
-    { type: 'subagent', start: '<subagent', end: '</subagent>' },
-    { type: 'terminal_command', start: '<terminal_command', end: '</terminal_command>' },
-    { type: 'git_operation', start: '<git_operation', end: '</git_operation>' },
-    // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
-    // Defense-in-depth with stripLeakedToolCode — never render as prose.
-    { type: 'tool_result', start: '<tool_result', end: '</tool_result>' },
-    { type: 'tool_result', start: '<terminal_read', end: '</terminal_read>' },
-    { type: 'tool_result', start: '<terminal_input', end: '</terminal_input>' },
-    { type: 'tool_result', start: '<list_terminals', end: '</list_terminals>' },
-    { type: 'tool_result', start: '<tool_code', end: '</tool_code>' },
-    { type: 'tool_result', start: '<tool_call', end: '</tool_call>' },
-    { type: 'tool_result', start: '<tool_calls', end: '</tool_calls>' },
-    { type: 'tool_result', start: '<tool_response', end: '</tool_response>' },
-    { type: 'tool_result', start: '<function_call', end: '</function_call>' },
-    { type: 'tool_result', start: '<function_calls', end: '</function_calls>' },
-    { type: 'tool_result', start: '<function_response', end: '</function_response>' },
-    { type: 'tool_result', start: '<minimax:tool_call', end: '</minimax:tool_call>' },
-    { type: 'tool_result', start: '<invoke', end: '</invoke>' },
-    { type: 'tool_result', start: '<parameter', end: '</parameter>' },
-    { type: 'tool_result', start: '<arg_key', end: '</arg_key>' },
-    { type: 'tool_result', start: '<arg_value', end: '</arg_value>' },
-    { type: 'tool_result', start: '<pre_dispatch_explanation', end: '</pre_dispatch_explanation>' },
-    { type: 'tool_result', start: '<tools', end: '</tools>' },
-    { type: 'tool_result', start: '<new_path', end: '</new_path>' },
-    { type: 'tool_result', start: '<content', end: '</content>' },
-    { type: 'tool_result', start: '<analysis', end: '</analysis>' },
-    { type: 'tool_result', start: '<file_content', end: '</file_content>' },
-    { type: 'attached_image', start: '<attached_image', end: '</attached_image>' },
-    { type: 'sent_file', start: '<sent_file', end: '</sent_file>' },
-];
-const MESSAGE_BLOCK_TAG_NAMES = new Set(
-    MESSAGE_BLOCK_TAGS.map(({ start }) => /^<([^\s>]+)/.exec(start)?.[1]).filter((name): name is string => Boolean(name)),
+const MESSAGE_BLOCK_TAG_NAMES: ReadonlySet<string> = new Set(
+    SEARCH_TAGS.map((spec) => spec.start.slice(1)),
 );
-const MESSAGE_BLOCK_TAG_NAME_PREFIXES = new Set(
+const MESSAGE_BLOCK_TAG_NAME_PREFIXES: ReadonlySet<string> = new Set(
     Array.from(MESSAGE_BLOCK_TAG_NAMES).flatMap((name) =>
-        Array.from({ length: name.length }, (_, index) => name.slice(0, index + 1)),
+        Array.from({ length: name.length }, (_, idx) => name.slice(0, idx + 1)),
     ),
 );
-const MAX_TAG_NAME_LENGTH = 128;
 
-/** Constrain the incremental tag scanner to XML-like name characters. */
-const isTagNameCharacter = (character: string): boolean => {
-    return /^[A-Za-z0-9:_-]$/.test(character);
+/** Constrains the incremental tag scanner to XML-like name characters. */
+const isTagNameCharacter = (ch: string): boolean =>
+    /^[A-Za-z0-9:_-]$/u.test(ch);
+
+/** Checks whether `ch` is an ASCII attribute quote (`"` or `'`). */
+const isAsciiQuoteChar = (ch: string): ch is '"' | "'" =>
+    ch === '"' || ch === "'";
+
+/** Decrements or removes `name` from `activeTags` when a closing structural tag completes. */
+const decrementActiveTagDepth = (
+    name: string,
+    activeTags: Map<string, number>,
+): void => {
+    const count = activeTags.get(name) ?? 0;
+    if (count <= 1) activeTags.delete(name);
+    else activeTags.set(name, count - 1);
 };
 
-/** Find a structural tag without accepting a longer unknown tag-name prefix. */
-const structuralTagPatterns = new Map<string, RegExp>();
-const findStructuralTagIndex = (text: string, from: number, marker: string): number => {
-    let pattern = structuralTagPatterns.get(marker);
-    if (!pattern) {
-        const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        pattern = new RegExp(escapedMarker, "ig");
-        structuralTagPatterns.set(marker, pattern);
-    }
-    pattern.lastIndex = from;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) !== null) {
-        const boundary = text[match.index + marker.length];
-        if (marker.endsWith(">") || !boundary || !/[A-Za-z0-9:_-]/.test(boundary)) return match.index;
-    }
-    return -1;
+/** Increments depth for `name` inside `activeTags`. */
+const incrementActiveTagDepth = (
+    name: string,
+    activeTags: Map<string, number>,
+): void => {
+    activeTags.set(name, (activeTags.get(name) ?? 0) + 1);
 };
 
-/** Apply a completed structural tag to the active-tag depth map. */
-const applyCompletedTag = (completed: PendingTag, activeTags: Map<string, number>): void => {
+/** Applies a completed structural tag to the active-tag depth map. */
+const applyCompletedTag = (
+    completed: PendingTag,
+    activeTags: Map<string, number>,
+): void => {
     const name = completed.name.toLowerCase();
     if (!MESSAGE_BLOCK_TAG_NAMES.has(name)) return;
-    const count = activeTags.get(name) ?? 0;
     if (completed.closing) {
-        if (count <= 1) activeTags.delete(name);
-        else activeTags.set(name, count - 1);
+        decrementActiveTagDepth(name, activeTags);
     } else if (completed.lastNonWhitespace !== "/") {
-        activeTags.set(name, count + 1);
+        incrementActiveTagDepth(name, activeTags);
     }
 };
 
-type PendingTagStep = { tag: PendingTag | null; consumed: boolean };
+/** Appends `ch` to `tag.name` when it stays a valid known structural-tag prefix. */
+const tryExtendPendingTagName = (
+    tag: PendingTag,
+    ch: string,
+): PendingTagStep => {
+    if (tag.name.length >= MAX_TAG_NAME_LENGTH) {
+        return { tag: null, consumed: true };
+    }
+    const candidateName = (tag.name + ch).toLowerCase();
+    if (!MESSAGE_BLOCK_TAG_NAME_PREFIXES.has(candidateName)) {
+        return { tag: null, consumed: true };
+    }
+    tag.name = candidateName;
+    return { tag, consumed: true };
+};
 
-/** Consume one character of an unfinished tag while retaining quote and name state. */
+/** Advances `tag` while reading its XML tag name, returning `null` once name reading finishes. */
+const stepPendingTagName = (
+    ch: string,
+    tag: PendingTag,
+): PendingTagStep | null => {
+    if (isTagNameCharacter(ch)) {
+        return tryExtendPendingTagName(tag, ch);
+    }
+    if (!tag.name || !MESSAGE_BLOCK_TAG_NAMES.has(tag.name)) {
+        return { tag: null, consumed: false };
+    }
+    tag.readingName = false;
+    return null;
+};
+
+/** Advances a quoted attribute value inside `tag`. */
+const stepQuotedTagBody = (ch: string, tag: PendingTag): PendingTagStep => {
+    if (ch === tag.quote) tag.quote = null;
+    return { tag, consumed: true };
+};
+
+/** Advances an unquoted tag body across `ch`. */
+const stepUnquotedTagBody = (
+    ch: string,
+    tag: PendingTag,
+    activeTags: Map<string, number>,
+): PendingTagStep => {
+    if (isAsciiQuoteChar(ch)) {
+        tag.quote = ch;
+        return { tag, consumed: true };
+    }
+    if (ch === ">") {
+        applyCompletedTag(tag, activeTags);
+        return { tag: null, consumed: true };
+    }
+    if (!/\s/u.test(ch)) tag.lastNonWhitespace = ch;
+    return { tag, consumed: true };
+};
+
+/** Consumes one character of an unfinished tag while retaining quote and name state. */
 const advancePendingTag = (
-    character: string,
+    ch: string,
     tag: PendingTag,
     activeTags: Map<string, number>,
 ): PendingTagStep => {
     if (tag.readingName) {
-        if (isTagNameCharacter(character)) {
-            if (tag.name.length >= MAX_TAG_NAME_LENGTH) return { tag: null, consumed: true };
-            const candidateName = (tag.name + character).toLowerCase();
-            if (!MESSAGE_BLOCK_TAG_NAME_PREFIXES.has(candidateName)) return { tag: null, consumed: true };
-            tag.name = candidateName;
-            return { tag, consumed: true };
-        }
-        if (!tag.name || !MESSAGE_BLOCK_TAG_NAMES.has(tag.name)) return { tag: null, consumed: false };
-        tag.readingName = false;
+        const nameStep = stepPendingTagName(ch, tag);
+        if (nameStep) return nameStep;
     }
-    if (tag.quote) {
-        if (character === tag.quote) tag.quote = null;
-    } else if (character === "\"" || character === "'") {
-        tag.quote = character;
-    } else if (character === ">") {
-        applyCompletedTag(tag, activeTags);
-        return { tag: null, consumed: true };
-    } else if (!/\s/.test(character)) {
-        tag.lastNonWhitespace = character;
-    }
-    return { tag, consumed: true };
+    if (tag.quote) return stepQuotedTagBody(ch, tag);
+    return stepUnquotedTagBody(ch, tag, activeTags);
 };
 
-/** Update structural-block depth with a quote-aware, bounded-state tag scanner. */
+/** Attempts to open a `PendingTag` at `<` (`index`), returning `{ tag, nextIndex }`. */
+const tryStartPendingTagAt = (
+    text: string,
+    index: number,
+): { tag: PendingTag | null; nextIndex: number } => {
+    const closing = text.charAt(index + 1) === "/";
+    const nameStart = closing ? index + 2 : index + 1;
+    const first = text.charAt(nameStart);
+    if (first && !/[A-Za-z]/u.test(first)) {
+        return { tag: null, nextIndex: index + 1 };
+    }
+    return {
+        tag: {
+            name: "",
+            closing,
+            quote: null,
+            lastNonWhitespace: "",
+            readingName: true,
+        },
+        nextIndex: nameStart,
+    };
+};
+
+/** Advances the structural tag scanner by one step at `index`. */
+const stepStructuralScannerAt = (
+    text: string,
+    index: number,
+    tag: PendingTag | null,
+    activeTags: Map<string, number>,
+): { tag: PendingTag | null; nextIndex: number } => {
+    if (tag) {
+        const step = advancePendingTag(text.charAt(index), tag, activeTags);
+        return { tag: step.tag, nextIndex: step.consumed ? index + 1 : index };
+    }
+    return text.charAt(index) === "<"
+        ? tryStartPendingTagAt(text, index)
+        : { tag: null, nextIndex: index + 1 };
+};
+
+/** Transitions multiline `<tag\nattr=...>` out of `readingName` at end-of-line. */
+const finalizeLineEndPendingTag = (tag: PendingTag | null): PendingTag | null => {
+    if (tag && tag.readingName && tag.name) tag.readingName = false;
+    return tag;
+};
+
+/** Updates structural-block depth with a quote-aware, bounded-state tag scanner. */
 const scanStructuralTags = (
     text: string,
     activeTags: Map<string, number>,
@@ -366,72 +1626,83 @@ const scanStructuralTags = (
 ): PendingTag | null => {
     let index = 0;
     let tag = pending;
-
     while (index < text.length) {
-        if (tag) {
-            const step = advancePendingTag(text[index] ?? "", tag, activeTags);
-            tag = step.tag;
-            if (step.consumed) index += 1;
-            continue;
-        }
-        if (text[index] !== "<") {
-            index += 1;
-            continue;
-        }
-        const start = index + 1;
-        const closing = text[start] === "/";
-        const nameStart = closing ? start + 1 : start;
-        const first = text[nameStart] ?? "";
-        if (first && !/[A-Za-z]/.test(first)) {
-            index += 1;
-            continue;
-        }
-        tag = { name: "", closing, quote: null, lastNonWhitespace: "", readingName: true };
-        index = nameStart;
+        const next = stepStructuralScannerAt(text, index, tag, activeTags);
+        tag = next.tag;
+        index = next.nextIndex;
     }
-    if (tag?.readingName && tag.name) tag.readingName = false;
-    return tag;
+    return finalizeLineEndPendingTag(tag);
 };
 
-/** Count permitted indentation before a Markdown fence marker. */
-const countFenceIndent = (line: string): number => {
+/** Counts up to 3 leading spaces before a top-level Markdown fence marker. */
+const countOpenUIFenceIndent = (line: string): number => {
     let spaces = 0;
-    while (spaces < 3 && line[spaces] === " ") spaces += 1;
+    while (spaces < 3 && line.charAt(spaces) === " ") spaces += 1;
     return spaces;
 };
 
-/** Find the end of a contiguous run of identical fence marker characters. */
-const findFenceMarkerEnd = (line: string, start: number, marker: string): number => {
+/** Reads a fence marker run (`3+` backticks or tildes) after up to 3 spaces. */
+const readOpenUIFenceMarker = (
+    line: string,
+): { marker: string; suffix: string } | null => {
+    const start = countOpenUIFenceIndent(line);
+    const ch = line.charAt(start);
+    if (ch !== "`" && ch !== "~") return null;
     let end = start;
-    while (line[end] === marker) end += 1;
-    return end;
+    while (line.charAt(end) === ch) end += 1;
+    return end - start >= 3
+        ? { marker: line.slice(start, end), suffix: line.slice(end) }
+        : null;
 };
 
-/** Read a marker run after optional indentation, rejecting non-fence characters. */
-const readFenceMarker = (line: string): { marker: string; suffix: string } | null => {
-    const start = countFenceIndent(line);
-    const character = line[start];
-    if (character !== "`" && character !== "~") return null;
-    const markerEnd = findFenceMarkerEnd(line, start, character);
-    if (markerEnd - start < 3) return null;
-    return { marker: line.slice(start, markerEnd), suffix: line.slice(markerEnd) };
+/** Reads a closing fence marker run when `line` has only horizontal trailing space. */
+const parseOpenUIFenceClosing = (line: string): string | null => {
+    const parsed = readOpenUIFenceMarker(line);
+    return parsed && /^[ \t]*$/u.test(parsed.suffix) ? parsed.marker : null;
 };
 
-/** Read a top-level fence opener without a backtracking-prone regular expression. */
-const parseFenceOpening = (line: string): { marker: string; info: string } | null => {
-    const parsed = readFenceMarker(line);
-    return parsed ? { marker: parsed.marker, info: parsed.suffix } : null;
+/** Checks whether `line` closes `active` fence. */
+const matchesActiveOpenUIFenceCloser = (
+    active: ActiveOpenUIFence,
+    line: string,
+): boolean => {
+    const closing = parseOpenUIFenceClosing(line);
+    return Boolean(
+        closing && closing[0] === active.marker && closing.length >= active.length,
+    );
 };
 
-/** Read a fence closer only when its suffix contains horizontal whitespace. */
-const parseFenceClosing = (line: string): string | null => {
-    const parsed = readFenceMarker(line);
-    if (!parsed || !/^[ \t]*$/.test(parsed.suffix)) return null;
-    return parsed.marker;
+/** Trims a single preceding CommonMark line break (`\r\n`, `\n`, or `\r`) before `offset`. */
+const trimPrecedingLineBreak = (text: string, offset: number): number => {
+    if (text.endsWith("\r\n", offset)) return offset - 2;
+    const prev = text.charCodeAt(offset - 1);
+    return prev === 0x0a || prev === 0x0d ? offset - 1 : offset;
 };
 
-/** Close an active fence and report whether the overflow boundary has been reached. */
-const closeFenceOnLine = (
+/** Records a closed `active` OpenUI or overflow fence, returning true when overflow finished. */
+const recordClosedActiveOpenUIFence = (
+    state: OpenUIFenceScannerState,
+    active: ActiveOpenUIFence,
+    text: string,
+    lineStart: number,
+    nextLineStart: number,
+): boolean => {
+    if (active.openUI) {
+        state.fences.push({
+            ...active.openUI,
+            end: nextLineStart,
+            sourceEnd: trimPrecedingLineBreak(text, lineStart),
+            closed: true,
+        });
+        return false;
+    }
+    if (!active.overflow || !state.overflow) return false;
+    state.overflow = { ...state.overflow, end: nextLineStart };
+    return true;
+};
+
+/** Closes an active fence on `line` when matched, reporting whether overflow finished. */
+const closeOpenUIFenceOnLine = (
     state: OpenUIFenceScannerState,
     text: string,
     line: string,
@@ -439,131 +1710,420 @@ const closeFenceOnLine = (
     nextLineStart: number,
 ): boolean => {
     const active = state.activeFence;
-    if (!active) return false;
-    const closing = parseFenceClosing(line);
-    if (!closing || closing[0] !== active.marker || closing.length < active.length) return false;
-
-    let finishedOverflow = false;
-    if (active.openUI) {
-        let sourceEnd = lineStart;
-        if (text.slice(sourceEnd - 2, sourceEnd) === "\r\n") sourceEnd -= 2;
-        else if (text[sourceEnd - 1] === "\n") sourceEnd -= 1;
-        state.fences.push({ ...active.openUI, end: nextLineStart, sourceEnd, closed: true });
-    } else if (active.overflow && state.overflow) {
-        state.overflow = { ...state.overflow, end: nextLineStart };
-        finishedOverflow = true;
-    }
+    if (!active || !matchesActiveOpenUIFenceCloser(active, line)) return false;
+    const finishedOverflow = recordClosedActiveOpenUIFence(
+        state,
+        active,
+        text,
+        lineStart,
+        nextLineStart,
+    );
     state.activeFence = null;
     return finishedOverflow;
 };
 
-/** Open top-level Markdown fences only when no opaque structural tag is active. */
-const openFenceOnLine = (
-    state: OpenUIFenceScannerState,
+/** Parses a valid top-level fence opener on `line`, or `null`. */
+const parseValidTopLevelFence = (
     line: string,
+): { markerChar: string; markerLen: number; language: string } | null => {
+    const parsed = readOpenUIFenceMarker(line);
+    if (!parsed) return null;
+    if (parsed.marker[0] === "`" && parsed.suffix.includes("`")) return null;
+    const firstToken = parsed.suffix.trim().split(/\s+/u, 1)[0];
+    return {
+        markerChar: parsed.marker[0],
+        markerLen: parsed.marker.length,
+        language: firstToken ? firstToken.toLowerCase() : "",
+    };
+};
+
+/** Creates a pending `OpenUIFence` descriptor when `eligible` is true. */
+const buildPendingOpenUIFence = (
+    eligible: boolean,
+    lineStart: number,
+    nextLineStart: number,
+): OpenUIFence | undefined =>
+    eligible
+        ? {
+              start: lineStart,
+              end: nextLineStart,
+              sourceStart: nextLineStart,
+              sourceEnd: nextLineStart,
+              closed: false,
+          }
+        : undefined;
+
+/** Initializes `state.overflow` at `lineStart` on the first excess OpenUI fence. */
+const ensureOpenUIOverflowStarted = (
+    state: OpenUIFenceScannerState,
+    isOverflow: boolean,
+    lineStart: number,
+): void => {
+    if (isOverflow && !state.overflow) {
+        state.overflow = { start: lineStart, end: lineStart };
+    }
+};
+
+/** Activates a top-level Markdown fence on `state`, tracking OpenUI eligibility and cap overflow. */
+const activateTopLevelOpenUIFence = (
+    state: OpenUIFenceScannerState,
+    fence: { markerChar: string; markerLen: number; language: string },
     lineStart: number,
     nextLineStart: number,
 ): void => {
-    state.pendingMessageTag = scanStructuralTags(line, state.activeMessageTags, state.pendingMessageTag);
-    if (state.activeMessageTags.size > 0 || state.pendingMessageTag !== null) return;
-
-    const opening = parseFenceOpening(line);
-    const marker = opening?.marker;
-    const info = opening?.info ?? "";
-    if (!marker || (marker[0] === "`" && info.includes("`"))) return;
-
-    const language = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
-    const isOpenUI = language === "openui-lang";
-    const isOverflow = isOpenUI && state.fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
-    if (isOverflow && !state.overflow) state.overflow = { start: lineStart, end: lineStart };
-    const openUI = isOpenUI && !isOverflow
-        ? { start: lineStart, end: nextLineStart, sourceStart: nextLineStart, sourceEnd: nextLineStart, closed: false }
-        : undefined;
+    const isOpenUI = fence.language === "openui-lang";
+    const isOverflow =
+        isOpenUI && state.fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
+    ensureOpenUIOverflowStarted(state, isOverflow, lineStart);
     state.activeFence = {
-        marker: marker[0] ?? "`",
-        length: marker.length,
-        openUI,
+        marker: fence.markerChar,
+        length: fence.markerLen,
+        openUI: buildPendingOpenUIFence(
+            isOpenUI && !isOverflow,
+            lineStart,
+            nextLineStart,
+        ),
         overflow: isOverflow,
     };
 };
 
-/** Find top-level Markdown fences, keeping examples inside opaque blocks as code. */
+/** Counts consecutive backtick characters in `text` from `start` up to `limit`. */
+const countTicksAt = (text: string, start: number, limit: number): number => {
+    let end = start;
+    while (end < limit && text.charCodeAt(end) === 96) {
+        end += 1;
+    }
+    return end - start;
+};
+
+/** Finds a closing backtick run of exact length `runLen` in `text[from..limit)`, or `-1`. */
+const findMatchingInlineTickRunEnd = (
+    text: string,
+    from: number,
+    limit: number,
+    runLen: number,
+): number => {
+    let cursor = from;
+    while (cursor < limit) {
+        const tick = text.indexOf("`", cursor);
+        if (tick === -1 || tick >= limit) return -1;
+        const count = countTicksAt(text, tick, limit);
+        if (count === runLen) return tick + count;
+        cursor = tick + count;
+    }
+    return -1;
+};
+
+/** Finds the end offset of the current CommonMark paragraph starting after `afterLine`. */
+const findParagraphEndFromLine = (text: string, afterLine: number): number => {
+    let cursor = afterLine;
+    while (cursor < text.length) {
+        const { lineText, afterLine: nextLine } = readLineSliceAt(text, cursor);
+        if (lineText.trim().length === 0) return cursor;
+        cursor = nextLine;
+    }
+    return text.length;
+};
+
+/** Refreshes `state.paragraphEnd` and resets unmatched backtick lengths at paragraph boundaries. */
+const ensureInlineParagraphBounds = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    lineStart: number,
+    afterLine: number,
+): void => {
+    if (lineStart >= state.paragraphEnd) {
+        state.paragraphEnd = findParagraphEndFromLine(text, afterLine);
+        state.unmatchedTickLengths.clear();
+    }
+};
+
+/** Advances past a backtick run at `globalTick`, updating `state.inlineCodeEnd` when closed. */
+const advanceInlineBacktickAt = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    globalTick: number,
+): number => {
+    const limit = state.paragraphEnd;
+    const runLen = countTicksAt(text, globalTick, limit);
+    if (state.unmatchedTickLengths.has(runLen)) return globalTick + runLen;
+    const closeEnd = findMatchingInlineTickRunEnd(
+        text,
+        globalTick + runLen,
+        limit,
+        runLen,
+    );
+    if (closeEnd === -1) {
+        state.unmatchedTickLengths.add(runLen);
+        return globalTick + runLen;
+    }
+    state.inlineCodeEnd = closeEnd;
+    return closeEnd;
+};
+
+/** Checks whether the scanner is outside all structural tags and pending tag headers. */
+const isOutsideOpaqueStructuralTag = (
+    state: OpenUIFenceScannerState,
+): boolean =>
+    state.activeMessageTags.size === 0 && state.pendingMessageTag === null;
+
+/** Steps one top-level prose character at `index` on `line`, skipping closed inline code spans. */
+const stepTopLevelProseChar = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    at: { lineStart: number; index: number },
+): number => {
+    if (line.charCodeAt(at.index) === 96) {
+        const nextGlobal = advanceInlineBacktickAt(
+            state,
+            text,
+            at.lineStart + at.index,
+        );
+        return Math.min(line.length, nextGlobal - at.lineStart);
+    }
+    const step = stepStructuralScannerAt(
+        line,
+        at.index,
+        state.pendingMessageTag,
+        state.activeMessageTags,
+    );
+    state.pendingMessageTag = step.tag;
+    return step.nextIndex;
+};
+
+/** Finishes structural tag scanning for the remainder or end of `line`. */
+const finalizeScannedProseLine = (
+    state: OpenUIFenceScannerState,
+    line: string,
+    index: number,
+    lineStart: number,
+): void => {
+    if (index < line.length) {
+        state.pendingMessageTag = scanStructuralTags(
+            line.slice(index),
+            state.activeMessageTags,
+            state.pendingMessageTag,
+        );
+        return;
+    }
+    if (lineStart + line.length > state.inlineCodeEnd) {
+        state.pendingMessageTag = finalizeLineEndPendingTag(
+            state.pendingMessageTag,
+        );
+    }
+};
+
+/** Scans `line` for structural tags while skipping single- and multi-line inline code spans. */
+const scanTopLevelProseLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    lineStart: number,
+): void => {
+    let index = Math.max(0, state.inlineCodeEnd - lineStart);
+    while (index < line.length && isOutsideOpaqueStructuralTag(state)) {
+        index = stepTopLevelProseChar(state, text, line, { lineStart, index });
+    }
+    finalizeScannedProseLine(state, line, index, lineStart);
+};
+
+type OpenUILineSlice = {
+    lineText: string;
+    lineStart: number;
+    afterLine: number;
+};
+
+/** Opens a top-level fence on `slice` when outside any active inline code span. */
+const tryOpenFenceOutsideInlineCode = (
+    state: OpenUIFenceScannerState,
+    slice: OpenUILineSlice,
+): boolean => {
+    if (slice.lineStart < state.inlineCodeEnd) return false;
+    const fence = parseValidTopLevelFence(slice.lineText);
+    if (!fence) return false;
+    state.paragraphEnd = 0;
+    state.unmatchedTickLengths.clear();
+    activateTopLevelOpenUIFence(
+        state,
+        fence,
+        slice.lineStart,
+        slice.afterLine,
+    );
+    return true;
+};
+
+/** Opens top-level Markdown fences only when outside opaque structural tags and inline code spans. */
+const openFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    slice: OpenUILineSlice,
+): void => {
+    if (!isOutsideOpaqueStructuralTag(state)) {
+        state.pendingMessageTag = scanStructuralTags(
+            slice.lineText,
+            state.activeMessageTags,
+            state.pendingMessageTag,
+        );
+        return;
+    }
+    if (tryOpenFenceOutsideInlineCode(state, slice)) return;
+    if (slice.afterLine <= state.inlineCodeEnd) return;
+    ensureInlineParagraphBounds(state, text, slice.lineStart, slice.afterLine);
+    scanTopLevelProseLine(state, text, slice.lineText, slice.lineStart);
+};
+
+/** Finalizes any unclosed OpenUI or overflow fence at `textLength`. */
+const finalizeOpenUIFenceScan = (
+    state: OpenUIFenceScannerState,
+    textLength: number,
+): OpenUIFenceScan => {
+    if (state.activeFence?.openUI) {
+        state.fences.push({
+            ...state.activeFence.openUI,
+            end: textLength,
+            sourceEnd: textLength,
+        });
+    }
+    if (state.overflow) {
+        state.overflow = { ...state.overflow, end: textLength };
+    }
+    return { fences: state.fences, overflow: state.overflow };
+};
+
+/** Steps `state` across one line `slice`, returning true if overflow closed. */
+const stepOpenUIFenceLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    slice: OpenUILineSlice,
+): boolean => {
+    if (state.activeFence) {
+        return closeOpenUIFenceOnLine(
+            state,
+            text,
+            slice.lineText,
+            slice.lineStart,
+            slice.afterLine,
+        );
+    }
+    openFenceOnLine(state, text, slice);
+    return false;
+};
+
+/** Finds top-level OpenUI fences while keeping examples inside opaque structural blocks untouched. */
 const findOpenUIFences = (text: string): OpenUIFenceScan => {
+    if (!/openui-lang/iu.test(text)) return { fences: [] };
     const state: OpenUIFenceScannerState = {
         fences: [],
         activeFence: null,
         activeMessageTags: new Map<string, number>(),
         pendingMessageTag: null,
+        inlineCodeEnd: 0,
+        paragraphEnd: 0,
+        unmatchedTickLengths: new Set<number>(),
     };
     let lineStart = 0;
-
     while (lineStart < text.length) {
-        const newline = text.indexOf("\n", lineStart);
-        const lineEnd = newline === -1 ? text.length : newline;
-        const nextLineStart = newline === -1 ? text.length : newline + 1;
-        const line = text.slice(lineStart, lineEnd).replace(/\r$/, "");
-
-        if (state.activeFence) {
-            if (closeFenceOnLine(state, text, line, lineStart, nextLineStart)) {
-                return { fences: state.fences, overflow: state.overflow };
-            }
-        } else {
-            openFenceOnLine(state, line, lineStart, nextLineStart);
+        const { lineText, afterLine } = readLineSliceAt(text, lineStart);
+        if (
+            stepOpenUIFenceLine(state, text, {
+                lineText,
+                lineStart,
+                afterLine,
+            })
+        ) {
+            return { fences: state.fences, overflow: state.overflow };
         }
-
-        if (newline === -1) break;
-        lineStart = nextLineStart;
+        lineStart = afterLine;
     }
-
-    if (state.activeFence?.openUI) {
-        state.fences.push({
-            ...state.activeFence.openUI,
-            end: text.length,
-            sourceEnd: text.length,
-        });
-    }
-    if (state.overflow) state.overflow = { ...state.overflow, end: text.length };
-    return { fences: state.fences, overflow: state.overflow };
+    return finalizeOpenUIFenceScan(state, text.length);
 };
 
-/** Turn chart payloads into title and label/value rows when the rendered DOM is unavailable. */
-function chartCopyText(raw: string | undefined): string {
-    const parsed = parseCardJson<unknown>(raw);
-    const record = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed as { title?: unknown; points?: unknown }
-        : null;
-    const title = typeof record?.title === "string" ? record.title.trim() : "";
-    const points = Array.isArray(parsed) ? parsed : Array.isArray(record?.points) ? record.points : [];
-    const rows = points.flatMap((point) => {
-        if (!point || typeof point !== "object") return [];
-        const item = point as { label?: unknown; value?: unknown };
-        const label = String(item.label ?? "").trim();
-        const value = item.value;
-        return label && (typeof value === "string" || typeof value === "number")
-            ? [`${label}: ${value}`]
-            : [];
-    });
+/** Trims an optional string value, returning `""` when `value` is `undefined`. */
+const trimOptionalText = (value: string | undefined): string =>
+    (value ?? "").trim();
+
+/** Formats one chart point as `label: value` when valid, or `[]` otherwise. */
+const formatChartCopyPoint = (point: unknown): string[] => {
+    if (!point || typeof point !== "object") return [];
+    const item = point as { label?: unknown; value?: unknown };
+    const label = String(item.label ?? "").trim();
+    const isScalar =
+        typeof item.value === "string" || typeof item.value === "number";
+    return label && isScalar ? [`${label}: ${item.value}`] : [];
+};
+
+/** Extracts `{ title, points }` from a parsed chart JSON payload. */
+const extractChartCopyParts = (
+    parsed: unknown,
+): { title: string; points: unknown[] } => {
+    if (Array.isArray(parsed)) return { title: "", points: parsed };
+    if (!parsed || typeof parsed !== "object") {
+        return { title: "", points: [] };
+    }
+    const record = parsed as { title?: unknown; points?: unknown };
+    return {
+        title: typeof record.title === "string" ? record.title.trim() : "",
+        points: Array.isArray(record.points) ? record.points : [],
+    };
+};
+
+/** Turns chart payloads into title and label/value rows when the rendered DOM is unavailable. */
+const chartCopyText = (raw: string | undefined): string => {
+    const { title, points } = extractChartCopyParts(parseCardJson<unknown>(raw));
+    const rows = points.flatMap(formatChartCopyPoint);
     return [title, ...rows].filter(Boolean).join("\n");
-}
+};
 
-/** Preserve readable prompts and selected answers when a question card has no DOM text. */
-function questionCopyText(chunk: Chunk): string {
-    return (chunk.questions ?? []).map((question) => {
-        const options = question.options.map(({ label }) => label).filter(Boolean).join(" / ");
-        const answer = chunk.answers?.[question.id];
-        const answerText = Array.isArray(answer) ? answer.join(", ") : answer;
-        return [question.prompt, options, answerText ? `Answer: ${answerText}` : ""]
-            .filter(Boolean)
-            .join("\n");
-    }).join("\n\n");
-}
+/** Preserves readable prompts and selected answers when a question card has no DOM text. */
+const questionCopyText = (chunk: Chunk): string =>
+    (chunk.questions ?? [])
+        .map((question) => {
+            const options = question.options
+                .map(({ label }) => label)
+                .filter(Boolean)
+                .join(" / ");
+            const answer = chunk.answers?.[question.id];
+            const answerText = Array.isArray(answer)
+                ? answer.join(", ")
+                : answer;
+            return [
+                question.prompt,
+                options,
+                answerText ? `Answer: ${answerText}` : "",
+            ]
+                .filter(Boolean)
+                .join("\n");
+        })
+        .join("\n\n");
 
-/** Provide a useful textual fallback for structured chunks that have no rendered DOM. */
-function structuredChunkCopyText(chunk: Chunk): string {
-    if (chunk.type === "question" || chunk.type === "questions") return questionCopyText(chunk);
+/** Provides a textual fallback for structured chunks that have no rendered DOM. */
+const structuredChunkCopyText = (chunk: Chunk): string => {
+    if (chunk.type === "question" || chunk.type === "questions") {
+        return questionCopyText(chunk);
+    }
     if (chunk.type === "chart") return chartCopyText(chunk.content);
-    return chunk.content?.trim() ?? "";
-}
+    return trimOptionalText(chunk.content);
+};
+
+/** Extracts copyable text for a single prose, OpenUI, or structured chunk. */
+const extractSingleChunkCopyText = (
+    chunk: Chunk,
+    openUIText: readonly string[],
+    state: { visualIndex: number },
+): string => {
+    if (chunk.type === "text") return trimOptionalText(chunk.content);
+    if (chunk.type === "openui") {
+        const visual = openUIText[state.visualIndex];
+        state.visualIndex += 1;
+        return trimOptionalText(visual);
+    }
+    return structuredChunkCopyText(chunk);
+};
+
+/** Checks whether `chunks` contain non-prose, non-OpenUI blocks. */
+const hasStructuredCopyChunks = (chunks: readonly Chunk[]): boolean =>
+    chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui");
 
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
 export const getMessageCopyText = (
@@ -571,665 +2131,81 @@ export const getMessageCopyText = (
     openUIText: readonly string[] = [],
     renderedText?: string,
 ): string => {
-    if (chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui") && renderedText?.trim()) {
+    if (hasStructuredCopyChunks(chunks) && renderedText?.trim()) {
         return renderedText;
     }
-    let visualIndex = 0;
+    const state = { visualIndex: 0 };
     return chunks
-        .map((chunk) => {
-            if (chunk.type === "text") return chunk.content?.trim() ?? "";
-            if (chunk.type === "openui") return openUIText[visualIndex++]?.trim() ?? "";
-            return structuredChunkCopyText(chunk);
-        })
+        .map((chunk) => extractSingleChunkCopyText(chunk, openUIText, state))
         .filter(Boolean)
         .join("\n\n");
 };
 
-/** Read a quoted attribute from a structural tag without repeating capture boilerplate. */
-const readTagAttribute = (source: string, name: string): string | undefined => {
-    const match = source.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`, "i"));
-    return match ? match[1] : undefined;
-};
+const PARSE_CACHE_MAX_ENTRIES = 8;
+const PARSE_CACHE_MAX_CHARS = 192_000;
+const parseCache = new Map<string, Chunk[]>();
+let parseCacheChars = 0;
 
-/** Extract the inner text for a well-formed or streaming structural tag. */
-const getInnerTagContent = (block: string, tag: string) => {
-    const startTag = new RegExp(`<${tag}>`, "i").exec(block);
-    if (!startTag || startTag.index === undefined) return undefined;
-    const contentStart = startTag.index + startTag[0].length;
-    const endTag = new RegExp(`</${tag}>`, "i").exec(block.slice(contentStart));
-    const contentEnd = endTag ? contentStart + endTag.index : undefined;
-    return block.slice(contentStart, contentEnd).replace(/^\n|\n$/g, '');
-};
-
-/** Convert an edit wrapper into a typed message chunk. */
-const parseEditBlock = (block: string, isGenerating: boolean): Chunk => {
-    const fileMatch = block.match(/<edit\s+file="([^"]*)"/i);
-    const file = fileMatch ? fileMatch[1] : undefined;
-    return {
-        type: 'edit',
-        file,
-        original: getInnerTagContent(block, 'original') || '',
-        replacement: getInnerTagContent(block, 'replacement') || '',
-        isGenerating,
-    };
-};
-
-/** Edit staged for user approval (require-edit-approval mode). */
-const parseEditPendingBlock = (block: string, isGenerating: boolean): Chunk => {
-    return {
-        type: 'edit_pending',
-        file: readTagAttribute(block, "file"),
-        commandId: readTagAttribute(block, "id"),
-        commandStatus: readTagAttribute(block, "status") ?? 'pending',
-        original: getInnerTagContent(block, 'original') || '',
-        replacement: getInnerTagContent(block, 'replacement') || '',
-        isGenerating,
-    };
-};
-
-/** Build a saved-plan chunk from its attributes and optional body. */
-const parsePlanSavedBlock = (block: string, innerContent?: string): Chunk => {
-    const pathMatch = block.match(/path="([^"]*)"/);
-    const titleMatch = block.match(/title="([^"]*)"/);
-    const body =
-        innerContent?.trim()
-        || getInnerTagContent(block, "plan_saved")
-        || undefined;
-    return {
-        type: 'plan_saved',
-        file: pathMatch ? pathMatch[1] : undefined,
-        content: titleMatch ? titleMatch[1] : 'Implementation Plan',
-        planMarkdown: body,
-    };
-};
-
-/** Convert an implementation-plan wrapper into its display chunk. */
-const parsePlanBlock = (block: string): Chunk => {
-    const titleMatch = block.match(/<plan\s+title="([^"]*)"/);
-    const title = titleMatch ? titleMatch[1] : 'Plan';
-    return {
-        type: 'plan',
-        content: block,
-        file: title,
-    };
-};
-
-/** Parse todo entries and normalize provider status names. */
-const parseTodosBlock = (block: string): Chunk => {
-    const titleMatch = block.match(/<todos\s+title="([^"]*)"/);
-    const title = titleMatch ? titleMatch[1] : 'Todos';
-    const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
-    const todos = todoMatches.map((m) => {
-        const attrs = m[1] ?? '';
-        const id = attrs.match(/id="([^"]*)"/)?.[1] ?? '';
-        const statusRaw = (attrs.match(/status="([^"]*)"/)?.[1] ?? 'pending').toLowerCase();
-        const status: "done" | "active" | "pending" | "cancelled" =
-            statusRaw === 'completed' || statusRaw === 'done' || statusRaw === 'complete'
-                ? 'done'
-                : statusRaw === 'in_progress' || statusRaw === 'active'
-                    ? 'active'
-                    : statusRaw === 'cancelled' || statusRaw === 'canceled'
-                        ? 'cancelled'
-                        : 'pending';
-        return { id, label: (m[2] ?? '').trim(), status };
-    });
-    return {
-        type: 'todos',
-        content: title,
-        todos,
-    };
-};
-
-/** Keep only the newest todo snapshot in a message chunk list. */
-const pushOrReplaceTodos = (chunks: Chunk[], chunk: Chunk): void => {
-    const idx = chunks.findIndex((c) => c.type === 'todos');
-    if (idx >= 0) chunks[idx] = chunk;
-    else chunks.push(chunk);
-};
-
-/** Parse a subagent result and its visible metadata. */
-const parseSubagentBlock = (tagFull: string, inner: string, isGenerating: boolean): Chunk => {
-    return {
-        type: 'subagent',
-        file: readTagAttribute(tagFull, 'id'),
-        query: readTagAttribute(tagFull, 'agent') || readTagAttribute(tagFull, 'name'),
-        command: readTagAttribute(tagFull, 'model'),
-        content: inner.trim(),
-        commandStatus: readTagAttribute(tagFull, 'status') || (isGenerating ? 'running' : 'done'),
-        isGenerating,
-    };
-};
-
-/** Parse a subagent reference without requiring a result body. */
-const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-    return {
-        type: 'subagent_ref',
-        file: readTagAttribute(tagFull, 'id'),
-        query: readTagAttribute(tagFull, 'agent'),
-        command: readTagAttribute(tagFull, 'model'),
-        content: readTagAttribute(tagFull, 'task'),
-        commandStatus: readTagAttribute(tagFull, 'status') || (isGenerating ? 'running' : 'done'),
-        isGenerating,
-    };
-};
-
-/** Parse a git operation and its lifecycle status. */
-const parseGitOperationBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const opMatch = tagFull.match(/op="([^"]+)"/);
-    const statusMatch = tagFull.match(/status="([^"]+)"/);
-    return {
-        type: 'git_operation',
-        content,
-        gitOp: opMatch ? opMatch[1] : undefined,
-        gitStatus: statusMatch ? statusMatch[1] : (isGenerating ? 'running' : 'completed'),
-        isGenerating,
-    };
-};
-
-/** Parse a file-read chunk and its optional line range. */
-const parseCatBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const path = readTagAttribute(tagFull, 'path') || content.trim();
-    const start = readTagAttribute(tagFull, 'start') || readTagAttribute(tagFull, 'startLine');
-    const end = readTagAttribute(tagFull, 'end') || readTagAttribute(tagFull, 'endLine');
-    return {
-        type: 'cat',
-        content: path,
-        catStartLine: start ? Number.parseInt(start, 10) : undefined,
-        catEndLine: end ? Number.parseInt(end, 10) : undefined,
-        isGenerating,
-    };
-};
-
-/** Decode the XML entities supported by structural message attributes. */
-const unescapeXml = (s: string): string => {
-return s
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
-};
-
-/** Parse one preview's attributes and optional source into the UI data model. */
-const parseDesignPreview = (attributes: string, inner: string): DesignPreviewItem | undefined => {
-    const attribute = (name: string) => readTagAttribute(attributes, name) ?? "";
-    const previewId = attribute("id");
-    const path = attribute("path");
-    const source = unescapeXml(inner).trim() || unescapeXml(attribute("source")).trim();
-    if (!previewId.trim() || (!path.trim() && !source)) return undefined;
-
-    const kindAttribute = attribute("kind");
-    const kind = ["html", "png", "react"].includes(kindAttribute)
-        ? kindAttribute as DesignPreviewItem["kind"]
-        : undefined;
-    return {
-        id: previewId,
-        name: attribute("name"),
-        style: attribute("style"),
-        path,
-        source: source || undefined,
-        width: Number.parseInt(attribute("width"), 10) || 1280,
-        height: Number.parseInt(attribute("height"), 10) || 800,
-        renderMs: Number.parseInt(attribute("render_ms"), 10) || undefined,
-        kind,
-    };
-};
-
-/** Add a parsed preview only when it has not already appeared in this payload. */
-const appendUniquePreview = (previews: DesignPreviewItem[], preview: DesignPreviewItem | undefined): void => {
-    if (!preview || previews.some((item) => item.id === preview.id)) return;
-    previews.push(preview);
-};
-
-/** Parse and deduplicate the available design previews. */
-const parseDesignPreviewsBlock = (block: string): Chunk => {
-    const selected = block.match(/\bselected="([^"]*)"/)?.[1] ?? "";
-    const id = block.match(/<design_previews\b[^>]*\bid="([^"]*)"/)?.[1];
-    const status = block.match(/<design_previews\b[^>]*\bstatus="([^"]*)"/)?.[1];
-    const previews: DesignPreviewItem[] = [];
-    const paired = /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g;
-    for (const match of block.matchAll(paired)) {
-        appendUniquePreview(previews, parseDesignPreview(match[1] ?? "", match[2] ?? ""));
-    }
-    const selfClosing = /<design_preview\s+([^>]+)\/>/g;
-    for (const match of block.matchAll(selfClosing)) {
-        appendUniquePreview(previews, parseDesignPreview(match[1] ?? "", ""));
-    }
-    return {
-        type: "design_previews",
-        designPreviews: previews,
-        selectedConcept: selected,
-        commandId: id,
-        commandStatus: status,
-    };
-};
-
-/** Extract a review debate body and model label. */
-const parseReviewDebateBlock = (block: string): Chunk => {
-    const modelMatch = block.match(/<review_debate[^>]*\bmodel="([^"]*)"/i);
-    const inner = block
-        .replace(/^<review_debate[^>]*>\s*/i, "")
-        .replace(/\s*<\/review_debate>$/i, "")
-        .trim();
-    return {
-        type: "review_debate",
-        content: inner,
-        reviewModel: modelMatch?.[1],
-    };
-};
-
-/** Extract a persona review body and its command metadata. */
-const parsePersonaReviewBlock = (block: string): Chunk => {
-    const open = block.match(/^<persona_review\b[^>]*>/i)?.[0] || "";
-    const inner = block
-        .replace(/^<persona_review[^>]*>\s*/i, "")
-        .replace(/\s*<\/persona_review>$/i, "")
-        .trim();
-    return {
-        type: "persona_review",
-        content: inner,
-        commandId: open.match(/\bid="([^"]*)"/)?.[1],
-        commandStatus: open.match(/\bstatus="([^"]*)"/)?.[1],
-        visitUrl: open.match(/\burl="([^"]*)"/)?.[1],
-    };
-};
-
-/** Parse a question wrapper into prompts and submitted answers. */
-const parseQuestionBlock = (block: string): Chunk => {
-    const id = block.match(/\bid="([^"]*)"/)?.[1];
-    const status = block.match(/\bstatus="([^"]*)"/)?.[1];
-    const inner = block
-        .replace(/^<questions?[^>]*>/i, "")
-        .replace(/<\/questions?>\s*$/i, "")
-        .trim();
-    const { questions, answers } = parseQuestionsPayload(inner);
-    return {
-        type: "question",
-        content: inner,
-        commandId: id,
-        commandStatus: status,
-        questions,
-        answers,
-    };
-};
-
-/** Convert a plugin invocation wrapper into a display chunk. */
-const parsePluginCallBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const status = readTagAttribute(tagFull, "status") || "ok";
-    return {
-        type: "plugin_call",
-        content,
-        pluginToolkit: readTagAttribute(tagFull, "toolkit"),
-        pluginSlug: readTagAttribute(tagFull, "slug"),
-        pluginLabel: readTagAttribute(tagFull, "label"),
-        commandId: readTagAttribute(tagFull, "id"),
-        commandStatus: status,
-        isGenerating,
-    };
-};
-
-/** Convert a sent-file wrapper into a display chunk. */
-const parseSentFileBlock = (tagFull: string, content: string): Chunk => {
-    return {
-        type: "sent_file",
-        file: decodeXml(readTagAttribute(tagFull, "name") ?? "") || "File",
-        query: readTagAttribute(tagFull, "type") || "application/octet-stream",
-        mediaPrompt: decodeXml(readTagAttribute(tagFull, "title") ?? "") || undefined,
-        content: content.trim(),
-    };
-};
-
-/** Convert generated media markup into a typed display chunk. */
-const parseGeneratedMediaBlock = (
-    type: "generated_svg" | "generated_image" | "generated_audio",
-    tagFull: string,
-    content: string,
-    isGenerating: boolean,
-): Chunk => {
-    return {
-        type,
-        content: content.trim(),
-        mediaPrompt: readTagAttribute(tagFull, "prompt"),
-        mediaCredits: readTagAttribute(tagFull, "credits"),
-        query: readTagAttribute(tagFull, "prompt"),
-        isGenerating,
-    };
-};
-
-/** Convert a rich-card wrapper and its attributes into a display chunk. */
-const parseRichCard = (type: string, tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    return {
-        type: type as Chunk["type"],
-        content,
-        visitUrl: decodeXml(readTagAttribute(tagFull, "url") ?? "") || undefined,
-        visitTitle: decodeXml(readTagAttribute(tagFull, "title") ?? "") || undefined,
-        commandId: readTagAttribute(tagFull, "id"),
-        commandStatus: readTagAttribute(tagFull, "status"),
-        isGenerating,
-    };
-};
-
-/** Build a web-visit card from URL and status attributes. */
-const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-    const url = readTagAttribute(tagFull, "url") ?? "";
-    const host = readTagAttribute(tagFull, "host") || hostnameFromUrl(url);
-    const title = readTagAttribute(tagFull, "title") || host;
-    return {
-        type: "web_visit",
-        visitUrl: url,
-        visitHost: host,
-        visitTitle: title,
-        content: host,
-        isGenerating,
-    };
-};
-
-/** Build a runtime-inspection card from its wrapper. */
-const parseInspectRuntimeBlock = (tagFull: string, content: string, isGenerating: boolean): Chunk => {
-    const url = tagFull.match(/\burl="([^"]*)"/)?.[1] ?? "";
-    const kind = tagFull.match(/\bkind="([^"]*)"/)?.[1] ?? "";
-    return {
-        type: "inspect_runtime",
-        query: url,
-        inspectKind: kind,
-        content,
-        isGenerating,
-    };
-};
-
-
-type MessageBlockMode = "selfClosing" | "streaming" | "complete";
-type MessageBlockContext = {
-    type: Chunk["type"];
-    mode: MessageBlockMode;
-    tagFull: string;
-    block: string;
-    content: string;
-    isGenerating: boolean;
-};
-type MessageBlockParser = (context: MessageBlockContext) => Chunk;
-
-/** Preserve the existing optional streaming flag consistently across tag parsers. */
-const generationFields = (context: MessageBlockContext): { isGenerating?: boolean } =>
-    context.mode === "selfClosing" ? {} : { isGenerating: context.isGenerating };
-
-/** Resolve the command, status, and reason once for every terminal render. */
-const terminalCommandParts = (context: MessageBlockContext): {
-    command: string;
-    reason: string | undefined;
-    status: string;
-} => {
-    const statusMatch = context.tagFull.match(/status="([^"]+)"/);
-    const cmdAttrMatch = context.tagFull.match(/command="([^"]+)"/);
-    const reasonAttrMatch = context.tagFull.match(/reason="([^"]+)"/);
-    const status = statusMatch?.[1] || (context.isGenerating ? "pending" : "completed");
-    if (context.mode === "selfClosing") {
-        return { command: "", reason: undefined, status };
-    }
-
-    const rawLines = context.content.split("\n");
-    let footerIdx = rawLines.length - 1;
-    while (footerIdx >= 0 && (rawLines[footerIdx] ?? "").trim().length === 0) {
-        footerIdx--;
-    }
-    const footerLine = footerIdx >= 0 ? rawLines[footerIdx] ?? "" : "";
-    const isTrailingApprovalFooter =
-        (status === "pending" || status === "blocked")
-        && /^(?:Awaiting approval:|Blocked:)\s/.test(footerLine);
-    const reasonIdx = isTrailingApprovalFooter ? footerIdx : -1;
-    const reason =
-        (reasonAttrMatch ? decodeXmlAttr(reasonAttrMatch[1] ?? "").trim() : "")
-        || (isTrailingApprovalFooter
-            ? footerLine.replace(/^(?:Awaiting approval:|Blocked:)\s*/, "").trim()
-            : undefined);
-
-    let command: string;
-    if (cmdAttrMatch) {
-        command = decodeXmlAttr(cmdAttrMatch[1] ?? "").trim();
-    } else if (status === "pending" || status === "blocked") {
-        const cmdSlice = reasonIdx === -1 ? rawLines : rawLines.slice(0, reasonIdx);
-        command = cmdSlice.join("\n").trim();
-    } else if (status === "running" || status === "rejected" || status === "cancelled") {
-        command = context.content.trim();
-    } else {
-        const nonEmptyStart = rawLines.findIndex((line) => line.trim().length > 0);
-        if (nonEmptyStart === -1) {
-            command = "";
-        } else {
-            const collected: string[] = [];
-            for (let idx = nonEmptyStart; idx < rawLines.length; idx++) {
-                const line = rawLines[idx] ?? "";
-                collected.push(line);
-                if (!/\\\s*$/.test(line)) break;
-            }
-            command = collected.join("\n").trim();
-        }
-    }
-    return { command, reason, status };
-};
-
-/** Read the command text, honouring an explicit command attribute and approval footers. */
-const terminalCommandText = (context: MessageBlockContext): string =>
-    terminalCommandParts(context).command;
-
-/** Select the user-facing reason text from a terminal approval or blocked message. */
-const terminalCommandReason = (context: MessageBlockContext): string | undefined =>
-    terminalCommandParts(context).reason;
-
-/** Preserve the command's explicit status, falling back to its streaming state. */
-const terminalCommandStatus = (status: string | undefined, isGenerating: boolean): string =>
-    status || (isGenerating ? "pending" : "completed");
-
-/** Extract the first regex capture when a tag attribute is present. */
-const firstMatchGroup = (match: RegExpMatchArray | null): string | undefined =>
-    match ? match[1] : undefined;
-
-/** Parse an optional integer metadata capture without duplicating its conversion guard. */
-const parseOptionalInteger = (match: RegExpMatchArray | null): number | undefined => {
-    const value = firstMatchGroup(match);
-    return value ? Number(value) : undefined;
-};
-
-/** Always expose the reason field so terminal chunks keep a stable shape. */
-const terminalReasonFields = (context: MessageBlockContext): { commandReason?: string } => ({
-    commandReason: terminalCommandReason(context),
-});
-
-/** Parse terminal metadata and command text consistently for complete and streaming tags. */
-const parseTerminalCommandBlock = (context: MessageBlockContext): Chunk => {
-    const statusMatch = context.tagFull.match(/status="([^"]+)"/);
-    const idMatch = context.tagFull.match(/id="([^"]+)"/);
-    const sessionMatch = context.tagFull.match(/session="(\d+)"/);
-    const exitMatch = context.tagFull.match(/(?:exit_code|exit)="(-?\d+)"/);
-    return {
-        type: "terminal_command",
-        content: context.content,
-        command: terminalCommandText(context),
-        commandId: firstMatchGroup(idMatch),
-        commandStatus: terminalCommandStatus(firstMatchGroup(statusMatch), context.isGenerating),
-        ...terminalReasonFields(context),
-        sessionId: parseOptionalInteger(sessionMatch),
-        exitCode: parseOptionalInteger(exitMatch),
-        ...generationFields(context),
-    };
-};
-
-/** Parse search-result attributes without duplicating logic across tag completion states. */
-const parseSearchResultBlock = (context: MessageBlockContext): Chunk => {
-    const queryRaw = context.tagFull.match(/query="([^"]+)"/)?.[1];
-    const query = queryRaw ? decodeXmlAttr(queryRaw) : undefined;
-    return {
-        type: context.type === "web_result" ? "web_result" : "search_result",
-        content: context.content,
-        query,
-        ...generationFields(context),
-    };
-};
-
-/** Parse a running command tag while preserving the streaming command text. */
-const parseRunBlock = (context: MessageBlockContext): Chunk => ({
-    type: "run",
-    content: context.content,
-    command: context.mode === "selfClosing" ? "" : context.content.trim(),
-    ...generationFields(context),
-});
-
-const MESSAGE_BLOCK_PARSERS: Partial<Record<Chunk["type"], MessageBlockParser>> = {
-    edit: ({ block, isGenerating }) => parseEditBlock(block, isGenerating),
-    edit_pending: ({ block, isGenerating }) => parseEditPendingBlock(block, isGenerating),
-    plan: ({ block }) => parsePlanBlock(block),
-    plan_saved: ({ block, content }) => parsePlanSavedBlock(block, content),
-    todos: ({ block }) => parseTodosBlock(block),
-    terminal_command: parseTerminalCommandBlock,
-    git_operation: ({ tagFull, content, isGenerating }) => parseGitOperationBlock(tagFull, content, isGenerating),
-    browse_session: ({ type, tagFull, content, isGenerating }) => parseRichCard(type, tagFull, content, isGenerating),
-    cat: ({ tagFull, content, isGenerating }) => parseCatBlock(tagFull, content, isGenerating),
-    subagent_ref: ({ tagFull, isGenerating }) => parseSubagentRefBlock(tagFull, isGenerating),
-    subagent: ({ tagFull, content, isGenerating }) => parseSubagentBlock(tagFull, content, isGenerating),
-    design_previews: ({ block }) => parseDesignPreviewsBlock(block),
-    review_debate: ({ block }) => parseReviewDebateBlock(block),
-    persona_review: ({ block }) => parsePersonaReviewBlock(block),
-    question: ({ block }) => parseQuestionBlock(block),
-    questions: ({ block }) => parseQuestionBlock(block),
-    run: parseRunBlock,
-    web_result: parseSearchResultBlock,
-    search_result: parseSearchResultBlock,
-    web_visit: ({ tagFull, isGenerating }) => parseWebVisitBlock(tagFull, isGenerating),
-    inspect_runtime: ({ tagFull, content, isGenerating }) => parseInspectRuntimeBlock(tagFull, content, isGenerating),
-    plugin_call: ({ tagFull, content, isGenerating }) => parsePluginCallBlock(tagFull, content, isGenerating),
-    generated_svg: ({ tagFull, content, isGenerating }) =>
-        parseGeneratedMediaBlock("generated_svg", tagFull, content, isGenerating),
-    generated_image: ({ tagFull, content, isGenerating }) =>
-        parseGeneratedMediaBlock("generated_image", tagFull, content, isGenerating),
-    generated_audio: ({ tagFull, content, isGenerating }) =>
-        parseGeneratedMediaBlock("generated_audio", tagFull, content, isGenerating),
-    sent_file: ({ tagFull, content }) => parseSentFileBlock(tagFull, content),
-};
-
-/** Dispatch one structural wrapper to its shared parser, regardless of streaming state. */
-const parseMessageBlock = (context: MessageBlockContext): Chunk => {
-    const parse = MESSAGE_BLOCK_PARSERS[context.type];
-    if (parse) return parse(context);
-    return {
-        type: context.type,
-        content: context.content,
-        ...generationFields(context),
-    };
-};
-
-type MessageBlockMatch = { type: Chunk["type"]; index: number; startTag: string; endTag: string };
-type MessageBlockSpan = { mode: MessageBlockMode; contentStart: number; endIndex: number };
-
-/** Append a plain-text range after removing orphaned reasoning-control tags. */
-const appendPlainTextRange = (
-    chunks: Chunk[],
-    text: string,
-    start: number,
-    end: number,
-    sourceOffset: number,
-): void => {
-    if (end <= start) return;
-    const content = stripOrphanThinkTags(text.slice(start, end));
-    if (content) chunks.push({ type: "text", content, sourceStart: sourceOffset + start });
-};
-
-/** Prefer the earliest block marker, with the longer marker winning at a shared offset. */
-const isEarlierMessageBlock = (candidate: MessageBlockMatch, current: MessageBlockMatch | null): boolean =>
-    !current
-    || candidate.index < current.index
-    || (candidate.index === current.index && candidate.startTag.length > current.startTag.length);
-
-/** Find the next recognized block wrapper without rescanning earlier message content. */
-const findNextMessageBlock = (text: string, start: number): MessageBlockMatch | null => {
-    let firstMatch: MessageBlockMatch | null = null;
-    for (const tag of MESSAGE_BLOCK_TAGS) {
-        const index = findStructuralTagIndex(text, start, tag.start);
-        if (index === -1) continue;
-        const candidate = { type: tag.type, index, startTag: tag.start, endTag: tag.end };
-        if (isEarlierMessageBlock(candidate, firstMatch)) firstMatch = candidate;
-    }
-    return firstMatch;
-};
-
-/** Classify a wrapper as self-closing, complete, or still streaming. */
-const findMessageBlockSpan = (text: string, match: MessageBlockMatch): MessageBlockSpan => {
-    const tagEnd = text.indexOf(">", match.index);
-    const contentStart = tagEnd === -1 ? text.length : tagEnd + 1;
-    if (tagEnd === -1) return { mode: "streaming", contentStart, endIndex: -1 };
-    if (tagEnd > match.index && text[tagEnd - 1] === "/") {
-        return { mode: "selfClosing", contentStart, endIndex: -2 };
-    }
-    const endIndex = match.endTag.startsWith("<")
-        ? findStructuralTagIndex(text, contentStart, match.endTag)
-        : text.indexOf(match.endTag, contentStart);
-    return endIndex === -1
-        ? { mode: "streaming", contentStart, endIndex }
-        : { mode: "complete", contentStart, endIndex };
-};
-
-/** Return the content region for a complete or still-streaming block. */
-const messageBlockContent = (text: string, span: MessageBlockSpan): string => {
-    if (span.mode === "selfClosing") return "";
-    if (span.mode === "complete") return text.slice(span.contentStart, span.endIndex);
-    return text.slice(span.contentStart);
-};
-
-/** Find the exclusive end of the full wrapper, including its closing marker. */
-const messageBlockEnd = (text: string, match: MessageBlockMatch, span: MessageBlockSpan): number => {
-    if (span.mode === "selfClosing") return span.contentStart;
-    if (span.mode === "streaming") return text.length;
-    return span.endIndex + match.endTag.length;
-};
-
-/** Build one parsed chunk while preserving the source range and streaming state. */
-const parseMatchedMessageBlock = (
-    text: string,
-    sourceOffset: number,
-    match: MessageBlockMatch,
-): { chunk: Chunk; mode: MessageBlockMode; nextIndex: number } => {
-    const span = findMessageBlockSpan(text, match);
-    const blockEnd = messageBlockEnd(text, match, span);
-    const chunk = parseMessageBlock({
-        type: match.type,
-        mode: span.mode,
-        tagFull: text.slice(match.index, span.contentStart),
-        block: text.slice(match.index, blockEnd),
-        content: messageBlockContent(text, span),
-        isGenerating: span.mode === "streaming",
-    });
-    chunk.sourceStart = sourceOffset + match.index;
-    return { chunk, mode: span.mode, nextIndex: blockEnd };
-};
-
-/** Parse structural tool wrappers and plain text in one forward pass. */
-const parseStructuralMessageContent = (source: string, sourceOffset: number): Chunk[] => {
-    const text = stripLeakedToolCode(source);
+/** Parses structural tool blocks and plain text across `rawText` with `sourceOffset` tracking. */
+const parseStructuralMessageContent = (
+    rawText: string,
+    sourceOffset = 0,
+): Chunk[] => {
+    const text = stripLeakedToolCode(rawText);
+    const lowerText = toAsciiLower(text);
+    const fenceRanges = collectProtectedCodeRanges(text);
+    const fenceCursor = { idx: 0 };
     const chunks: Chunk[] = [];
-    let cursor = 0;
-    while (cursor < text.length) {
-        const match = findNextMessageBlock(text, cursor);
-        if (!match) {
-            appendPlainTextRange(chunks, text, cursor, text.length, sourceOffset);
+    let currentIndex = 0;
+
+    while (currentIndex < text.length) {
+        const firstMatch = findNextStructuredTag(
+            text,
+            currentIndex,
+            fenceRanges,
+            fenceCursor,
+        );
+        if (!firstMatch) {
+            pushSanitizedTextSlice(chunks, text, sourceOffset, currentIndex);
             break;
         }
-        appendPlainTextRange(chunks, text, cursor, match.index, sourceOffset);
-        const parsed = parseMatchedMessageBlock(text, sourceOffset, match);
-        if (parsed.chunk.type === "todos") pushOrReplaceTodos(chunks, parsed.chunk);
-        else chunks.push(parsed.chunk);
-        if (parsed.mode === "streaming") break;
-        cursor = parsed.nextIndex;
+        if (firstMatch.index > currentIndex) {
+            pushSanitizedTextSlice(
+                chunks,
+                text,
+                sourceOffset,
+                currentIndex,
+                firstMatch.index,
+            );
+        }
+        const { slice, nextIndex } = consumeMatchedTagAt(
+            text,
+            lowerText,
+            firstMatch,
+        );
+        const built = buildChunkFromSlice(slice);
+        built.sourceStart = sourceOffset + firstMatch.index;
+        pushParsedChunk(chunks, built);
+        currentIndex = nextIndex;
     }
+
     return dedupeTerminalChunks(chunks);
 };
 
-/** Convert an accepted visual fence into a bounded, sanitized OpenUI chunk. */
-const openUIFenceChunk = (text: string, fence: OpenUIFence, sourceOffset: number): Chunk => {
+/** Converts an accepted visual fence into a bounded, sanitized OpenUI chunk. */
+const openUIFenceChunk = (
+    text: string,
+    fence: OpenUIFence,
+    sourceOffset: number,
+): Chunk => {
     const sourceLength = fence.sourceEnd - fence.sourceStart;
     const boundedSource = text.slice(
         fence.sourceStart,
         Math.min(fence.sourceEnd, fence.sourceStart + MAX_OPENUI_SOURCE_LENGTH),
     );
-    // OpenUI source is executable DSL, not a code sample: scrub hidden control markup even inside Markdown fences.
-    const content = stripLeakedToolCode(boundedSource, { includeFencedCode: true });
+    const content = stripLeakedToolCode(boundedSource, {
+        includeFencedCode: true,
+    });
     return {
         type: "openui",
         content,
@@ -1240,7 +2216,7 @@ const openUIFenceChunk = (text: string, fence: OpenUIFence, sourceOffset: number
     };
 };
 
-/** Append an uncovered range after parsing it without starting another fence scan. */
+/** Appends a structural range `[start, end)` when non-empty. */
 const appendStructuralRange = (
     chunks: Chunk[],
     text: string,
@@ -1249,18 +2225,29 @@ const appendStructuralRange = (
     sourceOffset: number,
 ): void => {
     if (end > start) {
-        chunks.push(...parseStructuralMessageContent(text.slice(start, end), sourceOffset + start));
+        chunks.push(
+            ...parseStructuralMessageContent(
+                text.slice(start, end),
+                sourceOffset + start,
+            ),
+        );
     }
 };
 
-/** Keep over-budget visual source as sanitized Markdown rather than materializing more OpenUI nodes. */
-const overflowFenceChunk = (text: string, overflow: OpenUIFenceOverflow, sourceOffset: number): Chunk => ({
+/** Keeps over-budget visual source as sanitized Markdown rather than materializing excess OpenUI nodes. */
+const overflowFenceChunk = (
+    text: string,
+    overflow: OpenUIFenceOverflow,
+    sourceOffset: number,
+): Chunk => ({
     type: "text",
-    content: stripLeakedToolCode(text.slice(overflow.start, overflow.end), { includeFencedCode: true }),
+    content: stripLeakedToolCode(text.slice(overflow.start, overflow.end), {
+        includeFencedCode: true,
+    }),
     sourceStart: sourceOffset + overflow.start,
 });
 
-/** Split scanned visual fences, parse intervening ranges, and preserve source offsets. */
+/** Splits scanned visual fences, parses intervening ranges, and preserves source offsets. */
 const parseScannedOpenUIContent = (
     text: string,
     scan: OpenUIFenceScan,
@@ -1274,7 +2261,13 @@ const parseScannedOpenUIContent = (
         cursor = fence.end;
     }
     if (scan.overflow) {
-        appendStructuralRange(chunks, text, cursor, scan.overflow.start, sourceOffset);
+        appendStructuralRange(
+            chunks,
+            text,
+            cursor,
+            scan.overflow.start,
+            sourceOffset,
+        );
         chunks.push(overflowFenceChunk(text, scan.overflow, sourceOffset));
         cursor = scan.overflow.end;
     }
@@ -1282,267 +2275,512 @@ const parseScannedOpenUIContent = (
     return mergeAdjacentTextChunks(chunks);
 };
 
-/** Split eligible visual fences before handing the remaining text to the structural parser. */
-const parseMessageContentWithOpenUI = (text: string, detectOpenUI = true, sourceOffset = 0): Chunk[] => {
-    const scan: OpenUIFenceScan = detectOpenUI ? findOpenUIFences(text) : { fences: [] };
+/** Parses uncached message content into chronological prose, OpenUI, workflow, and rich card chunks. */
+const parseMessageContentUncached = (rawText: string): Chunk[] => {
+    const scan = findOpenUIFences(rawText);
     if (scan.fences.length > 0 || scan.overflow) {
-        return parseScannedOpenUIContent(text, scan, sourceOffset);
+        return parseScannedOpenUIContent(rawText, scan, 0);
     }
-    return parseStructuralMessageContent(text, sourceOffset);
+    return parseStructuralMessageContent(rawText, 0);
 };
 
-/** Parse assistant text into structural UI chunks and bounded OpenUI visual blocks. */
-/**
- * Parsing is pure but expensive, and one render pass parses the same message
- * several times (composer task items, pending edits, the message body). The
- * cache below shares those results. Cached chunks are read-only for callers.
- */
-const PARSE_CACHE_MAX_ENTRIES = 8;
-const PARSE_CACHE_MAX_CHARS = 192_000;
-const parseCache = new Map<string, Chunk[]>();
-let parseCacheChars = 0;
+/** Checks whether the bounded LRU parse cache must evict its oldest entry. */
+const shouldEvictParseCache = (): boolean =>
+    parseCache.size > PARSE_CACHE_MAX_ENTRIES ||
+    (parseCacheChars > PARSE_CACHE_MAX_CHARS && parseCache.size > 1);
 
-/** Cached entry point for {@link parseMessageContentWithOpenUI} (LRU, size-capped). */
-export function parseMessageContent(text: string): Chunk[] {
-    const cached = parseCache.get(text);
+/** Records `chunks` under `rawText` in the bounded LRU parse cache. */
+const storeParsedMessageCache = (rawText: string, chunks: Chunk[]): void => {
+    if (rawText.length > PARSE_CACHE_MAX_CHARS) return;
+    parseCache.set(rawText, chunks);
+    parseCacheChars += rawText.length;
+    while (shouldEvictParseCache()) {
+        const oldest = parseCache.keys().next().value;
+        if (oldest === undefined) break;
+        parseCache.delete(oldest);
+        parseCacheChars -= oldest.length;
+    }
+};
+
+/** Parse message content into chronological prose, workflow, and rich card chunks. */
+export const parseMessageContent = (rawText: string): Chunk[] => {
+    const cached = parseCache.get(rawText);
     if (cached) {
-        parseCache.delete(text);
-        parseCache.set(text, cached);
+        parseCache.delete(rawText);
+        parseCache.set(rawText, cached);
         return cached;
     }
-
-    const chunks = parseMessageContentWithOpenUI(text);
-    if (text.length <= PARSE_CACHE_MAX_CHARS) {
-        parseCache.set(text, chunks);
-        parseCacheChars += text.length;
-        while (
-            parseCache.size > PARSE_CACHE_MAX_ENTRIES
-            || (parseCacheChars > PARSE_CACHE_MAX_CHARS && parseCache.size > 1)
-        ) {
-            const oldest = parseCache.keys().next().value;
-            if (oldest === undefined) break;
-            parseCache.delete(oldest);
-            parseCacheChars -= oldest.length;
-        }
-    }
+    const chunks = parseMessageContentUncached(rawText);
+    storeParsedMessageCache(rawText, chunks);
     return chunks;
-}
+};
 
+/** Merges two adjacent plain-text chunks in place. */
+const appendTextChunk = (prev: Chunk, next: Chunk): void => {
+    prev.content = `${prev.content ?? ""}${next.content ?? ""}`;
+    if (next.isGenerating) {
+        prev.isGenerating = true;
+    }
+};
 
 /** Merge consecutive plain-text segments so markdown renders as one block. */
-function mergeAdjacentTextChunks(chunks: Chunk[]): Chunk[] {
+const mergeAdjacentTextChunks = (chunks: Chunk[]): Chunk[] => {
     const merged: Chunk[] = [];
     for (const chunk of chunks) {
-        const prev = merged[merged.length - 1];
+        const prev = merged.at(-1);
         if (chunk.type === "text" && prev?.type === "text") {
-            prev.content = `${prev.content || ""}${chunk.content || ""}`;
-            if (chunk.isGenerating) prev.isGenerating = true;
+            appendTextChunk(prev, chunk);
         } else {
             merged.push({ ...chunk });
         }
     }
     return merged;
-}
+};
 
-export type WebSearchResultItem = { title: string; url: string; snippet: string };
+/** Formats a `WebSearchResultItem` from a `web_visit` chunk. */
+const buildVisitedSearchItem = (
+    item: Chunk,
+    url: string,
+    host: string,
+): WebSearchResultItem => ({
+    title: item.visitTitle ?? (host ? host : "Visited"),
+    url,
+    snippet: host ? `Visited ${host}` : "Visited page",
+});
 
-export function parseWebResults(blockContent: string): WebSearchResultItem[] {
-    const results: WebSearchResultItem[] = [];
-    const blocks = blockContent.split('---').filter(Boolean);
-    blocks.forEach(block => {
-        const titleMatch = block.match(/### (.*)/);
-        const urlMatch = block.match(/URL: (.*)/);
-        const text = block.replace(/### .*/, '').replace(/URL: .*/, '').trim();
-        if (titleMatch || urlMatch) {
-            results.push({
-                title: titleMatch ? titleMatch[1].trim() : 'Result',
-                url: urlMatch ? urlMatch[1].trim() : '',
-                snippet: text
-            });
-        }
-    });
-    return results;
-}
+/** Appends a `web_visit` chunk to `results` if its URL/host key has not been seen yet. */
+const collectWebVisitResult = (
+    item: Chunk,
+    seen: Set<string>,
+    results: WebSearchResultItem[],
+): void => {
+    const url = captureOrEmpty(item.visitUrl);
+    const host = captureOrEmpty(item.visitHost);
+    const key = url ? url : host;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    results.push(buildVisitedSearchItem(item, url, host));
+};
 
-/** Collect unique web search/visit hit URLs from a message for the footer sources menu. */
-export function extractWebSearchResults(content: string): WebSearchResultItem[] {
-    const chunks = parseMessageContent(content);
-    const results: WebSearchResultItem[] = [];
-    const seen = new Set<string>();
-    for (const item of chunks) {
-        if (item.type === "web_visit") {
-            const url = item.visitUrl || "";
-            const key = url || item.visitHost || "";
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
-            results.push({
-                title: item.visitTitle || item.visitHost || "Visited",
-                url,
-                snippet: item.visitHost ? `Visited ${item.visitHost}` : "Visited page",
-            });
-            continue;
-        }
-        if (item.type !== 'web_result' && item.type !== 'web_search') continue;
-        if (item.type !== 'web_result') continue;
-        for (const hit of parseWebResults(item.content || '')) {
-            const key = hit.url || `${hit.title}:${hit.snippet}`;
-            if (seen.has(key)) continue;
+/** Appends unique parsed hits from a `web_result` chunk into `results`. */
+const collectWebResultHits = (
+    content: string,
+    seen: Set<string>,
+    results: WebSearchResultItem[],
+): void => {
+    for (const hit of parseWebResults(content)) {
+        const key = hit.url ? hit.url : `${hit.title}:${hit.snippet}`;
+        if (!seen.has(key)) {
             seen.add(key);
             results.push(hit);
         }
     }
-    return results;
-}
+};
 
-/**
- * A message is a chronological sequence of segments. A sentence between
- * tool runs splits the rail, so the line stops and starts again around it.
- */
-type Segment =
-    | { kind: 'workflow'; blocks: Chunk[]; sourceStart: number }
-    | { kind: 'chunk'; chunk: Chunk };
-
-/** Add a workflow block to its adjacent rail segment or begin a new segment. */
-const appendWorkflowChunk = (segments: Segment[], chunk: Chunk): void => {
-    const previous = segments[segments.length - 1];
-    if (previous?.kind === "workflow") {
-        previous.blocks.push(chunk);
-        return;
+/** Collect unique web search/visit hit URLs from a message for the footer sources menu. */
+export const extractWebSearchResults = (
+    content: string,
+): WebSearchResultItem[] => {
+    const results: WebSearchResultItem[] = [];
+    const seen = new Set<string>();
+    for (const item of parseMessageContent(content)) {
+        if (item.type === "web_visit") {
+            collectWebVisitResult(item, seen, results);
+        } else if (item.type === "web_result") {
+            collectWebResultHits(item.content ?? "", seen, results);
+        }
     }
-    segments.push({ kind: "workflow", blocks: [chunk], sourceStart: chunk.sourceStart ?? 0 });
+    return results;
 };
 
-/** Ignore whitespace-only chunks because they do not create visible message content. */
-const isWhitespaceOnlyText = (chunk: Chunk): boolean =>
-    chunk.type === "text" && !(chunk.content || "").trim();
-
-/** Group adjacent workflow blocks while preserving ordinary message chunks in sequence. */
-const appendStandaloneChunk = (segments: Segment[], chunk: Chunk): void => {
-    if (!isWhitespaceOnlyText(chunk)) segments.push({ kind: "chunk", chunk });
+/** Appends a workflow chunk to the trailing workflow segment or starts a new workflow segment. */
+const pushWorkflowSegmentChunk = (segments: Segment[], chunk: Chunk): void => {
+    const prev = segments.at(-1);
+    if (prev?.kind === "workflow") {
+        prev.blocks.push(chunk);
+    } else {
+        segments.push({ kind: "workflow", blocks: [chunk] });
+    }
 };
 
-/** Group adjacent workflow blocks while preserving ordinary message chunks in sequence. */
+/** Checks whether a standalone chunk should be emitted as a non-empty content segment. */
+const isNonEmptyContentChunk = (chunk: Chunk): boolean =>
+    chunk.type !== "text" || Boolean(captureOrEmpty(chunk.content).trim());
+
+/** Groups chronological chunks into alternating workflow rails and standalone content segments. */
 const buildSegments = (chunks: Chunk[]): Segment[] => {
     const segments: Segment[] = [];
     for (const chunk of chunks) {
-        if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) appendWorkflowChunk(segments, chunk);
-        else appendStandaloneChunk(segments, chunk);
+        if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
+            pushWorkflowSegmentChunk(segments, chunk);
+        } else if (isNonEmptyContentChunk(chunk)) {
+            segments.push({ kind: "chunk", chunk });
+        }
     }
     return segments;
 };
 
+/** Checks whether a pending `edit_pending` chunk has already been applied in the workspace. */
+const isPendingEditAlreadyApplied = (
+    chunk: Chunk,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): boolean =>
+    chunk.type === "edit_pending" &&
+    (chunk.commandStatus ?? "pending") === "pending" &&
+    Boolean(chunk.file && isFileEditResolved?.(chunk.file, chunk.replacement));
 
-type MessageChunkRenderContext = {
-    segmentKey: string;
-    isGenerating?: boolean;
-    isLastSegment: boolean;
-    isLastBrowseSegment: boolean;
+/** Normalizes one parsed chunk for settled turn state and workspace-resolved edits. */
+const finalizeSingleParsedChunk = (
+    chunk: Chunk,
+    isGenerating?: boolean,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): Chunk => {
+    let next = chunk;
+    if (isPendingEditAlreadyApplied(next, isFileEditResolved)) {
+        next = { ...next, commandStatus: "applied" };
+    }
+    if (!isGenerating && next.isGenerating) {
+        next = { ...next, isGenerating: false };
+    }
+    return next;
 };
-type MessageSegmentRenderContext = MessageChunkRenderContext & {
-    segment: Segment;
-    firstWorkflowSegment?: Segment;
-    lastWorkflowSegment?: Segment;
-    durationMs?: number;
-    activityLabel?: string | null;
+
+/** Clears residual `isGenerating` flags and promotes workspace-applied edits on parsed chunks. */
+const finalizeParsedChunks = (
+    parsed: Chunk[],
+    isGenerating?: boolean,
+    isFileEditResolved?: (file: string, replacement?: string) => boolean,
+): Chunk[] =>
+    parsed.map((chunk) =>
+        finalizeSingleParsedChunk(chunk, isGenerating, isFileEditResolved),
+    );
+
+/** Indexes the last array position of each `persona_review` chunk with a non-empty `commandId`. */
+const collectLastPersonaReviewIndexById = (
+    chunks: Chunk[],
+): Map<string, number> => {
+    const lastById = new Map<string, number>();
+    for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        if (chunk.type === "persona_review" && chunk.commandId) {
+            lastById.set(chunk.commandId, i);
+        }
+    }
+    return lastById;
 };
-type MessageChunkRenderer = (chunk: Chunk, context: MessageChunkRenderContext) => React.ReactNode;
 
-/** Render the stable wrapper key used by chronological message segments. */
-const getSegmentKey = (segment: Segment): string => segment.kind === "workflow"
-    ? `workflow-${segment.sourceStart}`
-    : `${segment.chunk.type}-${segment.chunk.sourceStart ?? 0}`;
+/** Checks whether a chunk is non-review, anonymous, or the final review for its `commandId`. */
+const isRetainedPersonaReview = (
+    chunk: Chunk,
+    index: number,
+    lastById: Map<string, number>,
+): boolean => {
+    if (chunk.type !== "persona_review" || !chunk.commandId) return true;
+    return lastById.get(chunk.commandId) === index;
+};
 
-/** Render one bounded visual answer chunk. */
-const renderOpenUIChunk: MessageChunkRenderer = (chunk, context) => (
-    <OpenUIBlock
-        key={`openui-${chunk.openuiSourceStart ?? 0}`}
-        response={chunk.content || ""}
-        isStreaming={Boolean(context.isGenerating && context.isLastSegment)}
-        truncated={chunk.openuiTruncated}
-    />
-);
+/** Retains only the final `persona_review` chunk for each non-empty `commandId` in linear time. */
+export const dropSupersededPersonaReviews = (chunks: Chunk[]): Chunk[] => {
+    const lastById = collectLastPersonaReviewIndexById(chunks);
+    if (lastById.size === 0) return chunks;
+    return chunks.filter((chunk, index) =>
+        isRetainedPersonaReview(chunk, index, lastById),
+    );
+};
 
-/** Render one prose chunk with the existing streaming animation and markdown behavior. */
-const renderTextChunk: MessageChunkRenderer = (chunk, context) => {
+/** Decides whether a chunk should remain visible when constructing chronological segments. */
+const isSegmentChunkVisible = (
+    chunk: Chunk,
+    browsing: boolean,
+    isGenerating?: boolean,
+): boolean => {
+    if (browsing && (chunk.type === "think" || chunk.type === "thought")) {
+        return false;
+    }
+    if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) {
+        return isRenderableWorkflowBlock(chunk, isGenerating);
+    }
+    return true;
+};
+
+/** Type-guards whether a `Segment` is a `WorkflowSegment`. */
+const isWorkflowSegment = (segment: Segment): segment is WorkflowSegment =>
+    segment.kind === "workflow";
+
+/** Finds the last segment index matching `predicate`, or `-1` when absent. */
+const findLastSegmentIndex = (
+    segments: Segment[],
+    predicate: (segment: Segment) => boolean,
+): number => {
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+        if (predicate(segments[i])) return i;
+    }
+    return -1;
+};
+
+/** Checks whether a segment is a `browse_session` chunk segment. */
+const isBrowseSessionSegment = (segment: Segment): boolean =>
+    segment.kind === "chunk" && segment.chunk.type === "browse_session";
+
+/** Checks whether the trailing segment is actively streaming non-empty prose. */
+const isTrailingProseStreaming = (lastSegment: Segment | undefined): boolean => {
+    if (lastSegment?.kind !== "chunk" || lastSegment.chunk.type !== "text") {
+        return false;
+    }
+    return Boolean(lastSegment.chunk.content?.trim());
+};
+
+/** Checks whether a workflow block is awaiting user approval. */
+const isPendingWorkflowApprovalBlock = (block: Chunk): boolean =>
+    DEDUPABLE_COMMAND_TYPES.has(block.type) && block.commandStatus === "pending";
+
+/** Checks whether any chunk of `targetType` in `chunks` is currently `"pending"`. */
+const hasPendingChunkOfType = (
+    chunks: Chunk[],
+    targetType: Chunk["type"],
+): boolean =>
+    chunks.some(
+        (chunk) => chunk.type === targetType && chunk.commandStatus === "pending",
+    );
+
+/** Resolves the pending approval label when any interactive gate is waiting on the user. */
+const resolvePendingApprovalLabel = (
+    workflowSegments: WorkflowSegment[],
+    contentChunks: Chunk[],
+): string | undefined => {
+    if (hasPendingChunkOfType(contentChunks, "question")) {
+        return "Waiting for your answers";
+    }
+    if (hasPendingChunkOfType(contentChunks, "design_previews")) {
+        return "Waiting for you to pick a design";
+    }
+    const workflowPending = workflowSegments.some((seg) =>
+        seg.blocks.some(isPendingWorkflowApprovalBlock),
+    );
+    return workflowPending ? "Waiting for approval" : undefined;
+};
+
+/** Checks whether a chunk represents a file edit (`edit` or `edit_pending`). */
+const isEditChunk = (chunk: Chunk | undefined): boolean =>
+    chunk?.type === "edit" || chunk?.type === "edit_pending";
+
+/** Finds the basename of the latest edited file in the trailing workflow segment. */
+const findLatestEditedBasename = (blocks: Chunk[] | undefined): string => {
+    if (!blocks) return "file";
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+        const file = isEditChunk(blocks[i]) ? blocks[i].file : undefined;
+        const name = file?.split(/[\\/]/).pop();
+        if (name) return name;
+    }
+    return "file";
+};
+
+/** Checks whether the trailing workflow block is an active reasoning block. */
+const isActivelyThinkingBlock = (
+    lastBlock: Chunk | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (!isGenerating || !lastBlock?.isGenerating) return false;
+    return lastBlock.type === "think" || lastBlock.type === "thought";
+};
+
+/** Resolves the fallback live status label when no approval or file-edit state applies. */
+const resolveGeneralActivityLabel = (
+    effectiveLabel: string | undefined,
+    isThinking: boolean,
+    hasWorkflows: boolean,
+): string | undefined => {
+    if (effectiveLabel) return effectiveLabel;
+    if (isThinking) return "Thinking";
+    return hasWorkflows ? "Working" : undefined;
+};
+
+/** Checks whether the trailing workflow block is an unclosed in-flight edit chunk. */
+const isActivelyEditingBlock = (
+    lastBlock: Chunk | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (!isGenerating || !lastBlock?.isGenerating) return false;
+    return isEditChunk(lastBlock);
+};
+
+/** Checks whether `lastBlock` is a closed edit chunk (`!isGenerating`). */
+const isFinishedEditBlock = (lastBlock: Chunk | undefined): boolean =>
+    Boolean(lastBlock && !lastBlock.isGenerating && isEditChunk(lastBlock));
+
+/** Trims an optional activity label to a non-empty string or `undefined`. */
+const trimOptionalLabel = (
+    label: string | null | undefined,
+): string | undefined => {
+    if (!label) return undefined;
+    const trimmed = label.trim();
+    return trimmed ? trimmed : undefined;
+};
+
+/** Clears stale `"Editing..."` `activityLabel` values once the trailing edit block has closed. */
+const sanitizePostEditActivityLabel = (
+    activityLabel: string | null | undefined,
+    lastBlock: Chunk | undefined,
+): string | undefined => {
+    const trimmed = trimOptionalLabel(activityLabel);
+    if (trimmed && isFinishedEditBlock(lastBlock) && /\bedit/i.test(trimmed)) {
+        return undefined;
+    }
+    return trimmed;
+};
+
+/** Checks whether live status should report an active file-editing label. */
+const shouldShowEditingStatus = (
+    lastBlock: Chunk | undefined,
+    effectiveLabel: string | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (effectiveLabel && /\bedit/i.test(effectiveLabel)) return true;
+    return isActivelyEditingBlock(lastBlock, isGenerating);
+};
+
+/** Reads the blocks array from the trailing workflow segment when present. */
+const readTrailingWorkflowBlocks = (
+    workflowSegments: WorkflowSegment[],
+): Chunk[] | undefined => {
+    const lastSegment = workflowSegments.at(-1);
+    return lastSegment ? lastSegment.blocks : undefined;
+};
+
+/** Sanitizes `activityLabel` against the trailing workflow block so finished edits do not linger. */
+const resolveEffectiveActivityLabel = (
+    workflowSegments: WorkflowSegment[],
+    activityLabel: string | null | undefined,
+): string | undefined =>
+    sanitizePostEditActivityLabel(
+        activityLabel,
+        readTrailingWorkflowBlocks(workflowSegments)?.at(-1),
+    );
+
+/** Computes the live `GeneratingIndicator` status label for the current message state. */
+export const resolveLiveStatusLabel = (
+    pendingLabel: string | undefined,
+    workflowSegments: WorkflowSegment[],
+    activityLabel: string | null | undefined,
+    isGenerating?: boolean,
+): string | undefined => {
+    if (pendingLabel) return pendingLabel;
+    const trailingBlocks = readTrailingWorkflowBlocks(workflowSegments);
+    const lastWorkflowBlock = trailingBlocks?.at(-1);
+    const effectiveLabel = sanitizePostEditActivityLabel(
+        activityLabel,
+        lastWorkflowBlock,
+    );
+    if (shouldShowEditingStatus(lastWorkflowBlock, effectiveLabel, isGenerating)) {
+        return `Editing ${findLatestEditedBasename(trailingBlocks)}`;
+    }
+    return resolveGeneralActivityLabel(
+        effectiveLabel,
+        isActivelyThinkingBlock(lastWorkflowBlock, isGenerating),
+        workflowSegments.length > 0,
+    );
+};
+
+/** Renders a plain-text Markdown chunk segment. */
+const renderTextChunkView: ChunkViewRenderer = (chunk, ctx) => {
     const text = chunk.content;
     if (!text?.trim()) return null;
     return (
         <div
-            key={context.segmentKey}
             className={cn(
                 "text-sm font-medium text-text-primary leading-[var(--conversation-line-height)] mb-0 w-full overflow-hidden prose-compact chat-markdown",
-                context.isGenerating && context.isLastSegment && "animate-in fade-in duration-300",
+                ctx.isGenerating && ctx.isLastSegment && "t-step-enter",
             )}
         >
-            <ChatMarkdown content={text} isGenerating={context.isGenerating} isLast={context.isLastSegment} />
+            <ChatMarkdown
+                content={text}
+                isGenerating={ctx.isGenerating}
+                isLast={ctx.isLastSegment}
+            />
         </div>
     );
 };
 
-/** Parse explicit plan-step tags into the planning card's compact data model. */
-const parsePlanSteps = (content: string): Array<{ status: "done" | "active" | "pending" | "cancelled"; label: string }> =>
-    [...content.matchAll(/<step\s+status="([^"]*)">([\s\S]*?)<\/step>/g)].map((match) => ({
-        status: match[1] as "done" | "active" | "pending" | "cancelled",
-        label: match[2].trim(),
-    }));
-
-/** Count completed planning steps without coupling count logic to the renderer. */
-const countCompletedSteps = (steps: Array<{ status: string }>): number =>
-    steps.filter((step) => step.status === "done").length;
-
-/** Render the saved plan summary card. */
-const renderSavedPlanChunk: MessageChunkRenderer = (chunk, context) => (
+/** Renders a saved implementation plan card chunk. */
+const renderPlanSavedChunkView: ChunkViewRenderer = (chunk) => (
     <PlanSavedBlock
-        key={context.segmentKey}
-        title={chunk.content || "Implementation Plan"}
-        path={chunk.file || ""}
+        title={chunk.content ?? "Implementation Plan"}
+        path={chunk.file ?? ""}
         markdown={chunk.planMarkdown}
     />
 );
 
-/** Render an in-progress plan with parsed step completion data. */
-const renderPlanChunk: MessageChunkRenderer = (chunk, context) => {
-    const steps = parsePlanSteps(chunk.content || "");
+/** Parses `<step status="...">...</step>` tags inside a `<plan>` chunk. */
+/** Normalizes a `<step>` child element into `{ status, label }` for `PlanningBlock`. */
+const normalizePlanStepEntry = (
+    entry: ChildXmlMatch,
+): { status: TodoStepStatus; label: string } => {
+    const raw = (
+        readOptionalAttr(entry.attrs, "status") ?? "pending"
+    ).toLowerCase();
+    return {
+        status: TODO_STATUS_MAP[raw] ?? "pending",
+        label: entry.body.trim(),
+    };
+};
+
+/** Parses `<step status="...">...</step>` items inside a `<plan>` block. */
+const parsePlanSteps = (
+    blockContent: string,
+): Array<{ status: TodoStepStatus; label: string }> =>
+    scanChildXmlElements(blockContent, "step", "</step>").map(
+        normalizePlanStepEntry,
+    );
+
+/** Renders a `<plan>` step-progress block. */
+const renderPlanChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    const steps = parsePlanSteps(chunk.content ?? "");
+    const completedCount = steps.filter((step) => step.status === "done").length;
     return (
         <PlanningBlock
-            key={context.segmentKey}
-            title={chunk.file || "Plan"}
+            title={chunk.file ?? "Plan"}
             steps={steps}
-            completedCount={countCompletedSteps(steps)}
+            completedCount={completedCount}
             totalCount={steps.length}
-            isGenerating={context.isGenerating}
+            isGenerating={ctx.isGenerating}
         />
     );
 };
 
-/** Render a todo checklist through the same planning card as explicit plan steps. */
-const renderTodosChunk: MessageChunkRenderer = (chunk, context) => {
-    const todos = chunk.todos || [];
-    if (todos.length === 0) return null;
-    const steps = todos.map((todo) => ({ status: todo.status, label: todo.label }));
+/** Renders a `<todos>` checklist block when todo items are present. */
+const renderTodosChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    if (!chunk.todos?.length) return null;
+    const steps = chunk.todos.map((todo) => ({
+        status: todo.status,
+        label: todo.label,
+    }));
+    const completedCount = steps.filter((step) => step.status === "done").length;
     return (
         <PlanningBlock
-            key={context.segmentKey}
-            title={chunk.content || "Todos"}
+            title={chunk.content ?? "Todos"}
             steps={steps}
-            completedCount={countCompletedSteps(steps)}
+            completedCount={completedCount}
             totalCount={steps.length}
-            isGenerating={context.isGenerating}
+            isGenerating={ctx.isGenerating}
         />
     );
 };
 
-/** Render a browser visit only for the newest visit segment in the message. */
-const renderBrowseChunk: MessageChunkRenderer = (chunk, context) => {
-    if (!context.isLastBrowseSegment) return null;
-    const parsed = parseCardJson<{ image?: string; x?: number; y?: number; console?: string[] }>(chunk.content);
+/** Renders ONLY the latest `<browse_session>` frame in a message with live follow active. */
+const renderBrowseSessionChunkView: ChunkViewRenderer = (chunk, ctx) => {
+    if (ctx.pos !== ctx.lastBrowseIndex) return null;
+    const parsed = parseCardJson<{
+        image?: string;
+        x?: number;
+        y?: number;
+        console?: string[];
+    }>(chunk.content);
     return (
         <BrowseChatCard
-            key={context.segmentKey}
             url={chunk.visitUrl}
             title={chunk.visitTitle}
             status={chunk.commandStatus}
-            image={parsed?.image || ""}
+            image={parsed?.image ?? ""}
             x={parsed?.x}
             y={parsed?.y}
             consoleLines={parsed?.console}
@@ -1551,277 +2789,218 @@ const renderBrowseChunk: MessageChunkRenderer = (chunk, context) => {
     );
 };
 
-/** Render a generated file card without exposing raw file content in the message body. */
-const renderSentFileChunk: MessageChunkRenderer = (chunk, context) => (
+/** Renders a `<sent_file>` attachment card. */
+const renderSentFileChunkView: ChunkViewRenderer = (chunk) => (
     <SentFileCard
-        key={context.segmentKey}
-        name={chunk.file || "File"}
+        name={chunk.file ?? "File"}
         title={chunk.mediaPrompt}
-        mime={chunk.query || ""}
-        src={chunk.content || ""}
+        mime={chunk.query ?? ""}
+        src={chunk.content ?? ""}
     />
 );
 
-/** Render an attached image only when it has a usable source URL. */
-const renderAttachedImageChunk: MessageChunkRenderer = (chunk, context) => {
-    const source = chunk.content?.trim() || "";
-    if (!source) return null;
+/** Renders an inline `<attached_image>` preview when `src` is non-empty. */
+const renderAttachedImageChunkView: ChunkViewRenderer = (chunk) => {
+    const src = chunk.content?.trim() ?? "";
+    if (!src) return null;
     return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-            key={context.segmentKey}
-            src={source}
-            alt={chunk.file || ""}
+            src={src}
+            alt={chunk.file ?? ""}
             className="my-2 max-h-80 max-w-[420px] rounded-xl border border-border-subtle object-contain"
         />
     );
 };
 
-/** Render a concise label for available design concepts. */
-const renderDesignPreviewsChunk: MessageChunkRenderer = (chunk, context) => {
-    const previewCount = chunk.designPreviews?.length ?? 0;
-    if (previewCount === 0) return null;
-    const names = (chunk.designPreviews || []).map((preview) => preview.name).filter(Boolean).join(" · ");
+/** Renders an interactive `<design_previews>` gallery when at least one preview exists. */
+const renderDesignPreviewsChunkView: ChunkViewRenderer = (chunk) => {
+    const previews = chunk.designPreviews;
+    if (!previews?.length) return null;
     return (
-        <p key={context.segmentKey} className="my-1 text-sm text-text-muted">
-            {names || `${previewCount} design concept${previewCount === 1 ? "" : "s"}`}
-        </p>
-    );
-};
-
-/** Resolve the card kind for one generated media chunk. */
-const generatedMediaKind = (type: Chunk["type"]): "svg" | "audio" | "image" =>
-    type === "generated_svg" ? "svg" : type === "generated_audio" ? "audio" : "image";
-
-/** Render generated media with its original prompt and generation state. */
-const renderGeneratedMediaChunk: MessageChunkRenderer = (chunk, context) => (
-    <GeneratedMediaCard
-        key={context.segmentKey}
-        kind={generatedMediaKind(chunk.type)}
-        src={chunk.content}
-        prompt={chunk.mediaPrompt || chunk.query}
-        credits={chunk.mediaCredits}
-        loading={Boolean(chunk.isGenerating && !chunk.content?.trim())}
-    />
-);
-
-/** Render a compact adversarial-review summary. */
-const renderReviewDebateChunk: MessageChunkRenderer = (chunk, context) => (
-    <ReviewDebatePanel key={context.segmentKey} content={chunk.content || ""} model={chunk.reviewModel} />
-);
-
-/** Render a persona-review result with its lifecycle metadata. */
-const renderPersonaReviewChunk: MessageChunkRenderer = (chunk, context) => (
-    <PersonaReviewPanel
-        key={context.segmentKey}
-        reviewId={chunk.commandId}
-        url={chunk.visitUrl}
-        status={chunk.commandStatus}
-        content={chunk.content || ""}
-    />
-);
-
-/** Render questions and any answers already attached to the chunk. */
-const renderQuestionChunk: MessageChunkRenderer = (chunk, context) => (
-    <QuestionsCard
-        key={context.segmentKey}
-        askId={chunk.commandId}
-        status={chunk.commandStatus}
-        questions={chunk.questions || []}
-        answers={chunk.answers}
-    />
-);
-
-const MESSAGE_CHUNK_RENDERERS: Partial<Record<Chunk["type"], MessageChunkRenderer>> = {
-    openui: renderOpenUIChunk,
-    text: renderTextChunk,
-    plan_saved: renderSavedPlanChunk,
-    plan: renderPlanChunk,
-    todos: renderTodosChunk,
-    chart: (chunk, context) => <ChartBlock key={context.segmentKey} content={chunk.content} />,
-    insight_card: (chunk, context) => <InsightCard key={context.segmentKey} content={chunk.content} />,
-    browse_session: renderBrowseChunk,
-    sent_file: renderSentFileChunk,
-    attached_image: renderAttachedImageChunk,
-    design_previews: renderDesignPreviewsChunk,
-    generated_svg: renderGeneratedMediaChunk,
-    generated_image: renderGeneratedMediaChunk,
-    generated_audio: renderGeneratedMediaChunk,
-    review_debate: renderReviewDebateChunk,
-    persona_review: renderPersonaReviewChunk,
-    question: renderQuestionChunk,
-};
-
-/** Render one non-workflow chunk via the small renderer registered for its type. */
-const renderMessageChunk = (chunk: Chunk, context: MessageChunkRenderContext): React.ReactNode =>
-    MESSAGE_CHUNK_RENDERERS[chunk.type]?.(chunk, context) ?? null;
-
-/** Render one workflow segment and preserve first/last segment metadata. */
-const renderWorkflowSegment = (context: MessageSegmentRenderContext): React.ReactNode => {
-    const segment = context.segment;
-    if (segment.kind !== "workflow") return null;
-    const isFirst = segment === context.firstWorkflowSegment;
-    const isLast = segment === context.lastWorkflowSegment;
-    return (
-        <TurnWorkflowSummary
-            key={context.segmentKey}
-            blocks={segment.blocks}
-            isActive={Boolean(context.isGenerating && isLast)}
-            durationMs={isFirst ? context.durationMs : undefined}
-            activityLabel={isLast ? context.activityLabel : null}
+        <DesignPreviewGallery
+            previews={previews}
+            selectedId={chunk.selectedConcept}
+            pickId={chunk.commandId}
+            status={chunk.commandStatus}
         />
     );
 };
 
-/** Render the workflow rail or its corresponding typed message chunk. */
-const renderMessageSegment = (context: MessageSegmentRenderContext): React.ReactNode => {
-    if (context.segment.kind === "workflow") return renderWorkflowSegment(context);
-    const chunkContext: MessageChunkRenderContext = {
-        segmentKey: context.segmentKey,
-        isGenerating: context.isGenerating,
-        isLastSegment: context.isLastSegment,
-        isLastBrowseSegment: context.isLastBrowseSegment,
-    };
-    return renderMessageChunk(context.segment.chunk, chunkContext);
+/** Renders a generated SVG, image, or audio media card. */
+const renderGeneratedMediaChunkView: ChunkViewRenderer = (chunk) => (
+    <GeneratedMediaCard
+        kind={GENERATED_MEDIA_KINDS[chunk.type as GeneratedMediaChunkType]}
+        src={chunk.content}
+        prompt={chunk.mediaPrompt ?? chunk.query}
+        credits={chunk.mediaCredits}
+        loading={Boolean(chunk.isGenerating) && !chunk.content?.trim()}
+    />
+);
+
+/** Renders an adversarial `<review_debate>` panel. */
+const renderReviewDebateChunkView: ChunkViewRenderer = (chunk) => (
+    <ReviewDebatePanel
+        content={chunk.content ?? ""}
+        model={chunk.reviewModel}
+    />
+);
+
+/** Renders a `<persona_review>` panel. */
+const renderPersonaReviewChunkView: ChunkViewRenderer = (chunk) => (
+    <PersonaReviewPanel
+        reviewId={chunk.commandId}
+        url={chunk.visitUrl}
+        status={chunk.commandStatus}
+        content={chunk.content ?? ""}
+    />
+);
+
+/** Renders an interactive `<question>` / `<questions>` card. */
+const renderQuestionChunkView: ChunkViewRenderer = (chunk) => (
+    <QuestionsCard
+        askId={chunk.commandId}
+        status={chunk.commandStatus}
+        questions={chunk.questions ?? []}
+        answers={chunk.answers}
+    />
+);
+
+/** Renders a bounded OpenUI visual answer surface. */
+const renderOpenUIChunkView: ChunkViewRenderer = (chunk, ctx) => (
+    <OpenUIBlock
+        response={chunk.content ?? ""}
+        isStreaming={Boolean(ctx.isGenerating && ctx.isLastSegment)}
+        truncated={chunk.openuiTruncated}
+    />
+);
+
+const CHUNK_VIEW_RENDERERS: Partial<Record<Chunk["type"], ChunkViewRenderer>> = {
+    openui: renderOpenUIChunkView,
+    text: renderTextChunkView,
+    plan_saved: renderPlanSavedChunkView,
+    plan: renderPlanChunkView,
+    todos: renderTodosChunkView,
+    chart: (chunk) => <ChartBlock content={chunk.content} />,
+    insight_card: (chunk) => <InsightCard content={chunk.content} />,
+    browse_session: renderBrowseSessionChunkView,
+    sent_file: renderSentFileChunkView,
+    attached_image: renderAttachedImageChunkView,
+    design_previews: renderDesignPreviewsChunkView,
+    generated_svg: renderGeneratedMediaChunkView,
+    generated_image: renderGeneratedMediaChunkView,
+    generated_audio: renderGeneratedMediaChunkView,
+    review_debate: renderReviewDebateChunkView,
+    persona_review: renderPersonaReviewChunkView,
+    question: renderQuestionChunkView,
 };
 
+/** Resolves the fallback signature hint from a standalone chunk's path, URL, or content prefix. */
+const resolveChunkSignatureHint = (chunk: Chunk): string => {
+    const primary = chunk.file ?? chunk.visitUrl;
+    return primary ?? Array.from(captureOrEmpty(chunk.content)).slice(0, 24).join("");
+};
 
-type MessageStatusContext = {
-    contentChunks: Chunk[];
-    workflowSegments: Extract<Segment, { kind: "workflow" }>[];
+/** Derives a stable, collision-safe React key token for a chronological segment. */
+const deriveSegmentSignature = (segment: Segment): string => {
+    if (segment.kind === "workflow") {
+        const first = segment.blocks[0];
+        if (!first) return "wf:empty";
+        return `wf:${first.type}:${first.commandId ?? resolveChunkSignatureHint(first)}`;
+    }
+    const { chunk } = segment;
+    if (chunk.type === "openui") {
+        return `openui:${chunk.openuiSourceStart ?? 0}`;
+    }
+    if (chunk.commandId) {
+        return `${chunk.type}:${chunk.commandId}`;
+    }
+    return `${chunk.type}:${resolveChunkSignatureHint(chunk)}`;
+};
+
+/** Renders a workflow summary segment inside `MessageSegmentView`. */
+const renderWorkflowSegmentElement = (
+    blocks: Chunk[],
+    pos: number,
+    firstWorkflowIndex: number,
+    lastWorkflowIndex: number,
+    isGenerating?: boolean,
+    durationMs?: number,
+    activityLabel?: string | null,
+): React.ReactElement => {
+    const isLastWf = pos === lastWorkflowIndex;
+    return (
+        <TurnWorkflowSummary
+            blocks={blocks}
+            isActive={Boolean(isGenerating) && isLastWf}
+            durationMs={pos === firstWorkflowIndex ? durationMs : undefined}
+            activityLabel={isLastWf ? activityLabel : null}
+        />
+    );
+};
+
+/** Renders a single chronological workflow or standalone chunk segment. */
+const MessageSegmentView = ({
+    segment,
+    pos,
+    segmentsLength,
+    firstWorkflowIndex,
+    lastWorkflowIndex,
+    lastBrowseIndex,
+    isGenerating,
+    durationMs,
+    activityLabel,
+}: {
+    segment: Segment;
+    pos: number;
+    segmentsLength: number;
+    firstWorkflowIndex: number;
+    lastWorkflowIndex: number;
+    lastBrowseIndex: number;
     isGenerating?: boolean;
+    durationMs?: number;
     activityLabel?: string | null;
-};
-const THINKING_CHUNK_TYPES = new Set<Chunk["type"]>(["think", "thought"]);
-const EDIT_CHUNK_TYPES = new Set<Chunk["type"]>(["edit", "edit_pending"]);
-const APPROVAL_CHUNK_TYPES = new Set<Chunk["type"]>(["terminal_command", "edit_pending", "plugin_call"]);
-
-/** Clear stale streaming flags when the assistant turn is no longer active. */
-const normalizeChunkGeneration = (chunks: Chunk[], isGenerating?: boolean): Chunk[] => {
-    if (isGenerating) return chunks;
-    return chunks.map((chunk) => (chunk.isGenerating ? { ...chunk, isGenerating: false } : chunk));
-};
-
-/** Remove in-progress persona reviews that have a later final result with the same id. */
-const removeSupersededPersonaReviews = (chunks: Chunk[]): Chunk[] =>
-    chunks.filter((chunk, index) =>
-        chunk.type !== "persona_review"
-        || !chunks.some((later, laterIndex) =>
-            laterIndex > index && later.type === "persona_review" && later.commandId === chunk.commandId,
-        ),
-    );
-
-/** Keep thought-only chunks out of browsing sessions and filter hidden workflow blocks. */
-const isVisibleMessageChunk = (chunk: Chunk, browsing: boolean, isGenerating?: boolean): boolean => {
-    if (browsing && THINKING_CHUNK_TYPES.has(chunk.type)) return false;
-    if (WORKFLOW_CHUNK_TYPES.has(chunk.type)) return isRenderableWorkflowBlock(chunk, isGenerating);
-    return true;
+}): React.ReactElement | null => {
+    if (segment.kind === "workflow") {
+        return renderWorkflowSegmentElement(
+            segment.blocks,
+            pos,
+            firstWorkflowIndex,
+            lastWorkflowIndex,
+            isGenerating,
+            durationMs,
+            activityLabel,
+        );
+    }
+    const renderer = CHUNK_VIEW_RENDERERS[segment.chunk.type];
+    if (!renderer) return null;
+    return renderer(segment.chunk, {
+        pos,
+        lastBrowseIndex,
+        isGenerating,
+        isLastSegment: pos === segmentsLength - 1,
+    });
 };
 
-/** Detect a pending workflow approval without coupling the test to status rendering. */
-const hasPendingWorkflowApproval = (segments: Extract<Segment, { kind: "workflow" }>[]): boolean =>
-    segments.some((segment) => segment.blocks.some((block) =>
-        APPROVAL_CHUNK_TYPES.has(block.type) && block.commandStatus === "pending",
-    ));
+/** Limit full-message streaming rescans to ten per second; completed text is parsed immediately. */
+const STREAMING_PARSE_INTERVAL_MS = 100;
 
-/** Detect an unanswered question among the visible chunks. */
-const hasPendingQuestion = (chunks: Chunk[]): boolean =>
-    chunks.some((chunk) => chunk.type === "question" && chunk.commandStatus === "pending");
-
-/** Detect a design-choice prompt that still needs a selection. */
-const hasPendingDesignChoice = (chunks: Chunk[]): boolean =>
-    chunks.some((chunk) => chunk.type === "design_previews" && chunk.commandStatus === "pending");
-
-/** Combine workflow and interactive prompts into one pending-approval indicator. */
-const hasPendingApproval = (segments: Extract<Segment, { kind: "workflow" }>[], chunks: Chunk[]): boolean =>
-    hasPendingWorkflowApproval(segments) || hasPendingQuestion(chunks) || hasPendingDesignChoice(chunks);
-
-/** Find the latest changed file referenced by the final workflow segment. */
-const latestEditedFileName = (segments: Extract<Segment, { kind: "workflow" }>[]): string | undefined => {
-    const blocks = segments.at(-1)?.blocks ?? [];
-    return [...blocks].reverse()
-        .find((block) => EDIT_CHUNK_TYPES.has(block.type))
-        ?.file?.split(/[\\/]/).pop();
-};
-
-/** Prefer the most actionable label for a pending approval or answer request. */
-const pendingApprovalLabel = (chunks: Chunk[]): string => {
-    if (hasPendingQuestion(chunks)) return "Waiting for your answers";
-    if (hasPendingDesignChoice(chunks)) return "Waiting for you to pick a design";
-    return "Waiting for approval";
-};
-
-/** Detect whether the final workflow block is an active reasoning step. */
-const isThinkingBlock = (block: Chunk | undefined, isGenerating?: boolean): boolean =>
-    Boolean(isGenerating && block && THINKING_CHUNK_TYPES.has(block.type) && block.isGenerating);
-
-/** Detect an active or recent edit from either its block or status text. */
-const isEditingMessage = (block: Chunk | undefined, activityLabel?: string | null): boolean =>
-    Boolean((block && EDIT_CHUNK_TYPES.has(block.type)) || /\bedit/i.test(activityLabel ?? ""));
-
-/** Select a useful non-interactive status when no approval is waiting. */
-const defaultMessageStatus = (
-    activityLabel: string | null | undefined,
-    isThinking: boolean,
-    hasWorkflow: boolean,
-): string | undefined => {
-    if (activityLabel?.trim()) return activityLabel.trim();
-    if (isThinking) return "Thinking";
-    if (hasWorkflow) return "Working";
-    return undefined;
-};
-
-/** Resolve the best status label for the current assistant turn. */
-const messageStatusLabel = (context: MessageStatusContext): string | undefined => {
-    const { contentChunks, workflowSegments, isGenerating, activityLabel } = context;
-    const lastWorkflowBlock = workflowSegments.at(-1)?.blocks.at(-1);
-    const isThinking = isThinkingBlock(lastWorkflowBlock, isGenerating);
-    const isEditing = isEditingMessage(lastWorkflowBlock, activityLabel);
-    if (hasPendingApproval(workflowSegments, contentChunks)) return pendingApprovalLabel(contentChunks);
-    if (isEditing) return `Editing ${latestEditedFileName(workflowSegments) || "file"}`;
-    return defaultMessageStatus(activityLabel, isThinking, workflowSegments.length > 0);
-};
-
-/** Check whether generated status should remain visible below the final segment. */
-const shouldShowStatusLine = (
-    isGenerating: boolean | undefined,
-    proseIsStreaming: boolean,
-    statusLabel: string | undefined,
-    hasPending: boolean,
-): boolean => Boolean(isGenerating && !proseIsStreaming && (hasPending || statusLabel));
-
-/** Find the newest browse segment without coupling lookup to the component body. */
-const latestBrowseSegment = (segments: Segment[]): Segment | undefined =>
-    [...segments].reverse().find((segment) =>
-        segment.kind === "chunk" && segment.chunk.type === "browse_session",
-    );
-
-/** Identify a final prose chunk that is still receiving streamed content. */
-const isStreamingProseSegment = (segment: Segment | undefined): boolean =>
-    segment?.kind === "chunk"
-    && segment.chunk.type === "text"
-    && Boolean(segment.chunk.content?.trim());
-
-type MessageRendererProps = {
+/** Renders the MessageRenderer UI component. */
+export const MessageRenderer = ({
+    content,
+    isGenerating,
+    activityLabel,
+    isFileEditResolved,
+    durationMs,
+    skipSubagentSync,
+}: {
     content: string;
     isGenerating?: boolean;
     activityLabel?: string | null;
     isFileEditResolved?: (file: string, replacement?: string) => boolean;
     durationMs?: number;
     skipSubagentSync?: boolean;
-};
-
-/** Limit full-message streaming rescans to ten per second; completed text is parsed immediately. */
-const STREAMING_PARSE_INTERVAL_MS = 100;
-
-/** Render parsed assistant chunks with their workflow rails and streaming status. */
-export const MessageRenderer = ({
-    content,
-    isGenerating,
-    activityLabel,
-    durationMs,
-    skipSubagentSync,
-}: MessageRendererProps) => {
+}) => {
     const [parsedContent, setParsedContent] = React.useState(content);
     const latestContent = React.useRef(content);
     useEffect(() => {
@@ -1833,60 +3012,89 @@ export const MessageRenderer = ({
             const timeout = globalThis.setTimeout(updateParsedContent, 0);
             return () => globalThis.clearTimeout(timeout);
         }
-        const interval = globalThis.setInterval(updateParsedContent, STREAMING_PARSE_INTERVAL_MS);
+        const interval = globalThis.setInterval(
+            updateParsedContent,
+            STREAMING_PARSE_INTERVAL_MS,
+        );
         return () => globalThis.clearInterval(interval);
     }, [isGenerating]);
     const contentToParse = isGenerating ? parsedContent : content;
     const chunks = useMemo(
-        () => normalizeChunkGeneration(parseMessageContent(contentToParse), isGenerating),
-        [contentToParse, isGenerating],
+        () =>
+            finalizeParsedChunks(
+                parseMessageContent(contentToParse),
+                isGenerating,
+                isFileEditResolved,
+            ),
+        [contentToParse, isGenerating, isFileEditResolved],
     );
 
     useEffect(() => {
-        if (skipSubagentSync) return;
-        syncSubagentsFromChunks(chunks, Boolean(isGenerating));
+        if (!skipSubagentSync) {
+            syncSubagentsFromChunks(chunks, Boolean(isGenerating));
+        }
     }, [chunks, isGenerating, skipSubagentSync]);
 
     const contentChunks = useMemo(
-        () => removeSupersededPersonaReviews(mergeAdjacentTextChunks(chunks)),
+        () => dropSupersededPersonaReviews(mergeAdjacentTextChunks(chunks)),
         [chunks],
     );
+
     const browsing = contentChunks.some((chunk) => chunk.type === "browse_session");
+
     const segments = useMemo(
-        () => buildSegments(contentChunks.filter((chunk) => isVisibleMessageChunk(chunk, browsing, isGenerating))),
+        () =>
+            buildSegments(
+                contentChunks.filter((chunk) =>
+                    isSegmentChunkVisible(chunk, browsing, isGenerating),
+                ),
+            ),
         [contentChunks, isGenerating, browsing],
     );
 
-    const workflowSegments = segments.filter(
-        (segment): segment is Extract<Segment, { kind: "workflow" }> => segment.kind === "workflow",
-    );
-    const firstWorkflowSegment = workflowSegments[0];
-    const lastWorkflowSegment = workflowSegments.at(-1);
-    const lastBrowseSegment = latestBrowseSegment(segments);
-    const lastSegment = segments.at(-1);
-    const proseIsStreaming = isStreamingProseSegment(lastSegment);
-    const hasPending = hasPendingApproval(workflowSegments, contentChunks);
-    const statusLabel = messageStatusLabel({ contentChunks, workflowSegments, isGenerating, activityLabel });
-    const showStatusLine = shouldShowStatusLine(isGenerating, proseIsStreaming, statusLabel, hasPending);
+    const workflowSegments = segments.filter(isWorkflowSegment);
+    const firstWorkflowIndex = segments.findIndex(isWorkflowSegment);
+    const lastWorkflowIndex = findLastSegmentIndex(segments, isWorkflowSegment);
+    const lastBrowseIndex = findLastSegmentIndex(segments, isBrowseSessionSegment);
 
-    const renderedSegments = segments.map((segment) => renderMessageSegment({
-        segment,
-        segmentKey: getSegmentKey(segment),
-        isGenerating,
-        isLastSegment: segment === lastSegment,
-        isLastBrowseSegment: segment === lastBrowseSegment,
-        firstWorkflowSegment,
-        lastWorkflowSegment,
-        durationMs,
+    const pendingLabel = resolvePendingApprovalLabel(
+        workflowSegments,
+        contentChunks,
+    );
+    const effectiveActivityLabel = resolveEffectiveActivityLabel(
+        workflowSegments,
         activityLabel,
-    }));
+    );
+    const statusLabel = resolveLiveStatusLabel(
+        pendingLabel,
+        workflowSegments,
+        effectiveActivityLabel,
+        isGenerating,
+    );
+    const showStatusLine =
+        Boolean(isGenerating) &&
+        !isTrailingProseStreaming(segments.at(-1)) &&
+        Boolean(statusLabel);
+
+    const segmentKey = createOccurrenceKeyer();
 
     return (
         <div className="flex flex-col gap-0 overflow-hidden">
-            {renderedSegments}
-            {showStatusLine && (
-                <GeneratingIndicator label={statusLabel} />
-            )}
+            {segments.map((segment, pos) => (
+                <MessageSegmentView
+                    key={segmentKey(deriveSegmentSignature(segment))}
+                    segment={segment}
+                    pos={pos}
+                    segmentsLength={segments.length}
+                    firstWorkflowIndex={firstWorkflowIndex}
+                    lastWorkflowIndex={lastWorkflowIndex}
+                    lastBrowseIndex={lastBrowseIndex}
+                    isGenerating={isGenerating}
+                    durationMs={durationMs}
+                    activityLabel={effectiveActivityLabel}
+                />
+            ))}
+            {showStatusLine ? <GeneratingIndicator label={statusLabel} /> : null}
         </div>
     );
 };
