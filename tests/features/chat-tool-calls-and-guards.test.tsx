@@ -591,5 +591,43 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const shortenedAfterCaret = shortenMentionTokensInText(rawAfterCaret);
         expect(computeShortenedCaret(rawAfterCaret, shortenedAfterCaret, 5)).toBe(5);
     });
+
+    it("keeps structured XML tags inside Markdown code fences as prose instead of interactive blocks", () => {
+        const chunks = parseMessageContent(
+            'Example syntax:\n```xml\n<edit path="demo.ts">x</edit>\n```\n<cat path="real.ts">ok</cat>',
+        );
+        expect(chunks.some((chunk) => chunk.type === "edit")).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "cat")).toBe(true);
+    });
+
+    it("does not append a spurious fence when a four-backtick streaming block contains a three-backtick line", () => {
+        const closedQuad = "````md\n```ts\nconst num = 1;\n```\n````";
+        const processed = preprocessChatMarkdown(closedQuad, { streaming: true });
+        expect(processed).toBe(closedQuad);
+    });
+
+    it("does not join searchable text across an excluded inline button in syncChatDomHighlights", () => {
+        const container = document.createElement("div");
+        const row = document.createElement("div");
+        row.setAttribute("data-chat-message-index", "0");
+        const paragraph = document.createElement("p");
+        paragraph.appendChild(document.createTextNode("foo"));
+        const inlineBtn = document.createElement("button");
+        inlineBtn.textContent = "Copy";
+        paragraph.appendChild(inlineBtn);
+        paragraph.appendChild(document.createTextNode("bar"));
+        row.appendChild(paragraph);
+        container.appendChild(row);
+        document.body.appendChild(container);
+        try {
+            const crossButton = syncChatDomHighlights(container, "foobar");
+            expect(crossButton.ranges).toHaveLength(0);
+
+            const leftOnly = syncChatDomHighlights(container, "foo");
+            expect(leftOnly.ranges).toHaveLength(1);
+        } finally {
+            container.remove();
+        }
+    });
 });
 

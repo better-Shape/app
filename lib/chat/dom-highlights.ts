@@ -39,6 +39,7 @@ interface MessageTextRun {
     text: string;
     segments: TextSegment[];
     lastBlock: Element | null;
+    pendingGap: boolean;
 }
 
 interface CustomHighlightRegistry {
@@ -168,17 +169,24 @@ const shouldSkipTextNode = (node: Text, root: HTMLElement): boolean => {
     return hasExcludedAncestor(parent, root);
 };
 
-/** Resolves the numeric `data-chat-message-index` owning `textNode`, or `null` outside rows. */
-const resolveMessageIndex = (textNode: Text): number | null => {
-    const msgEl =
-        textNode.parentElement?.closest<HTMLElement>(
-            "[data-chat-message-index]",
-        ) ?? null;
+/** Resolves the numeric `data-chat-message-index` owning `el`, or `null` outside rows. */
+const resolveElementMessageIndex = (el: Element | null): number | null => {
+    const msgEl = el?.closest<HTMLElement>("[data-chat-message-index]") ?? null;
     const parsed = msgEl
         ? Number(msgEl.getAttribute("data-chat-message-index"))
         : Number.NaN;
     return Number.isFinite(parsed) ? parsed : null;
 };
+
+/** Resolves the numeric `data-chat-message-index` owning `textNode`, or `null` outside rows. */
+const resolveMessageIndex = (textNode: Text): number | null =>
+    resolveElementMessageIndex(textNode.parentElement);
+
+/** Checks whether `el` itself begins an excluded subtree for find-in-chat indexing. */
+const isDirectlyExcludedElement = (el: HTMLElement): boolean =>
+    IGNORED_TEXT_TAGS.has(el.tagName) ||
+    isNonSearchableChromeElement(el) ||
+    isHiddenFromChatFind(el);
 
 /** Gets or creates a `MessageTextRun` bucket for `messageIndex`. */
 const getOrCreateMessageRun = (
@@ -193,13 +201,40 @@ const getOrCreateMessageRun = (
         text: "",
         segments: [],
         lastBlock: null,
+        pendingGap: false,
     };
     byIndex.set(messageIndex, created);
     runs.push(created);
     return created;
 };
 
-/** Appends a single `Text` node and optional inter-block newline separator to `run`. */
+/** Checks whether `run` moved into a new block ancestor and needs a newline separator. */
+const shouldAppendBlockNewline = (
+    run: MessageTextRun,
+    block: Element,
+): boolean =>
+    Boolean(
+        run.lastBlock && run.lastBlock !== block && !run.text.endsWith("\n"),
+    );
+
+/** Inserts `\0` (inline excluded gap) or `\n` (block boundary) before the next searchable segment. */
+const appendRunSeparatorIfNeeded = (
+    run: MessageTextRun,
+    block: Element,
+): void => {
+    if (run.pendingGap) {
+        if (run.text.length > 0 && !run.text.endsWith("\0")) {
+            run.text += "\0";
+        }
+        run.pendingGap = false;
+        return;
+    }
+    if (shouldAppendBlockNewline(run, block)) {
+        run.text += "\n";
+    }
+};
+
+/** Appends a single `Text` node and optional inter-block or excluded-gap separator to `run`. */
 const appendNodeToMessageRun = (
     run: MessageTextRun,
     textNode: Text,
@@ -208,9 +243,7 @@ const appendNodeToMessageRun = (
 ): void => {
     const block =
         textNode.parentElement?.closest(BLOCK_ANCESTOR_SELECTOR) ?? container;
-    if (run.lastBlock && run.lastBlock !== block && !run.text.endsWith("\n")) {
-        run.text += "\n";
-    }
+    appendRunSeparatorIfNeeded(run, block);
     const start = run.text.length;
     run.text += raw;
     run.segments.push({ node: textNode, start, end: start + raw.length });
@@ -228,20 +261,52 @@ const extractIndexedNodeText = (
     return messageIndex === null ? null : { messageIndex, raw };
 };
 
+/** Marks a `pendingGap` on the active message run when `el` is an excluded inline subtree. */
+const markExcludedElementGap = (
+    el: HTMLElement,
+    byIndex: Map<number, MessageTextRun>,
+): void => {
+    const messageIndex = resolveElementMessageIndex(el);
+    if (messageIndex === null) return;
+    const run = byIndex.get(messageIndex);
+    if (run && run.text.length > 0) {
+        run.pendingGap = true;
+    }
+};
+
+/** TreeWalker node filter that prunes excluded subtrees while recording inline run gaps. */
+const acceptHighlightWalkerNode = (
+    node: Node,
+    byIndex: Map<number, MessageTextRun>,
+): number => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node instanceof HTMLElement && isDirectlyExcludedElement(node)) {
+            markExcludedElementGap(node, byIndex);
+            return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_SKIP;
+    }
+    return NodeFilter.FILTER_ACCEPT;
+};
+
 /** Collects indexed message text runs across `container`, skipping unindexed chrome banners. */
 const collectMessageTextRuns = (container: HTMLElement): MessageTextRun[] => {
     const runs: MessageTextRun[] = [];
     const byIndex = new Map<number, MessageTextRun>();
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+        { acceptNode: (node) => acceptHighlightWalkerNode(node, byIndex) },
+    );
     let current = walker.nextNode();
     while (current) {
         const textNode = current as Text;
-        current = walker.nextNode();
         const entry = extractIndexedNodeText(textNode, container);
         if (entry) {
             const run = getOrCreateMessageRun(byIndex, runs, entry.messageIndex);
             appendNodeToMessageRun(run, textNode, entry.raw, container);
         }
+        current = walker.nextNode();
     }
     return runs;
 };

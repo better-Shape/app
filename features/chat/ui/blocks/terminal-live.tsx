@@ -912,6 +912,7 @@ const didCommandStepFail = (
     exitCode: number | undefined,
 ): boolean =>
     effectiveStatus === "failed" ||
+    effectiveStatus === "error" ||
     (typeof exitCode === "number" && exitCode !== 0);
 
 /** Subscribes to `agent-command-resolved` while a pending command awaits approval. */
