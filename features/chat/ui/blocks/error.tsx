@@ -217,14 +217,23 @@ const resolveChatErrorHint = ({
 };
 
 const SECRET_ASSIGNMENT_RE =
-    /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?\s*[:=]\s*["']?)(?:(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}|[A-Za-z0-9._~+/=-]{8,})/giu;
-const BEARER_TOKEN_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
-const BASIC_TOKEN_CANDIDATE_RE = /\b(Basic\s+)([A-Za-z0-9+/=_-]{4,})\b/gu;
-const URL_USERINFO_SECRET_RE = /(https?:\/\/[^/\s:@]+:)[^/\s@]+(@)/giu;
+    /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?[ \t]*[:=][ \t]*["']?)(?:(?:Bearer|Basic)[ \t]+[A-Za-z0-9._~+/=-]{4,}|[A-Za-z0-9._~+/=-]{8,})/giu;
+const BEARER_TOKEN_RE = /\bBearer[ \t]+[A-Za-z0-9._~+/=-]{8,}/giu;
+const BASIC_TOKEN_CANDIDATE_RE = /\b(Basic[ \t]+)([A-Za-z0-9+/=_-]{4,})\b/gu;
+const URL_AUTHORITY_RE = /\b(https?:\/\/)([^\s/?#"']+)/giu;
 const QUERY_SECRET_RE =
     /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
 const KNOWN_KEY_PREFIX_RE =
     /\b(?:(?:sk|xai|pplx|csk|nvapi|tvly)-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|dapi[0-9a-f]{16,}|BSA[0-9A-Za-z_-]{16,}|(?:tgp_v1|doo_v1|oc_sk|VENICE_INFERENCE_KEY|llmgtwy|kilo|vck|sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
+
+/** Redacts `user:password@host` credentials inside an HTTP(S) URL authority span. */
+const redactAuthorityCredentials = (authority: string): string => {
+    const atIdx = authority.indexOf("@");
+    if (atIdx <= 0) return authority;
+    const colonIdx = authority.indexOf(":");
+    if (colonIdx <= 0 || colonIdx >= atIdx) return authority;
+    return `${authority.slice(0, colonIdx + 1)}[REDACTED]${authority.slice(atIdx)}`;
+};
 
 /** Decodes a standard/URL-safe base64 token, returning `""` when malformed. */
 const safeDecodeBase64 = (token: string): string => {
@@ -252,7 +261,11 @@ export const redactErrorSecrets = (raw: string): string =>
         .replace(BASIC_TOKEN_CANDIDATE_RE, (full, prefix: string, token: string) =>
             isBasicAuthCredentialToken(token) ? `${prefix}[REDACTED]` : full,
         )
-        .replace(URL_USERINFO_SECRET_RE, "$1[REDACTED]$2")
+        .replace(
+            URL_AUTHORITY_RE,
+            (_full, scheme: string, authority: string) =>
+                `${scheme}${redactAuthorityCredentials(authority)}`,
+        )
         .replace(QUERY_SECRET_RE, "$1[REDACTED]")
         .replace(KNOWN_KEY_PREFIX_RE, "[REDACTED]");
 

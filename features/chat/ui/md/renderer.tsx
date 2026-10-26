@@ -516,23 +516,145 @@ const parsePlanBlock = (block: string): Chunk => ({
     file: block.match(/<plan\s+title="([^"]*)"/)?.[1] ?? "Plan",
 });
 
-/** Parses a single `<todo ...>label</todo>` regex match into a normalized todo item. */
-const parseTodoEntry = (
-    match: RegExpMatchArray,
-): { id: string; label: string; status: TodoStepStatus } => {
-    const attrs = match[1] ?? "";
-    const statusRaw = (readOptionalAttr(attrs, "status") ?? "pending").toLowerCase();
+/** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
+const isAsciiQuoteCode = (code: number): boolean => code === 34 || code === 39;
+
+/** Advances past a quoted XML attribute value starting at `openIdx` (`"` or `'`). */
+const skipQuotedTagAttr = (
+    text: string,
+    openIdx: number,
+    quoteCode: number,
+): number => {
+    let idx = openIdx + 1;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 92) {
+            idx += 2;
+            continue;
+        }
+        if (code === quoteCode) return idx + 1;
+        if (code === 10) return -2;
+        idx += 1;
+    }
+    return -1;
+};
+
+/** Resolves scanner continuation offset after a quoted attribute inside an opening tag. */
+const resolveAfterQuotedAttr = (
+    text: string,
+    idx: number,
+    code: number,
+    fromIndex: number,
+): { done: true; gtIndex: number } | { done: false; nextIdx: number } => {
+    const afterQuote = skipQuotedTagAttr(text, idx, code);
+    if (afterQuote === -1) return { done: true, gtIndex: -1 };
+    if (afterQuote === -2) {
+        return { done: true, gtIndex: text.indexOf(">", fromIndex) };
+    }
+    return { done: false, nextIdx: afterQuote };
+};
+
+/** Finds the closing `>` of an XML opening tag starting at `fromIndex`, ignoring quoted `>`. */
+const findTagHeaderCloseIndex = (text: string, fromIndex: number): number => {
+    let idx = fromIndex;
+    while (idx < text.length) {
+        const code = text.charCodeAt(idx);
+        if (code === 62) return idx;
+        if (isAsciiQuoteCode(code)) {
+            const step = resolveAfterQuotedAttr(text, idx, code, fromIndex);
+            if (step.done) return step.gtIndex;
+            idx = step.nextIdx;
+        } else {
+            idx += 1;
+        }
+    }
+    return -1;
+};
+
+type ChildXmlMatch = {
+    attrs: string;
+    body: string;
+};
+
+const XML_CHILD_BOUNDARY_CODES = new Set([9, 10, 13, 32, 47, 62]);
+
+/** Reads body and closing tag of a non-self-closing child XML element after `gtIdx`. */
+const readPairedChildXmlBody = (
+    block: string,
+    afterName: number,
+    gtIdx: number,
+    closeTag: string,
+): { item: ChildXmlMatch | null; nextCursor: number } => {
+    const closeIdx = block.indexOf(closeTag, gtIdx + 1);
+    if (closeIdx === -1) return { item: null, nextCursor: block.length };
     return {
-        id: readAttr(attrs, "id"),
-        label: (match[2] ?? "").trim(),
+        item: {
+            attrs: block.slice(afterName, gtIdx),
+            body: block.slice(gtIdx + 1, closeIdx),
+        },
+        nextCursor: closeIdx + closeTag.length,
+    };
+};
+
+/** Consumes one `<tagName ...>...</tagName>` or `<tagName .../>` at `openIdx`, or `null`. */
+const readChildXmlElementAt = (
+    block: string,
+    openIdx: number,
+    openPrefix: string,
+    closeTag: string,
+): { item: ChildXmlMatch | null; nextCursor: number } => {
+    const afterName = openIdx + openPrefix.length;
+    if (!XML_CHILD_BOUNDARY_CODES.has(block.charCodeAt(afterName))) {
+        return { item: null, nextCursor: afterName };
+    }
+    const gtIdx = findTagHeaderCloseIndex(block, afterName);
+    if (gtIdx === -1) return { item: null, nextCursor: block.length };
+    if (block.charCodeAt(gtIdx - 1) === 47) {
+        return {
+            item: { attrs: block.slice(afterName, gtIdx - 1), body: "" },
+            nextCursor: gtIdx + 1,
+        };
+    }
+    return readPairedChildXmlBody(block, afterName, gtIdx, closeTag);
+};
+
+/** Scans all `<tagName ...>` child elements inside `block` in linear time without regexes. */
+const scanChildXmlElements = (
+    block: string,
+    tagName: string,
+    closeTag: string,
+): ChildXmlMatch[] => {
+    const openPrefix = `<${tagName}`;
+    const results: ChildXmlMatch[] = [];
+    let cursor = 0;
+    while (cursor < block.length) {
+        const openIdx = block.indexOf(openPrefix, cursor);
+        if (openIdx === -1) break;
+        const step = readChildXmlElementAt(block, openIdx, openPrefix, closeTag);
+        if (step.item) results.push(step.item);
+        cursor = step.nextCursor;
+    }
+    return results;
+};
+
+/** Parses a single `<todo ...>label</todo>` child element into a normalized todo item. */
+const parseTodoEntry = (
+    entry: ChildXmlMatch,
+): { id: string; label: string; status: TodoStepStatus } => {
+    const statusRaw = (
+        readOptionalAttr(entry.attrs, "status") ?? "pending"
+    ).toLowerCase();
+    return {
+        id: readAttr(entry.attrs, "id"),
+        label: entry.body.trim(),
         status: TODO_STATUS_MAP[statusRaw] ?? "pending",
     };
 };
 
 /** Parses a `<todos>` block into a normalized todo-list chunk. */
 const parseTodosBlock = (block: string): Chunk => {
-    const title = block.match(/<todos\s+title="([^"]*)"/)?.[1] ?? "Todos";
-    const todoMatches = [...block.matchAll(/<todo\s+([^>]*)>([\s\S]*?)<\/todo>/g)];
+    const title = block.match(/<todos\s+title="([^"]*)"/u)?.[1] ?? "Todos";
+    const todoMatches = scanChildXmlElements(block, "todo", "</todo>");
     return {
         type: "todos",
         content: title,
@@ -648,42 +770,29 @@ const buildDesignPreviewItem = (
 /** Reads a regex capture group as a string, defaulting to `""`. */
 const captureOrEmpty = (value: string | undefined): string => value ?? "";
 
-/** Appends unique `<design_preview>` regex matches from `block` into `previews` using `seenIds`. */
-const collectDesignPreviewMatches = (
-    block: string,
-    pattern: RegExp,
-    previews: DesignPreviewItem[],
-    seenIds: Set<string>,
-): void => {
-    for (const match of block.matchAll(pattern)) {
-        const item = buildDesignPreviewItem(
-            captureOrEmpty(match[1]),
-            captureOrEmpty(match[2]),
-        );
+/** Appends unique `<design_preview>` child elements from `block` into `previews`. */
+const collectDesignPreviewElements = (block: string): DesignPreviewItem[] => {
+    const previews: DesignPreviewItem[] = [];
+    const seenIds = new Set<string>();
+    for (const entry of scanChildXmlElements(
+        block,
+        "design_preview",
+        "</design_preview>",
+    )) {
+        const item = buildDesignPreviewItem(entry.attrs, entry.body);
         if (item && !seenIds.has(item.id)) {
             seenIds.add(item.id);
             previews.push(item);
         }
     }
+    return previews;
 };
 
 /** Parses a `<design_previews>` gallery block into a structured chunk. */
 const parseDesignPreviewsBlock = (block: string): Chunk => {
-    const open = block.match(/<design_previews\b[^>]*>/)?.[0] ?? "";
-    const previews: DesignPreviewItem[] = [];
-    const seenIds = new Set<string>();
-    collectDesignPreviewMatches(
-        block,
-        /<design_preview\s+([^>]*)>([\s\S]*?)<\/design_preview>/g,
-        previews,
-        seenIds,
-    );
-    collectDesignPreviewMatches(
-        block,
-        /<design_preview\s+([^>]+)\/>/g,
-        previews,
-        seenIds,
-    );
+    const openEnd = findTagHeaderCloseIndex(block, 0);
+    const open = openEnd === -1 ? "" : block.slice(0, openEnd + 1);
+    const previews = collectDesignPreviewElements(block);
     return {
         type: "design_previews",
         designPreviews: previews,
@@ -1280,61 +1389,6 @@ const isSelfClosingTagAt = (
     tagStartIndex: number,
     gtIndex: number,
 ): boolean => gtIndex > tagStartIndex && text[gtIndex - 1] === "/";
-
-/** Advances past a quoted XML attribute value starting at `openIdx` (`"` or `'`). */
-const skipQuotedTagAttr = (
-    text: string,
-    openIdx: number,
-    quoteCode: number,
-): number => {
-    let idx = openIdx + 1;
-    while (idx < text.length) {
-        const code = text.charCodeAt(idx);
-        if (code === 92) {
-            idx += 2;
-            continue;
-        }
-        if (code === quoteCode) return idx + 1;
-        if (code === 10) return -2;
-        idx += 1;
-    }
-    return -1;
-};
-
-/** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
-const isAsciiQuoteCode = (code: number): boolean => code === 34 || code === 39;
-
-/** Resolves scanner continuation offset after a quoted attribute inside an opening tag. */
-const resolveAfterQuotedAttr = (
-    text: string,
-    idx: number,
-    code: number,
-    fromIndex: number,
-): { done: true; gtIndex: number } | { done: false; nextIdx: number } => {
-    const afterQuote = skipQuotedTagAttr(text, idx, code);
-    if (afterQuote === -1) return { done: true, gtIndex: -1 };
-    if (afterQuote === -2) {
-        return { done: true, gtIndex: text.indexOf(">", fromIndex) };
-    }
-    return { done: false, nextIdx: afterQuote };
-};
-
-/** Finds the closing `>` of an XML opening tag starting at `fromIndex`, ignoring quoted `>`. */
-const findTagHeaderCloseIndex = (text: string, fromIndex: number): number => {
-    let idx = fromIndex;
-    while (idx < text.length) {
-        const code = text.charCodeAt(idx);
-        if (code === 62) return idx;
-        if (isAsciiQuoteCode(code)) {
-            const step = resolveAfterQuotedAttr(text, idx, code, fromIndex);
-            if (step.done) return step.gtIndex;
-            idx = step.nextIdx;
-        } else {
-            idx += 1;
-        }
-    }
-    return -1;
-};
 
 /** Resolves a matched XML tag at `match` into a `TagSliceContext` and next scanner cursor. */
 const consumeMatchedTagAt = (

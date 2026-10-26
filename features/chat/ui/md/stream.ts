@@ -1,11 +1,370 @@
+type FenceMarkerInfo = {
+    char: string;
+    len: number;
+    suffix: string;
+};
+
+type LineFenceScan = {
+    quoteDepth: number;
+    marker: FenceMarkerInfo | null;
+};
+
+/** Advances past up to 3 ASCII spaces starting at `from`. */
+const skipUpToThreeSpaces = (line: string, from: number): number => {
+    let idx = from;
+    while (idx - from < 3 && line.charCodeAt(idx) === 32) {
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Advances past one optional space or tab following a `>` blockquote marker. */
+const skipOptionalQuoteSpace = (line: string, afterGt: number): number => {
+    const code = line.charCodeAt(afterGt);
+    return code === 32 || code === 9 ? afterGt + 1 : afterGt;
+};
+
+/** Strips CommonMark `>` blockquote prefixes and up to 3 fence indent spaces. */
+const readLineFencePrefix = (
+    line: string,
+): { offset: number; afterQuotes: number; quoteDepth: number } => {
+    let cursor = 0;
+    let quoteDepth = 0;
+    while (cursor < line.length) {
+        const afterSpaces = skipUpToThreeSpaces(line, cursor);
+        if (line.charCodeAt(afterSpaces) !== 62) {
+            return { offset: afterSpaces, afterQuotes: cursor, quoteDepth };
+        }
+        quoteDepth += 1;
+        cursor = skipOptionalQuoteSpace(line, afterSpaces + 1);
+    }
+    return { offset: cursor, afterQuotes: cursor, quoteDepth };
+};
+
+/** Counts consecutive `markerChar` characters starting at `from`. */
+const countRepeatedChar = (
+    line: string,
+    from: number,
+    markerChar: string,
+): number => {
+    let end = from;
+    while (end < line.length && line.charAt(end) === markerChar) {
+        end += 1;
+    }
+    return end - from;
+};
+
+/** Reads blockquote depth and any CommonMark fence marker (`>= 3` backticks/tildes) on `rawLine`. */
+const scanStreamFenceLine = (rawLine: string): LineFenceScan => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    const { offset, quoteDepth } = readLineFencePrefix(line);
+    const markerChar = line.charAt(offset);
+    if (markerChar !== "`" && markerChar !== "~") {
+        return { quoteDepth, marker: null };
+    }
+    const len = countRepeatedChar(line, offset, markerChar);
+    if (len < 3) return { quoteDepth, marker: null };
+    return {
+        quoteDepth,
+        marker: { char: markerChar, len, suffix: line.slice(offset + len) },
+    };
+};
+
+/** Checks whether `parsed` opens a CommonMark fenced code block. */
+const isOpeningStreamFence = (
+    parsed: FenceMarkerInfo | null,
+): parsed is FenceMarkerInfo =>
+    Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
+
+/** Checks whether `parsed` closes an open CommonMark fenced code block. */
+const isClosingStreamFence = (
+    parsed: FenceMarkerInfo | null,
+    fenceChar: string,
+    fenceLen: number,
+): boolean =>
+    Boolean(
+        parsed &&
+            parsed.char === fenceChar &&
+            parsed.len >= fenceLen &&
+            /^[ \t]*$/u.test(parsed.suffix),
+    );
+
+/** Checks whether `lineScan` explicitly closes a fenced block opened at `fenceQuoteDepth`. */
+const isMatchingLineFenceClose = (
+    lineScan: LineFenceScan,
+    fenceChar: string,
+    fenceLen: number,
+    fenceQuoteDepth: number,
+): boolean =>
+    lineScan.quoteDepth === fenceQuoteDepth &&
+    isClosingStreamFence(lineScan.marker, fenceChar, fenceLen);
+
+/** Flushes any trailing open code fence or remaining prose tail into `out`. */
+const flushRemainingFenceSegments = (
+    out: string[],
+    text: string,
+    proseStart: number,
+    fenceStart: number,
+    hasOpenFence: boolean,
+    fn: (prose: string) => string,
+): void => {
+    if (hasOpenFence) {
+        out.push(text.slice(fenceStart));
+    } else if (proseStart < text.length) {
+        out.push(fn(text.slice(proseStart)));
+    }
+};
+
+/** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
+const readLineSliceAt = (
+    text: string,
+    cursor: number,
+): { lineText: string; afterLine: number } => {
+    const nl = text.indexOf("\n", cursor);
+    if (nl === -1) {
+        return { lineText: text.slice(cursor), afterLine: text.length };
+    }
+    return { lineText: text.slice(cursor, nl), afterLine: nl + 1 };
+};
+
+type FenceScanState = {
+    proseStart: number;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+    fenceQuoteDepth: number;
+};
+
+/** Enters fenced code state starting at `cursor` and flushes any preceding prose segment. */
+const enterFenceAt = (
+    state: FenceScanState,
+    out: string[],
+    text: string,
+    cursor: number,
+    lineScan: { quoteDepth: number; marker: FenceMarkerInfo },
+    fn: (prose: string) => string,
+): void => {
+    if (cursor > state.proseStart) {
+        out.push(fn(text.slice(state.proseStart, cursor)));
+    }
+    state.fenceStart = cursor;
+    state.fenceChar = lineScan.marker.char;
+    state.fenceLen = lineScan.marker.len;
+    state.fenceQuoteDepth = lineScan.quoteDepth;
+};
+
+/** Resets open fence fields on `FenceScanState` after flushing through `endOffset`. */
+const closeFenceScanAt = (
+    state: FenceScanState,
+    out: string[],
+    text: string,
+    endOffset: number,
+): void => {
+    out.push(text.slice(state.fenceStart, endOffset));
+    state.proseStart = endOffset;
+    state.fenceStart = -1;
+    state.fenceChar = "";
+    state.fenceLen = 0;
+    state.fenceQuoteDepth = 0;
+};
+
+/** Closes `state` at `cursor` when `lineScan` exits the blockquote containing the fence. */
+const maybeExitBlockquoteFence = (
+    state: FenceScanState,
+    out: string[],
+    text: string,
+    cursor: number,
+    quoteDepth: number,
+): void => {
+    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
+        closeFenceScanAt(state, out, text, cursor);
+    }
+};
+
+/** Advances `FenceScanState` across one line at `[cursor, afterLine)`. */
+const stepFenceScanLine = (
+    state: FenceScanState,
+    out: string[],
+    text: string,
+    cursor: number,
+    afterLine: number,
+    lineScan: LineFenceScan,
+    fn: (prose: string) => string,
+): void => {
+    maybeExitBlockquoteFence(state, out, text, cursor, lineScan.quoteDepth);
+    if (!state.fenceChar) {
+        if (isOpeningStreamFence(lineScan.marker)) {
+            enterFenceAt(
+                state,
+                out,
+                text,
+                cursor,
+                { quoteDepth: lineScan.quoteDepth, marker: lineScan.marker },
+                fn,
+            );
+        }
+        return;
+    }
+    if (
+        isMatchingLineFenceClose(
+            lineScan,
+            state.fenceChar,
+            state.fenceLen,
+            state.fenceQuoteDepth,
+        )
+    ) {
+        closeFenceScanAt(state, out, text, afterLine);
+    }
+};
+
+/** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
+const mapOutsideCodeFences = (
+    text: string,
+    fn: (prose: string) => string,
+): string => {
+    if (!text.includes("```") && !text.includes("~~~")) return fn(text);
+    const out: string[] = [];
+    const state: FenceScanState = {
+        proseStart: 0,
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
+        fenceQuoteDepth: 0,
+    };
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, cursor);
+        stepFenceScanLine(
+            state,
+            out,
+            text,
+            cursor,
+            afterLine,
+            scanStreamFenceLine(lineText),
+            fn,
+        );
+        cursor = afterLine;
+    }
+
+    flushRemainingFenceSegments(
+        out,
+        text,
+        state.proseStart,
+        state.fenceStart,
+        Boolean(state.fenceChar),
+        fn,
+    );
+    return out.join("");
+};
+
+export type CodeFenceState = {
+    ranges: Array<readonly [number, number]>;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+    fenceQuoteDepth: number;
+};
+
+/** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
+const closeCodeFenceRangeAt = (
+    state: CodeFenceState,
+    endOffset: number,
+): void => {
+    state.ranges.push([state.fenceStart, endOffset]);
+    state.fenceStart = -1;
+    state.fenceChar = "";
+    state.fenceLen = 0;
+    state.fenceQuoteDepth = 0;
+};
+
+/** Closes `CodeFenceState` at `cursor` when `quoteDepth` exits the blockquote containing the fence. */
+const maybeExitBlockquoteRange = (
+    state: CodeFenceState,
+    cursor: number,
+    quoteDepth: number,
+): void => {
+    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
+        closeCodeFenceRangeAt(state, cursor);
+    }
+};
+
+/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
+const stepCodeFenceRangeLine = (
+    state: CodeFenceState,
+    cursor: number,
+    afterLine: number,
+    lineScan: LineFenceScan,
+): void => {
+    maybeExitBlockquoteRange(state, cursor, lineScan.quoteDepth);
+    if (!state.fenceChar) {
+        if (isOpeningStreamFence(lineScan.marker)) {
+            state.fenceStart = cursor;
+            state.fenceChar = lineScan.marker.char;
+            state.fenceLen = lineScan.marker.len;
+            state.fenceQuoteDepth = lineScan.quoteDepth;
+        }
+        return;
+    }
+    if (
+        isMatchingLineFenceClose(
+            lineScan,
+            state.fenceChar,
+            state.fenceLen,
+            state.fenceQuoteDepth,
+        )
+    ) {
+        closeCodeFenceRangeAt(state, afterLine);
+    }
+};
+
+/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
+export const scanMarkdownCodeFences = (
+    text: string,
+    fromIndex = 0,
+): CodeFenceState => {
+    const state: CodeFenceState = {
+        ranges: [],
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
+        fenceQuoteDepth: 0,
+    };
+    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
+        return state;
+    }
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, cursor);
+        stepCodeFenceRangeLine(
+            state,
+            cursor,
+            afterLine,
+            scanStreamFenceLine(lineText),
+        );
+        cursor = afterLine;
+    }
+    if (state.fenceChar) {
+        state.ranges.push([state.fenceStart, text.length]);
+    }
+    return state;
+};
+
+/** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
+const balanceMarkdownFences = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    if (!state.fenceChar) return text;
+    const quotePrefix = "> ".repeat(state.fenceQuoteDepth);
+    return `${text}\n${quotePrefix}${state.fenceChar.repeat(state.fenceLen)}`;
+};
+
 /** Removes stray thinking tags that leaked into plain prose outside code fences. */
 const stripOrphanThinkTagsInProse = (prose: string): string => {
     if (!prose.includes("<")) return prose;
-    return prose
-        .replace(/<\/?redacted_thinking[^>]*>\s*/giu, "")
-        .replace(/<\/?thinking[^>]*>\s*/giu, "")
-        .replace(/<\/?reasoning[^>]*>\s*/giu, "")
-        .replace(/<\/?think[^>]*>\s*/giu, "");
+    return prose.replace(
+        /<\/?(?:redacted_thinking|thinking|reasoning|think)(?:[ \t][^<>\n]*)?>[ \t]*\r?\n?/giu,
+        "",
+    );
 };
 
 /** Remove stray thinking tags that leaked into plain text. */
@@ -104,7 +463,7 @@ export const looksLikeLeakedToolCode = (body: string): boolean => {
  * XML / sentinel tags that models leak into `content` instead of structured
  * tool_calls. Cover BetterShape catalog families (Claude, GPT, Gemini/Auto, Grok,
  * DeepSeek) plus common OpenRouter proxies. Do NOT include intentional BetterShape
- * UI tags (`edit`, `terminal_command`, `todos`, ...) — those are parsed separately.
+ * UI tags (`edit`, `terminal_command`, `todos`, ...); those are parsed separately.
  */
 export const LEAKED_TOOL_XML_TAGS = [
     "list_terminals",
@@ -168,266 +527,6 @@ const DSML_STRAY_RE = new RegExp(
     `<\\/?${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
     "gi",
 );
-
-type FenceMarkerInfo = {
-    char: string;
-    len: number;
-    suffix: string;
-};
-
-type LineFenceScan = {
-    quoteDepth: number;
-    marker: FenceMarkerInfo | null;
-};
-
-/** Advances past up to 3 ASCII spaces starting at `from`. */
-const skipUpToThreeSpaces = (line: string, from: number): number => {
-    let idx = from;
-    while (idx - from < 3 && line.charCodeAt(idx) === 32) {
-        idx += 1;
-    }
-    return idx;
-};
-
-/** Advances past one optional space or tab following a `>` blockquote marker. */
-const skipOptionalQuoteSpace = (line: string, afterGt: number): number => {
-    const code = line.charCodeAt(afterGt);
-    return code === 32 || code === 9 ? afterGt + 1 : afterGt;
-};
-
-/** Strips CommonMark `>` blockquote prefixes and up to 3 fence indent spaces. */
-const readLineFencePrefix = (
-    line: string,
-): { offset: number; quoteDepth: number } => {
-    let cursor = 0;
-    let quoteDepth = 0;
-    while (cursor < line.length) {
-        const afterSpaces = skipUpToThreeSpaces(line, cursor);
-        if (line.charCodeAt(afterSpaces) !== 62) {
-            return { offset: afterSpaces, quoteDepth };
-        }
-        quoteDepth += 1;
-        cursor = skipOptionalQuoteSpace(line, afterSpaces + 1);
-    }
-    return { offset: cursor, quoteDepth };
-};
-
-/** Counts consecutive `markerChar` characters starting at `from`. */
-const countRepeatedChar = (
-    line: string,
-    from: number,
-    markerChar: string,
-): number => {
-    let end = from;
-    while (end < line.length && line.charAt(end) === markerChar) {
-        end += 1;
-    }
-    return end - from;
-};
-
-/** Reads blockquote depth and any CommonMark fence marker (`>= 3` backticks/tildes) on `rawLine`. */
-const scanStreamFenceLine = (rawLine: string): LineFenceScan => {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    const { offset, quoteDepth } = readLineFencePrefix(line);
-    const markerChar = line.charAt(offset);
-    if (markerChar !== "`" && markerChar !== "~") {
-        return { quoteDepth, marker: null };
-    }
-    const len = countRepeatedChar(line, offset, markerChar);
-    if (len < 3) return { quoteDepth, marker: null };
-    return {
-        quoteDepth,
-        marker: { char: markerChar, len, suffix: line.slice(offset + len) },
-    };
-};
-
-/** Checks whether `parsed` opens a CommonMark fenced code block. */
-const isOpeningStreamFence = (
-    parsed: FenceMarkerInfo | null,
-): parsed is FenceMarkerInfo =>
-    Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
-
-/** Checks whether `parsed` closes an open CommonMark fenced code block. */
-const isClosingStreamFence = (
-    parsed: FenceMarkerInfo | null,
-    fenceChar: string,
-    fenceLen: number,
-): boolean =>
-    Boolean(
-        parsed &&
-            parsed.char === fenceChar &&
-            parsed.len >= fenceLen &&
-            /^[ \t]*$/u.test(parsed.suffix),
-    );
-
-/** Flushes any trailing open code fence or remaining prose tail into `out`. */
-const flushRemainingFenceSegments = (
-    out: string[],
-    text: string,
-    proseStart: number,
-    fenceStart: number,
-    hasOpenFence: boolean,
-    fn: (prose: string) => string,
-): void => {
-    if (hasOpenFence) {
-        out.push(text.slice(fenceStart));
-    } else if (proseStart < text.length) {
-        out.push(fn(text.slice(proseStart)));
-    }
-};
-
-/** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
-const readLineSliceAt = (
-    text: string,
-    cursor: number,
-): { lineText: string; afterLine: number } => {
-    const nl = text.indexOf("\n", cursor);
-    if (nl === -1) {
-        return { lineText: text.slice(cursor), afterLine: text.length };
-    }
-    return { lineText: text.slice(cursor, nl), afterLine: nl + 1 };
-};
-
-type FenceScanState = {
-    proseStart: number;
-    fenceStart: number;
-    fenceChar: string;
-    fenceLen: number;
-    fenceQuoteDepth: number;
-};
-
-/** Enters fenced code state starting at `cursor` and flushes any preceding prose segment. */
-const enterFenceAt = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    cursor: number,
-    lineScan: { quoteDepth: number; marker: FenceMarkerInfo },
-    fn: (prose: string) => string,
-): void => {
-    if (cursor > state.proseStart) {
-        out.push(fn(text.slice(state.proseStart, cursor)));
-    }
-    state.fenceStart = cursor;
-    state.fenceChar = lineScan.marker.char;
-    state.fenceLen = lineScan.marker.len;
-    state.fenceQuoteDepth = lineScan.quoteDepth;
-};
-
-/** Resets open fence fields on `FenceScanState` after flushing through `endOffset`. */
-const closeFenceScanAt = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    endOffset: number,
-): void => {
-    out.push(text.slice(state.fenceStart, endOffset));
-    state.proseStart = endOffset;
-    state.fenceStart = -1;
-    state.fenceChar = "";
-    state.fenceLen = 0;
-    state.fenceQuoteDepth = 0;
-};
-
-/** Checks whether `lineScan` explicitly closes a fenced block opened at `fenceQuoteDepth`. */
-const isMatchingLineFenceClose = (
-    lineScan: LineFenceScan,
-    fenceChar: string,
-    fenceLen: number,
-    fenceQuoteDepth: number,
-): boolean =>
-    lineScan.quoteDepth === fenceQuoteDepth &&
-    isClosingStreamFence(lineScan.marker, fenceChar, fenceLen);
-
-/** Closes `state` at `cursor` when `lineScan` exits the blockquote containing the fence. */
-const maybeExitBlockquoteFence = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    cursor: number,
-    quoteDepth: number,
-): void => {
-    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
-        closeFenceScanAt(state, out, text, cursor);
-    }
-};
-
-/** Advances `FenceScanState` across one line at `[cursor, afterLine)`. */
-const stepFenceScanLine = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    cursor: number,
-    afterLine: number,
-    lineScan: LineFenceScan,
-    fn: (prose: string) => string,
-): void => {
-    maybeExitBlockquoteFence(state, out, text, cursor, lineScan.quoteDepth);
-    if (!state.fenceChar) {
-        if (isOpeningStreamFence(lineScan.marker)) {
-            enterFenceAt(
-                state,
-                out,
-                text,
-                cursor,
-                { quoteDepth: lineScan.quoteDepth, marker: lineScan.marker },
-                fn,
-            );
-        }
-        return;
-    }
-    if (
-        isMatchingLineFenceClose(
-            lineScan,
-            state.fenceChar,
-            state.fenceLen,
-            state.fenceQuoteDepth,
-        )
-    ) {
-        closeFenceScanAt(state, out, text, afterLine);
-    }
-};
-
-/** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
-const mapOutsideCodeFences = (
-    text: string,
-    fn: (prose: string) => string,
-): string => {
-    if (!text.includes("```") && !text.includes("~~~")) return fn(text);
-    const out: string[] = [];
-    const state: FenceScanState = {
-        proseStart: 0,
-        fenceStart: -1,
-        fenceChar: "",
-        fenceLen: 0,
-        fenceQuoteDepth: 0,
-    };
-    let cursor = 0;
-
-    while (cursor < text.length) {
-        const { lineText, afterLine } = readLineSliceAt(text, cursor);
-        stepFenceScanLine(
-            state,
-            out,
-            text,
-            cursor,
-            afterLine,
-            scanStreamFenceLine(lineText),
-            fn,
-        );
-        cursor = afterLine;
-    }
-
-    flushRemainingFenceSegments(
-        out,
-        text,
-        state.proseStart,
-        state.fenceStart,
-        Boolean(state.fenceChar),
-        fn,
-    );
-    return out.join("");
-};
 
 /** Collapses runs of 3+ consecutive newlines down to paragraph-break pairs. */
 const collapseExcessNewlines = (text: string): string =>
@@ -520,9 +619,16 @@ export const stripLeakedToolMarkup = (text: string): string => {
     return collapseExcessNewlines(out);
 };
 
+/** Removes a single trailing `\r\n`, `\n`, or `\r` line break from `value`. */
+const trimTrailingLineBreak = (value: string): string => {
+    if (value.endsWith("\r\n")) return value.slice(0, -2);
+    if (value.endsWith("\n") || value.endsWith("\r")) return value.slice(0, -1);
+    return value;
+};
+
 /** Strips any trailing closing fence line from `afterOpen`. */
 const trimClosingFenceTail = (afterOpen: string): string => {
-    const trimmedEnd = afterOpen.replace(/\r?\n?$/u, "");
+    const trimmedEnd = trimTrailingLineBreak(afterOpen);
     const lastNl = trimmedEnd.lastIndexOf("\n");
     const tailLine = lastNl === -1 ? trimmedEnd : trimmedEnd.slice(lastNl + 1);
     const parsedTail = scanStreamFenceLine(tailLine);
@@ -532,12 +638,19 @@ const trimClosingFenceTail = (afterOpen: string): string => {
     return lastNl === -1 ? "" : trimmedEnd.slice(0, lastNl);
 };
 
+/** Strips CommonMark `>` blockquote prefixes from a single line when present. */
+const stripSingleBlockquoteLine = (line: string): string => {
+    const prefix = readLineFencePrefix(line);
+    return prefix.quoteDepth > 0 ? line.slice(prefix.afterQuotes) : line;
+};
+
 /** Extracts the inner body of a fenced slice `[start, end)` without fence delimiter lines. */
 const extractFencedSliceBody = (slice: string): string => {
     const firstNl = slice.indexOf("\n");
     if (firstNl === -1) return "";
     const body = trimClosingFenceTail(slice.slice(firstNl + 1));
-    return body.replace(/^(?: {0,3}>[ \t]?)+/gmu, "");
+    if (!body.includes(">")) return body;
+    return body.split("\n").map(stripSingleBlockquoteLine).join("\n");
 };
 
 /** Returns `fenceSlice` when user-facing, or its trailing newline (if any) when leaked. */
@@ -808,12 +921,33 @@ export const looksLikeProseMarkdown = (text: string): boolean =>
     /(^|\n)[-*+]\s+\S/.test(text) ||
     /(^|\n)\d+\.\s+\S/.test(text);
 
+/** Advances past consecutive characters with UTF-16 `targetCode` starting at `start`. */
+const skipRepeatedCharCode = (
+    line: string,
+    start: number,
+    targetCode: number,
+): number => {
+    let idx = start;
+    while (idx < line.length && line.charCodeAt(idx) === targetCode) {
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Strips 4+ leading spaces or 1+ leading tabs from `line`, returning `null` when unindented. */
+const stripMarkdownCodeIndent = (line: string): string | null => {
+    if (line.startsWith("\t")) {
+        return line.slice(skipRepeatedCharCode(line, 1, 9));
+    }
+    if (!line.startsWith("    ")) return null;
+    return line.slice(skipRepeatedCharCode(line, 4, 32));
+};
+
 /** Unindents a single 4-space or tab-indented Markdown heading or list item line. */
 const demoteSingleIndentedMarkdownLine = (line: string): string => {
-    const match = /^( {4,}|\t+)(.*)$/u.exec(line);
-    if (!match) return line;
-    const inner = match[2];
-    return /^(#{1,6}\s|[-*+]\s|\d+\.\s)/u.test(inner) ? inner : line;
+    const inner = stripMarkdownCodeIndent(line);
+    if (inner === null) return line;
+    return /^(?:#{1,6}[ \t]|[-*+][ \t]|\d+\.[ \t])/u.test(inner) ? inner : line;
 };
 
 /** Demotes 4-space/tab indented Markdown headings and list items in prose outside code fences. */
@@ -824,12 +958,32 @@ const demoteIndentedMarkdown = (text: string): string => {
     );
 };
 
+/** Checks whether `trimmed` starts and ends with valid standalone triple-backtick fence lines. */
+const hasOuterTripleBacktickBounds = (
+    trimmed: string,
+    firstNl: number,
+    closeFenceIdx: number,
+): boolean => {
+    if (firstNl === -1 || firstNl >= closeFenceIdx - 1) return false;
+    if (trimmed.charAt(closeFenceIdx - 1) !== "\n") return false;
+    return /^[\w-]*$/u.test(trimmed.slice(3, firstNl).trim());
+};
+
+/** Extracts inner body of a standalone ` ```lang\n...\n``` ` block, or `null` when not matching. */
+const extractOuterTripleBacktickBody = (trimmed: string): string | null => {
+    if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) return null;
+    const firstNl = trimmed.indexOf("\n");
+    const closeFenceIdx = trimmed.length - 3;
+    if (!hasOuterTripleBacktickBounds(trimmed, firstNl, closeFenceIdx)) {
+        return null;
+    }
+    return trimmed.slice(firstNl + 1, closeFenceIdx - 1);
+};
+
 /** Unwraps an accidental outer triple-backtick fence wrapping ordinary prose Markdown. */
 const unwrapOuterProseFence = (text: string): string => {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith("```")) return text;
-    const outer = /^```(?:[\w-]*)?\s*\n([\s\S]*?)\n```\s*$/.exec(trimmed);
-    return outer && looksLikeProseMarkdown(outer[1]) ? outer[1] : text;
+    const inner = extractOuterTripleBacktickBody(text.trim());
+    return inner !== null && looksLikeProseMarkdown(inner) ? inner : text;
 };
 
 const PAIRED_STRIP_TAG_LIST = [
@@ -1259,106 +1413,6 @@ const truncateForDisplay = (text: string): string => {
     return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 };
 
-export type CodeFenceState = {
-    ranges: Array<readonly [number, number]>;
-    fenceStart: number;
-    fenceChar: string;
-    fenceLen: number;
-    fenceQuoteDepth: number;
-};
-
-/** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
-const closeCodeFenceRangeAt = (
-    state: CodeFenceState,
-    endOffset: number,
-): void => {
-    state.ranges.push([state.fenceStart, endOffset]);
-    state.fenceStart = -1;
-    state.fenceChar = "";
-    state.fenceLen = 0;
-    state.fenceQuoteDepth = 0;
-};
-
-/** Closes `CodeFenceState` at `cursor` when `quoteDepth` exits the blockquote containing the fence. */
-const maybeExitBlockquoteRange = (
-    state: CodeFenceState,
-    cursor: number,
-    quoteDepth: number,
-): void => {
-    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
-        closeCodeFenceRangeAt(state, cursor);
-    }
-};
-
-/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
-const stepCodeFenceRangeLine = (
-    state: CodeFenceState,
-    cursor: number,
-    afterLine: number,
-    lineScan: LineFenceScan,
-): void => {
-    maybeExitBlockquoteRange(state, cursor, lineScan.quoteDepth);
-    if (!state.fenceChar) {
-        if (isOpeningStreamFence(lineScan.marker)) {
-            state.fenceStart = cursor;
-            state.fenceChar = lineScan.marker.char;
-            state.fenceLen = lineScan.marker.len;
-            state.fenceQuoteDepth = lineScan.quoteDepth;
-        }
-        return;
-    }
-    if (
-        isMatchingLineFenceClose(
-            lineScan,
-            state.fenceChar,
-            state.fenceLen,
-            state.fenceQuoteDepth,
-        )
-    ) {
-        closeCodeFenceRangeAt(state, afterLine);
-    }
-};
-
-/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
-export const scanMarkdownCodeFences = (
-    text: string,
-    fromIndex = 0,
-): CodeFenceState => {
-    const state: CodeFenceState = {
-        ranges: [],
-        fenceStart: -1,
-        fenceChar: "",
-        fenceLen: 0,
-        fenceQuoteDepth: 0,
-    };
-    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
-        return state;
-    }
-    let cursor = fromIndex;
-    while (cursor < text.length) {
-        const { lineText, afterLine } = readLineSliceAt(text, cursor);
-        stepCodeFenceRangeLine(
-            state,
-            cursor,
-            afterLine,
-            scanStreamFenceLine(lineText),
-        );
-        cursor = afterLine;
-    }
-    if (state.fenceChar) {
-        state.ranges.push([state.fenceStart, text.length]);
-    }
-    return state;
-};
-
-/** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */
-const balanceMarkdownFences = (text: string): string => {
-    const state = scanMarkdownCodeFences(text, 0);
-    if (!state.fenceChar) return text;
-    const quotePrefix = "> ".repeat(state.fenceQuoteDepth);
-    return `${text}\n${quotePrefix}${state.fenceChar.repeat(state.fenceLen)}`;
-};
-
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + length cap. */
 const finalizeStreamOrStaticMarkdown = (
     text: string,
@@ -1371,11 +1425,38 @@ const finalizeStreamOrStaticMarkdown = (
     return balanced !== text ? stripLeakedToolCode(balanced) : text;
 };
 
+const UNICODE_BULLET_SET = new Set(["•", "●", "▪", "◦"]);
+
+/** Checks whether `trimmed` is a standalone horizontal rule of 3+ `-`, `*`, or `_` chars. */
+const isStandaloneHorizontalRule = (trimmed: string): boolean => {
+    if (trimmed.length < 3) return false;
+    const ch = trimmed.charAt(0);
+    if (ch !== "-" && ch !== "*" && ch !== "_") return false;
+    return countRepeatedChar(trimmed, 0, ch) === trimmed.length;
+};
+
+/** Advances past ASCII spaces and tabs starting at `start`. */
+const skipLineSpacesAndTabs = (line: string, start: number): number => {
+    let idx = start;
+    while (idx < line.length) {
+        const code = line.charCodeAt(idx);
+        if (code !== 32 && code !== 9) break;
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Normalizes a single prose line's Unicode bullet prefix or standalone horizontal rule. */
+const normalizeSingleProseLine = (line: string): string => {
+    if (isStandaloneHorizontalRule(line.trim())) return "";
+    if (!UNICODE_BULLET_SET.has(line.charAt(0))) return line;
+    const afterWs = skipLineSpacesAndTabs(line, 1);
+    return afterWs > 1 ? `- ${line.slice(afterWs)}` : line;
+};
+
 /** Normalizes Unicode bullet glyphs and standalone horizontal rules in prose outside code fences. */
 const normalizeProseBulletsAndRules = (prose: string): string =>
-    prose
-        .replace(/^[•●▪◦]\s+/gmu, "- ")
-        .replace(/^\s*[-*_]{3,}\s*$/gmu, "");
+    prose.split("\n").map(normalizeSingleProseLine).join("\n");
 
 /** Normalize assistant markdown before ReactMarkdown. */
 export const preprocessChatMarkdown = (
