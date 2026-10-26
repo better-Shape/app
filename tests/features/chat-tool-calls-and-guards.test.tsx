@@ -15,7 +15,13 @@ import { findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { ChatErrorDialog, redactErrorSecrets } from "@/features/chat/ui/blocks/error";
-import { commandSummary, stripAnsi } from "@/features/chat/ui/blocks/terminal-live";
+import {
+    appendStreamAnsiChunk,
+    commandSummary,
+    stripAnsi,
+    type TerminalStreamBuffer,
+} from "@/features/chat/ui/blocks/terminal-live";
+import { ActionLine } from "@/features/chat/ui/blocks/action-line";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import {
     computeShortenedCaret,
@@ -236,6 +242,7 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
         const skipFirst = vi.fn();
         const skipSecond = vi.fn();
 
+        /** Test harness mounting stacked `ApprovalCard` instances to verify FIFO shortcut focus. */
         const Harness = ({ showFirst }: { showFirst: boolean }) => (
             <div>
                 {showFirst ? (
@@ -315,6 +322,7 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
 
     it("renders shell 'Insert in terminal' button on bash CodeBlocks and queues stripped commands cleanly", () => {
         const openEvents: Event[] = [];
+        /** Captures workspace terminal open events dispatched by the shell action button. */
         const onOpen = (e: Event) => openEvents.push(e);
         window.addEventListener("bettershape-open-workspace-terminal", onOpen);
         try {
@@ -893,6 +901,30 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 value: prevMediaDevices,
             });
         }
+    });
+
+    it("carries split ANSI CSI/OSC escapes across PTY chunks and highlights ActionLine buttons", () => {
+        let buf: TerminalStreamBuffer = { output: "", carry: "" };
+        buf = appendStreamAnsiChunk(buf, "Start \u001b[", false);
+        expect(buf.output).toBe("Start ");
+        expect(buf.carry).toBe("\u001b[");
+        buf = appendStreamAnsiChunk(buf, "31mFailed\u001b[0m\u001b]0;Title\u001b", false);
+        expect(buf.output).toBe("Start Failed");
+        expect(buf.carry).toBe("\u001b]0;Title\u001b");
+        buf = appendStreamAnsiChunk(buf, "\\ done", true);
+        expect(buf.output).toBe("Start Failed done");
+        expect(buf.carry).toBe("");
+
+        const row = mount(
+            <div data-chat-message-index="0">
+                <ActionLine action="Edited" detail="src/lib/router.ts" onClick={vi.fn()} />
+                <button type="button">Copy</button>
+            </div>,
+        );
+        const { ranges } = syncChatDomHighlights(row, "router.ts");
+        expect(ranges).toHaveLength(1);
+        expect(ranges[0]?.range.toString()).toBe("router.ts");
+        expect(syncChatDomHighlights(row, "Copy").ranges).toHaveLength(0);
     });
 });
 

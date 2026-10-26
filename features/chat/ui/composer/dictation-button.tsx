@@ -55,6 +55,7 @@ type DictationRefs = {
     startingRef: React.MutableRefObject<boolean>;
     processingRef: React.MutableRefObject<boolean>;
     startAttemptIdRef: React.MutableRefObject<number>;
+    recognizerAttemptIdRef: React.MutableRefObject<number>;
     abortRef: React.MutableRefObject<AbortController | null>;
 };
 
@@ -64,11 +65,17 @@ const hasPendingOrActiveDictation = (refs: DictationRefs): boolean =>
     refs.startingRef.current ||
     refs.processingRef.current;
 
+/** Checks whether backend recognizer IPC events belong to the currently active attempt. */
+const isCurrentRecognizerOwner = (refs: DictationRefs): boolean =>
+    refs.recognizerAttemptIdRef.current > 0 &&
+    refs.recognizerAttemptIdRef.current === refs.startAttemptIdRef.current;
+
 /** Cancels in-flight startup or processing bookkeeping on `refs` and stops any processing push. */
 const abortPendingDictationPhases = (
     refs: DictationRefs,
     setIsStarting: React.Dispatch<React.SetStateAction<boolean>>,
 ): void => {
+    refs.recognizerAttemptIdRef.current = -1;
     refs.abortRef.current?.abort();
     refs.abortRef.current = null;
     if (refs.startingRef.current || refs.processingRef.current) {
@@ -97,7 +104,9 @@ const handleRecognizedDictationEvent = (
     refs: DictationRefs,
     ui: DictationUiSetters,
 ): void => {
+    if (!refs.processingRef.current || !isCurrentRecognizerOwner(refs)) return;
     const text = rawText?.trim();
+    refs.recognizerAttemptIdRef.current = -1;
     refs.processingRef.current = false;
     commands.dictationStop().catch(() => {
         /* ignore recognizer teardown errors */
@@ -116,8 +125,10 @@ const handleBackendDictationError = (
     refs: DictationRefs,
     ui: DictationUiSetters,
 ): void => {
+    if (!isCurrentRecognizerOwner(refs)) return;
     const message = rawMessage?.trim();
     if (message) notificationStore.add(message, "error");
+    refs.recognizerAttemptIdRef.current = -1;
     refs.abortRef.current?.abort();
     refs.abortRef.current = null;
     refs.startAttemptIdRef.current += 1;
@@ -139,6 +150,7 @@ const useDictationIpcListeners = (
     useEffect(() => {
         let cancelled = false;
         const unlisteners: Array<() => void> = [];
+        /** Checks whether the listener effect has already been torn down. */
         const isCancelled = (): boolean => cancelled;
 
         attachSafeListener<string>(
@@ -205,6 +217,7 @@ const useDictationTimersAndEscape = (
             isProcessing,
             dispose,
         );
+        /** Cancels active or pending dictation capture when Escape is pressed. */
         const onKey = (event: KeyboardEvent): void => {
             if (event.key !== "Escape" || !hasPendingOrActiveDictation(refs)) {
                 return;
@@ -264,11 +277,26 @@ const buildAttemptDictationHandlers = (
     },
 });
 
-const DICTATION_IPC_BRIDGE = {
-    start: () => commands.dictationStart(),
+/** Builds an attempt-scoped IPC bridge that records recognizer ownership on `start`. */
+const buildAttemptDictationBridge = (
+    attemptId: number,
+    refs: DictationRefs,
+) => ({
+    start: async () => {
+        if (refs.startAttemptIdRef.current !== attemptId) return;
+        refs.recognizerAttemptIdRef.current = attemptId;
+        try {
+            await commands.dictationStart();
+        } catch (err) {
+            if (refs.recognizerAttemptIdRef.current === attemptId) {
+                refs.recognizerAttemptIdRef.current = -1;
+            }
+            throw err;
+        }
+    },
     stop: () => commands.dictationStop(),
     push: (wav: number[]) => commands.dictationPush(wav),
-};
+});
 
 /** Resolves the accessible button/tooltip label from current dictation flags. */
 const resolveDictationLabel = (flags: {
@@ -368,7 +396,7 @@ const beginNewDictationAttempt = async (
         const active = await startDictation(
             buildAttemptDictationHandlers(attemptId, controller.signal, refs, ui),
             microphoneConstraints(deviceId),
-            DICTATION_IPC_BRIDGE,
+            buildAttemptDictationBridge(attemptId, refs),
         );
         if (refs.startAttemptIdRef.current !== attemptId) {
             active.dispose();
@@ -379,6 +407,7 @@ const beginNewDictationAttempt = async (
         refs.session.current = active;
     } catch {
         if (refs.startAttemptIdRef.current === attemptId) {
+            refs.recognizerAttemptIdRef.current = -1;
             refs.startingRef.current = false;
             refs.processingRef.current = false;
             ui.setIsStarting(false);
@@ -413,10 +442,18 @@ const DictationButtonInner = (): React.ReactElement => {
     const startingRef = useRef(false);
     const processingRef = useRef(false);
     const startAttemptIdRef = useRef(0);
+    const recognizerAttemptIdRef = useRef(-1);
     const abortRef = useRef<AbortController | null>(null);
 
     const refs = React.useMemo<DictationRefs>(
-        () => ({ session, startingRef, processingRef, startAttemptIdRef, abortRef }),
+        () => ({
+            session,
+            startingRef,
+            processingRef,
+            startAttemptIdRef,
+            recognizerAttemptIdRef,
+            abortRef,
+        }),
         [],
     );
     const ui = React.useMemo<DictationUiSetters>(
@@ -430,6 +467,7 @@ const DictationButtonInner = (): React.ReactElement => {
             startingRef,
             processingRef,
             startAttemptIdRef,
+            recognizerAttemptIdRef,
             abortRef,
         };
         const hadActive = hasPendingOrActiveDictation(currentRefs);

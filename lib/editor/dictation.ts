@@ -370,6 +370,17 @@ type SessionLifecycleToken = {
     signal?: AbortSignal;
 };
 
+/** Fires-and-forgets recognizer teardown when `epoch` still owns the global recognizer. */
+const triggerStopIfCurrent = (
+    invoke: DictationInvokeBridge,
+    epoch: number,
+): void => {
+    if (epoch !== activeDictationEpoch) return;
+    invoke.stop().catch(() => {
+        /* ignore recognizer teardown errors */
+    });
+};
+
 /** Pushes encoded WAV bytes to the recognizer and forwards direct transcripts or push errors. */
 const pushEncodedWav = (
     wav: Uint8Array,
@@ -386,7 +397,7 @@ const pushEncodedWav = (
         })
         .catch((error: unknown) => {
             if (!isCurrentDictationAttempt(token.epoch, token.signal)) return;
-            void stopRecognizerIfCurrent(invoke, token.epoch);
+            triggerStopIfCurrent(invoke, token.epoch);
             setState("error");
             handlers.onError(describeDictationError(error));
         });
@@ -454,7 +465,7 @@ const createActiveDictationSession = (
         const samples = concatFloat32(chunks);
         teardown();
         if (!hasAudibleSignal(samples)) {
-            void stopRecognizerIfCurrent(invoke, token.epoch);
+            triggerStopIfCurrent(invoke, token.epoch);
             setState("idle");
             return;
         }
