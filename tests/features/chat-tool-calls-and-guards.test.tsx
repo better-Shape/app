@@ -17,17 +17,24 @@ import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { ChatErrorDialog } from "@/features/chat/ui/blocks/error";
 import { commandSummary, stripAnsi } from "@/features/chat/ui/blocks/terminal-live";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
-import { shouldComposerBreakAll } from "@/features/chat/ui/composer/input";
+import {
+    computeShortenedCaret,
+    insertDictatedSlice,
+    shouldComposerBreakAll,
+} from "@/features/chat/ui/composer/input";
+import { parseMessageContent, type Chunk } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import {
     defaultProvidersSettings,
     describeProviderSetupGap,
+    normalizeProvidersSettings,
 } from "@/lib/ai/providers";
+import { shortenMentionTokensInText } from "@/lib/chat/mentions";
+import { startDictation } from "@/lib/editor/dictation";
 import { terminalSessionStore } from "@/features/terminal/session";
 import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
-import type { Chunk } from "@/features/chat/ui/md/renderer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -474,6 +481,115 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(describeProviderSetupGap(customMissingUrl)).toBe(
             "Set a base URL and model ID in Settings -> Providers",
         );
+    });
+
+    it("strips leaked tool calls inside tilde fences while preserving normal tilde-fenced code", () => {
+        const leakedTilde = preprocessChatMarkdown(
+            'Before\n~~~\nprint(default_api.read_file(path="a.ts"))\n~~~\nAfter',
+        );
+        expect(leakedTilde).toBe("Before\n\nAfter");
+
+        const userCodeTilde = preprocessChatMarkdown(
+            "Before\n~~~ts\nconst answer = 42;\n~~~\nAfter",
+        );
+        expect(userCodeTilde).toContain("const answer = 42;");
+    });
+
+    it("enforces tag-name boundaries so <catalog> stays prose while <cat> parses as a cat chunk", () => {
+        const chunks = parseMessageContent(
+            'Inspect <catalog> entries first.\n<cat path="src/app.ts">body</cat>',
+        );
+        expect(
+            chunks.some((chunk) => chunk.type === "text" && (chunk.content ?? "").includes("<catalog>")),
+        ).toBe(true);
+        expect(chunks.some((chunk) => chunk.type === "cat")).toBe(true);
+    });
+
+    it("drops non-string and whitespace-only entries when normalizing provider model lists", () => {
+        const base = defaultProvidersSettings();
+        const normalized = normalizeProvidersSettings({
+            connections: {
+                ...base.connections,
+                openai: {
+                    ...base.connections.openai,
+                    enabled: true,
+                    apiKey: "sk-test",
+                    models: [123, { bad: true }, "  ", "gpt-5"] as unknown as string[],
+                    extraModels: [true, "o4-mini"] as unknown as string[],
+                },
+            },
+        });
+        expect(normalized.connections.openai.models).toEqual(["gpt-5"]);
+        expect(normalized.connections.openai.extraModels).toEqual(["o4-mini"]);
+    });
+
+    it("cleans up microphone tracks and backend recognizer if AudioContext setup throws", async () => {
+        const stopTrack = vi.fn();
+        const fakeStream = {
+            getTracks: () => [{ stop: stopTrack }],
+        } as unknown as MediaStream;
+        const prevMediaDevices = navigator.mediaDevices;
+        const prevAudioCtx = (window as unknown as { AudioContext?: unknown }).AudioContext;
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: { getUserMedia: vi.fn().mockResolvedValue(fakeStream) },
+        });
+        /** Stub `AudioContext` that throws synchronously during construction to exercise startup teardown. */
+        class ThrowingAudioContext {
+            /** Always throws to simulate audio graph initialization failure. */
+            constructor() {
+                throw new Error("audio graph init failed");
+            }
+        }
+        (window as unknown as { AudioContext?: unknown }).AudioContext = ThrowingAudioContext;
+
+        const stopRecognizer = vi.fn().mockResolvedValue(undefined);
+        const onError = vi.fn();
+        try {
+            await expect(
+                startDictation(
+                    { onText: vi.fn(), onError },
+                    true,
+                    {
+                        start: vi.fn().mockResolvedValue(undefined),
+                        push: vi.fn().mockResolvedValue(undefined),
+                        stop: stopRecognizer,
+                    },
+                ),
+            ).rejects.toThrow("audio graph init failed");
+            expect(stopTrack).toHaveBeenCalledTimes(1);
+            expect(stopRecognizer).toHaveBeenCalledTimes(1);
+            expect(onError).toHaveBeenCalledWith("audio graph init failed");
+        } finally {
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: prevMediaDevices,
+            });
+            (window as unknown as { AudioContext?: unknown }).AudioContext = prevAudioCtx;
+        }
+    });
+
+    it("restores mid-draft caret offsets for dictation insertion and shortened mentions with long suffixes", () => {
+        const inserted = insertDictatedSlice("fix now", 3, "this bug");
+        expect(inserted.next).toBe("fix this bug now");
+        expect(inserted.caret).toBe("fix this bug".length);
+
+        const rawBeforeCaret =
+            "@file:features/chat/ui/composer/input.tsx explain how the parser handles edge cases in detail";
+        const shortenedBeforeCaret = shortenMentionTokensInText(rawBeforeCaret);
+        const rawCaret = "@file:features/chat/ui/composer/input.tsx".length;
+        const nextCaret = computeShortenedCaret(
+            rawBeforeCaret,
+            shortenedBeforeCaret,
+            rawCaret,
+        );
+        expect(shortenedBeforeCaret.slice(nextCaret)).toBe(
+            " explain how the parser handles edge cases in detail",
+        );
+
+        const rawAfterCaret = "hello @file:features/chat/ui/composer/input.tsx";
+        const shortenedAfterCaret = shortenMentionTokensInText(rawAfterCaret);
+        expect(computeShortenedCaret(rawAfterCaret, shortenedAfterCaret, 5)).toBe(5);
     });
 });
 
