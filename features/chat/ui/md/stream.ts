@@ -581,16 +581,18 @@ export const looksLikeProseMarkdown = (text: string): boolean =>
 
 /** Unindents a single 4-space or tab-indented Markdown heading or list item line. */
 const demoteSingleIndentedMarkdownLine = (line: string): string => {
-    const match = /^( {4,}|\t+)(.*)$/.exec(line);
+    const match = /^( {4,}|\t+)(.*)$/u.exec(line);
     if (!match) return line;
     const inner = match[2];
-    return /^(#{1,6}\s|[-*+]\s|\d+\.\s)/.test(inner) ? inner : line;
+    return /^(#{1,6}\s|[-*+]\s|\d+\.\s)/u.test(inner) ? inner : line;
 };
 
-/** Demotes 4-space/tab indented Markdown headings and list items back to top-level prose. */
+/** Demotes 4-space/tab indented Markdown headings and list items in prose outside code fences. */
 const demoteIndentedMarkdown = (text: string): string => {
     if (!text.includes("    ") && !text.includes("\t")) return text;
-    return text.split("\n").map(demoteSingleIndentedMarkdownLine).join("\n");
+    return mapOutsideCodeFences(text, (prose) =>
+        prose.split("\n").map(demoteSingleIndentedMarkdownLine).join("\n"),
+    );
 };
 
 /** Unwraps an accidental outer triple-backtick fence wrapping ordinary prose Markdown. */

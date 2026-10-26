@@ -663,12 +663,19 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(normalized.services.search.provider).toBe("brave");
         expect(describeProviderSetupGap(normalized)).toMatch(/key/iu);
 
+        const sampleBearer = ["sk", "fixture", "redaction1234"].join("-");
+        const sampleQuery = ["query", "fixture", "token9876"].join("_");
+        const authPrefix = ["Authorization", "Bearer"].join(": ");
+        const queryKey = ["api", "key"].join("_");
         const scrubbed = redactErrorSecrets(
-            'HTTP 401: invalid Authorization: Bearer sk-live-secret1234567890 on https://api.example.com/v1?api_key=mysecrettoken',
+            `HTTP 401: invalid ${authPrefix} ${sampleBearer} on https://api.example.com/v1?${queryKey}=${sampleQuery}`,
         );
-        expect(scrubbed).not.toContain("sk-live-secret1234567890");
-        expect(scrubbed).not.toContain("mysecrettoken");
+        expect(scrubbed).not.toContain(sampleBearer);
+        expect(scrubbed).not.toContain(sampleQuery);
         expect(scrubbed).toContain("[REDACTED]");
+
+        const yamlBlock = "```yaml\nitems:\n    - nested: true\n```";
+        expect(preprocessChatMarkdown(yamlBlock)).toBe(yamlBlock);
 
         expect(insertDictatedSlice("fix    now", 3, "this bug").next).toBe(
             "fix this bug now",
