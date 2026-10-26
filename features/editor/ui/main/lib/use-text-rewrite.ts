@@ -40,11 +40,27 @@ const unwrapMatchingOuterQuotes = (value: string): string => {
     return value;
 };
 
+/** Strips an optional single-word language identifier line after opening triple backticks. */
+const stripFenceLanguageHeader = (inner: string): string => {
+    const nl = inner.indexOf("\n");
+    if (nl === -1) return inner;
+    const header = inner.slice(0, nl).replace(/\r$/u, "");
+    return /^\w*$/u.test(header) ? inner.slice(nl + 1) : inner;
+};
+
+/** Extracts inner text from a triple-backtick fenced reply, or `null` when unfenced. */
+const extractTripleBacktickFence = (trimmed: string): string | null => {
+    if (trimmed.length < 6 || !trimmed.startsWith("```") || !trimmed.endsWith("```")) {
+        return null;
+    }
+    return stripFenceLanguageHeader(trimmed.slice(3, -3)).trim();
+};
+
 /** Unwraps optional Markdown fences or surrounding quote characters from a rewrite reply. */
 const stripAssistantResponse = (raw: string): string => {
     const trimmed = raw.trim();
-    const codeFence = trimmed.match(/^```(?:\w+)?\n?([\s\S]*?)\n?```$/u);
-    if (codeFence) return codeFence[1].trim();
+    const fenced = extractTripleBacktickFence(trimmed);
+    if (fenced !== null) return fenced;
     return unwrapMatchingOuterQuotes(trimmed);
 };
 
