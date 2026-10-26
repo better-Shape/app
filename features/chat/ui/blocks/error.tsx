@@ -212,13 +212,29 @@ const resolveChatErrorHint = ({
     return resolveNonTransientErrorHint(billingProvider, defaultDescription);
 };
 
-/** Extracts raw diagnostic detail when distinct from `title` and `hint` so provider messages stay visible. */
+const SECRET_ASSIGNMENT_RE =
+    /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{8,}/giu;
+const BEARER_TOKEN_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/giu;
+const QUERY_SECRET_RE =
+    /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
+const KNOWN_KEY_PREFIX_RE =
+    /\b(?:sk-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|(?:sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
+
+/** Redacts echoed bearer tokens, provider API keys, and query secrets from raw error details. */
+export const redactErrorSecrets = (raw: string): string =>
+    raw
+        .replace(SECRET_ASSIGNMENT_RE, "$1[REDACTED]")
+        .replace(BEARER_TOKEN_RE, "Bearer [REDACTED]")
+        .replace(QUERY_SECRET_RE, "$1[REDACTED]")
+        .replace(KNOWN_KEY_PREFIX_RE, "[REDACTED]");
+
+/** Extracts sanitized diagnostic detail when distinct from `title` and `hint` so provider messages stay visible. */
 const resolveChatErrorDetail = (
     rawMessage: string,
     title: string,
     hint: string,
 ): string => {
-    const trimmed = rawMessage.trim();
+    const trimmed = redactErrorSecrets(rawMessage.trim());
     if (!trimmed || trimmed === title || trimmed === hint) return "";
     return hint.includes(trimmed) ? "" : trimmed;
 };

@@ -14,7 +14,7 @@ import {
 import { findTranscriptMatches } from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
-import { ChatErrorDialog } from "@/features/chat/ui/blocks/error";
+import { ChatErrorDialog, redactErrorSecrets } from "@/features/chat/ui/blocks/error";
 import { commandSummary, stripAnsi } from "@/features/chat/ui/blocks/terminal-live";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import {
@@ -624,6 +624,57 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
             const leftOnly = syncChatDomHighlights(container, "foo");
             expect(leftOnly.ranges).toHaveLength(1);
+        } finally {
+            container.remove();
+        }
+    });
+
+    it("normalizes non-string provider credentials, redacts echoed error secrets, collapses dictation spaces, and breaks highlight runs on br", () => {
+        const normalized = normalizeProvidersSettings({
+            defaultModel: "openai/gpt-5",
+            connections: {
+                openai: {
+                    apiKey: 12345 as unknown as string,
+                    baseUrl: { bad: true } as unknown as string,
+                    enabled: true,
+                    models: ["gpt-5"],
+                    extraModels: [],
+                    headers: {},
+                    authStyle: "",
+                },
+            } as unknown as ReturnType<typeof defaultProvidersSettings>["connections"],
+        });
+        expect(normalized.connections.openai.apiKey).toBe("");
+        expect(normalized.connections.openai.baseUrl).toBe("");
+        expect(describeProviderSetupGap(normalized)).toMatch(/key/iu);
+
+        const scrubbed = redactErrorSecrets(
+            'HTTP 401: invalid Authorization: Bearer sk-live-secret1234567890 on https://api.example.com/v1?api_key=mysecrettoken',
+        );
+        expect(scrubbed).not.toContain("sk-live-secret1234567890");
+        expect(scrubbed).not.toContain("mysecrettoken");
+        expect(scrubbed).toContain("[REDACTED]");
+
+        expect(insertDictatedSlice("fix    now", 3, "this bug").next).toBe(
+            "fix this bug now",
+        );
+        expect(insertDictatedSlice("hello\nworld", 5, "there").next).toBe(
+            "hello there\nworld",
+        );
+
+        const container = document.createElement("div");
+        const row = document.createElement("div");
+        row.setAttribute("data-chat-message-index", "0");
+        const paragraph = document.createElement("p");
+        paragraph.appendChild(document.createTextNode("foo"));
+        paragraph.appendChild(document.createElement("br"));
+        paragraph.appendChild(document.createTextNode("bar"));
+        row.appendChild(paragraph);
+        container.appendChild(row);
+        document.body.appendChild(container);
+        try {
+            expect(syncChatDomHighlights(container, "foobar").ranges).toHaveLength(0);
+            expect(syncChatDomHighlights(container, "bar").ranges).toHaveLength(1);
         } finally {
             container.remove();
         }
