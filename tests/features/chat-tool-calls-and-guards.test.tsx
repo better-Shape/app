@@ -82,6 +82,10 @@ describe("Composer undo-safe insertion, prompt recall guards, and shell prompt s
         const ta = document.createElement("textarea");
         ta.value = "check docs now";
         document.body.appendChild(ta);
+        const prevExecDescriptor = Object.getOwnPropertyDescriptor(
+            document,
+            "execCommand",
+        );
         try {
             const wrapped = tryWrapMarkdownLinkOnPaste(ta.value, 6, 10, "https://example.com");
             if (!wrapped) throw new Error("expected wrapped markdown link");
@@ -131,6 +135,11 @@ describe("Composer undo-safe insertion, prompt recall guards, and shell prompt s
             );
             expect(fallbackSpy).toHaveBeenCalledWith("verify [docs](https://example.com) now", 6);
         } finally {
+            if (prevExecDescriptor) {
+                Object.defineProperty(document, "execCommand", prevExecDescriptor);
+            } else {
+                Reflect.deleteProperty(document, "execCommand");
+            }
             ta.remove();
         }
     });
@@ -663,14 +672,29 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(normalized.services.search.provider).toBe("brave");
         expect(describeProviderSetupGap(normalized)).toMatch(/key/iu);
 
+        const azureKeyedMissingUrl = defaultProvidersSettings();
+        azureKeyedMissingUrl.connections.azure = {
+            ...azureKeyedMissingUrl.connections.azure,
+            enabled: true,
+            apiKey: ["az", "fixture", "key"].join("-"),
+            baseUrl: "  ",
+        };
+        expect(describeProviderSetupGap(azureKeyedMissingUrl)).toMatch(/base URL/iu);
+
         const sampleBearer = ["sk", "fixture", "redaction1234"].join("-");
+        const sampleTogether = ["tgp_v1", "fixturetoken1234"].join("_");
+        const samplePerplexity = ["pplx", "fixturetoken1234"].join("-");
+        const sampleVercel = ["vck", "fixturetoken1234"].join("_");
         const sampleQuery = ["query", "fixture", "token9876"].join("_");
         const authPrefix = ["Authorization", "Bearer"].join(": ");
         const queryKey = ["api", "key"].join("_");
         const scrubbed = redactErrorSecrets(
-            `HTTP 401: invalid ${authPrefix} ${sampleBearer} on https://api.example.com/v1?${queryKey}=${sampleQuery}`,
+            `HTTP 401: invalid ${authPrefix} ${sampleBearer} ${sampleTogether} ${samplePerplexity} ${sampleVercel} on https://api.example.com/v1?${queryKey}=${sampleQuery}`,
         );
         expect(scrubbed).not.toContain(sampleBearer);
+        expect(scrubbed).not.toContain(sampleTogether);
+        expect(scrubbed).not.toContain(samplePerplexity);
+        expect(scrubbed).not.toContain(sampleVercel);
         expect(scrubbed).not.toContain(sampleQuery);
         expect(scrubbed).toContain("[REDACTED]");
 

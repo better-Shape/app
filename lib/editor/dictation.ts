@@ -41,7 +41,7 @@ export type DictationSession = {
 type DictationInvokeBridge = {
     start: () => Promise<void>;
     stop: () => Promise<void>;
-    push: (wav: number[]) => Promise<void>;
+    push: (wav: number[]) => Promise<void | string>;
 };
 
 const DOM_EXCEPTION_MESSAGES: Partial<Record<string, string>> = {
@@ -277,20 +277,38 @@ const hasAudibleSignal = (samples: Float32Array): boolean => {
     return false;
 };
 
-/** Pushes encoded WAV bytes to the recognizer and reports push errors cleanly. */
+/** Delivers a direct recognizer transcript result when `invoke.push` resolves with non-empty text. */
+const forwardRecognizedPushText = (
+    result: void | string,
+    setState: (state: DictationState) => void,
+    onText: (text: string) => void,
+): void => {
+    if (typeof result !== "string") return;
+    const trimmed = result.trim();
+    if (!trimmed) return;
+    setState("idle");
+    onText(trimmed);
+};
+
+/** Pushes encoded WAV bytes to the recognizer and forwards direct transcripts or push errors. */
 const pushEncodedWav = (
     wav: Uint8Array,
     invoke: DictationInvokeBridge,
     setState: (state: DictationState) => void,
-    onError: (message: string) => void,
+    handlers: Pick<DictationHandlers, "onText" | "onError">,
 ): void => {
-    invoke.push(Array.from(wav)).catch((error: unknown) => {
-        invoke.stop().catch(() => {
-            /* ignore recognizer teardown errors */
+    invoke
+        .push(Array.from(wav))
+        .then((result) => {
+            forwardRecognizedPushText(result, setState, handlers.onText);
+        })
+        .catch((error: unknown) => {
+            invoke.stop().catch(() => {
+                /* ignore recognizer teardown errors */
+            });
+            setState("error");
+            handlers.onError(describeDictationError(error));
         });
-        setState("error");
-        onError(describeDictationError(error));
-    });
 };
 
 /** Disconnects audio graph nodes and closes the `AudioContext` + `MediaStream` tracks. */
@@ -360,7 +378,7 @@ const createActiveDictationSession = (
         setState("processing");
         const pcm = resampleTo16k(samples, context.sampleRate);
         const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
-        pushEncodedWav(wav, invoke, setState, handlers.onError);
+        pushEncodedWav(wav, invoke, setState, handlers);
     };
 
     processor.onaudioprocess = (event) => {
