@@ -2015,12 +2015,16 @@ export const useChatSession = (
                 el.scrollTop = maxTop;
             }
             lastScrollTopRef.current = maxTop;
-            window.requestAnimationFrame(() => {
+            if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+                window.requestAnimationFrame(() => {
+                    programmaticScrollRef.current = false;
+                    if (scrollContainerRef.current) {
+                        syncScrollFlags(scrollContainerRef.current);
+                    }
+                });
+            } else {
                 programmaticScrollRef.current = false;
-                if (scrollContainerRef.current) {
-                    syncScrollFlags(scrollContainerRef.current);
-                }
-            });
+            }
             setScrolledFromTop((prev) => {
                 const next = maxTop > 6;
                 return prev === next ? prev : next;
