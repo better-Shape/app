@@ -279,21 +279,23 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
         [applyIdle, applyLive, cancelPendingStreamFrame, readCachedTranscript, setViewed, writeCachedTranscript],
     );
 
+    const canStorePrefetchedTranscript = React.useCallback(
+        (targetId: string) =>
+            viewingIdRef.current !== targetId &&
+            !liveTurnsRef.current.has(targetId) &&
+            !transcriptCacheRef.current.has(targetId),
+        [],
+    );
+
     const prefetchConversation = React.useCallback(
         (id: string | null | undefined) => {
             if (!id || id === NEW_CHAT_TAB_ID || isForeignConversation(id)) return;
-            if (viewingIdRef.current === id) return;
-            if (liveTurnsRef.current.has(id) || transcriptCacheRef.current.has(id)) return;
-            if (prefetchInflightRef.current.has(id)) return;
+            if (!canStorePrefetchedTranscript(id) || prefetchInflightRef.current.has(id)) return;
 
             const job = commands
                 .getConversationMessages(id)
                 .then((history) => {
-                    if (
-                        !liveTurnsRef.current.has(id) &&
-                        viewingIdRef.current !== id &&
-                        !transcriptCacheRef.current.has(id)
-                    ) {
+                    if (canStorePrefetchedTranscript(id)) {
                         writeCachedTranscript(id, history);
                     }
                 })
@@ -305,7 +307,7 @@ export const ChatStreamProvider = ({ children }: { children: React.ReactNode }) 
                 });
             prefetchInflightRef.current.set(id, job);
         },
-        [writeCachedTranscript],
+        [canStorePrefetchedTranscript, writeCachedTranscript],
     );
 
     React.useEffect(() => {

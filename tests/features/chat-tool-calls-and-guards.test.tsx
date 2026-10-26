@@ -99,6 +99,22 @@ describe("Composer undo-safe insertion, prompt recall guards, and shell prompt s
         expect(execSpy).toHaveBeenCalledWith("insertText", false, "[docs](https://example.com)");
         expect(fallbackSpy).not.toHaveBeenCalled();
         expect(ta.value).toBe("check [docs](https://example.com) now");
+
+        // Same-text native replacement (`ta.value === fallbackNextValue`) still preserves native undo without fallback.
+        insertTextareaRangeWithUndo(ta, 0, 5, "check", ta.value, fallbackSpy);
+        expect(fallbackSpy).not.toHaveBeenCalled();
+
+        // Stubbed `execCommand` returning `true` without updating DOM falls back cleanly.
+        execSpy.mockImplementationOnce(() => true);
+        insertTextareaRangeWithUndo(
+            ta,
+            0,
+            5,
+            "verify",
+            "verify [docs](https://example.com) now",
+            fallbackSpy,
+        );
+        expect(fallbackSpy).toHaveBeenCalledWith("verify [docs](https://example.com) now", 6);
         ta.remove();
     });
 
