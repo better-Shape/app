@@ -53,6 +53,7 @@ import {
     embeddingsTarget,
     keyFormatWarning,
     normalizeProvidersSettings,
+    providerHeaders,
     providersForModelNames,
     toRustAiConfig,
 } from "@/lib/ai/providers";
@@ -1249,6 +1250,77 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const parsed = parseMessageContent(sample);
         expect(parsed.filter((chunk) => chunk.type === "cat")).toHaveLength(1);
+    });
+
+    it("keeps onRetry on invalid API key errors, preserves cancelled terminal exits, splits space-only blank lines, and merges headers case-insensitively", async () => {
+        const onRetry = vi.fn();
+        mount(
+            <ChatErrorDialog
+                message="401 Incorrect API key provided by upstream gateway"
+                onDismiss={vi.fn()}
+                onRetry={onRetry}
+            />,
+        );
+        const retryBtn = Array.from(document.body.querySelectorAll("button")).find(
+            (btn) => btn.textContent === "Try again",
+        );
+        expect(retryBtn).toBeDefined();
+
+        mount(
+            <ChatErrorDialog
+                message="No model provider is configured"
+                onDismiss={vi.fn()}
+                onRetry={onRetry}
+            />,
+        );
+        expect(
+            Array.from(document.body.querySelectorAll("button")).some(
+                (btn) => btn.textContent === "Try again",
+            ),
+        ).toBe(false);
+
+        const blankLineSanitized = stripLeakedToolMarkup(
+            "First `unclosed\n   \nsecond` <tool_call>leaked_payload</tool_call>",
+        );
+        expect(blankLineSanitized).not.toContain("leaked_payload");
+
+        const settings = defaultProvidersSettings();
+        const mergedHeaders = providerHeaders("nvidia", {
+            ...settings.connections.nvidia,
+            headers: { "x-billing-invoke-origin": "CustomOrigin" },
+        });
+        expect(mergedHeaders["X-BILLING-INVOKE-ORIGIN"]).toBeUndefined();
+        expect(mergedHeaders["x-billing-invoke-origin"]).toBe("CustomOrigin");
+
+        mockIPC(() => undefined, { shouldMockEvents: true });
+        try {
+            const stoppedChunk: Chunk = {
+                type: "terminal_command",
+                commandId: "cmd-cancel-race",
+                command: "sleep 60",
+                commandStatus: "running",
+                isGenerating: true,
+            };
+            const el = mount(<TerminalCommandStep block={stoppedChunk} />);
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-cancel-race",
+                    kind: "exit",
+                    exitCode: 130,
+                    cancelled: true,
+                });
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-cancel-race",
+                    kind: "exit",
+                    exitCode: 130,
+                });
+            });
+            expect(el.textContent ?? "").toContain("Cancelled");
+            expect(el.textContent ?? "").not.toContain("Failed");
+        } finally {
+            clearMocks();
+        }
     });
 });
 

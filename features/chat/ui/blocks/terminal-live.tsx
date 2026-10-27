@@ -369,7 +369,7 @@ const reduceStreamDataEvent = (
     waitingForInput: false,
 });
 
-/** Reduces an `"exit"` terminal event into the finished `StreamState`. */
+/** Reduces an `"exit"` terminal event into the finished `StreamState`, preserving prior cancellation when omitted. */
 const reduceStreamExitEvent = (
     prev: StreamState,
     payload: AgentTerminalEvent,
@@ -379,7 +379,7 @@ const reduceStreamExitEvent = (
     phase: "finished",
     output,
     exitCode: payload.exitCode ?? -1,
-    cancelled: payload.cancelled ?? false,
+    cancelled: payload.cancelled ?? prev.cancelled,
     waitingForInput: false,
 });
 
