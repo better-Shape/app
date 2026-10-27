@@ -40,6 +40,7 @@ import {
     type Chunk,
 } from "@/features/chat/ui/md/renderer";
 import {
+    appendInlineCodeSpansInRange,
     preprocessChatMarkdown,
     repairStreamGlitches,
     stripLeakedToolMarkup,
@@ -50,6 +51,7 @@ import {
     defaultProvidersSettings,
     describeProviderSetupGap,
     embeddingsTarget,
+    keyFormatWarning,
     normalizeProvidersSettings,
     providersForModelNames,
     toRustAiConfig,
@@ -1225,6 +1227,28 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             'Escaped \\` literal before <cat path="src/main.ts">src/main.ts</cat> and `inline` after.',
         );
         expect(escapedTickChunks.some((chunk) => chunk.type === "cat")).toBe(true);
+    });
+
+    it("treats zen-go as an oc_sk_ sibling and scans unmatched multi-length backtick runs linearly", () => {
+        const sampleGoKey = `${"oc_sk"}_abcdefghijkl`;
+        expect(keyFormatWarning("zen", sampleGoKey)).toBeNull();
+        expect(keyFormatWarning("zen-messages", sampleGoKey)).toBeNull();
+        expect(keyFormatWarning("zen-go", sampleGoKey)).toBeNull();
+        expect(keyFormatWarning("openai", sampleGoKey)).toContain("OpenCode Zen");
+
+        const unmatchedLadder = Array.from({ length: 180 }, (_, idx) =>
+            "`".repeat(idx + 2),
+        ).join(" prose ");
+        const sample = `${unmatchedLadder} \`<cat path="kept.ts">kept.ts</cat>\`\r\n\r\n\\\`\`<cat path="inner.ts">inner.ts</cat>\` <cat path="real.ts">real.ts</cat>`;
+        const spans: Array<[number, number]> = [];
+        appendInlineCodeSpansInRange(sample, 0, sample.length, spans);
+        expect(spans).toHaveLength(2);
+
+        const cleaned = preprocessChatMarkdown(sample, { streaming: false });
+        expect(cleaned).toContain('`<cat path="kept.ts">kept.ts</cat>`');
+
+        const parsed = parseMessageContent(sample);
+        expect(parsed.filter((chunk) => chunk.type === "cat")).toHaveLength(1);
     });
 });
 
