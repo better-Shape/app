@@ -108,7 +108,7 @@ const resolveStatusPresentation = (ok: boolean) =>
           };
 
 /** Renders an inline diagnostic probe outcome with status/alert semantics. */
-function StatusMessage({
+const StatusMessage = ({
     ok,
     message,
     latencyMs,
@@ -116,7 +116,7 @@ function StatusMessage({
     ok: boolean;
     message: string;
     latencyMs?: number;
-}) {
+}) => {
     const view = resolveStatusPresentation(ok);
     const showLatency = Boolean(ok && latencyMs);
     return (
@@ -131,10 +131,10 @@ function StatusMessage({
             ) : null}
         </span>
     );
-}
+};
 
 /** Renders a collapsible disclosure button inside a provider card body. */
-function DisclosureHeader({
+const DisclosureHeader = ({
     open,
     onToggle,
     icon: Glyph,
@@ -146,27 +146,25 @@ function DisclosureHeader({
     icon: React.ComponentType<{ className?: string }>;
     label: string;
     hint?: string;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={open}
-            className="flex w-full items-center gap-1.5 self-start text-xs font-normal text-text-muted transition-colors duration-fast hover:text-text-primary"
-        >
-            <Icon
-                icon={open ? ChevronDown20Regular : ChevronRight20Regular}
-                className="size-3"
-            />
-            <Icon icon={Glyph} className="size-3.5" />
-            <span>{label}</span>
-            {hint ? <span className="text-text-disabled">· {hint}</span> : null}
-        </button>
-    );
-}
+}) => (
+    <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 self-start text-xs font-normal text-text-muted transition-colors duration-fast hover:text-text-primary"
+    >
+        <Icon
+            icon={open ? ChevronDown20Regular : ChevronRight20Regular}
+            className="size-3"
+        />
+        <Icon icon={Glyph} className="size-3.5" />
+        <span>{label}</span>
+        {hint ? <span className="text-text-disabled">· {hint}</span> : null}
+    </button>
+);
 
 /** Renders a single capability pill (`deprecated`, `reasoning`, `vision`, `tools`). */
-function ModelBadgePill({ badge }: { badge: ModelBadge }) {
+const ModelBadgePill = ({ badge }: { badge: ModelBadge }) => {
     const toneClass =
         badge.tone === "warn"
             ? "bg-warning/15 text-warning"
@@ -181,10 +179,10 @@ function ModelBadgePill({ badge }: { badge: ModelBadge }) {
             {badge.label}
         </span>
     );
-}
+};
 
 /** Renders the title, context-window chip, pricing, and capability badges for a model row. */
-function ModelRowDetails({
+const ModelRowDetails = ({
     displayName,
     slug,
     ctxLabel,
@@ -200,7 +198,7 @@ function ModelRowDetails({
     badges: ModelBadge[];
     providerLabel: string;
     sourceSuffix: string;
-}) {
+}) => {
     const slugSuffix = slug !== displayName ? ` · ${slug}` : "";
     /** Renders a capability badge item by label key. */
     const renderBadge = (badge: ModelBadge): React.ReactElement => (
@@ -231,7 +229,7 @@ function ModelRowDetails({
             </div>
         </div>
     );
-}
+};
 
 /** Copies `modelId` to the clipboard and briefly activates `setCopied`. */
 const copyModelIdToClipboard = async (
@@ -250,7 +248,7 @@ const copyModelIdToClipboard = async (
 };
 
 /** Renders the compact visibility toggle switch inside `ModelRow`. */
-function ModelVisibilitySwitch({
+const ModelVisibilitySwitch = ({
     slug,
     visible,
     onToggle,
@@ -258,7 +256,7 @@ function ModelVisibilitySwitch({
     slug: string;
     visible: boolean;
     onToggle: () => void;
-}) {
+}) => {
     const label = visible ? `Hide ${slug} from pickers` : `Show ${slug} in pickers`;
     const toneClass = visible
         ? "border-accent/60 bg-accent/15 text-accent-text"
@@ -281,16 +279,16 @@ function ModelVisibilitySwitch({
             />
         </button>
     );
-}
+};
 
 /** Renders the copy-id icon button on the right edge of `ModelRow`. */
-function CopyModelIdButton({
+const CopyModelIdButton = ({
     copied,
     onCopy,
 }: {
     copied: boolean;
     onCopy: () => void;
-}) {
+}) => {
     const tooltip = copied ? "Copied model id" : "Copy model id";
     return (
         <Tooltip content={tooltip} side="left">
@@ -308,7 +306,7 @@ function CopyModelIdButton({
             </Button>
         </Tooltip>
     );
-}
+};
 
 /** Computes container classes for `ModelRow` based on `visible` and search `match`. */
 const computeModelRowClass = (visible: boolean, match: boolean): string =>
@@ -319,7 +317,7 @@ const computeModelRowClass = (visible: boolean, match: boolean): string =>
     );
 
 /** Renders a per-model visibility switch, metadata summary, and copy-id button. */
-function ModelRow({
+const ModelRow = ({
     modelId,
     visible,
     onToggleVisible,
@@ -333,7 +331,7 @@ function ModelRow({
     providerLabel: string;
     providerId: ProviderId;
     match?: boolean;
-}) {
+}) => {
     const [copied, setCopied] = React.useState(false);
     const slug = modelId.split("/").slice(1).join("/");
     const meta = getModelMetadata(modelId, providerId);
@@ -364,10 +362,10 @@ function ModelRow({
             <CopyModelIdButton copied={copied} onCopy={handleCopy} />
         </div>
     );
-}
+};
 
 /** Renders the hidden-model count badge beside a provider's header title. */
-function HiddenModelsBadge({ hiddenCount }: { hiddenCount: number }) {
+const HiddenModelsBadge = ({ hiddenCount }: { hiddenCount: number }) => {
     if (hiddenCount <= 0) return null;
     const noun = hiddenCount === 1 ? "model" : "models";
     return (
@@ -378,10 +376,10 @@ function HiddenModelsBadge({ hiddenCount }: { hiddenCount: number }) {
             </span>
         </Tooltip>
     );
-}
+};
 
 /** Renders the title, group badge, status dot, and protocol subtitle inside a card header. */
-function ProviderHeaderSummary({
+const ProviderHeaderSummary = ({
     preset,
     hiddenCount,
     status,
@@ -389,28 +387,26 @@ function ProviderHeaderSummary({
     preset: ProviderPreset;
     hiddenCount: number;
     status: ReturnType<typeof connectionStatusStyle>;
-}) {
-    return (
-        <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
-                <span className="truncate">{preset.label}</span>
-                <span className="ml-1 rounded-sm bg-surface-3 px-1 py-px text-[10px] font-normal uppercase tracking-wide text-text-muted">
-                    {groupLabel(preset.group)}
-                </span>
-                <HiddenModelsBadge hiddenCount={hiddenCount} />
-            </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
-                <StatusDot style={status} />
-                <span>{status.label}</span>
-                <span className="text-text-disabled">·</span>
-                <span className="truncate">{wireLabel(preset.kind)}</span>
-            </div>
+}) => (
+    <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+            <span className="truncate">{preset.label}</span>
+            <span className="ml-1 rounded-sm bg-surface-3 px-1 py-px text-[10px] font-normal uppercase tracking-wide text-text-muted">
+                {groupLabel(preset.group)}
+            </span>
+            <HiddenModelsBadge hiddenCount={hiddenCount} />
         </div>
-    );
-}
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
+            <StatusDot style={status} />
+            <span>{status.label}</span>
+            <span className="text-text-disabled">·</span>
+            <span className="truncate">{wireLabel(preset.kind)}</span>
+        </div>
+    </div>
+);
 
 /** Renders the un-nested sibling action cluster (`Reset`, `Get a key`, `Enable`, chevron) for a provider card. */
-function ProviderHeaderActions({
+const ProviderHeaderActions = ({
     preset,
     enabled,
     expanded,
@@ -424,7 +420,7 @@ function ProviderHeaderActions({
     onReset?: () => void;
     onToggleEnabled: (enabled: boolean) => void;
     onToggleExpand: () => void;
-}) {
+}) => {
     const docsUrl = preset.docsUrl;
     /** Opens `docsUrl` in the system browser when present. */
     const handleOpenDocs = (): void => {
@@ -479,10 +475,10 @@ function ProviderHeaderActions({
             </button>
         </div>
     );
-}
+};
 
 /** Renders the editable or read-only base URL cell beside `KeyInput`. */
-function ProviderBaseUrlField({
+const ProviderBaseUrlField = ({
     preset,
     baseUrl,
     onChange,
@@ -492,7 +488,7 @@ function ProviderBaseUrlField({
     baseUrl: string;
     onChange: (baseUrl: string) => void;
     onReset: () => void;
-}) {
+}) => {
     if (preset.needsBaseUrl || baseUrl) {
         return (
             <TextInput
@@ -511,14 +507,14 @@ function ProviderBaseUrlField({
             <span className="truncate font-mono text-[11px]">{preset.baseUrl}</span>
         </div>
     );
-}
+};
 
 /** Checks whether a provider's secret is stored in the OS vault rather than local JSON. */
 const isProviderKeySavedInVault = (apiKey: string, usable: boolean): boolean =>
     Boolean(areSecretsVaulted() && !apiKey && usable);
 
 /** Renders the API key input and editable or read-only base URL field for a provider card. */
-function ProviderCredentialsGrid({
+const ProviderCredentialsGrid = ({
     id,
     preset,
     connection,
@@ -530,7 +526,7 @@ function ProviderCredentialsGrid({
     connection: ProviderConnection;
     usable: boolean;
     onUpdate: (patch: Partial<ProviderConnection>) => void;
-}) {
+}) => {
     const savedInVault = isProviderKeySavedInVault(connection.apiKey, usable);
     /** Updates the connection's `apiKey` draft. */
     const handleApiKeyChange = (apiKey: string): void => onUpdate({ apiKey });
@@ -556,10 +552,10 @@ function ProviderCredentialsGrid({
             />
         </div>
     );
-}
+};
 
 /** Renders the `Refresh models` and `Pin N & set default` buttons when applicable. */
-function ProviderModelProbeButtons({
+const ProviderModelProbeButtons = ({
     canTest,
     testing,
     testResult,
@@ -571,7 +567,7 @@ function ProviderModelProbeButtons({
     testResult: TestProbeResult | null;
     onRefresh: () => void;
     onImport: () => void;
-}) {
+}) => {
     const pinnedCount = testResult?.ok ? testResult.models.length : 0;
     return (
         <>
@@ -606,10 +602,10 @@ function ProviderModelProbeButtons({
             ) : null}
         </>
     );
-}
+};
 
 /** Renders a single tooltipped diagnostic probe button (`Test connection` or `Check chat`). */
-function DiagnosticProbeButton({
+const DiagnosticProbeButton = ({
     tooltip,
     variant,
     icon,
@@ -627,34 +623,32 @@ function DiagnosticProbeButton({
     loading: boolean;
     unavailable: boolean;
     onClick: () => void;
-}) {
-    return (
-        <Tooltip content={tooltip} side="top">
-            <span>
-                <Button
-                    size="sm"
-                    variant={variant}
-                    className={SETTING_CONTROL_BTN}
-                    loading={loading}
-                    disabled={unavailable || loading}
-                    onClick={onClick}
-                >
-                    <Icon icon={icon} className="size-3.5" />
-                    {loading ? loadingLabel : idleLabel}
-                </Button>
-            </span>
-        </Tooltip>
-    );
-}
+}) => (
+    <Tooltip content={tooltip} side="top">
+        <span>
+            <Button
+                size="sm"
+                variant={variant}
+                className={SETTING_CONTROL_BTN}
+                loading={loading}
+                disabled={unavailable || loading}
+                onClick={onClick}
+            >
+                <Icon icon={icon} className="size-3.5" />
+                {loading ? loadingLabel : idleLabel}
+            </Button>
+        </span>
+    </Tooltip>
+);
 
 /** Renders the standalone `Check chat` result row when no `Test connection` banner is shown. */
-function StandaloneCheckStatus({
+const StandaloneCheckStatus = ({
     testResult,
     checkResult,
 }: {
     testResult: TestProbeResult | null;
     checkResult: CheckProbeResult | null;
-}) {
+}) => {
     if (!checkResult || testResult) return null;
     return (
         <div className="mt-2">
@@ -665,10 +659,10 @@ function StandaloneCheckStatus({
             />
         </div>
     );
-}
+};
 
 /** Renders `Test connection`, `Check chat`, model refresh/pin actions, and inline probe messages. */
-function ProviderDiagnosticsBar({
+const ProviderDiagnosticsBar = ({
     canTest,
     testing,
     checking,
@@ -694,52 +688,50 @@ function ProviderDiagnosticsBar({
     onCheck: () => void;
     onRefresh: () => void;
     onImport: () => void;
-}) {
-    return (
-        <>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-                <DiagnosticProbeButton
-                    tooltip={testTooltip}
-                    variant="secondary"
-                    icon={PlugConnected20Regular}
-                    idleLabel="Test connection"
-                    loadingLabel="Testing…"
-                    loading={testing}
-                    unavailable={!canTest}
-                    onClick={onTest}
+}) => (
+    <>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+            <DiagnosticProbeButton
+                tooltip={testTooltip}
+                variant="secondary"
+                icon={PlugConnected20Regular}
+                idleLabel="Test connection"
+                loadingLabel="Testing…"
+                loading={testing}
+                unavailable={!canTest}
+                onClick={onTest}
+            />
+            <DiagnosticProbeButton
+                tooltip={checkTooltip}
+                variant="ghost"
+                icon={Airplane20Regular}
+                idleLabel="Check chat"
+                loadingLabel="Checking…"
+                loading={checking}
+                unavailable={!checkModel}
+                onClick={onCheck}
+            />
+            <ProviderModelProbeButtons
+                canTest={canTest}
+                testing={testing}
+                testResult={testResult}
+                onRefresh={onRefresh}
+                onImport={onImport}
+            />
+            {testResult ? (
+                <StatusMessage
+                    ok={testResult.ok}
+                    message={testResult.message}
+                    latencyMs={testResult.latencyMs}
                 />
-                <DiagnosticProbeButton
-                    tooltip={checkTooltip}
-                    variant="ghost"
-                    icon={Airplane20Regular}
-                    idleLabel="Check chat"
-                    loadingLabel="Checking…"
-                    loading={checking}
-                    unavailable={!checkModel}
-                    onClick={onCheck}
-                />
-                <ProviderModelProbeButtons
-                    canTest={canTest}
-                    testing={testing}
-                    testResult={testResult}
-                    onRefresh={onRefresh}
-                    onImport={onImport}
-                />
-                {testResult ? (
-                    <StatusMessage
-                        ok={testResult.ok}
-                        message={testResult.message}
-                        latencyMs={testResult.latencyMs}
-                    />
-                ) : null}
-            </div>
-            <StandaloneCheckStatus testResult={testResult} checkResult={checkResult} />
-        </>
-    );
-}
+            ) : null}
+        </div>
+        <StandaloneCheckStatus testResult={testResult} checkResult={checkResult} />
+    </>
+);
 
 /** Renders the extra-model input row for custom or open-catalog providers. */
-function ExtraModelInputRow({
+const ExtraModelInputRow = ({
     value,
     onChange,
     onAdd,
@@ -747,7 +739,7 @@ function ExtraModelInputRow({
     value: string;
     onChange: (value: string) => void;
     onAdd: () => void;
-}) {
+}) => {
     /** Updates the draft model ID string on input change. */
     const handleInput = (e: React.ChangeEvent<HTMLInputElement>): void =>
         onChange(e.target.value);
@@ -779,7 +771,7 @@ function ExtraModelInputRow({
             </Button>
         </div>
     );
-}
+};
 
 /** Formats the disclosure header label for a provider's chat model list. */
 const formatModelsSectionLabel = (
@@ -792,7 +784,7 @@ const formatModelsSectionLabel = (
 };
 
 /** Renders the collapsible chat-model visibility list and extra-model input row. */
-function ProviderModelsSection({
+const ProviderModelsSection = ({
     id,
     preset,
     connection,
@@ -826,7 +818,7 @@ function ProviderModelsSection({
     onToggleModelVisible: (modelId: string, visible: boolean) => void;
     onExtraModelInputChange: (value: string) => void;
     onAddExtraModel: () => void;
-}) {
+}) => {
     if (allModelsCount === 0 && preset.models.length > 0) return null;
     const hint = formatModelsDisclosureHint(hiddenCount, refreshLabel);
     const canAddExtra = supportsExtraModelEntry(preset);
@@ -871,10 +863,10 @@ function ProviderModelsSection({
             ) : null}
         </div>
     );
-}
+};
 
 /** Renders the preset default headers note beneath `Extra headers` when present. */
-function PresetHeadersHint({ preset }: { preset: ProviderPreset }) {
+const PresetHeadersHint = ({ preset }: { preset: ProviderPreset }) => {
     const entries = Object.entries(preset.headers ?? {});
     if (entries.length === 0) return null;
     /** Formats a `[name, value]` header pair as `name: value`. */
@@ -888,10 +880,10 @@ function PresetHeadersHint({ preset }: { preset: ProviderPreset }) {
             </span>
         </div>
     );
-}
+};
 
 /** Renders the collapsible `Request headers & auth` settings section. */
-function ProviderAdvancedSection({
+const ProviderAdvancedSection = ({
     id,
     preset,
     connection,
@@ -905,7 +897,7 @@ function ProviderAdvancedSection({
     open: boolean;
     onToggle: () => void;
     onUpdate: (patch: Partial<ProviderConnection>) => void;
-}) {
+}) => {
     const defaultAuthLabel = `Default (${mergedProviderAuthStyle(id, connection)})`;
     /** Updates `authStyle` when the user selects an auth header mode. */
     const handleAuthChange = (value: string): void =>
@@ -961,7 +953,7 @@ function ProviderAdvancedSection({
             ) : null}
         </div>
     );
-}
+};
 
 /** Checks whether the catalog-provider matching banner should render. */
 const shouldShowCatalogMatchBanner = (
@@ -977,7 +969,7 @@ const shouldShowEffectiveEndpoint = (
 ): boolean => Boolean(connection.enabled && (hasKey || preset.keyless));
 
 /** Renders the footer helper and effective endpoint line inside an expanded provider card. */
-function ProviderCardFooter({
+const ProviderCardFooter = ({
     preset,
     connection,
     hasKey,
@@ -989,7 +981,7 @@ function ProviderCardFooter({
     hasKey: boolean;
     effectiveBaseUrl: string;
     onEnableMatched: () => void;
-}) {
+}) => {
     const showMatchHelper = shouldShowCatalogMatchBanner(preset, connection);
     const showEndpoint = shouldShowEffectiveEndpoint(preset, connection, hasKey);
     const endpointLabel = effectiveBaseUrl || "\u2014";
@@ -1019,7 +1011,7 @@ function ProviderCardFooter({
             ) : null}
         </>
     );
-}
+};
 
 /** Tracks relative discovery refresh age (`"fetched Xm ago"`) for `discoveredModels`. */
 const useDiscoveryRefreshLabel = (
@@ -1146,7 +1138,7 @@ const useProviderDiagnosticsState = (
 };
 
 /** Renders the expanded settings body for a single `ProviderCard`. */
-function ProviderCardBody({
+const ProviderCardBody = ({
     id,
     preset,
     providers,
@@ -1184,7 +1176,7 @@ function ProviderCardBody({
     onToggleModelsOpen: () => void;
     diagnostics: ReturnType<typeof useProviderDiagnosticsState>;
     onUpdate: (patch: Partial<ProviderConnection>) => void;
-}) {
+}) => {
     const [advancedOpen, setAdvancedOpen] = React.useState(
         computeInitialAdvancedOpen(connection),
     );
@@ -1306,11 +1298,10 @@ function ProviderCardBody({
             />
         </div>
     );
-}
+};
 
-/** Note: `notify.error` on caught probe errors is preserved inside `useProviderDiagnosticsNotify`. */
 /** Renders a collapsible provider configuration card in Settings -> Providers. */
-export function ProviderCard({
+export const ProviderCard = ({
     id,
     providers,
     defaultExpanded = false,
@@ -1324,7 +1315,7 @@ export function ProviderCard({
     query?: string;
     /** Called when the user clicks the per-card Reset button. If omitted, reset is hidden. */
     onReset?: () => void;
-}) {
+}) => {
     const preset = providerPreset(id);
     const connection = providers.connections[id];
     const usable = isConnectionUsable(id, providers.connections);
@@ -1448,4 +1439,4 @@ export function ProviderCard({
             ) : null}
         </div>
     );
-}
+};

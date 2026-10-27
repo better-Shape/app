@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
     catalogSize,
     enrichDiscoveredModels,
     formatModelPricing,
     getModelMetadata,
     listCatalogModels,
+    primeModelCatalog,
     refreshModelCatalog,
 } from "@/lib/ai/model-catalog";
 
@@ -64,5 +65,27 @@ describe("model catalog", () => {
         expect(result.models.length).toBeGreaterThan(200);
         expect(typeof result.fetchedAt).toBe("number");
         expect(typeof result.fromNetwork).toBe("boolean");
+    });
+
+    it("primeModelCatalog warms the bundled snapshot without network fetches in Browser Preview", () => {
+        vi.useFakeTimers();
+        const fetchSpy = vi.spyOn(globalThis, "fetch");
+        const win = window as Window & { __BETTERSHAPE_PREVIEW__?: unknown };
+        const previous = win.__BETTERSHAPE_PREVIEW__;
+        win.__BETTERSHAPE_PREVIEW__ = { seed: "welcome", invokes: [] };
+        try {
+            primeModelCatalog();
+            vi.advanceTimersByTime(15_000);
+            expect(catalogSize()).toBeGreaterThan(200);
+            expect(fetchSpy).not.toHaveBeenCalled();
+        } finally {
+            if (previous === undefined) {
+                delete win.__BETTERSHAPE_PREVIEW__;
+            } else {
+                win.__BETTERSHAPE_PREVIEW__ = previous;
+            }
+            fetchSpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });

@@ -2,7 +2,7 @@
  * Public model catalog.
  *
  * BetterShape ships with a frozen snapshot of the [models.dev](https://models.dev)
- * community catalog — an MIT-licensed, SST-maintained database of model ids,
+ * community catalog - an MIT-licensed, SST-maintained database of model ids,
  * context windows, modalities, pricing, and supported parameters served in an
  * OpenRouter-compatible shape. The snapshot is loaded on demand (not at module
  * import) to keep the renderer bundle small.
@@ -14,6 +14,8 @@
  * slugs; that list is merged with catalog metadata here so users never have
  * to type model ids or look up context windows by hand.
  */
+
+import { MODEL_PROVIDER_PREFIX_MAP, type ProviderId } from "./provider-ids";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -86,6 +88,25 @@ export type ModelMetadata = {
     source: "catalog" | "discovered" | "inferred";
 };
 
+/**
+ * Result of pulling the latest catalog from the network and warming the index.
+ *
+ * Safe to call repeatedly; concurrent calls are de-duplicated. Resolves to
+ * the in-memory index (which may be snapshot-only if all network attempts
+ * fail) - never rejects.
+ */
+export type RefreshResult = {
+    models: ModelMetadata[];
+    fetchedAt: number;
+    fromNetwork: boolean;
+};
+
+type IndexedCatalog = {
+    byId: Map<string, ModelMetadata>;
+    byProvider: Map<ProviderId, ModelMetadata[]>;
+    fetchedAt: number;
+};
+
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -96,62 +117,65 @@ const REFRESH_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 /** Reject entries older than this even if they're still in localStorage. */
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 14; // 2 weeks
 const MAX_CATALOG_MODELS = 3000;
+const BINARY_TIERS_KB = [16, 32, 64, 128, 256, 512];
 
-/** Catalog URLs to try in order. models.dev is canonical; GitHub raw is a
- *  fallback for environments where models.dev is blocked. */
+/**
+ * Browser-CORS-safe catalog URL serving the `{ data: CatalogModel[] }` envelope
+ * from `sst/models.dev` (`Access-Control-Allow-Origin: *`). Note that
+ * `https://models.dev/models.json` omits `Access-Control-Allow-Origin` and
+ * returns a keyed map rather than `{ data: [...] }`, causing CORS console errors
+ * in Chromium/WebView origins.
+ */
 const CATALOG_URLS = [
-    "https://models.dev/models.json",
     "https://raw.githubusercontent.com/sst/models.dev/main/models.json",
 ];
 
-import { MODEL_PROVIDER_PREFIX_MAP, type ProviderId } from "./provider-ids";
+const VENDOR_PREFIX_RE = /^[A-Za-z0-9 .&+-]{1,48}:[ \t]*/u;
+const TRAILING_POINT_ZERO_RE = /\.0$/u;
+const IMAGE_VIDEO_MODALITY_RE = /image|video/u;
+const CHAT_INSTRUCT_SLUG_RE = /chat|instruct|turbo/iu;
+
+// Non-chat heuristics: match on known embedding/audio/moderation slugs AND on
+// the output modalities field (when present AND non-empty).
+const NON_CHAT_RE =
+    /(?:^|[/\-])(?:embed|embedding|rerank|whisper|tts|speech|dall-?e|tts-?\d|safety|moderation|promptguard|prompt-guard|jailbreak|nsfw|segmind|stable-diffusion|imagen|pollinations)(?:[/\-]|$)/iu;
+const VISION_TOKEN_RE =
+    /vision|-vl|gemini|gpt-4o|gpt-5|gpt-6|grok|multimodal|qwen-?2-?vl|qwen-?2\.5-?vl|llama-?4/iu;
+const LLAMA_32_PREFIX_RE = /llama-?3\.2-/iu;
+const REASONING_RE =
+    /(?:^|[/\-])(?:o[1-9]|o3|o4|r1|reason(?:er|ing)?|think(?:ing)?|opus-[4-9]|deepseek-reasoner|claude-opus)/iu;
+const TOOL_TOKEN_RE =
+    /gpt-[456]|o[134]|claude|gemini-[234]|grok|llama-?3\.[1-9]|llama-?[4-9]|mistral|glm-5|kimi|command/iu;
+const QWEN_OR_DEEPSEEK_RE = /qwen|deepseek/iu;
+const EMBED_SUBSTR_RE = /embed/iu;
+const STRUCTURED_RE = /o[34]|gpt-[456]|claude|gemini-|deepseek|glm-5|mistral|qwen/iu;
+const FLAGSHIP_RE =
+    /opus|sonnet|gpt-5|gpt-6|gemini-2\.[56]|gemini-[34]|deepseek-v|llama-4|claude-[4-9]/iu;
 
 /* -------------------------------------------------------------------------- */
-/* Provider label registry (set once by providers.ts at module load)          */
+/* State & provider registry                                                  */
 /* -------------------------------------------------------------------------- */
 
 let providerLabelMap: Record<string, string> = {};
 let knownProviderIds: Set<string> = new Set();
 
-/** Register human labels (and the valid id set) for providers. Safe to call
- *  multiple times; later calls overwrite. */
-export function registerProviderLabels(labels: Record<string, string>): void {
-    providerLabelMap = { ...labels };
-    knownProviderIds = new Set(Object.keys(labels));
-}
-
-function providerLabelFor(id: string): string {
-    return providerLabelMap[id] ?? id;
-}
-
-function isKnownProviderId(id: string): boolean {
-    return knownProviderIds.has(id);
-}
-
-/* -------------------------------------------------------------------------- */
-/* State                                                                      */
-/* -------------------------------------------------------------------------- */
-
 let cachedIndex: Map<string, ModelMetadata> | null = null;
 let cachedById: Map<ProviderId, ModelMetadata[]> | null = null;
 let cachedSource: CatalogModel[] | null = null;
 let cachedFetchedAt = 0;
-let refreshPromise: Promise<{ models: ModelMetadata[]; fetchedAt: number; fromNetwork: boolean }> | null = null;
-
+let refreshPromise: Promise<RefreshResult> | null = null;
 let snapshotCache: CatalogModel[] | null = null;
-function readSnapshotSync(): CatalogModel[] {
+
+/** Resolves the registered human label for `id`, falling back to `id`. */
+const providerLabelFor = (id: string): string => providerLabelMap[id] ?? id;
+
+/** Checks whether `id` is a registered BetterShape provider identifier. */
+const isKnownProviderId = (id: string): boolean => knownProviderIds.has(id);
+
+/** Lazily loads `catalog-snapshot.json` once without eager top-level bundling. */
+const readSnapshotSync = (): CatalogModel[] => {
     if (snapshotCache) return snapshotCache;
-    // Use a require so the snapshot is bundled as a separate async chunk in
-    // the browser but loads synchronously in tests/SSR. Webpack/turbopack
-    // treat `require` inside a try/catch as non-blocking for the initial
-    // chunk, giving us the lazy-bundle behaviour we want without forcing
-    // every caller to be async.
     try {
-        // We use require() for a lazy-loaded JSON snapshot (not an ESM import)
-        // because it gives us synchronous access that still code-splits in
-        // webpack/turbopack; an async `import()` would force every caller to
-        // be async during the first paint, which is not acceptable for the
-        // model picker hot path.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const mod = require("./catalog-snapshot.json") as CatalogEnvelope;
         snapshotCache = Array.isArray(mod?.data) ? mod.data : [];
@@ -159,332 +183,445 @@ function readSnapshotSync(): CatalogModel[] {
         snapshotCache = [];
     }
     return snapshotCache;
-}
+};
 
-function loadCachedFromStorage(): { data: CatalogModel[]; fetchedAt: number } | null {
-    if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
+/** Checks whether `value` is a positive timestamp within `MAX_CACHE_AGE_MS`. */
+const isFreshCacheTimestamp = (value: unknown): value is number =>
+    typeof value === "number" && value > 0 && Date.now() - value <= MAX_CACHE_AGE_MS;
+
+/** Validates a parsed `localStorage` catalog envelope and checks its TTL. */
+const isValidCachedEnvelope = (
+    parsed: unknown,
+): parsed is { fetchedAt: number; data: CatalogModel[] } => {
+    if (!parsed || typeof parsed !== "object") return false;
+    const candidate = parsed as { fetchedAt?: unknown; data?: unknown };
+    return Array.isArray(candidate.data) && isFreshCacheTimestamp(candidate.fetchedAt);
+};
+
+/** Checks whether browser `localStorage` is accessible in the current runtime. */
+const hasBrowserLocalStorage = (): boolean =>
+    typeof window !== "undefined" && typeof localStorage !== "undefined";
+
+/** Reads a cached catalog payload from `localStorage` when available and fresh. */
+const loadCachedFromStorage = (): { data: CatalogModel[]; fetchedAt: number } | null => {
+    if (!hasBrowserLocalStorage()) return null;
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as { fetchedAt: number; data: CatalogModel[] };
-        if (!parsed.data || !Array.isArray(parsed.data)) return null;
-        if (!parsed.fetchedAt || Date.now() - parsed.fetchedAt > MAX_CACHE_AGE_MS) return null;
-        return { data: parsed.data, fetchedAt: parsed.fetchedAt };
+        const parsed: unknown = raw ? JSON.parse(raw) : null;
+        return isValidCachedEnvelope(parsed)
+            ? { data: parsed.data, fetchedAt: parsed.fetchedAt }
+            : null;
     } catch {
         return null;
     }
-}
+};
 
-function saveToStorage(data: CatalogModel[]) {
-    if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+/** Persists fetched catalog entries to `localStorage` on a best-effort basis. */
+const saveToStorage = (data: CatalogModel[]): void => {
+    if (!hasBrowserLocalStorage()) return;
     try {
         localStorage.setItem(
             STORAGE_KEY,
             JSON.stringify({ fetchedAt: Date.now(), data }),
         );
     } catch {
-        /* storage full / disabled — ignore */
+        /* storage full / disabled */
     }
-}
+};
 
 /* -------------------------------------------------------------------------- */
 /* Normalisation helpers                                                      */
 /* -------------------------------------------------------------------------- */
 
-function parseNum(value: string | number | null | undefined): number | null {
+/** Parses finite numbers from string or numeric catalog fields. */
+const parseNum = (value: string | number | null | undefined): number | null => {
     if (value === null || value === undefined) return null;
     const n = typeof value === "number" ? value : Number(value);
-    if (!Number.isFinite(n)) return null;
-    return n;
-}
+    return Number.isFinite(n) ? n : null;
+};
 
-function pricePerMillion(perToken: string | number | null | undefined): number | null {
+/** Converts per-token USD strings to rounded USD-per-million-token numbers. */
+const pricePerMillion = (
+    perToken: string | number | null | undefined,
+): number | null => {
     const n = parseNum(perToken);
     if (n === null) return null;
-    // Catalog prices are USD per token. Convert to per million and round to
-    // 4dp (sub-cent precision) to avoid 0.14999999 noise.
     return Math.round(n * 1_000_000 * 10000) / 10000;
-}
+};
 
-/**
- * Human-friendly context-window formatting. Uses precise K/M values rather
- * than rounding up to tiers (so "400,000" → "400K" not "500K", matching how
- * providers advertise their windows), but still trims ".0" for clean output.
- */
-function formatContextWindow(tokens: number): string {
-    if (!tokens || tokens <= 0) return "";
-    if (tokens >= 1_000_000) {
-        const m = tokens / 1_000_000;
-        // Show one decimal only when needed (e.g. 1.05M → "1M" rounds fine
-        // but 1.048.576 → "1M"). One decimal for values like 1.2M.
-        return `${m.toFixed(m % 1_000_000 === 0 ? 0 : 1).replace(/\.0$/, "")}M`;
-    }
-    if (tokens >= 10_000) {
-        const k = tokens / 1000;
-        // Round to nearest 1K for clean labels — but snap 131/129 → 128,
-        // 262 → 256 etc. only when very close to those binary tiers.
-        const rounded = Math.round(k);
-        const binaryTiers = [16, 32, 64, 128, 256, 512];
-        for (const t of binaryTiers) {
-            if (Math.abs(k - t) < 3) return `${t}K`;
-        }
-        return `${rounded}K`;
-    }
-    if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
-    return String(tokens);
-}
+/** Formats million-scale context windows (e.g. `1_000_000` -> `"1M"`). */
+const formatMillionWindow = (tokens: number): string => {
+    const m = tokens / 1_000_000;
+    const decimals = tokens % 1_000_000 === 0 ? 0 : 1;
+    return `${m.toFixed(decimals).replace(TRAILING_POINT_ZERO_RE, "")}M`;
+};
 
-function normalizeName(name: string | null | undefined, fallback: string): string {
+/** Formats `>= 10_000` context windows, snapping near binary tiers (`128K`, `256K`). */
+const formatLargeKilobyteWindow = (tokens: number): string => {
+    const k = tokens / 1000;
+    for (const tier of BINARY_TIERS_KB) {
+        if (Math.abs(k - tier) < 3) return `${tier}K`;
+    }
+    return `${Math.round(k)}K`;
+};
+
+/** Human-friendly context-window formatting (`"128K"`, `"400K"`, `"1M"`). */
+const formatContextWindow = (tokens: number): string => {
+    if (tokens <= 0) return "";
+    if (tokens >= 1_000_000) return formatMillionWindow(tokens);
+    if (tokens >= 10_000) return formatLargeKilobyteWindow(tokens);
+    return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens);
+};
+
+/** Strips `"Vendor: "` prefixes from human model names when present. */
+const normalizeName = (
+    name: string | null | undefined,
+    fallback: string,
+): string => {
     if (!name) return fallback;
-    // Strip "Vendor: " prefix (e.g. "Anthropic: Claude Sonnet 4", "OpenAI: GPT-4o").
-    const trimmed = name.replace(/^[A-Za-z0-9 .&+-]+:\s*/, "").trim();
+    const trimmed = name.replace(VENDOR_PREFIX_RE, "").trim();
     return trimmed || fallback;
-}
+};
 
-/**
- * Split a model id into (catalog prefix, native slug). The catalog uses
- * author/model (e.g. "meta-llama/llama-3.3-70b", "fireworks/accounts/..."),
- * but native provider APIs return just the last path segment OR a fully
- * qualified vendor/model — we only split on the FIRST slash when the prefix
- * is a known catalog author (i.e. it looks like "vendor/slug") and fall back
- * to treating the whole thing as the slug otherwise.
- */
-function splitCatalogId(id: string): { catalogPrefix: string; nativeSlug: string } {
+/** Checks whether `prefix` is a mapped or dot-free catalog vendor namespace. */
+const isCatalogVendorPrefix = (prefix: string): boolean =>
+    Boolean(MODEL_PROVIDER_PREFIX_MAP[prefix]) || !prefix.includes(".");
+
+/** Splits a catalog id into `(catalogPrefix, nativeSlug)`. */
+const splitCatalogId = (
+    id: string,
+): { catalogPrefix: string; nativeSlug: string } => {
     const slash = id.indexOf("/");
     if (slash <= 0) return { catalogPrefix: "custom", nativeSlug: id };
     const prefix = id.slice(0, slash);
-    // If the prefix is a known catalog namespace (author or mapped provider),
-    // treat the first segment as the author and the rest as slug.
-    if (MODEL_PROVIDER_PREFIX_MAP[prefix] || prefix.includes(".") === false) {
+    if (isCatalogVendorPrefix(prefix)) {
         return { catalogPrefix: prefix, nativeSlug: id.slice(slash + 1) };
     }
     return { catalogPrefix: "custom", nativeSlug: id };
-}
+};
 
 /* -------------------------------------------------------------------------- */
 /* Capability inference                                                       */
 /* -------------------------------------------------------------------------- */
 
-// Non-chat heuristics: match on known embedding/audio/moderation slugs AND on
-// the output modalities field (when present AND non-empty).
-const NON_CHAT_RE = /(^|[/\-])(embed|embedding|rerank|whisper|tts|speech|dall-?e|tts-?\d|safety|moderation|promptguard|prompt-guard|jailbreak|nsfw|segmind|stable-diffusion|imagen|pollinations)([/\-]|$)/i;
-const VISION_RE = /(vision|-vl|gemini|gpt-4o|gpt-5|gpt-6|claude(?!.*haiku)|grok|multimodal|qwen-?2-?vl|qwen-?2\.5-?vl|llama-?3\.2-.*vision|llama-?4)/i;
-const REASONING_RE = /(^|[/\-])(o[1-9]|o3|o4|r1|reason(er|ing)?|think(ing)?|opus-[4-9]|deepseek-reasoner|claude-opus)/i;
-const TOOL_RE = /(gpt-[456]|o[134]|claude|gemini-2|gemini-3|gemini-4|grok|qwen(?!.*embed)|llama-?3\.[1-9]|llama-?[4-9]|mistral|deepseek(?!.*embed)|glm-5|kimi|command)/i;
-const STRUCTURED_RE = /(o[34]|gpt-[456]|claude|gemini-|deepseek|glm-5|mistral|qwen)/i;
-const FLAGSHIP_RE = /(opus|sonnet|gpt-5|gpt-6|gemini-2\.(5|6)|gemini-3|gemini-4|deepseek-v|llama-4|claude-[4-9])/i;
+/** Checks slug-based vision heuristics without unbounded regex backtracking. */
+const matchesVisionSlug = (slug: string): boolean => {
+    if (VISION_TOKEN_RE.test(slug)) return true;
+    const lower = slug.toLowerCase();
+    if (lower.includes("claude") && !lower.includes("haiku")) return true;
+    return LLAMA_32_PREFIX_RE.test(lower) && lower.includes("vision");
+};
 
-function inferModelMeta(model: CatalogModel): ModelMetadata {
+/** Checks slug-based tool-use heuristics without lookahead backtracking. */
+const matchesToolSlug = (slug: string): boolean => {
+    if (TOOL_TOKEN_RE.test(slug)) return true;
+    return QWEN_OR_DEEPSEEK_RE.test(slug) && !EMBED_SUBSTR_RE.test(slug);
+};
+
+/** Resolves the canonical BetterShape `ProviderId` for a catalog prefix. */
+const resolveCatalogProviderId = (catalogPrefix: string): ProviderId => {
+    const mapped = MODEL_PROVIDER_PREFIX_MAP[catalogPrefix];
+    if (mapped) return mapped;
+    return isKnownProviderId(catalogPrefix)
+        ? (catalogPrefix as ProviderId)
+        : "custom";
+};
+
+/** Checks whether `outputModalities` permits text generation. */
+const permitsTextOutput = (outputModalities: string[]): boolean =>
+    outputModalities.length === 0 || outputModalities.includes("text");
+
+/** Infers vision support from input modalities, modality string, or slug. */
+const inferVisionCapability = (
+    inputModalities: string[],
+    modalityStr: string,
+    nativeSlug: string,
+): boolean =>
+    inputModalities.includes("image") ||
+    IMAGE_VIDEO_MODALITY_RE.test(modalityStr) ||
+    matchesVisionSlug(nativeSlug);
+
+/** Checks whether modalities + parameters indicate an input-only embedding model. */
+const isModalitiesEmbeddingOnly = (
+    inputCount: number,
+    outputCount: number,
+    params: Set<string>,
+): boolean => inputCount > 0 && outputCount === 0 && !params.has("max_tokens");
+
+/** Infers whether a model is non-chat (embedding, audio, image-gen, moderation). */
+const inferNonChatFlag = (
+    hasTextOutput: boolean,
+    nativeSlug: string,
+    inputCount: number,
+    outputCount: number,
+    params: Set<string>,
+): boolean => {
+    if (!hasTextOutput || NON_CHAT_RE.test(nativeSlug)) return true;
+    return isModalitiesEmbeddingOnly(inputCount, outputCount, params);
+};
+
+/** Checks whether `params` explicitly advertises function/tool calling. */
+const hasExplicitToolParams = (params: Set<string>): boolean =>
+    params.has("tools") || params.has("tool_choice");
+
+/** Infers tool-calling support for a chat-capable model. */
+const inferToolCapability = (
+    params: Set<string>,
+    isNonChat: boolean,
+    nativeSlug: string,
+): boolean => {
+    if (hasExplicitToolParams(params)) return true;
+    if (isNonChat) return false;
+    if (matchesToolSlug(nativeSlug)) return true;
+    return params.has("max_tokens") && CHAT_INSTRUCT_SLUG_RE.test(nativeSlug);
+};
+
+/** Infers reasoning/thinking support from supported parameters or slug. */
+const inferReasoningCapability = (
+    params: Set<string>,
+    nativeSlug: string,
+): boolean =>
+    params.has("reasoning") ||
+    params.has("include_reasoning") ||
+    REASONING_RE.test(nativeSlug);
+
+/** Infers structured JSON output support from supported parameters or slug. */
+const inferStructuredCapability = (
+    params: Set<string>,
+    nativeSlug: string,
+): boolean =>
+    params.has("structured_outputs") ||
+    params.has("response_format") ||
+    STRUCTURED_RE.test(nativeSlug);
+
+/** Computes normalized prompt, completion, and cache-read prices for `pricing`. */
+const extractNormalizedPricing = (pricing: CatalogModel["pricing"]) => {
+    const inputCostPerM = pricePerMillion(pricing?.prompt);
+    const outputCostPerM = pricePerMillion(pricing?.completion);
+    const cacheRead = pricePerMillion(pricing?.input_cache_read);
+    return {
+        inputCostPerM,
+        outputCostPerM,
+        cacheReadCostPerM: cacheRead ?? inputCostPerM,
+    };
+};
+
+/** Extracts normalized architecture arrays and modality string for `model`. */
+const extractArchitectureFields = (architecture: CatalogModel["architecture"]) => ({
+    inputModalities: architecture?.input_modalities ?? [],
+    outputModalities: architecture?.output_modalities ?? [],
+    modality: architecture?.modality ?? "",
+});
+
+/** Resolves `(context, maxOutputTokens)` from `model`. */
+const extractContextLimits = (model: CatalogModel) => ({
+    context: model.top_provider?.context_length ?? model.context_length ?? 0,
+    maxOutputTokens: parseNum(model.top_provider?.max_completion_tokens ?? null),
+});
+
+/** Resolves canonical `providerId/nativeSlug` identifier for a catalog model. */
+const formatCanonicalCatalogId = (
+    id: string,
+    providerId: ProviderId,
+    catalogPrefix: string,
+    nativeSlug: string,
+): string => (providerId === catalogPrefix ? id : `${providerId}/${nativeSlug}`);
+
+/** Converts a raw `CatalogModel` entry into normalized `ModelMetadata`. */
+const inferModelMeta = (model: CatalogModel): ModelMetadata => {
     const id = model.id.trim();
     const { catalogPrefix, nativeSlug } = splitCatalogId(id);
-    const providerId = (MODEL_PROVIDER_PREFIX_MAP[catalogPrefix] ??
-        (isKnownProviderId(catalogPrefix) ? (catalogPrefix as ProviderId) : "custom")) as ProviderId;
-
-    const inputModalities = model.architecture?.input_modalities ?? [];
-    const outputModalities = model.architecture?.output_modalities ?? [];
+    const providerId = resolveCatalogProviderId(catalogPrefix);
+    const arch = extractArchitectureFields(model.architecture);
     const params = new Set(model.supported_parameters ?? []);
-    const modalityStr = model.architecture?.modality ?? "";
-
-    const hasTextOutput = outputModalities.length === 0 || outputModalities.some((m) => m === "text");
-    const hasVision =
-        inputModalities.some((m) => m === "image") ||
-        /image|video/.test(modalityStr) ||
-        VISION_RE.test(nativeSlug);
-    const isEmbedding =
-        NON_CHAT_RE.test(nativeSlug) ||
-        inputModalities.length > 0 && outputModalities.length === 0 && !params.has("max_tokens");
-    const isNonChat = !hasTextOutput || isEmbedding;
-
-    const supportsTools =
-        params.has("tools") || params.has("tool_choice") ||
-        (!isNonChat && (TOOL_RE.test(nativeSlug) || params.has("max_tokens") && /chat|instruct|turbo/i.test(nativeSlug)));
-    const supportsReasoning =
-        params.has("reasoning") || params.has("include_reasoning") || REASONING_RE.test(nativeSlug);
-    const supportsStructured =
-        params.has("structured_outputs") || params.has("response_format") ||
-        STRUCTURED_RE.test(nativeSlug);
-    const isDeprecated = !!model.expiration_date;
-
-    const context = model.top_provider?.context_length ?? model.context_length ?? 0;
-    const maxOut = parseNum(model.top_provider?.max_completion_tokens ?? null);
-    const promptPrice = pricePerMillion(model.pricing?.prompt);
-    const completionPrice = pricePerMillion(model.pricing?.completion);
-    const cacheRead = pricePerMillion(model.pricing?.input_cache_read);
+    const isNonChat = inferNonChatFlag(
+        permitsTextOutput(arch.outputModalities),
+        nativeSlug,
+        arch.inputModalities.length,
+        arch.outputModalities.length,
+        params,
+    );
+    const limits = extractContextLimits(model);
 
     return {
-        id: providerId === catalogPrefix ? id : `${providerId}/${nativeSlug}`,
+        id: formatCanonicalCatalogId(id, providerId, catalogPrefix, nativeSlug),
         name: normalizeName(model.name, nativeSlug || id),
         providerId,
         slug: nativeSlug,
         providerLabel: providerLabelFor(providerId),
-        contextWindow: context,
-        contextWindowLabel: formatContextWindow(context),
-        maxOutputTokens: maxOut,
-        inputCostPerM: promptPrice,
-        outputCostPerM: completionPrice,
-        cacheReadCostPerM: cacheRead ?? promptPrice,
-        vision: hasVision,
-        reasoning: supportsReasoning,
-        toolUse: supportsTools,
-        structuredOutput: supportsStructured,
+        contextWindow: limits.context,
+        contextWindowLabel: formatContextWindow(limits.context),
+        maxOutputTokens: limits.maxOutputTokens,
+        ...extractNormalizedPricing(model.pricing),
+        vision: inferVisionCapability(arch.inputModalities, arch.modality, nativeSlug),
+        reasoning: inferReasoningCapability(params, nativeSlug),
+        toolUse: inferToolCapability(params, isNonChat, nativeSlug),
+        structuredOutput: inferStructuredCapability(params, nativeSlug),
         nonChat: isNonChat,
-        deprecated: isDeprecated,
+        deprecated: Boolean(model.expiration_date),
         source: "catalog",
     };
-}
+};
 
 /* -------------------------------------------------------------------------- */
-/* Index build                                                                */
+/* Sorting & index build                                                      */
 /* -------------------------------------------------------------------------- */
 
-function buildIndex(entries: CatalogModel[]): {
+/** Computes sort-bucket priority (`0` = active chat flagship .. `7` = deprecated non-chat). */
+const computeSortBucketRank = (meta: ModelMetadata): number =>
+    (meta.deprecated ? 4 : 0) +
+    (meta.nonChat ? 2 : 0) +
+    (FLAGSHIP_RE.test(meta.id) ? 0 : 1);
+
+/** Orders chat flagships first, deprecated/non-chat last, then by context window and name. */
+const compareModelMetadata = (a: ModelMetadata, b: ModelMetadata): number => {
+    const bucketDiff = computeSortBucketRank(a) - computeSortBucketRank(b);
+    if (bucketDiff !== 0) return bucketDiff;
+    return b.contextWindow - a.contextWindow || a.name.localeCompare(b.name);
+};
+
+/** Inserts one catalog entry into `byId` and `byProvider` if unseen. */
+const indexSingleCatalogEntry = (
+    entry: CatalogModel,
+    seenIds: Set<string>,
+    byId: Map<string, ModelMetadata>,
+    byProvider: Map<ProviderId, ModelMetadata[]>,
+): boolean => {
+    if (!entry?.id) return false;
+    const meta = inferModelMeta(entry);
+    if (seenIds.has(meta.id)) return false;
+    seenIds.add(meta.id);
+    byId.set(meta.id, meta);
+    byId.set(entry.id, meta);
+    byId.set(`${meta.providerId}/${meta.slug}`, meta);
+    const pid = meta.providerId as ProviderId;
+    const arr = byProvider.get(pid) ?? [];
+    arr.push(meta);
+    byProvider.set(pid, arr);
+    return true;
+};
+
+/** Builds lookup maps from raw catalog entries capped at `MAX_CATALOG_MODELS`. */
+const buildIndex = (
+    entries: CatalogModel[],
+): {
     byId: Map<string, ModelMetadata>;
     byProvider: Map<ProviderId, ModelMetadata[]>;
-} {
+} => {
     const byId = new Map<string, ModelMetadata>();
     const byProvider = new Map<ProviderId, ModelMetadata[]>();
-    // Use a Set keyed on normalized id to avoid duplicate entries from
-    // snapshot + cache overwriting each other with worse metadata.
     const seenIds = new Set<string>();
     let count = 0;
     for (const entry of entries) {
-        if (!entry?.id) continue;
         if (count >= MAX_CATALOG_MODELS) break;
-        const meta = inferModelMeta(entry);
-        if (seenIds.has(meta.id)) continue;
-        seenIds.add(meta.id);
-        byId.set(meta.id, meta);
-        // Also index under the raw catalog id so lookups by raw vendor/slug work.
-        byId.set(entry.id, meta);
-        // Index bare slug for provider-hinted lookups (e.g. "gpt-4o" with
-        // providerHint="openai" should resolve).
-        byId.set(`${meta.providerId}/${meta.slug}`, meta);
-        const pid = meta.providerId as ProviderId;
-        const arr = byProvider.get(pid) ?? [];
-        arr.push(meta);
-        byProvider.set(pid, arr);
-        count++;
+        if (indexSingleCatalogEntry(entry, seenIds, byId, byProvider)) {
+            count += 1;
+        }
     }
     for (const arr of byProvider.values()) {
-        // Sort: chat models first, deprecated last; within each bucket prefer
-        // flagship / large-context / recent models, then alphabetical.
-        arr.sort((a, b) => {
-            if (a.deprecated !== b.deprecated) return a.deprecated ? 1 : -1;
-            const ca = a.nonChat ? 1 : 0;
-            const cb = b.nonChat ? 1 : 0;
-            if (ca !== cb) return ca - cb;
-            const aFlag = FLAGSHIP_RE.test(a.id) ? 1 : 0;
-            const bFlag = FLAGSHIP_RE.test(b.id) ? 1 : 0;
-            if (aFlag !== bFlag) return bFlag - aFlag;
-            return b.contextWindow - a.contextWindow || a.name.localeCompare(b.name);
-        });
+        arr.sort(compareModelMetadata);
     }
     return { byId, byProvider };
-}
+};
 
-function ensureIndexFromSource(source: CatalogModel[], fetchedAt: number) {
+/** Populates module-level index caches from `source` and returns the warm index. */
+const populateIndexCache = (
+    source: CatalogModel[],
+    fetchedAt: number,
+): IndexedCatalog => {
     const { byId, byProvider } = buildIndex(source);
     cachedIndex = byId;
     cachedById = byProvider;
     cachedSource = source;
     cachedFetchedAt = fetchedAt;
-}
+    return { byId, byProvider, fetchedAt };
+};
 
-async function ensureIndexAsync(): Promise<{
-    byId: Map<string, ModelMetadata>;
-    byProvider: Map<ProviderId, ModelMetadata[]>;
-    fetchedAt: number;
-}> {
-    if (cachedIndex && cachedById && cachedSource) {
-        return { byId: cachedIndex, byProvider: cachedById, fetchedAt: cachedFetchedAt };
-    }
-    const stored = loadCachedFromStorage();
-    if (stored) {
-        ensureIndexFromSource(stored.data, stored.fetchedAt);
-    } else {
-        ensureIndexFromSource(readSnapshotSync(), 0);
-    }
-    return { byId: cachedIndex!, byProvider: cachedById!, fetchedAt: cachedFetchedAt };
-}
-
-/**
- * Synchronous accessor for UI code that runs after {@link primeModelCatalog}
- * or an explicit {@link refreshModelCatalog} has resolved. If the index is
- * not warm yet it falls back to the snapshot synchronously.
- */
-function ensureIndexSync(): { byId: Map<string, ModelMetadata>; byProvider: Map<ProviderId, ModelMetadata[]>; fetchedAt: number } {
-    if (cachedIndex && cachedById) return { byId: cachedIndex, byProvider: cachedById, fetchedAt: cachedFetchedAt };
-    const stored = loadCachedFromStorage();
-    if (stored) {
-        ensureIndexFromSource(stored.data, stored.fetchedAt);
-    } else {
-        ensureIndexFromSource(readSnapshotSync(), 0);
-    }
-    return { byId: cachedIndex!, byProvider: cachedById!, fetchedAt: cachedFetchedAt };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Public API                                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Metadata for a `provider/model` id (or native slug when provider is known).
- *
- * Falls back to heuristic inference when the id is not in the catalog so the
- * UI always has something useful to show, marked with `source: "inferred"`.
- */
-export function getModelMetadata(id: string, providerHint?: ProviderId): ModelMetadata {
-    const { byId } = ensureIndexSync();
-    const trimmed = id.trim();
-    if (!trimmed) {
+/** Synchronous accessor falling back to `localStorage` or bundled snapshot. */
+const ensureIndexSync = (): IndexedCatalog => {
+    if (cachedIndex && cachedById) {
         return {
-            id: "",
-            name: "",
-            providerId: "custom",
-            slug: "",
-            providerLabel: providerLabelFor("custom"),
-            contextWindow: 0,
-            contextWindowLabel: "",
-            maxOutputTokens: null,
-            inputCostPerM: null,
-            outputCostPerM: null,
-            cacheReadCostPerM: null,
-            vision: false,
-            reasoning: false,
-            toolUse: false,
-            structuredOutput: false,
-            nonChat: false,
-            deprecated: false,
-            source: "inferred",
+            byId: cachedIndex,
+            byProvider: cachedById,
+            fetchedAt: cachedFetchedAt,
         };
     }
-    // Direct hit.
-    const hit = byId.get(trimmed);
-    if (hit) return hit;
-    // Bare slug with a provider hint → try "<hint>/<slug>".
-    if (providerHint && !trimmed.includes("/")) {
-        const prefixed = byId.get(`${providerHint}/${trimmed}`);
-        if (prefixed) return prefixed;
-    }
-    // If the id already contains a "/" but we still missed, the prefix may be
-    // the raw catalog author (e.g. x-ai/grok-3) — canonicalize and retry.
-    const { catalogPrefix, nativeSlug } = splitCatalogId(trimmed);
+    const stored = loadCachedFromStorage();
+    return stored
+        ? populateIndexCache(stored.data, stored.fetchedAt)
+        : populateIndexCache(readSnapshotSync(), 0);
+};
+
+/* -------------------------------------------------------------------------- */
+/* Metadata lookup & enrichment helpers                                       */
+/* -------------------------------------------------------------------------- */
+
+/** Builds an empty fallback `ModelMetadata` record when `id` is blank. */
+const createEmptyMetadata = (): ModelMetadata => ({
+    id: "",
+    name: "",
+    providerId: "custom",
+    slug: "",
+    providerLabel: providerLabelFor("custom"),
+    contextWindow: 0,
+    contextWindowLabel: "",
+    maxOutputTokens: null,
+    inputCostPerM: null,
+    outputCostPerM: null,
+    cacheReadCostPerM: null,
+    vision: false,
+    reasoning: false,
+    toolUse: false,
+    structuredOutput: false,
+    nonChat: false,
+    deprecated: false,
+    source: "inferred",
+});
+
+/** Looks up a bare slug using `providerHint` when `trimmed` has no `/`. */
+const lookupHintedHit = (
+    byId: Map<string, ModelMetadata>,
+    trimmed: string,
+    providerHint?: ProviderId,
+): ModelMetadata | undefined =>
+    providerHint && !trimmed.includes("/")
+        ? byId.get(`${providerHint}/${trimmed}`)
+        : undefined;
+
+/** Resolves direct, provider-hinted, or alias-remapped catalog hits. */
+const lookupDirectOrMappedHit = (
+    byId: Map<string, ModelMetadata>,
+    trimmed: string,
+    catalogPrefix: string,
+    nativeSlug: string,
+    providerHint?: ProviderId,
+): ModelMetadata | undefined => {
+    const direct = byId.get(trimmed) ?? lookupHintedHit(byId, trimmed, providerHint);
+    if (direct) return direct;
     const mapped = MODEL_PROVIDER_PREFIX_MAP[catalogPrefix];
-    if (mapped && mapped !== catalogPrefix) {
-        const remapped = byId.get(`${mapped}/${nativeSlug}`);
-        if (remapped) return remapped;
-    }
-    // When the id uses a BetterShape routing prefix but the catalog stores
-    // models under the inner vendor id (e.g. "openrouter/anthropic/claude-…"
-    // is cataloged as "anthropic/claude-…"), strip the routing prefix and
-    // recurse once.
-    if (isKnownProviderId(catalogPrefix) && nativeSlug.includes("/")) {
-        const inner = getModelMetadata(nativeSlug, providerHint);
-        if (inner.source === "catalog") return inner;
-    }
-    // Pure inference.
+    return mapped && mapped !== catalogPrefix
+        ? byId.get(`${mapped}/${nativeSlug}`)
+        : undefined;
+};
+
+/** Resolves the fallback `ProviderId` for an unknown model identifier. */
+const resolveInferredProviderId = (
+    trimmed: string,
+    catalogPrefix: string,
+    providerHint?: ProviderId,
+): ProviderId => {
     const prefix = trimmed.includes("/") ? catalogPrefix : (providerHint ?? "custom");
-    const resolvedId = (isKnownProviderId(prefix) ? prefix : "custom") as ProviderId;
+    return (isKnownProviderId(prefix) ? prefix : "custom") as ProviderId;
+};
+
+/** Builds pure heuristic `ModelMetadata` when an id is absent from the catalog. */
+const buildPureInferredMetadata = (
+    trimmed: string,
+    catalogPrefix: string,
+    nativeSlug: string,
+    providerHint?: ProviderId,
+): ModelMetadata => {
+    const resolvedId = resolveInferredProviderId(trimmed, catalogPrefix, providerHint);
     const lower = nativeSlug.toLowerCase();
     const nonChat = NON_CHAT_RE.test(lower);
     return {
@@ -499,26 +636,171 @@ export function getModelMetadata(id: string, providerHint?: ProviderId): ModelMe
         inputCostPerM: null,
         outputCostPerM: null,
         cacheReadCostPerM: null,
-        vision: VISION_RE.test(lower),
+        vision: matchesVisionSlug(lower),
         reasoning: REASONING_RE.test(lower),
-        toolUse: TOOL_RE.test(lower) && !nonChat,
+        toolUse: matchesToolSlug(lower) && !nonChat,
         structuredOutput: STRUCTURED_RE.test(lower),
         nonChat,
         deprecated: false,
         source: "inferred",
     };
-}
+};
+
+/** Strips a single leading `${providerId}/` prefix when present. */
+const stripLeadingProviderId = (value: string, providerId: ProviderId): string =>
+    value.startsWith(`${providerId}/`) ? value.slice(providerId.length + 1) : value;
+
+/** Selects catalog-matched metadata over inferred metadata when enriching a model. */
+const preferCatalogHit = (
+    rawMeta: ModelMetadata,
+    prefixedMeta: ModelMetadata,
+): ModelMetadata =>
+    prefixedMeta.source === "catalog" && rawMeta.source !== "catalog"
+        ? prefixedMeta
+        : rawMeta;
+
+/* -------------------------------------------------------------------------- */
+/* Pricing & network refresh helpers                                          */
+/* -------------------------------------------------------------------------- */
+
+/** Formats sub-cent prices (`< $0.01`) without regex backtracking on trailing zeros. */
+const formatSubcentPrice = (n: number): string => {
+    const s = n.toFixed(4);
+    let end = s.length;
+    while (end > 0 && s[end - 1] === "0") end -= 1;
+    if (end > 0 && s[end - 1] === ".") end -= 1;
+    return `$${s.slice(0, end)}`;
+};
+
+/** Formats one prompt or completion price value in USD per million tokens. */
+const formatPriceToken = (n: number): string => {
+    if (n === 0) return "$0";
+    return n < 0.01 ? formatSubcentPrice(n) : `$${n.toFixed(2)}`;
+};
+
+/** Flattens all provider model arrays into a single list. */
+const flattenProviderMap = (
+    byProvider: Map<ProviderId, ModelMetadata[]>,
+): ModelMetadata[] => {
+    const all: ModelMetadata[] = [];
+    for (const arr of byProvider.values()) {
+        all.push(...arr);
+    }
+    return all;
+};
+
+/** Checks whether the in-memory catalog was fetched from network within `REFRESH_TTL_MS`. */
+const hasFreshInMemoryCatalog = (force: boolean): boolean =>
+    Boolean(
+        !force &&
+            cachedSource &&
+            cachedById &&
+            cachedFetchedAt &&
+            Date.now() - cachedFetchedAt < REFRESH_TTL_MS,
+    );
+
+/** Fetches and validates one catalog URL, returning `CatalogModel[]` or `null`. */
+const fetchCatalogEntries = async (url: string): Promise<CatalogModel[] | null> => {
+    try {
+        const res = await fetch(url, { cache: "no-cache" });
+        if (!res.ok) return null;
+        const json = (await res.json()) as CatalogEnvelope;
+        return Array.isArray(json?.data) && json.data.length > 200
+            ? json.data
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+/** Iterates `CATALOG_URLS` until a valid catalog payload is persisted to storage. */
+const refreshStorageFromUrls = async (): Promise<boolean> => {
+    for (const url of CATALOG_URLS) {
+        const entries = await fetchCatalogEntries(url);
+        if (entries) {
+            saveToStorage(entries);
+            return true;
+        }
+    }
+    return false;
+};
+
+/** Clears the in-memory index pointers so the next read rebuilds from storage/snapshot. */
+const invalidateInMemoryCatalog = (): void => {
+    cachedIndex = null;
+    cachedById = null;
+    cachedSource = null;
+};
+
+/** Detects the self-contained mocked Browser Preview runtime (`tauri-mock.ts`). */
+const isBrowserPreviewRuntime = (): boolean =>
+    process.env.NEXT_PUBLIC_BROWSER_PREVIEW === "1" ||
+    (typeof window !== "undefined" && "__BETTERSHAPE_PREVIEW__" in window);
+
+/** Checks whether `catalogPrefix/nativeSlug` wraps a nested `vendor/model` id. */
+const hasNestedVendorSlug = (catalogPrefix: string, nativeSlug: string): boolean =>
+    isKnownProviderId(catalogPrefix) && nativeSlug.includes("/");
+
+/** Checks whether both input and output cost fields are `null`. */
+const hasNoPricingFields = (meta: ModelMetadata): boolean =>
+    meta.inputCostPerM === null && meta.outputCostPerM === null;
+
+/* -------------------------------------------------------------------------- */
+/* Public API                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Register human labels (and the valid id set) for providers. Safe to call
+ * multiple times; later calls overwrite.
+ */
+export const registerProviderLabels = (labels: Record<string, string>): void => {
+    providerLabelMap = { ...labels };
+    knownProviderIds = new Set(Object.keys(labels));
+};
+
+/**
+ * Metadata for a `provider/model` id (or native slug when provider is known).
+ *
+ * Falls back to heuristic inference when the id is not in the catalog so the
+ * UI always has something useful to show, marked with `source: "inferred"`.
+ */
+export const getModelMetadata = (
+    id: string,
+    providerHint?: ProviderId,
+): ModelMetadata => {
+    const { byId } = ensureIndexSync();
+    const trimmed = id.trim();
+    if (!trimmed) return createEmptyMetadata();
+
+    const { catalogPrefix, nativeSlug } = splitCatalogId(trimmed);
+    const hit = lookupDirectOrMappedHit(
+        byId,
+        trimmed,
+        catalogPrefix,
+        nativeSlug,
+        providerHint,
+    );
+    if (hit) return hit;
+
+    if (hasNestedVendorSlug(catalogPrefix, nativeSlug)) {
+        const inner = getModelMetadata(nativeSlug, providerHint);
+        if (inner.source === "catalog") return inner;
+    }
+
+    return buildPureInferredMetadata(
+        trimmed,
+        catalogPrefix,
+        nativeSlug,
+        providerHint,
+    );
+};
 
 /** Every catalog model for one provider, chat-capable first. */
-export function listCatalogModels(providerId?: ProviderId): ModelMetadata[] {
+export const listCatalogModels = (providerId?: ProviderId): ModelMetadata[] => {
     const { byProvider } = ensureIndexSync();
-    if (!providerId) {
-        const all: ModelMetadata[] = [];
-        for (const arr of byProvider.values()) all.push(...arr);
-        return all;
-    }
+    if (!providerId) return flattenProviderMap(byProvider);
     return byProvider.get(providerId) ?? [];
-}
+};
 
 /**
  * Turn a list of raw model ids (as the provider reported them) into fully
@@ -526,167 +808,116 @@ export function listCatalogModels(providerId?: ProviderId): ModelMetadata[] {
  * Result is sorted with chat-capable models first, flagships before niche,
  * deprecated models at the tail.
  */
-export function enrichDiscoveredModels(
+export const enrichDiscoveredModels = (
     providerId: ProviderId,
     discoveredIds: string[],
-): ModelMetadata[] {
+): ModelMetadata[] => {
     const out: ModelMetadata[] = [];
     const seen = new Set<string>();
     for (const raw of discoveredIds) {
         const full = raw.trim();
         if (!full) continue;
-        // If the provider reports ids already prefixed (e.g. OpenRouter returns
-        // "openai/gpt-4o" rather than just "gpt-4o"), accept it but still pin
-        // it to the connection's provider id so local gateways that lie about
-        // their own prefix still surface correctly.
-        const slug = full.startsWith(`${providerId}/`) ? full.slice(providerId.length + 1) : full;
-        const id = `${providerId}/${slug.startsWith(`${providerId}/`) ? slug.slice(providerId.length + 1) : slug}`;
+        const normalizedSlug = stripLeadingProviderId(
+            stripLeadingProviderId(full, providerId),
+            providerId,
+        );
+        const id = `${providerId}/${normalizedSlug}`;
         if (seen.has(id)) continue;
         seen.add(id);
-        // Look up metadata by the raw reported id first (gateway vendors
-        // return "anthropic/claude-…" which is the catalog key), then try
-        // the BetterShape-prefixed form for local gateways that stamp their
-        // own prefix. getModelMetadata never returns null (it falls back to
-        // an inferred record), so pick whichever call actually hit the
-        // catalog; otherwise use the raw lookup.
-        const rawMeta = getModelMetadata(full, providerId);
-        const prefixedMeta = getModelMetadata(id, providerId);
-        const meta = prefixedMeta.source === "catalog" && rawMeta.source !== "catalog"
-            ? prefixedMeta
-            : rawMeta;
+        const meta = preferCatalogHit(
+            getModelMetadata(full, providerId),
+            getModelMetadata(id, providerId),
+        );
         out.push({
             ...meta,
             providerId,
             id,
-            slug: slug.startsWith(`${providerId}/`) ? slug.slice(providerId.length + 1) : slug,
+            slug: normalizedSlug,
             providerLabel: providerLabelFor(providerId),
-            // Keep "catalog" when the catalog matched; otherwise mark as
-            // "discovered" (the provider reported it but we have no metadata).
             source: meta.source === "catalog" ? "catalog" : "discovered",
         });
     }
-    out.sort((a, b) => {
-        if (a.deprecated !== b.deprecated) return a.deprecated ? 1 : -1;
-        const ca = a.nonChat ? 1 : 0;
-        const cb = b.nonChat ? 1 : 0;
-        if (ca !== cb) return ca - cb;
-        const aFlag = FLAGSHIP_RE.test(a.id) ? 1 : 0;
-        const bFlag = FLAGSHIP_RE.test(b.id) ? 1 : 0;
-        if (aFlag !== bFlag) return bFlag - aFlag;
-        return b.contextWindow - a.contextWindow || a.name.localeCompare(b.name);
-    });
+    out.sort(compareModelMetadata);
     return out;
-}
+};
 
-/** Format a price-per-million as "$3.00 / $15.00" (or "Free", or empty). */
-export function formatModelPricing(meta: ModelMetadata): string {
-    if (meta.inputCostPerM === null && meta.outputCostPerM === null) return "";
-    const i = meta.inputCostPerM ?? 0;
-    const o = meta.outputCostPerM ?? 0;
-    if (i === 0 && o === 0) return "Free";
-    const fmt = (n: number) => {
-        if (n === 0) return "$0";
-        if (n < 0.01) {
-            // Trim trailing zeros (and a leftover trailing dot) from the
-            // 4-decimal sub-cent price. Linear scan avoids the chained
-            // regexes Sonar flags as quadratic backtracking.
-            const s = n.toFixed(4);
-            let end = s.length;
-            while (end > 0 && s[end - 1] === "0") end--;
-            if (end > 0 && s[end - 1] === ".") end--;
-            return `$${s.slice(0, end)}`;
-        }
-        if (n < 1) return `$${n.toFixed(2)}`;
-        return `$${n.toFixed(2)}`;
-    };
-    return `${fmt(i)} / ${fmt(o)}`;
-}
+/** Formats combined `(input, output)` million-token prices once non-null is verified. */
+const formatPricePair = (i: number, o: number): string =>
+    i === 0 && o === 0
+        ? "Free"
+        : `${formatPriceToken(i)} / ${formatPriceToken(o)}`;
+
+/** Format a price-per-million as `"$3.00 / $15.00"` (or `"Free"`, or empty). */
+export const formatModelPricing = (meta: ModelMetadata): string => {
+    if (hasNoPricingFields(meta)) return "";
+    return formatPricePair(meta.inputCostPerM ?? 0, meta.outputCostPerM ?? 0);
+};
 
 /**
  * Pull the latest catalog from the network and warm the index.
  *
  * Safe to call repeatedly; concurrent calls are de-duplicated. Resolves to
  * the in-memory index (which may be snapshot-only if all network attempts
- * fail) — never rejects.
+ * fail) - never rejects.
  */
-export type RefreshResult = {
-    models: ModelMetadata[];
-    fetchedAt: number;
-    fromNetwork: boolean;
-};
-
-export async function refreshModelCatalog(force = false): Promise<RefreshResult> {
-    // If the in-memory cache is fresh enough, skip the network unless forced.
-    if (!force && cachedSource && cachedFetchedAt && Date.now() - cachedFetchedAt < REFRESH_TTL_MS) {
-        const all: ModelMetadata[] = [];
-        for (const arr of (cachedById!).values()) all.push(...arr);
-        return { models: all, fetchedAt: cachedFetchedAt, fromNetwork: false };
+export const refreshModelCatalog = async (
+    force = false,
+): Promise<RefreshResult> => {
+    if (hasFreshInMemoryCatalog(force) && cachedById) {
+        return {
+            models: flattenProviderMap(cachedById),
+            fetchedAt: cachedFetchedAt,
+            fromNetwork: false,
+        };
     }
     if (refreshPromise) return refreshPromise;
-    refreshPromise = (async (): Promise<RefreshResult> => {
+    /** Executes the de-duplicated network fetch and rebuilds the catalog index. */
+    const runRefresh = async (): Promise<RefreshResult> => {
         let fromNetwork = false;
         try {
-            for (const url of CATALOG_URLS) {
-                try {
-                    const res = await fetch(url, { cache: "no-cache" });
-                    if (!res.ok) continue;
-                    const json = (await res.json()) as CatalogEnvelope;
-                    if (Array.isArray(json?.data) && json.data.length > 200) {
-                        saveToStorage(json.data);
-                        cachedIndex = null;
-                        cachedById = null;
-                        cachedSource = null;
-                        fromNetwork = true;
-                        break;
-                    }
-                } catch {
-                    /* try next url */
-                }
-            }
+            fromNetwork = await refreshStorageFromUrls();
         } finally {
             refreshPromise = null;
         }
-        cachedIndex = null;
-        cachedById = null;
-        cachedSource = null;
-        const { byProvider, fetchedAt } = await ensureIndexAsync();
-        const all: ModelMetadata[] = [];
-        for (const arr of byProvider.values()) all.push(...arr);
-        return { models: all, fetchedAt, fromNetwork };
-    })();
+        invalidateInMemoryCatalog();
+        const { byProvider, fetchedAt } = ensureIndexSync();
+        return {
+            models: flattenProviderMap(byProvider),
+            fetchedAt,
+            fromNetwork,
+        };
+    };
+    refreshPromise = runRefresh();
     return refreshPromise;
-}
+};
 
 /**
  * Kick off a background refresh once per page load.
  *
  * Uses the snapshot/cache synchronously on first render, then upgrades to
- * fresh network data once available. Callers that need to know when the
- * refresh finished can await {@link refreshModelCatalog} themselves.
+ * fresh network data once available. Skips unmocked background network calls
+ * inside the self-contained Browser Preview environment (`tauri-mock.ts`).
  */
-export function primeModelCatalog(): void {
+export const primeModelCatalog = (): void => {
     if (typeof window === "undefined") return;
-    // Warm the index synchronously from localStorage/snapshot so first paint
-    // has metadata; defer the network refresh past first idle.
     ensureIndexSync();
-    const schedule = () => {
-        void refreshModelCatalog().catch(() => {});
+    if (isBrowserPreviewRuntime()) return;
+    /** Triggers a background catalog refresh without unhandled rejections. */
+    const schedule = (): void => {
+        refreshModelCatalog().catch(() => undefined);
     };
-    const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
-    if (typeof w.requestIdleCallback === "function") {
-        w.requestIdleCallback(schedule, { timeout: 10_000 });
-    } else {
-        window.setTimeout(schedule, 3000);
+    const idleWindow = window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof idleWindow.requestIdleCallback === "function") {
+        idleWindow.requestIdleCallback(schedule, { timeout: 10_000 });
+        return;
     }
-}
+    window.setTimeout(schedule, 3000);
+};
 
-/** Timestamp (ms) the in-memory index was fetched at, or 0 if it's the snapshot. */
-export function catalogFetchedAt(): number {
-    return cachedFetchedAt;
-}
+/** Timestamp (ms) the in-memory index was fetched at, or `0` if it's the snapshot. */
+export const catalogFetchedAt = (): number => cachedFetchedAt;
 
 /** Number of catalog entries currently loaded. */
-export function catalogSize(): number {
-    const { byId } = ensureIndexSync();
-    return byId.size;
-}
+export const catalogSize = (): number => ensureIndexSync().byId.size;
