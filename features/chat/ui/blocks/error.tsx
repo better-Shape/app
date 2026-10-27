@@ -50,9 +50,9 @@ const BILLING_DOCS_URLS: Partial<Record<string, string>> = {
 
 const BILLING_HINTS: Partial<Record<string, string>> = {
     openrouter:
-        "(openrouter.ai) has exhausted its credits. Add credits to continue.",
+        "Your OpenRouter account has run out of credits. Add credits to continue.",
     openai:
-        "(api.openai.com) has exhausted its credits. Add credits to continue.",
+        "Your OpenAI account has run out of credits. Add credits to continue.",
 };
 
 /** Parses HTTP(S) URLs embedded in a raw AI error string. */

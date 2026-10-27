@@ -1672,9 +1672,20 @@ export const availableModels = (settings: ProvidersSettings): ModelOption[] => {
   return out;
 };
 
-/** Has any usable provider. */
+/** Every chat model ID across usable connections regardless of picker `hiddenModels` toggles. */
+const routableModelIds = (settings: ProvidersSettings): string[] => {
+  const out: string[] = [];
+  for (const preset of PROVIDER_PRESETS) {
+    if (isConnectionUsable(preset.id, settings.connections)) {
+      out.push(...modelIdsFor(preset.id, settings.connections));
+    }
+  }
+  return out;
+};
+
+/** Has any usable provider with at least one routable model ID (even if hidden from the picker). */
 export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean =>
-  availableModels(settings).length > 0;
+  routableModelIds(settings).length > 0;
 
 /** True when at least one connection is enabled and usable (with credentials or keyless auth). */
 export const hasAnyConfiguredConnection = (
@@ -1795,11 +1806,11 @@ const isExplicitAvailableModel = (
 export const resolveActiveDefaultModelId = (
   settings: ProvidersSettings,
 ): string | null => {
-  const models = availableModels(settings);
-  if (models.length === 0 || settings.chatMode === "ask") return null;
+  if (settings.chatMode === "ask") return null;
+  const visible = availableModels(settings);
   const wanted = translateModelId(settings.chatMode.trim());
-  if (isExplicitAvailableModel(wanted, models)) return wanted;
-  return models[0]?.id ?? null;
+  if (isExplicitAvailableModel(wanted, visible)) return wanted;
+  return visible[0]?.id ?? routableModelIds(settings)[0] ?? null;
 };
 
 /** Providers that can embed, in the order the app prefers to route to them. */

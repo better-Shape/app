@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
     catalogSize,
     enrichDiscoveredModels,
+    formatContextWindow,
     formatModelPricing,
     getModelMetadata,
     listCatalogModels,
@@ -86,6 +87,37 @@ describe("model catalog", () => {
             }
             fetchSpy.mockRestore();
             vi.useRealTimers();
+        }
+    });
+
+    it("snaps binary power-of-two context windows to clean tier labels and fetches OpenRouter catalog envelope", async () => {
+        expect(formatContextWindow(131_072)).toBe("128K");
+        expect(formatContextWindow(262_144)).toBe("256K");
+        expect(formatContextWindow(524_288)).toBe("512K");
+        expect(formatContextWindow(400_000)).toBe("400K");
+
+        const sampleData = Array.from({ length: 210 }, (_entry, idx) => ({
+            id: `openai/gpt-test-${idx}`,
+            name: `OpenAI: GPT Test ${idx}`,
+            context_length: 131_072,
+        }));
+        const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            new Response(JSON.stringify({ data: sampleData }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            }),
+        );
+        try {
+            const refreshed = await refreshModelCatalog();
+            expect(fetchSpy).toHaveBeenCalledWith(
+                "https://openrouter.ai/api/v1/models",
+                expect.objectContaining({ cache: "no-cache" }),
+            );
+            expect(refreshed.fromNetwork).toBe(true);
+            expect(refreshed.models.length).toBeGreaterThanOrEqual(210);
+        } finally {
+            window.localStorage?.removeItem("bettershape.model-catalog.v2");
+            fetchSpy.mockRestore();
         }
     });
 });

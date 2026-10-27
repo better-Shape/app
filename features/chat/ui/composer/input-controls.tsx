@@ -647,7 +647,7 @@ const PlusMenuPluginRows = ({
     <div className="max-h-40 overflow-y-auto">
       {matches.map((plugin) => (
         <DropdownMenuItem
-          key={plugin.toolkit}
+          key={`${plugin.toolkit}:${plugin.accountId ?? "unconnected"}`}
           onClick={() =>
             appendToken(
               formatMentionToken({

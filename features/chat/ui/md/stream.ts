@@ -659,8 +659,11 @@ const hasLeakedInvocationLine = (
     return false;
 };
 
-/** Case-insensitive probe for leaked `_execute` / `_EXECUTE` tool-dump blocks. */
-const hasExecuteDump = (text: string): boolean => /_execute/i.test(text);
+const EXECUTE_DUMP_RE =
+    /(?:^|\n)[ \t]*_execute[ \t]*\r?\n[ \t]*(?:tool_name|name)[ \t]*:/iu;
+
+/** Case-insensitive probe for leaked `_execute` + `tool_name:`/`name:` tool-dump blocks. */
+const hasExecuteDump = (text: string): boolean => EXECUTE_DUMP_RE.test(text);
 
 /** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
@@ -822,11 +825,33 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
-const COMPLETE_BACKTICK_FENCE_RE = /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/gu;
-const COMPLETE_TILDE_FENCE_RE = /~~~[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~~~/gu;
-const UNCLOSED_BACKTICK_HEAD_RE = /^```[\w-]*[ \t\r\f\v]*\n/u;
-const UNCLOSED_TILDE_HEAD_RE = /^~~~[\w-]*[ \t\r\f\v]*\n/u;
+const COMPLETE_BACKTICK_FENCE_RE = /`{3,}[\w-]*[ \t\r\f\v]*\n([\s\S]*?)`{3,}/gu;
+const COMPLETE_TILDE_FENCE_RE = /~{3,}[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~{3,}/gu;
+const UNCLOSED_BACKTICK_HEAD_RE = /^`{3,}[\w-]*[ \t\r\f\v]*\n/u;
+const UNCLOSED_TILDE_HEAD_RE = /^~{3,}[\w-]*[ \t\r\f\v]*\n/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
+
+/** Checks whether `state` ends inside an unclosed CommonMark fence opened with `marker`. */
+const isOpenMarkerFenceState = (
+    state: CodeFenceState,
+    marker: "```" | "~~~",
+): boolean => state.fenceChar === marker.charAt(0) && state.fenceStart >= 0;
+
+/** Resolves `(fenceStart, bodyStart)` when `text` ends inside an open `marker` fence matching `headRe`. */
+const findOpenLeakedFenceBounds = (
+    text: string,
+    marker: "```" | "~~~",
+    headRe: RegExp,
+): { fenceStart: number; bodyStart: number } | null => {
+    const state = scanMarkdownCodeFences(text, 0);
+    if (!isOpenMarkerFenceState(state, marker)) return null;
+    const firstNl = text.indexOf("\n", state.fenceStart);
+    if (firstNl === -1) return null;
+    const headLine = text.slice(state.fenceStart, firstNl + 1).trimStart();
+    return headRe.test(headLine)
+        ? { fenceStart: state.fenceStart, bodyStart: firstNl + 1 }
+        : null;
+};
 
 /** Strips an unclosed trailing code fence (`marker`) when its body looks like a leaked tool call. */
 const stripUnclosedLeakedFenceTail = (
@@ -834,16 +859,11 @@ const stripUnclosedLeakedFenceTail = (
     marker: "```" | "~~~",
     headRe: RegExp,
 ): string => {
-    let idx = text.indexOf(marker);
-    while (idx !== -1) {
-        const tail = text.slice(idx);
-        const head = headRe.exec(tail);
-        if (head && looksLikeLeakedToolCode(tail.slice(head[0].length))) {
-            return text.slice(0, idx);
-        }
-        idx = text.indexOf(marker, idx + 3);
-    }
-    return text;
+    const bounds = findOpenLeakedFenceBounds(text, marker, headRe);
+    if (!bounds) return text;
+    return looksLikeLeakedToolCode(text.slice(bounds.bodyStart))
+        ? text.slice(0, bounds.fenceStart)
+        : text;
 };
 
 /** Strips complete and streaming fenced blocks for a single fence marker (` ``` ` or `~~~`). */
@@ -1476,9 +1496,73 @@ const alignWindowEnd = (text: string, rawEnd: number): number =>
         ? rawEnd + 1
         : rawEnd;
 
+const GRAPHEME_EXTENDER_AT_START_RE =
+    /^(?:\u200D|\p{Mark}|\p{Emoji_Modifier}|[\uFE0E\uFE0F\u{E0020}-\u{E007F}\u{E0100}-\u{E01EF}])/u;
+
+/** Steps backward to the start of the UTF-16 codepoint ending at `index`. */
+const prevCodePointStart = (text: string, index: number): number => {
+    if (index <= 0) return 0;
+    const prev = index - 1;
+    return prev > 0 &&
+        isLowSurrogateCode(text.charCodeAt(prev)) &&
+        isHighSurrogateCode(text.charCodeAt(prev - 1))
+        ? prev - 1
+        : prev;
+};
+
+/** Checks whether the codepoint starting at `index` is a Unicode Regional Indicator (`U+1F1E6..U+1F1FF`). */
+const isRegionalIndicatorAt = (text: string, index: number): boolean => {
+    const cp = text.codePointAt(index) ?? 0;
+    return cp >= 0x1f1e6 && cp <= 0x1f1ff;
+};
+
+/** Counts consecutive Regional Indicator codepoints ending immediately before `index`. */
+const countPrecedingRegionalIndicators = (
+    text: string,
+    index: number,
+): number => {
+    let count = 0;
+    let cursor = index;
+    while (cursor > 0) {
+        const start = prevCodePointStart(text, cursor);
+        if (!isRegionalIndicatorAt(text, start)) break;
+        count += 1;
+        cursor = start;
+    }
+    return count;
+};
+
+/** Checks whether `cut` sits mid-flag between an odd Regional Indicator lead and its partner. */
+const splitsRegionalIndicatorPair = (text: string, cut: number): boolean =>
+    cut < text.length &&
+    isRegionalIndicatorAt(text, cut) &&
+    countPrecedingRegionalIndicators(text, cut) % 2 === 1;
+
+/** Checks whether `cut` splits a ZWJ joiner, combining mark, modifier, or Regional Indicator pair. */
+const splitsExtendedGraphemeCluster = (text: string, cut: number): boolean => {
+    if (cut <= 0 || cut >= text.length) return false;
+    if (text.charCodeAt(cut - 1) === 0x200d) return true;
+    if (GRAPHEME_EXTENDER_AT_START_RE.test(text.slice(cut, cut + 4))) {
+        return true;
+    }
+    return splitsRegionalIndicatorPair(text, cut);
+};
+
+/** Rewinds `limit` across UTF-16 surrogates, ZWJ emoji sequences, modifiers, marks, and flag pairs. */
+export const findFallbackGraphemeCutIndex = (
+    text: string,
+    limit: number,
+): number => {
+    let cut = stepBackFromTrailingHighSurrogate(text, limit);
+    while (splitsExtendedGraphemeCluster(text, cut)) {
+        cut = prevCodePointStart(text, cut);
+    }
+    return cut;
+};
+
 /** Finds the largest grapheme boundary `<= limit` inside a small tail window around `limit`. */
 const findGraphemeCutIndex = (text: string, limit: number): number => {
-    if (!GRAPHEME_SEGMENTER) return stepBackFromTrailingHighSurrogate(text, limit);
+    if (!GRAPHEME_SEGMENTER) return findFallbackGraphemeCutIndex(text, limit);
     const winStart = alignWindowStart(text, Math.max(0, limit - 32));
     const winEnd = alignWindowEnd(text, Math.min(text.length, limit + 16));
     let bestCut = winStart;
@@ -1491,7 +1575,7 @@ const findGraphemeCutIndex = (text: string, limit: number): number => {
 };
 
 /** Slices `text` at `limit` without splitting emoji grapheme clusters or UTF-16 surrogate pairs. */
-const sliceSurrogateSafe = (text: string, limit: number): string => {
+const sliceGraphemeSafe = (text: string, limit: number): string => {
     if (limit <= 0) return "";
     if (text.length <= limit) return text;
     return text.slice(0, findGraphemeCutIndex(text, limit));
@@ -1502,7 +1586,7 @@ const TRUNCATED_DISPLAY_SUFFIX = "\n\n... (response truncated for display)";
 /** Truncates excessively long streaming or finished responses without splitting emoji or UTF-16 surrogates. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    const safePrefix = sliceSurrogateSafe(text, MAX_DISPLAY_CHARS);
+    const safePrefix = sliceGraphemeSafe(text, MAX_DISPLAY_CHARS);
     return `${safePrefix}${TRUNCATED_DISPLAY_SUFFIX}`;
 };
 
@@ -1510,7 +1594,7 @@ const truncateForDisplay = (text: string): string => {
 const capSettledPreprocessInput = (text: string): string =>
     text.length <= MAX_PREPROCESS_HEAD_CHARS
         ? text
-        : sliceSurrogateSafe(text, MAX_PREPROCESS_HEAD_CHARS);
+        : sliceGraphemeSafe(text, MAX_PREPROCESS_HEAD_CHARS);
 
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */
 const finalizeStreamOrStaticMarkdown = (
