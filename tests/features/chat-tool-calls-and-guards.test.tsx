@@ -35,6 +35,7 @@ import {
 import { computeProcessingSafetyTimeoutMs } from "@/features/chat/ui/composer/dictation-button";
 import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
 import {
+    dropSupersededPersonaReviews,
     MessageRenderer,
     parseMessageContent,
     type Chunk,
@@ -1355,6 +1356,13 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(providersForModelNames(["openai/gpt-4.1-mini"], pinnedSettings.connections)).toEqual(
             ["openai"],
         );
+
+        const dedupedReviews = dropSupersededPersonaReviews([
+            { type: "persona_review", commandId: "rev-1", content: "draft" },
+            { type: "persona_review", commandId: "rev-2", content: "keep-2" },
+            { type: "persona_review", commandId: "rev-1", content: "final-1" },
+        ]);
+        expect(dedupedReviews.map((c) => c.content)).toEqual(["keep-2", "final-1"]);
 
         const oversizedStream = `${"S".repeat(47_990)}\n\`\`\`ts\nconst n = 1;\n${"T".repeat(22_000)}`;
         const cappedStream = preprocessChatMarkdown(oversizedStream, { streaming: true });
