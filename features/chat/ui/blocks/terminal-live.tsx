@@ -488,10 +488,19 @@ export const useAgentTerminalStream = (
         waitingForInput: false,
     });
     const bufferRef = useRef<TerminalStreamBuffer>({ output: "", carry: "" });
+    const lastCommandIdRef = useRef<string | undefined>(commandId);
+    const sessionIdHintRef = useRef<number | undefined>(sessionIdHint);
 
     useEffect(() => {
+        sessionIdHintRef.current = sessionIdHint;
+    }, [sessionIdHint]);
+
+    useEffect(() => {
+        if (lastCommandIdRef.current !== commandId) {
+            lastCommandIdRef.current = commandId;
+            bufferRef.current = { output: "", carry: "" };
+        }
         if (!commandId || !enabled) return undefined;
-        bufferRef.current = { output: "", carry: "" };
         let disposed = false;
         const unlistenStream = safeListen<AgentTerminalEvent>(
             "agent-terminal-stream",
@@ -510,7 +519,12 @@ export const useAgentTerminalStream = (
             const exitCode = event.payload?.exit_code;
             if (!disposed && typeof sid === "number") {
                 setState((prev) =>
-                    applyPtyExitToState(prev, sid, exitCode, sessionIdHint),
+                    applyPtyExitToState(
+                        prev,
+                        sid,
+                        exitCode,
+                        sessionIdHintRef.current,
+                    ),
                 );
             }
         });
@@ -519,7 +533,7 @@ export const useAgentTerminalStream = (
             unlistenStream.then((fn) => fn()).catch(() => undefined);
             unlistenPty.then((fn) => fn()).catch(() => undefined);
         };
-    }, [commandId, enabled, sessionIdHint]);
+    }, [commandId, enabled]);
 
     return state;
 };

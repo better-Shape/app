@@ -2,6 +2,8 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { emit } from "@tauri-apps/api/event";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
     canStepPromptHistoryUp,
@@ -1115,6 +1117,75 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             );
         } finally {
             selectSpy.mockRestore();
+        }
+    });
+
+    it("guides enabling disabled saved providers, scans repeated phrases linearly, and retains PTY output across sessionId upserts", async () => {
+        const disabledSaved = defaultProvidersSettings();
+        disabledSaved.connections.openai = {
+            ...disabledSaved.connections.openai,
+            enabled: false,
+            apiKey: "saved-test-credential",
+        };
+        expect(describeProviderSetupGap(disabledSaved)).toBe(
+            "Enable a provider in Settings -> Providers",
+        );
+        expect(resolveComposerSetupGap(true, 0, disabledSaved)).toBe(
+            "Enable a provider in Settings → Providers",
+        );
+
+        const repeatedValid = "twenty chars phrase ".repeat(1500);
+        const t0 = performance.now();
+        expect(repairStreamGlitches(repeatedValid)).toBe(repeatedValid);
+        expect(performance.now() - t0).toBeLessThan(200);
+        const gluedReplay =
+            "Here is the detailed summary: first point andHere is the detailed summary: second point.";
+        expect(repairStreamGlitches(gluedReplay)).toBe(
+            "Here is the detailed summary: first point andsecond point.",
+        );
+
+        mockIPC(() => undefined, { shouldMockEvents: true });
+        try {
+            const initialChunk: Chunk = {
+                type: "terminal_command",
+                commandId: "cmd-session-upsert",
+                command: "cargo test",
+                commandStatus: "running",
+                isGenerating: true,
+            };
+            const el = mount(<TerminalCommandStep block={initialChunk} />);
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-session-upsert",
+                    kind: "data",
+                    data: "first chunk line\n",
+                });
+            });
+            expect(el.textContent ?? "").toContain("first chunk line");
+
+            const upsertedChunk: Chunk = {
+                ...initialChunk,
+                sessionId: 42,
+            };
+            act(() => {
+                root?.render(
+                    <TooltipProvider>
+                        <TerminalCommandStep block={upsertedChunk} />
+                    </TooltipProvider>,
+                );
+            });
+            await act(async () => {
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-session-upsert",
+                    kind: "data",
+                    data: "second chunk line\n",
+                });
+            });
+            expect(el.textContent ?? "").toContain("first chunk line");
+            expect(el.textContent ?? "").toContain("second chunk line");
+        } finally {
+            clearMocks();
         }
     });
 });

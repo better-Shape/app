@@ -291,6 +291,36 @@ const findMissingBaseUrlGuidance = (
   return null;
 };
 
+/** Checks whether a keyless entry holds user-saved endpoint or model configuration. */
+const hasSavedKeylessEntryConfig = (
+  id: string,
+  conn: ProviderConnEntry,
+): boolean => {
+  if (!hasConnectionCredentials(id, conn)) return false;
+  return NEEDS_BASE_URL_IDS.has(id)
+    ? Boolean(conn.baseUrl?.trim())
+    : hasUserPinnedModels(conn);
+};
+
+/** Checks whether a disabled entry already holds a saved API key or user-configured keyless setup. */
+const isDisabledSavedEntry = (
+  id: string,
+  conn: ProviderConnEntry | undefined,
+): boolean => {
+  if (!conn || conn.enabled) return false;
+  return (
+    Boolean(conn.apiKey?.trim()) || hasSavedKeylessEntryConfig(id, conn)
+  );
+};
+
+/** Formats enable-provider guidance when credentials are already saved on a disabled entry. */
+const findDisabledSavedGuidance = (
+  entries: Array<[string, ProviderConnEntry | undefined]>,
+): string | null =>
+  entries.some(([id, conn]) => isDisabledSavedEntry(id, conn))
+    ? "Enable a provider in Settings → Providers"
+    : null;
+
 /** Checks whether setup is blocked solely because usable providers have zero models. */
 const hasUsableEntryWithoutModels = (
   concreteCount: number,
@@ -298,6 +328,14 @@ const hasUsableEntryWithoutModels = (
 ): boolean =>
   concreteCount === 0 &&
   entries.some(([id, conn]) => isUsableConfiguredEntry(id, conn));
+
+/** Resolves missing-base-URL, disabled-provider, or missing-API-key fallback guidance. */
+const resolveUnconfiguredEntriesGuidance = (
+  entries: Array<[string, ProviderConnEntry | undefined]>,
+): string =>
+  findMissingBaseUrlGuidance(entries) ??
+  findDisabledSavedGuidance(entries) ??
+  "Add an API key in Settings → Providers";
 
 /** Resolves BYOK setup guidance for the composer without pulling runtime provider presets. */
 export const resolveComposerSetupGap = (
@@ -309,13 +347,9 @@ export const resolveComposerSetupGap = (
   const entries = Object.entries(providers?.connections ?? {}) as Array<
     [string, ProviderConnEntry | undefined]
   >;
-  if (hasUsableEntryWithoutModels(concreteCount, entries)) {
-    return "Add or import a model ID in Settings → Providers";
-  }
-  return (
-    findMissingBaseUrlGuidance(entries) ??
-    "Add an API key in Settings → Providers"
-  );
+  return hasUsableEntryWithoutModels(concreteCount, entries)
+    ? "Add or import a model ID in Settings → Providers"
+    : resolveUnconfiguredEntriesGuidance(entries);
 };
 
 const DEFAULT_MODEL_PREFIX_ALIASES: Record<string, string> = {
