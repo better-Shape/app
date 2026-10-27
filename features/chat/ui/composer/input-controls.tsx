@@ -478,14 +478,7 @@ const QueuedMessagesSlot = ({
 /** No-op callback fallback for optional bulk-edit actions. */
 const noopAction = (): void => undefined;
 
-/** Renders the pending-edits pill when edits exist. */
-const PendingEditsSlot = ({
-  pendingEdits,
-  onAcceptAllEdits,
-  onRejectAllEdits,
-  onAcceptEdit,
-  onRejectEdit,
-}: {
+type PendingEditsSlotProps = {
   pendingEdits: {
     id: string;
     file: string;
@@ -497,7 +490,16 @@ const PendingEditsSlot = ({
   onRejectAllEdits?: () => void;
   onAcceptEdit?: (id: string) => void;
   onRejectEdit?: (id: string) => void;
-}) =>
+};
+
+/** Renders the pending-edits pill when edits exist. */
+const PendingEditsSlot = ({
+  pendingEdits,
+  onAcceptAllEdits,
+  onRejectAllEdits,
+  onAcceptEdit,
+  onRejectEdit,
+}: PendingEditsSlotProps) =>
   pendingEdits.length > 0 ? (
     <PendingEditsPanel
       edits={pendingEdits}
@@ -521,18 +523,7 @@ export const ComposerContextStrip = ({
   onSendQueuedNow,
   projectRuleFiles,
   taskItems,
-}: {
-  pendingEdits: {
-    id: string;
-    file: string;
-    original: string;
-    replacement: string;
-    baseline?: string;
-  }[];
-  onAcceptAllEdits?: () => void;
-  onRejectAllEdits?: () => void;
-  onAcceptEdit?: (id: string) => void;
-  onRejectEdit?: (id: string) => void;
+}: PendingEditsSlotProps & {
   queuedMessages: QueuedMessage[];
   onEditQueuedMessage?: (id: string) => void;
   onRemoveQueuedMessage?: (id: string) => void;
@@ -1389,6 +1380,27 @@ const ModelDropdownTriggerButton = ({
   </DropdownMenuTrigger>
 );
 
+type ActiveModelAndEffortControlsProps = {
+  modelMenuOpen: boolean;
+  setModelMenuOpen: (open: boolean) => void;
+  modelQuery: string;
+  setModelQuery: (q: string) => void;
+  modelName: string;
+  activeTriggerIconId: string;
+  multiSelectModels: boolean;
+  autoModel: ModelInfo;
+  models: ModelInfo[];
+  providerOrder: string[];
+  selectedModel: string;
+  selectedWorkerModels: string[];
+  setSelectedModel: (id: string) => void;
+  setSelectedWorkerModels?: (ids: string[]) => void;
+  reasoningEffort: ReasoningEffort;
+  setReasoningEffort: (e: ReasoningEffort) => void;
+  resolvedAutoModel: ModelInfo | null;
+  effectiveModelId: string;
+};
+
 /** Renders the model dropdown + thinking effort controls when a provider is ready. */
 const ActiveModelAndEffortControls = ({
   modelMenuOpen,
@@ -1409,26 +1421,7 @@ const ActiveModelAndEffortControls = ({
   setReasoningEffort,
   resolvedAutoModel,
   effectiveModelId,
-}: {
-  modelMenuOpen: boolean;
-  setModelMenuOpen: (open: boolean) => void;
-  modelQuery: string;
-  setModelQuery: (q: string) => void;
-  modelName: string;
-  activeTriggerIconId: string;
-  multiSelectModels: boolean;
-  autoModel: ModelInfo;
-  models: ModelInfo[];
-  providerOrder: string[];
-  selectedModel: string;
-  selectedWorkerModels: string[];
-  setSelectedModel: (id: string) => void;
-  setSelectedWorkerModels?: (ids: string[]) => void;
-  reasoningEffort: ReasoningEffort;
-  setReasoningEffort: (e: ReasoningEffort) => void;
-  resolvedAutoModel: ModelInfo | null;
-  effectiveModelId: string;
-}) => {
+}: ActiveModelAndEffortControlsProps) => {
   const modelSearch = modelQuery.trim().toLowerCase();
   const hasAnyModelMatch =
     matchesModelSearchQuery(autoModel, modelSearch) ||
@@ -1482,48 +1475,13 @@ export const ComposerFooterBar = ({
   setSelectedMode,
   needsSignIn,
   setupGap,
-  modelMenuOpen,
-  setModelMenuOpen,
-  modelQuery,
-  setModelQuery,
-  modelName,
-  activeTriggerIconId,
-  multiSelectModels,
-  autoModel,
-  models,
-  providerOrder,
-  selectedModel,
-  selectedWorkerModels,
-  setSelectedModel,
-  setSelectedWorkerModels,
-  reasoningEffort,
-  setReasoningEffort,
-  resolvedAutoModel,
-  effectiveModelId,
-}: {
+  ...modelControls
+}: ActiveModelAndEffortControlsProps & {
   hideModeSelect: boolean;
   selectedMode: string;
   setSelectedMode: (m: string) => void;
   needsSignIn: boolean;
   setupGap: string | null;
-  modelMenuOpen: boolean;
-  setModelMenuOpen: (open: boolean) => void;
-  modelQuery: string;
-  setModelQuery: (q: string) => void;
-  modelName: string;
-  activeTriggerIconId: string;
-  multiSelectModels: boolean;
-  autoModel: ModelInfo;
-  models: ModelInfo[];
-  providerOrder: string[];
-  selectedModel: string;
-  selectedWorkerModels: string[];
-  setSelectedModel: (id: string) => void;
-  setSelectedWorkerModels?: (ids: string[]) => void;
-  reasoningEffort: ReasoningEffort;
-  setReasoningEffort: (e: ReasoningEffort) => void;
-  resolvedAutoModel: ModelInfo | null;
-  effectiveModelId: string;
 }) => (
   <div className="flex min-w-0 items-center justify-between gap-1.5 px-1">
     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
@@ -1541,33 +1499,14 @@ export const ComposerFooterBar = ({
         <OpenProvidersTriggerButton
           setupGap={setupGap}
           onOpenProviders={() => {
-            setModelMenuOpen(false);
+            modelControls.setModelMenuOpen(false);
             openSettingsWindow({ category: "providers" }).catch(
               () => undefined,
             );
           }}
         />
       ) : (
-        <ActiveModelAndEffortControls
-          modelMenuOpen={modelMenuOpen}
-          setModelMenuOpen={setModelMenuOpen}
-          modelQuery={modelQuery}
-          setModelQuery={setModelQuery}
-          modelName={modelName}
-          activeTriggerIconId={activeTriggerIconId}
-          multiSelectModels={multiSelectModels}
-          autoModel={autoModel}
-          models={models}
-          providerOrder={providerOrder}
-          selectedModel={selectedModel}
-          selectedWorkerModels={selectedWorkerModels}
-          setSelectedModel={setSelectedModel}
-          setSelectedWorkerModels={setSelectedWorkerModels}
-          reasoningEffort={reasoningEffort}
-          setReasoningEffort={setReasoningEffort}
-          resolvedAutoModel={resolvedAutoModel}
-          effectiveModelId={effectiveModelId}
-        />
+        <ActiveModelAndEffortControls {...modelControls} />
       )}
     </div>
   </div>

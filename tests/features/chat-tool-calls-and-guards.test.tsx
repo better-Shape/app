@@ -13,7 +13,10 @@ import {
     stripShellPromptPrefix,
     tryWrapMarkdownLinkOnPaste,
 } from "@/lib/chat/prompt-history";
-import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import {
+    extractSearchableMessageText,
+    findTranscriptMatches,
+} from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { ChatErrorDialog, redactErrorSecrets } from "@/features/chat/ui/blocks/error";
@@ -25,6 +28,10 @@ import {
     TerminalCommandStep,
     type TerminalStreamBuffer,
 } from "@/features/chat/ui/blocks/terminal-live";
+import {
+    clearAgentCommandStart,
+    setAgentCommandStart,
+} from "@/features/chat/lib/agent-terminal-notify";
 import { getSettings, updateSettingSection } from "@/lib/settings";
 import { ActionLine } from "@/features/chat/ui/blocks/action-line";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
@@ -34,7 +41,10 @@ import {
     isPlainEnterSubmit,
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
-import { computeProcessingSafetyTimeoutMs } from "@/features/chat/ui/composer/dictation-button";
+import {
+    DictationButton,
+    computeProcessingSafetyTimeoutMs,
+} from "@/features/chat/ui/composer/dictation-button";
 import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
 import {
     dropSupersededPersonaReviews,
@@ -44,26 +54,35 @@ import {
 } from "@/features/chat/ui/md/renderer";
 import {
     appendInlineCodeSpansInRange,
+    findFallbackGraphemeCutIndex,
     preprocessChatMarkdown,
     repairStreamGlitches,
+    sliceGraphemeSafe,
+    stripLeakedToolCode,
     stripLeakedToolMarkup,
 } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import {
+    chatModelIdsFor,
     defaultProvidersSettings,
     describeProviderSetupGap,
     embeddingsTarget,
     keyFormatWarning,
     mergeProviderConnections,
+    resolveActiveDefaultModelId,
     normalizeProvidersSettings,
     providerHeaders,
     providersForModelNames,
     toRustAiConfig,
+    withFeatureModel,
 } from "@/lib/ai/providers";
 import { commands } from "@/lib/backend/commands";
 import { shortenMentionTokensInText } from "@/lib/chat/mentions";
-import { startDictation } from "@/lib/editor/dictation";
+import {
+    startDictation,
+    stopDictationRecognizer,
+} from "@/lib/editor/dictation";
 import { terminalSessionStore } from "@/features/terminal/session";
 import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 
@@ -71,6 +90,32 @@ import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
+
+/** Creates a mocked `AudioContext` constructor wired to `getProcessor`. */
+const createMockAudioContextFactory = (
+    getProcessor: () => {
+        connect: () => void;
+        disconnect: () => void;
+        onaudioprocess: ((ev: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null;
+    },
+) =>
+    vi.fn(function MockAudioContext() {
+        return {
+            sampleRate: 16_000,
+            destination: {},
+            createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+            createScriptProcessor: getProcessor,
+            createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
+            close: (): Promise<void> => Promise.resolve(),
+        };
+    });
+
+/** Returns the first mounted `<button>` inside `container`, throwing if absent. */
+const requireMountedButton = (container: HTMLElement): HTMLButtonElement => {
+    const btn = container.querySelector("button");
+    if (!btn) throw new Error("Expected mounted button");
+    return btn;
+};
 
 /** Mounts `node` inside a fresh DOM container with `TooltipProvider`, tearing down any prior mount. */
 const mount = (node: React.ReactElement) => {
@@ -245,9 +290,119 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
             // Skips unindexed banners + <button> chrome and preserves exact Text node identity without <mark> splitting!
             expect(ranges).toHaveLength(2);
             expect(activeRange?.toString()).toBe("TokenStore");
+
+            // When targetMessageSearchText includes an earlier hidden structured-tag match (`<cat>`),
+            // occurrence 0 stays unhighlighted while occurrence 1 aligns to the visible prose match.
+            const searchableMsg1 = extractSearchableMessageText(
+                '<tool_result>TokenStore</tool_result><cat path="src/TokenStore.ts"></cat>Updated TokenStore and tokenstore.',
+            );
+            expect(searchableMsg1).toBe("src/TokenStore.ts Updated TokenStore and tokenstore.");
+            const hiddenFirst = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                targetMessageIndex: 1,
+                targetOccurrenceInMessage: 0,
+                targetMessageSearchText: searchableMsg1,
+            });
+            expect(hiddenFirst.activeRange).toBeNull();
+            const alignedSecond = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                targetMessageIndex: 1,
+                targetOccurrenceInMessage: 1,
+                targetMessageSearchText: searchableMsg1,
+            });
+            expect(alignedSecond.activeRange?.toString()).toBe("TokenStore");
             expect(container.querySelectorAll("p")[1]?.firstChild).toBe(paragraphNodeBefore);
             expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
             expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));
+
+            const headTokens = Array.from({ length: 32 }, (_, idx) => `item_${idx} TokenStore`).join(" ");
+            const tailTokens = Array.from({ length: 32 }, (_, idx) => `tail_${idx} TokenStore`).join(" ");
+            const bulkRow = document.createElement("div");
+            bulkRow.dataset.chatMessageIndex = "2";
+            bulkRow.textContent = `${headTokens} Edited 1 file ${tailTokens}`;
+            container.appendChild(bulkRow);
+            const bulkSearchable = extractSearchableMessageText(
+                `${headTokens} <cat path="src/TokenStore.ts"></cat> ${tailTokens}`,
+            );
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 2,
+                    targetOccurrenceInMessage: 32,
+                    targetMessageSearchText: bulkSearchable,
+                }).activeRange,
+            ).toBeNull();
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 2,
+                    targetOccurrenceInMessage: 64,
+                    targetMessageSearchText: bulkSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
+
+            // Bold / inline-code delimiters around a lone visible match still align after a hidden `<cat>` match.
+            const formattedRow = document.createElement("div");
+            formattedRow.dataset.chatMessageIndex = "3";
+            formattedRow.textContent = "TokenStore";
+            container.appendChild(formattedRow);
+            const formattedSearchable = extractSearchableMessageText(
+                '<cat path="src/TokenStore.ts"></cat>**`TokenStore`**',
+            );
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 3,
+                    targetOccurrenceInMessage: 0,
+                    targetMessageSearchText: formattedSearchable,
+                }).activeRange,
+            ).toBeNull();
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 3,
+                    targetOccurrenceInMessage: 1,
+                    targetMessageSearchText: formattedSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
+
+            // Even when earlier DOM matches (e.g. ActionLine labels) exhaust `maxRanges`,
+            // `targetMessageIndex` still resolves its active range.
+            const cappedTarget = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                maxRanges: 2,
+                targetMessageIndex: 3,
+                targetOccurrenceInMessage: 1,
+                targetMessageSearchText: formattedSearchable,
+            });
+            expect(cappedTarget.ranges).toHaveLength(2);
+            expect(cappedTarget.activeRange?.toString()).toBe("TokenStore");
+
+            // Large residual slice (> 48) with 25 unmatched hidden source matches still aligns later visible matches.
+            const hiddenCats = Array.from(
+                { length: 25 },
+                (_, idx) => `<cat path="src/h_${idx}/TokenStore.ts"></cat>`,
+            ).join(" ");
+            const visibleTail = Array.from(
+                { length: 52 },
+                (_, idx) => `**v_${idx} TokenStore**`,
+            ).join(" ");
+            const gapRow = document.createElement("div");
+            gapRow.dataset.chatMessageIndex = "4";
+            gapRow.textContent = Array.from(
+                { length: 52 },
+                (_, idx) => `v_${idx} TokenStore`,
+            ).join(" ");
+            container.appendChild(gapRow);
+            const gapSearchable = extractSearchableMessageText(`${hiddenCats} ${visibleTail}`);
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 4,
+                    targetOccurrenceInMessage: 25,
+                    targetMessageSearchText: gapSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
 
             clearChatDomHighlights();
             expect(deleteSpy).toHaveBeenCalledWith("chat-find");
@@ -431,7 +586,7 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
             );
             actionsBtn?.click();
         });
-        expect(document.body.textContent ?? "").not.toContain("Regenerate");
+        expect(document.body.textContent).not.toContain("Regenerate");
         expect(onRedo).not.toHaveBeenCalled();
     });
 });
@@ -446,7 +601,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 onRetry={onRetry}
             />,
         );
-        const bodyText = document.body.textContent ?? "";
+        const bodyText = document.body.textContent;
         expect(bodyText).toContain("model 'gpt-5-private' rejected");
         const retryBtn = Array.from(document.body.querySelectorAll("button")).find(
             (btn) => btn.textContent === "Try again",
@@ -536,11 +691,22 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         );
     });
 
-    it("strips leaked tool calls inside tilde fences while preserving normal tilde-fenced code", () => {
+    it("strips leaked tool calls inside backtick and tilde fences while preserving normal tilde-fenced code", () => {
+        const leakedBacktick = preprocessChatMarkdown(
+            'Before\n```\nprint(default_api.read_file(path="a.ts"))\n```\nAfter',
+        );
+        expect(leakedBacktick).toBe("Before\n\nAfter");
+
         const leakedTilde = preprocessChatMarkdown(
             'Before\n~~~\nprint(default_api.read_file(path="a.ts"))\n~~~\nAfter',
         );
         expect(leakedTilde).toBe("Before\n\nAfter");
+
+        const leakedUnclosedTilde = preprocessChatMarkdown(
+            'Before\n~~~python\nprint(default_api.read_file(path="a.ts"))\n',
+            { streaming: true },
+        );
+        expect(leakedUnclosedTilde).toBe("Before");
 
         const userCodeTilde = preprocessChatMarkdown(
             "Before\n~~~ts\nconst answer = 42;\n~~~\nAfter",
@@ -684,7 +850,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
     it("normalizes non-string provider credentials, redacts echoed error secrets, collapses dictation spaces, and breaks highlight runs on br", () => {
         const normalized = normalizeProvidersSettings({
-            defaultModel: "openai/gpt-5",
+            chatMode: "openai/gpt-5",
             services: {
                 search: { provider: "brave", apiKey: "bsa-123" },
                 composio: { apiKey: "", userId: "" },
@@ -736,7 +902,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(preprocessChatMarkdown(yamlBlock)).toBe(yamlBlock);
 
         const legitimateRepeat =
-            "Step one verifies the schema. Step one verifies the schema.";
+            "Step one verifies the schema.\n\nDetails follow in paragraph two.\n\nStep one verifies the output.";
         expect(repairStreamGlitches(legitimateRepeat)).toBe(legitimateRepeat);
 
         expect(insertDictatedSlice("fix    now", 3, "this bug").next).toBe(
@@ -767,7 +933,11 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             "Example payload: <content>visible text</content>",
         );
         expect(proseWithContentTag).toEqual([
-            { type: "text", content: "Example payload: <content>visible text</content>" },
+            {
+                type: "text",
+                content: "Example payload: <content>visible text</content>",
+                sourceStart: 0,
+            },
         ]);
 
         const manyTools = Array.from(
@@ -807,37 +977,40 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const bareLeakWithTail = [
             "Intro paragraph.",
             '{ "tool_code": "print(render_design_previews(concepts=[]))" }',
-            "",
-            "Keep this concluding paragraph.",
         ].join("\n");
         const cleanedBare = preprocessChatMarkdown(bareLeakWithTail);
         expect(cleanedBare).not.toContain("render_design_previews");
-        expect(cleanedBare).toContain("Keep this concluding paragraph.");
+        expect(cleanedBare).toContain("Intro paragraph.");
 
         const benignFenceThenPrint = [
             "```json",
-            '{ "tool_code": "echo sample" }',
+            '{ "example_key": "echo sample" }',
             "```",
             "",
             "In Python, call print(value) to inspect output.",
         ].join("\n");
         const keptBenign = preprocessChatMarkdown(benignFenceThenPrint);
-        expect(keptBenign).toContain('{ "tool_code": "echo sample" }');
+        expect(keptBenign).toContain('{ "example_key": "echo sample" }');
         expect(keptBenign).toContain("In Python, call print(value)");
 
         const b64Pair = btoa(["svc", "topsecret99"].join(":"));
         const b64Short = btoa(["u", "p"].join(":"));
+        const b64PaddedNoDigits = btoa(["user", "pa"].join(":"));
         const rawAuthErr = [
             `Header Authorization: Basic ${b64Pair} rejected;`,
-            `echoed Basic ${b64Short} and`,
+            `echoed basic ${b64Short} and BASIC ${b64Pair} and Basic ${b64PaddedNoDigits} and`,
             ["https://svc:", "topsecret99", "@llm.internal/v1"].join(""),
         ].join(" ");
         const redactedAuth = redactErrorSecrets(rawAuthErr);
         expect(redactedAuth).not.toContain(b64Pair);
         expect(redactedAuth).not.toContain(b64Short);
+        expect(redactedAuth).not.toContain(b64PaddedNoDigits);
         expect(redactedAuth).not.toContain("topsecret99");
         expect(redactErrorSecrets("401 Basic authentication failed")).toBe(
             "401 Basic authentication failed",
+        );
+        expect(redactErrorSecrets("basic error_handling failed")).toBe(
+            "basic error_handling failed",
         );
 
         expect(resolveComposerSetupGap(true, 0, {})).toBe(
@@ -885,7 +1058,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 timestamp={1_700_000_000_000}
             />,
         );
-        expect(renderedPlan.textContent ?? "").toContain("1/2");
+        expect(renderedPlan.textContent).toContain("1/2");
     });
 
     it("cancels pending mic permission without starting recognizer and ignores stale push rejections", async () => {
@@ -909,17 +1082,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             disconnect: vi.fn(),
             onaudioprocess: null,
         };
-        /** Constructs a mocked Web Audio `AudioContext` instance without class methods. */
-        const createMockAudioContext = vi.fn(function MockAudioContext() {
-            return {
-                sampleRate: 16_000,
-                destination: {},
-                createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                createScriptProcessor: () => processor,
-                createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                close: resolveVoid,
-            };
-        });
+        const createMockAudioContext = createMockAudioContextFactory(() => processor);
         vi.stubGlobal("AudioContext", createMockAudioContext);
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -981,10 +1144,10 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         settings.connections.custom.enabled = true;
         settings.connections.custom.baseUrl = "https://gateway.example.test/v1";
         settings.connections.custom.extraModels = ["bge-m3"];
-        settings.embeddingModel = "custom/bge-m3";
-        expect(embeddingsTarget(settings)).toEqual({
+        const configured = withFeatureModel(settings, "embeddings", "custom/bge-m3");
+        expect(embeddingsTarget(configured)).toEqual({
             id: "custom",
-            model: "custom/bge-m3",
+            model: "bge-m3",
         });
 
         const cleaned = stripLeakedToolMarkup(
@@ -1002,7 +1165,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             />,
         );
         expect(appliedEl.querySelector("[data-pending-approval='true']")).toBeNull();
-        expect(appliedEl.textContent ?? "").toContain("Edited");
+        expect(appliedEl.textContent).toContain("Edited");
     });
 
     it("carries split ANSI CSI/OSC escapes across PTY chunks and highlights ActionLine buttons", () => {
@@ -1016,6 +1179,35 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         buf = appendStreamAnsiChunk(buf, "\\ done", true);
         expect(buf.output).toBe("Start Failed done");
         expect(buf.carry).toBe("");
+
+        expect(
+            stripAnsi("a\u001bP1$r0m\u001b\\b\u001bXsos\u001b\\c\u001b^pm\u001b\\d\u001b_apc\u0007e"),
+        ).toBe("abcde");
+        let dcsBuf: TerminalStreamBuffer = { output: "", carry: "" };
+        dcsBuf = appendStreamAnsiChunk(dcsBuf, "head\u001bPpayload", false);
+        expect(dcsBuf).toEqual({ output: "head", carry: "\u001bPpayload" });
+        dcsBuf = appendStreamAnsiChunk(dcsBuf, "-more\u001b\\tail", true);
+        expect(dcsBuf).toEqual({ output: "headtail", carry: "" });
+
+        let sixelBuf: TerminalStreamBuffer = { output: "", carry: "" };
+        sixelBuf = appendStreamAnsiChunk(
+            sixelBuf,
+            `pre\u001bPq${"#0;2;0;0;0".repeat(40)}`,
+            false,
+        );
+        expect(sixelBuf).toEqual({ output: "pre", carry: "\u001bP" });
+        sixelBuf = appendStreamAnsiChunk(
+            sixelBuf,
+            `${"#1;2;99;99;99".repeat(30)}\u001b`,
+            false,
+        );
+        expect(sixelBuf).toEqual({ output: "pre", carry: "\u001bP\u001b" });
+        sixelBuf = appendStreamAnsiChunk(sixelBuf, "\\post", true);
+        expect(sixelBuf).toEqual({ output: "prepost", carry: "" });
+
+        const longClusterPrefix = "x".repeat(100);
+        const longGrapheme = `${longClusterPrefix}a${"\u0301".repeat(80)}z`;
+        expect(sliceGraphemeSafe(longGrapheme, 160)).toBe(longClusterPrefix);
 
         const row = mount(
             <div data-chat-message-index="0">
@@ -1036,7 +1228,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         settings.connections.openai.apiKey = dummyKey;
         settings.connections.google.enabled = true;
         settings.connections.google.apiKey = ["goog", "test", "placeholder0000"].join("-");
-        settings.defaultModel = "gemini/gemini-2.5-pro";
+        settings.chatMode = "gemini/gemini-2.5-pro";
         expect(toRustAiConfig(settings).defaultModel).toBe("google/gemini-2.5-pro");
 
         const singleMatchRow = mount(
@@ -1070,8 +1262,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 runBtn.click();
                 await Promise.resolve();
             });
-            expect(el.textContent ?? "").toContain("Running");
-            expect(el.textContent ?? "").not.toContain("Ran ");
+            expect(el.textContent).toContain("Running");
+            expect(el.textContent).not.toContain("Ran ");
         } finally {
             approveSpy.mockRestore();
         }
@@ -1143,8 +1335,41 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(resolveComposerSetupGap(true, 0, disabledSaved)).toBe(
             "Enable a provider in Settings → Providers",
         );
+        const disabledKeylessPinned = defaultProvidersSettings();
+        disabledKeylessPinned.connections.ollama = {
+            ...disabledKeylessPinned.connections.ollama,
+            enabled: false,
+            models: ["ollama/llama3.2:latest"],
+        };
+        expect(describeProviderSetupGap(disabledKeylessPinned)).toBe(
+            "Enable a provider in Settings -> Providers",
+        );
 
-        const repeatedValid = "twenty chars phrase ".repeat(1500);
+        const autoHiddenFirst = defaultProvidersSettings();
+        autoHiddenFirst.chatMode = "auto";
+        autoHiddenFirst.connections.openai = {
+            ...autoHiddenFirst.connections.openai,
+            enabled: true,
+            apiKey: "saved-test-credential",
+            hiddenModels: [chatModelIdsFor("openai", autoHiddenFirst.connections)[0]],
+        };
+        expect(toRustAiConfig(autoHiddenFirst).defaultModel).toBe(
+            resolveActiveDefaultModelId(autoHiddenFirst),
+        );
+        expect(toRustAiConfig(autoHiddenFirst).defaultModel).not.toBe(
+            autoHiddenFirst.connections.openai.hiddenModels[0],
+        );
+
+        expect(
+            redactErrorSecrets(
+                "Upstream failed: https://api.example.com/v1/chat?password=mySecretPw!&client_secret=cs123&mode=stream",
+            ),
+        ).toBe(
+            "Upstream failed: https://api.example.com/v1/chat?password=[REDACTED]&client_secret=[REDACTED]&mode=stream",
+        );
+
+        const repeatedValid =
+            "In summary, validate the config first.\n\nDetails in section two.\n\nIn summary, validate the output.";
         expect(repairStreamGlitches(repeatedValid)).toBe(repeatedValid);
         const gluedReplay =
             "Here is the detailed summary: first point andHere is the detailed summary: second point.";
@@ -1170,7 +1395,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     data: "first chunk line\n",
                 });
             });
-            expect(el.textContent ?? "").toContain("first chunk line");
+            expect(el.textContent).toContain("first chunk line");
 
             const upsertedChunk: Chunk = {
                 ...initialChunk,
@@ -1190,8 +1415,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     data: "second chunk line\n",
                 });
             });
-            expect(el.textContent ?? "").toContain("first chunk line");
-            expect(el.textContent ?? "").toContain("second chunk line");
+            expect(el.textContent).toContain("first chunk line");
+            expect(el.textContent).toContain("second chunk line");
         } finally {
             clearMocks();
         }
@@ -1284,6 +1509,24 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             ),
         ).toBe(false);
 
+        mount(
+            <ChatErrorDialog
+                message="API key is required"
+                onDismiss={vi.fn()}
+                onRetry={onRetry}
+            />,
+        );
+        expect(
+            Array.from(document.body.querySelectorAll("button")).some(
+                (btn) => btn.textContent === "Try again",
+            ),
+        ).toBe(false);
+        expect(
+            redactErrorSecrets(
+                "Gateway rejected header Authorization: Token dg_secret_token_987654",
+            ),
+        ).toBe("Gateway rejected header Authorization: [REDACTED]");
+
         const blankLineSanitized = stripLeakedToolMarkup(
             "First `unclosed\n   \nsecond` <tool_call>leaked_payload</tool_call>",
         );
@@ -1321,8 +1564,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     exitCode: 130,
                 });
             });
-            expect(el.textContent ?? "").toContain("Cancelled");
-            expect(el.textContent ?? "").not.toContain("Failed");
+            expect(el.textContent).toContain("Cancelled");
+            expect(el.textContent).not.toContain("Failed");
         } finally {
             clearMocks();
         }
@@ -1354,7 +1597,14 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const pinnedSettings = defaultProvidersSettings();
         pinnedSettings.connections.openai.apiKey = ["sk", "test", "placeholder0000"].join("-");
         pinnedSettings.connections.openai.models = ["openai/gpt-4.1-mini"];
+        pinnedSettings.connections.openai.discoveredModels = [
+            { id: "openai/gpt-4.1-mini", nonChat: false },
+            { id: "openai/o4-mini", nonChat: false },
+        ];
         expect(providersForModelNames(["openai/o4-mini"], pinnedSettings.connections)).toEqual([]);
+        expect(chatModelIdsFor("openai", pinnedSettings.connections)).toEqual([
+            "openai/gpt-4.1-mini",
+        ]);
         expect(providersForModelNames(["openai/gpt-4.1-mini"], pinnedSettings.connections)).toEqual(
             ["openai"],
         );
@@ -1397,24 +1647,13 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const prevMediaDevices = navigator.mediaDevices;
         const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
-        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
-        const resolveVoid = (): Promise<void> => Promise.resolve();
         vi.stubGlobal(
             "AudioContext",
-            vi.fn(function MockAudioContext() {
-                return {
-                    sampleRate: 16_000,
-                    destination: {},
-                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                    createScriptProcessor: () => ({
-                        connect: vi.fn(),
-                        disconnect: vi.fn(),
-                        onaudioprocess: null,
-                    }),
-                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                    close: resolveVoid,
-                };
-            }),
+            createMockAudioContextFactory(() => ({
+                connect: vi.fn(),
+                disconnect: vi.fn(),
+                onaudioprocess: null,
+            })),
         );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1440,7 +1679,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 }
                 return Promise.resolve();
             }),
-            push: vi.fn(resolveVoid),
+            push: vi.fn((): Promise<void> => Promise.resolve()),
             stop: vi.fn(() => {
                 ipcLog.push("stop");
                 return Promise.resolve();
@@ -1495,8 +1734,6 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const prevMediaDevices = navigator.mediaDevices;
         const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
-        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
-        const resolveVoid = (): Promise<void> => Promise.resolve();
         const processor: {
             connect: () => void;
             disconnect: () => void;
@@ -1504,16 +1741,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         } = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
         vi.stubGlobal(
             "AudioContext",
-            vi.fn(function MockAudioContext() {
-                return {
-                    sampleRate: 16_000,
-                    destination: {},
-                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                    createScriptProcessor: () => processor,
-                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                    close: resolveVoid,
-                };
-            }),
+            createMockAudioContextFactory(() => processor),
         );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1572,6 +1800,456 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             });
         }
     });
+
+    it("preserves UTF-16 surrogate boundaries at 48k display cap, parses unclosed mcp approval tags, and routes unadvertised custom embeddings away from OpenAI", () => {
+        const prefix47999 = Array.from({ length: 4800 }, (_, idx) =>
+            `[${String(idx).padStart(8, "0")}]`,
+        )
+            .join("")
+            .slice(0, 47_999);
+        const straddling = `${prefix47999}🚀 trailing text`;
+        const displayedStatic = preprocessChatMarkdown(straddling, {
+            streaming: false,
+        });
+        const displayedStreaming = preprocessChatMarkdown(straddling, {
+            streaming: true,
+        });
+        expect(displayedStatic).toContain("... (response truncated for display)");
+        expect(displayedStreaming).toContain(
+            "... (response truncated for display)",
+        );
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayedStatic)).toBe(
+            false,
+        );
+        expect(
+            /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayedStreaming),
+        ).toBe(false);
+        const zwjStraddling = `${prefix47999.slice(0, 47_996)}👨‍👩‍👧‍👦 trailing text`;
+        const zwjStreaming = preprocessChatMarkdown(zwjStraddling, {
+            streaming: true,
+        });
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(zwjStreaming)).toBe(
+            false,
+        );
+        expect(
+            zwjStreaming.startsWith(
+                `${prefix47999.slice(0, 47_996)}\n\n... (response truncated for display)`,
+            ),
+        ).toBe(true);
+
+        const mcpMultiline =
+            '<terminal_command status="pending" id="mcp-1" mcp=">npx @mcp/fs --label "docs"\nAwaiting approval: MCP fs</terminal_command>';
+        const mcpSingleLine =
+            '<terminal_command status="pending" id="mcp-2" mcp=">uvx mcp-git</terminal_command>';
+        const parsedMulti = parseMessageContent(mcpMultiline);
+        const parsedSingle = parseMessageContent(mcpSingleLine);
+        expect(parsedMulti[0]).toMatchObject({
+            type: "terminal_command",
+            commandId: "mcp-1",
+            commandStatus: "pending",
+            command: 'npx @mcp/fs --label "docs"',
+        });
+        expect(parsedSingle[0]).toMatchObject({
+            type: "terminal_command",
+            commandId: "mcp-2",
+            commandStatus: "pending",
+            command: "uvx mcp-git",
+        });
+
+        const base = defaultProvidersSettings();
+        base.connections.openai.enabled = true;
+        base.connections.openai.apiKey = ["sk", "test", "placeholder0000"].join("-");
+        base.connections.custom.enabled = true;
+        base.connections.custom.baseUrl = "https://embed.internal.test/v1";
+        const withCustomSlug = withFeatureModel(base, "embeddings", "BAAI/bge-m3");
+        expect(embeddingsTarget(withCustomSlug)).toEqual({
+            id: "custom",
+            model: "BAAI/bge-m3",
+        });
+
+        base.connections.openai.discoveredModels = [];
+        base.connections.openai.models = [
+            "openai/gpt-4o-mini",
+            "openai/text-embedding-3-small",
+        ];
+        base.connections.openai.extraModels = ["whisper-1"];
+        expect(chatModelIdsFor("openai", base.connections)).toEqual([
+            "openai/gpt-4o-mini",
+        ]);
+    });
+
+    it("covers ECMA-35 nF escapes, billing provider copy, fence-aware leaked tool guards, and non-Segmenter grapheme fallback", () => {
+        expect(stripAnsi("pre\u001b(Bmid\u001b)0\u001b#8post")).toBe("premidpost");
+        const firstChunk = appendStreamAnsiChunk(
+            { output: "", carry: "" },
+            "line\u001b(",
+        );
+        expect(firstChunk).toEqual({ output: "line", carry: "\u001b(" });
+        const secondChunk = appendStreamAnsiChunk(firstChunk, "Bok");
+        expect(secondChunk).toEqual({ output: "lineok", carry: "" });
+
+        mount(
+            <ChatErrorDialog
+                message="402 Payment Required: insufficient credits on openrouter.ai"
+                onDismiss={vi.fn()}
+            />,
+        );
+        expect(document.body.textContent).toContain(
+            "Your OpenRouter account has run out of credits. Add credits to continue.",
+        );
+
+        const pythonExecuteMethod = [
+            "```python",
+            "class Runner:",
+            "    def _execute(self, rows):",
+            "        print(len(rows))",
+            "```",
+        ].join("\n");
+        expect(preprocessChatMarkdown(pythonExecuteMethod)).toContain("def _execute(self, rows):");
+
+        const executeToolDump = [
+            "```",
+            "_execute",
+            "tool_name: read_file",
+            "functions.custom_helper({\"path\": \"a.ts\"})",
+            "```",
+        ].join("\n");
+        expect(preprocessChatMarkdown(executeToolDump)).toBe("");
+
+        const closedFencePlusInlineTag =
+            "```ts\nconst safe = 1;\n```\nExplain `<tool_call>` syntax while streaming";
+        expect(preprocessChatMarkdown(closedFencePlusInlineTag, { streaming: true })).toBe(
+            closedFencePlusInlineTag,
+        );
+
+        const familySample = "ab👨‍👩‍👧‍👦cd";
+        expect(findFallbackGraphemeCutIndex(familySample, 12)).toBe(2);
+        expect(findFallbackGraphemeCutIndex("a👍🏽b", 3)).toBe(1);
+        expect(findFallbackGraphemeCutIndex("x1️⃣y", 3)).toBe(1);
+        expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 2)).toBe(0);
+        expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 4)).toBe(4);
+    });
+
+    it("replaces selected dictation ranges, closes open fences before truncation notices, and preserves explicit terminal cancellation vs signal crashes", async () => {
+        const replaced = insertDictatedSlice("fix old now", 4, "this bug", 7);
+        expect(replaced).toEqual({
+            next: "fix this bug now",
+            caret: "fix this bug".length,
+        });
+        expect(insertDictatedSlice("fix old now", 7, "this bug", 4).next).toBe(
+            "fix this bug now",
+        );
+
+        const openBacktickStream = `${"A".repeat(47_990)}\n\`\`\`ts\nconst v = 1;\n${"B".repeat(2_000)}`;
+        expect(
+            preprocessChatMarkdown(openBacktickStream, { streaming: true }),
+        ).toMatch(/```\n\n\.\.\. \(response truncated for display\)$/u);
+        const openTildeStatic = `${"A".repeat(47_990)}\n~~~python\nx = 1\n${"B".repeat(2_000)}`;
+        expect(
+            preprocessChatMarkdown(openTildeStatic, { streaming: false }),
+        ).toMatch(/~~~\n\n\.\.\. \(response truncated for display\)$/u);
+
+        mockIPC(() => undefined, { shouldMockEvents: true });
+        try {
+            const stoppedStreamEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-stopped-exit",
+                        command: "npm run dev",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-stopped-exit",
+                    sessionId: 9,
+                    kind: "exit",
+                    exitCode: 143,
+                    cancelled: true,
+                });
+            });
+            expect(stoppedStreamEl.textContent).toContain("Cancelled");
+            expect(stoppedStreamEl.textContent).not.toContain("Failed");
+
+            const signalCrashEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-signal-crash",
+                        sessionId: 11,
+                        command: "segfault-bin",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-signal-crash",
+                    sessionId: 11,
+                    kind: "exit",
+                    exitCode: -1,
+                });
+            });
+            expect(signalCrashEl.textContent).toContain("Failed");
+            expect(signalCrashEl.textContent).not.toContain("Cancelled");
+
+            const ptySignalEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-pty-crash",
+                        sessionId: 12,
+                        command: "vite",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("pty-exit", { id: 12, exit_code: -1 });
+            });
+            expect(ptySignalEl.textContent).toContain("Failed");
+        } finally {
+            clearMocks();
+        }
+    });
+
+    it("normalizes string nonChat flags, preserves sample tool-tag code fences, suppresses retry on missing-key title, and excludes mic permission wait from dictation timeout", async () => {
+        const rawSettings = defaultProvidersSettings();
+        rawSettings.connections.openai = {
+            ...rawSettings.connections.openai,
+            apiKey: "sk-test-openai-key",
+            enabled: true,
+            discoveredModels: [
+                {
+                    id: "openai/gpt-4o-custom",
+                    nonChat: "false" as unknown as boolean,
+                },
+            ],
+        };
+        const normalized = normalizeProvidersSettings(rawSettings);
+        expect(normalized.connections.openai.discoveredModels[0].nonChat).toBeUndefined();
+        expect(chatModelIdsFor("openai", normalized.connections)).toContain(
+            "openai/gpt-4o-custom",
+        );
+
+        const tsSampleFence = [
+            "```ts",
+            'const sample = "<tool_call>{\\"name\\":\\"read_file\\"}</tool_call>";',
+            "```",
+        ].join("\n");
+        expect(stripLeakedToolCode(tsSampleFence)).toBe(tsSampleFence);
+        const xmlDocFence = "```xml\n<tool_call>example payload</tool_call>\n```";
+        expect(stripLeakedToolCode(xmlDocFence)).toBe(xmlDocFence);
+        const leakedXmlFence =
+            '```xml\n<tool_call>{"name":"read_file","arguments":{"path":"a.ts"}}</tool_call>\n```';
+        expect(stripLeakedToolCode(leakedXmlFence)).toBe("");
+
+        mount(
+            <ChatErrorDialog
+                message="No API key for this provider"
+                onDismiss={vi.fn()}
+                onRetry={vi.fn()}
+            />,
+        );
+        expect(
+            Array.from(document.body.querySelectorAll("button")).some(
+                (btn) => btn.textContent === "Try again",
+            ),
+        ).toBe(false);
+
+        expect(
+            insertDictatedSlice("hello world, next", 6, "speech", 11).next,
+        ).toBe("hello speech, next");
+
+        const ipcOrder: string[] = [];
+        const slowStop = stopDictationRecognizer(
+            () =>
+                new Promise<void>((resolve) => {
+                    setTimeout(() => {
+                        ipcOrder.push("stop-done");
+                        resolve();
+                    }, 10);
+                }),
+        );
+        vi.stubGlobal(
+            "AudioContext",
+            createMockAudioContextFactory(() => ({
+                connect: vi.fn(),
+                disconnect: vi.fn(),
+                onaudioprocess: null,
+            })),
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(() =>
+                    Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }),
+                ),
+            },
+        });
+        const queuedSession = await startDictation(
+            { onText: vi.fn(), onError: vi.fn() },
+            true,
+            {
+                start: () => {
+                    ipcOrder.push("start");
+                    return Promise.resolve();
+                },
+                stop: () => Promise.resolve(),
+                push: () => Promise.resolve(""),
+            },
+        );
+        await slowStop;
+        queuedSession.dispose();
+        expect(ipcOrder).toEqual(["stop-done", "start"]);
+
+        vi.useFakeTimers();
+        mockIPC(() => "", { shouldMockEvents: true });
+        type AudioProcessHandler = (ev: {
+            inputBuffer: { getChannelData: () => Float32Array };
+        }) => void;
+        const processor: {
+            connect: () => void;
+            disconnect: () => void;
+            onaudioprocess: AudioProcessHandler | null;
+        } = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            onaudioprocess: null,
+        };
+        vi.stubGlobal(
+            "AudioContext",
+            createMockAudioContextFactory(() => processor),
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(
+                    () =>
+                        new Promise((resolve) => {
+                            setTimeout(
+                                () => resolve({ getTracks: () => [{ stop: vi.fn() }] }),
+                                60_000,
+                            );
+                        }),
+                ),
+            },
+        });
+        try {
+            const btnWrap = mount(
+                <TooltipProvider>
+                    <DictationButton />
+                </TooltipProvider>,
+            );
+            const btn = requireMountedButton(btnWrap);
+            await act(async () => {
+                btn.click();
+                await vi.advanceTimersByTimeAsync(60_000);
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Stop dictation");
+            expect(btnWrap.textContent).toContain("0:00");
+            await act(async () => {
+                processor.onaudioprocess?.({
+                    inputBuffer: {
+                        getChannelData: () => new Float32Array(256).fill(0.25),
+                    },
+                });
+                await vi.advanceTimersByTimeAsync(2_000);
+                btn.click();
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Cancel dictation");
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(33_000);
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Dictate");
+        } finally {
+            clearMocks();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
+    it("strips OSC aborted by CSI, avoids punctuation spaces in dictation, guards missing clipboard, and preserves pre-mount terminal elapsed time", async () => {
+        expect(stripAnsi("\x1b]0;window title\x1b[32mgreen\x1b[0m")).toBe(
+            "green",
+        );
+
+        expect(insertDictatedSlice("hello", 5, ", world")).toEqual({
+            next: "hello, world",
+            caret: 12,
+        });
+        expect(insertDictatedSlice("call(", 5, "arg)")).toEqual({
+            next: "call(arg)",
+            caret: 9,
+        });
+        expect(insertDictatedSlice("now", 0, "")).toEqual({
+            next: "now",
+            caret: 0,
+        });
+
+        mockIPC(() => null, { shouldMockEvents: true });
+        const prevClipboard = Object.getOwnPropertyDescriptor(
+            navigator,
+            "clipboard",
+        );
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: undefined,
+        });
+        setAgentCommandStart("cmd-late-mount", Date.now() - 5_000);
+        try {
+            const container = mount(
+                <TooltipProvider>
+                    <TerminalCommandStep
+                        block={{
+                            type: "terminal_command",
+                            command: "npm test",
+                            commandId: "cmd-late-mount",
+                            commandStatus: "running",
+                            content: "PASS suite",
+                            isGenerating: true,
+                        }}
+                    />
+                </TooltipProvider>,
+            );
+            expect(container.textContent).toContain("5s");
+
+            const optionsBtn = container.querySelector<HTMLButtonElement>(
+                'button[aria-label="Command options"]',
+            );
+            expect(optionsBtn).not.toBeNull();
+            await act(async () => {
+                optionsBtn?.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                        key: "Enter",
+                        bubbles: true,
+                    }),
+                );
+            });
+            const copyItem = Array.from(
+                document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+            ).find((el) => el.textContent?.includes("Copy command"));
+            expect(copyItem).toBeDefined();
+            await act(async () => {
+                copyItem?.click();
+            });
+        } finally {
+            clearAgentCommandStart("cmd-late-mount");
+            if (prevClipboard) {
+                Object.defineProperty(navigator, "clipboard", prevClipboard);
+            }
+            clearMocks();
+        }
+    });
 });
+
 
 

@@ -54,7 +54,8 @@ import { notificationStore, notify } from "@/features/notifications";
 import { ProvidersSettingsView } from "@/features/settings/ui/sections/providers";
 import { ChatInput } from "@/features/chat/ui/composer/input";
 
-function mount(node: React.ReactNode): { host: HTMLDivElement; root: Root } {
+/** Mounts `node` inside a detached DOM host and returns `{ host, root }`. */
+const mount = (node: React.ReactNode): { host: HTMLDivElement; root: Root } => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -62,21 +63,23 @@ function mount(node: React.ReactNode): { host: HTMLDivElement; root: Root } {
         root.render(node);
     });
     return { host, root };
-}
+};
 
-function unmount(root: Root, host: HTMLDivElement) {
+/** Unmounts `root` and removes `host` from `document.body`. */
+const unmount = (root: Root, host: HTMLDivElement): void => {
     act(() => {
         root.unmount();
     });
     host.remove();
-}
+};
 
-function resetProvidersSettings() {
+/** Resets AI provider settings to clean unconfigured defaults before each test. */
+const resetProvidersSettings = (): void => {
     updateSettingSection("ai", {
         providers: defaultProvidersSettings(),
         enabledModels: ["auto"],
     });
-}
+};
 
 describe("Settings -> Providers Check chat and Test connection diagnostics guards", () => {
     beforeEach(() => {

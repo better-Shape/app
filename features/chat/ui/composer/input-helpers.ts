@@ -23,7 +23,10 @@ import {
   type PromptHistoryCursor,
 } from "@/lib/chat/prompt-history";
 import { getCatalogProviderOrder } from "@/lib/catalog/store";
-import type { ProvidersSettings } from "@/lib/ai/providers";
+import {
+  PROVIDER_ALIASES,
+  type ProvidersSettings,
+} from "@/lib/ai/providers";
 import type { ModelInfo } from "@/lib/settings/models";
 import { notify } from "@/features/notifications";
 
@@ -277,34 +280,11 @@ export const resolveComposerSetupGap = (
     : resolveUnconfiguredEntriesGuidance(entries);
 };
 
-const DEFAULT_MODEL_PREFIX_ALIASES: Record<string, string> = {
-  "google-ai": "google",
-  googleai: "google",
-  gemini: "google",
-  "x-ai": "xai",
-  azureopenai: "azure",
-  "azure-openai": "azure",
-  togetherai: "together",
-  "together-ai": "together",
-  fireworksai: "fireworks",
-  "fireworks-ai": "fireworks",
-  moonshotai: "moonshot",
-  kimi: "moonshot",
-  "z-ai": "zai",
-  zhipu: "zai",
-  zhipuai: "zai",
-  glm: "zai",
-  dashscope: "qwen",
-  alibaba: "qwen",
-  "lm-studio": "lmstudio",
-};
-
 /** Rewrites aliased `provider/model` prefixes onto canonical preset IDs when known. */
 const canonicalizeWantedModelId = (wanted: string): string => {
   const slash = wanted.indexOf("/");
   if (slash <= 0) return wanted;
-  const canonical =
-    DEFAULT_MODEL_PREFIX_ALIASES[wanted.slice(0, slash).toLowerCase()];
+  const canonical = PROVIDER_ALIASES[wanted.slice(0, slash).toLowerCase()];
   return canonical ? `${canonical}/${wanted.slice(slash + 1)}` : wanted;
 };
 
