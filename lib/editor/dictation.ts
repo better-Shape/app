@@ -241,6 +241,18 @@ const isCurrentDictationAttempt = (
     signal?: AbortSignal,
 ): boolean => epoch === activeDictationEpoch && !signal?.aborted;
 
+/** Enqueues a serialized recognizer `stop()` operation so teardown never races a subsequent `start()`. */
+export const stopDictationRecognizer = (
+    stop: () => Promise<unknown>,
+): Promise<void> =>
+    enqueueRecognizerOp(() =>
+        stop()
+            .then(() => undefined)
+            .catch(() => {
+                /* ignore recognizer teardown errors */
+            }),
+    );
+
 /** Stops the backend recognizer inside the serialized queue only when `epoch` still owns it at teardown time. */
 const stopRecognizerIfCurrent = (
     invoke: DictationInvokeBridge,
