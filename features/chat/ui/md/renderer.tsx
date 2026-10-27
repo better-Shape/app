@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo } from "react";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import {
+    appendInlineCodeSpansInRange,
     scanMarkdownCodeFences,
     stripLeakedToolCode,
     stripOrphanThinkTags,
@@ -1296,126 +1297,23 @@ const pushSanitizedTextSlice = (
     }
 };
 
-/** Counts consecutive backticks (`96`) starting at `from` up to `limit`. */
-const countBacktickRun = (text: string, from: number, limit: number): number => {
-    let idx = from;
-    while (idx < limit && text.charCodeAt(idx) === 96) {
-        idx += 1;
-    }
-    return idx - from;
-};
-
-/** Finds the end of a paragraph block (`\n\n` or `\r\n\r\n`) within `[from, limit)`. */
-const findParagraphBreakBound = (
-    text: string,
-    from: number,
-    limit: number,
-): number => {
-    const lfBreak = text.indexOf("\n\n", from);
-    const crlfBreak = text.indexOf("\r\n\r\n", from);
-    let end = limit;
-    if (lfBreak !== -1 && lfBreak < end) end = lfBreak;
-    if (crlfBreak !== -1 && crlfBreak < end) end = crlfBreak;
-    return end;
-};
-
-/** Finds the end offset of a matching `runLen` closing backtick run in `[from, bound)`, or `-1`. */
-const findMatchingBacktickClose = (
-    text: string,
-    from: number,
-    bound: number,
-    runLen: number,
-): number => {
-    let idx = from;
-    while (idx < bound) {
-        const tick = text.indexOf("`", idx);
-        if (tick === -1 || tick >= bound) return -1;
-        const candLen = countBacktickRun(text, tick, bound);
-        if (candLen === runLen) return tick + candLen;
-        idx = tick + candLen;
-    }
-    return -1;
-};
-
-/** Checks whether the character at `index` is preceded by an odd number of `\` within `[segStart, index)`. */
-const isBackslashEscapedAt = (
-    text: string,
-    segStart: number,
-    index: number,
-): boolean => {
-    let backslashes = 0;
-    let cursor = index - 1;
-    while (cursor >= segStart && text.charCodeAt(cursor) === 0x5c) {
-        backslashes += 1;
-        cursor -= 1;
-    }
-    return backslashes % 2 === 1;
-};
-
-/** Advances past an inline backtick candidate at `openIdx`, recording a span in `out` when unescaped and closed. */
-const consumeInlineBacktickCandidate = (
-    text: string,
-    segStart: number,
-    segEnd: number,
-    openIdx: number,
-    out: Array<readonly [number, number]>,
-): number => {
-    if (isBackslashEscapedAt(text, segStart, openIdx)) {
-        return openIdx + 1;
-    }
-    const runLen = countBacktickRun(text, openIdx, segEnd);
-    const bound = findParagraphBreakBound(text, openIdx + runLen, segEnd);
-    const closeEnd = findMatchingBacktickClose(
-        text,
-        openIdx + runLen,
-        bound,
-        runLen,
-    );
-    if (closeEnd !== -1) {
-        out.push([openIdx, closeEnd]);
-        return closeEnd;
-    }
-    return openIdx + runLen;
-};
-
-/** Appends closed CommonMark inline backtick code spans in `[segStart, segEnd)` to `out`. */
-const appendInlineCodeSpansInGap = (
-    text: string,
-    segStart: number,
-    segEnd: number,
-    out: Array<readonly [number, number]>,
-): void => {
-    let cursor = segStart;
-    while (cursor < segEnd) {
-        const openIdx = text.indexOf("`", cursor);
-        if (openIdx === -1 || openIdx >= segEnd) return;
-        cursor = consumeInlineBacktickCandidate(
-            text,
-            segStart,
-            segEnd,
-            openIdx,
-            out,
-        );
-    }
-};
-
 /** Collects sorted non-overlapping fenced and inline code ranges across `text`. */
 const collectProtectedCodeRanges = (
     text: string,
 ): Array<readonly [number, number]> => {
     const fenceRanges = scanMarkdownCodeFences(text, 0).ranges;
     if (!text.includes("`")) return fenceRanges;
-    const out: Array<readonly [number, number]> = [];
+    const out: Array<[number, number]> = [];
     let cursor = 0;
     for (const [start, end] of fenceRanges) {
         if (start > cursor) {
-            appendInlineCodeSpansInGap(text, cursor, start, out);
+            appendInlineCodeSpansInRange(text, cursor, start, out);
         }
         out.push([start, end]);
         cursor = end;
     }
     if (cursor < text.length) {
-        appendInlineCodeSpansInGap(text, cursor, text.length, out);
+        appendInlineCodeSpansInRange(text, cursor, text.length, out);
     }
     return out;
 };

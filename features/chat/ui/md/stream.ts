@@ -258,54 +258,209 @@ const mapOutsideCodeFences = (
     return out.join("");
 };
 
-/** Counts consecutive backticks starting at `start`. */
-const countBacktickRun = (input: string, start: number): number => {
-    let end = start;
-    while (end < input.length && input.charCodeAt(end) === 96) end += 1;
-    return end - start;
+type BacktickRunToken = {
+    tick: number;
+    fullLen: number;
+    escapedFirst: boolean;
 };
 
-/** Finds the closing backtick run of exact length `runLen`, or `-1` if unclosed. */
-const findMatchingBackticks = (
-    input: string,
-    from: number,
-    runLen: number,
-): number => {
-    let pos = from;
-    while (pos < input.length) {
-        const next = input.indexOf("`", pos);
-        if (next === -1) return -1;
-        const count = countBacktickRun(input, next);
-        if (count === runLen) return next + count;
-        pos = next + count;
+type BacktickCloserBuckets = Map<number, { indices: number[]; cursor: number }>;
+
+/** Checks whether `text[index]` is preceded by an odd number of `\` within `[segStart, index)`. */
+const isBackslashEscapedAt = (
+    text: string,
+    segStart: number,
+    index: number,
+): boolean => {
+    let backslashes = 0;
+    let cursor = index - 1;
+    while (cursor >= segStart && text.charCodeAt(cursor) === 0x5c) {
+        backslashes += 1;
+        cursor -= 1;
     }
-    return -1;
+    return backslashes % 2 === 1;
 };
 
-/** Checks whether `[tick, closeEnd]` forms a valid single-paragraph inline code span. */
-const isValidInlineCodeSpan = (
-    input: string,
-    tick: number,
-    closeEnd: number,
-): boolean => closeEnd !== -1 && !input.slice(tick, closeEnd).includes("\n\n");
+/** Counts consecutive backticks starting at `from` up to `limit`. */
+const countBoundedBacktickRun = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    let idx = from;
+    while (idx < limit && text.charCodeAt(idx) === 0x60) {
+        idx += 1;
+    }
+    return idx - from;
+};
 
-/** Collects `[start, end]` offsets for closed inline backtick code spans. */
+/** Appends run index `runIdx` into the closer bucket for `fullLen`. */
+const pushCloserBucketEntry = (
+    buckets: BacktickCloserBuckets,
+    fullLen: number,
+    runIdx: number,
+): void => {
+    const existing = buckets.get(fullLen);
+    if (existing) {
+        existing.indices.push(runIdx);
+    } else {
+        buckets.set(fullLen, { indices: [runIdx], cursor: 0 });
+    }
+};
+
+/** Collects all maximal backtick runs within a single paragraph `[pStart, pEnd)` in one O(n) pass. */
+const scanParagraphBacktickRuns = (
+    text: string,
+    pStart: number,
+    pEnd: number,
+): { runs: BacktickRunToken[]; buckets: BacktickCloserBuckets } => {
+    const runs: BacktickRunToken[] = [];
+    const buckets: BacktickCloserBuckets = new Map();
+    let pos = pStart;
+    while (pos < pEnd) {
+        const tick = text.indexOf("`", pos);
+        if (tick === -1 || tick >= pEnd) break;
+        const fullLen = countBoundedBacktickRun(text, tick, pEnd);
+        const escapedFirst = isBackslashEscapedAt(text, pStart, tick);
+        pushCloserBucketEntry(buckets, fullLen, runs.length);
+        runs.push({ tick, fullLen, escapedFirst });
+        pos = tick + fullLen;
+    }
+    return { runs, buckets };
+};
+
+/** Resolves the effective opener start and backtick count for `token`, or `null` when fully escaped. */
+const resolveBacktickOpener = (
+    token: BacktickRunToken,
+): { openStart: number; openLen: number } | null => {
+    if (!token.escapedFirst) {
+        return { openStart: token.tick, openLen: token.fullLen };
+    }
+    return token.fullLen > 1
+        ? { openStart: token.tick + 1, openLen: token.fullLen - 1 }
+        : null;
+};
+
+/** Finds the next closer run index `> openRunIdx` of length `openLen` in amortized O(1) time. */
+const takeNextMatchingCloserIndex = (
+    buckets: BacktickCloserBuckets,
+    openLen: number,
+    openRunIdx: number,
+): number => {
+    const bucket = buckets.get(openLen);
+    if (!bucket) return -1;
+    while (
+        bucket.cursor < bucket.indices.length &&
+        bucket.indices[bucket.cursor] <= openRunIdx
+    ) {
+        bucket.cursor += 1;
+    }
+    if (bucket.cursor >= bucket.indices.length) return -1;
+    const matched = bucket.indices[bucket.cursor];
+    bucket.cursor += 1;
+    return matched;
+};
+
+/** Attempts to pair `runs[idx]` with a matching closer in `buckets`, returning the span end or `-1`. */
+const tryPairParagraphBacktickSpan = (
+    runs: BacktickRunToken[],
+    buckets: BacktickCloserBuckets,
+    idx: number,
+    out: Array<[number, number]>,
+): number => {
+    const opener = resolveBacktickOpener(runs[idx]);
+    if (!opener) return -1;
+    const closerIdx = takeNextMatchingCloserIndex(buckets, opener.openLen, idx);
+    if (closerIdx === -1) return -1;
+    const closer = runs[closerIdx];
+    const closeEnd = closer.tick + closer.fullLen;
+    out.push([opener.openStart, closeEnd]);
+    return closeEnd;
+};
+
+/** Matches backtick runs inside a single paragraph `[pStart, pEnd)` in O(n) time and appends spans to `out`. */
+const appendParagraphInlineCodeSpans = (
+    text: string,
+    pStart: number,
+    pEnd: number,
+    out: Array<[number, number]>,
+): void => {
+    if (pEnd <= pStart) return;
+    const { runs, buckets } = scanParagraphBacktickRuns(text, pStart, pEnd);
+    let minTick = pStart;
+    for (let idx = 0; idx < runs.length; idx += 1) {
+        if (runs[idx].tick >= minTick) {
+            const closeEnd = tryPairParagraphBacktickSpan(runs, buckets, idx, out);
+            if (closeEnd !== -1) minTick = closeEnd;
+        }
+    }
+};
+
+/** Returns `nl - 1` when preceded by `\r` within `[segStart, nl)`, otherwise `nl`. */
+const resolveBreakStartAtNewline = (
+    text: string,
+    segStart: number,
+    nl: number,
+): number =>
+    nl > segStart && text.charCodeAt(nl - 1) === 0x0d ? nl - 1 : nl;
+
+/** Checks whether `text` has `\r\n` starting at `pos` within `segEnd`. */
+const isCrLfAt = (text: string, segEnd: number, pos: number): boolean =>
+    pos + 1 < segEnd &&
+    text.charCodeAt(pos) === 0x0d &&
+    text.charCodeAt(pos + 1) === 0x0a;
+
+/** Returns the index right after a blank-line break starting at `nl`, or `-1` when single-line. */
+const resolveBreakEndAfterNewline = (
+    text: string,
+    segEnd: number,
+    nl: number,
+): number => {
+    if (nl + 1 >= segEnd) return -1;
+    if (text.charCodeAt(nl + 1) === 0x0a) return nl + 2;
+    return isCrLfAt(text, segEnd, nl + 1) ? nl + 3 : -1;
+};
+
+/** Finds the next `\n` within `[from, limit)`, or `-1` when none exists. */
+const indexOfNewlineInRange = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    const nl = text.indexOf("\n", from);
+    return nl !== -1 && nl < limit ? nl : -1;
+};
+
+/** Appends closed single-paragraph CommonMark inline code spans within `[segStart, segEnd)` to `out` in O(n) time. */
+export const appendInlineCodeSpansInRange = (
+    text: string,
+    segStart: number,
+    segEnd: number,
+    out: Array<[number, number]>,
+): void => {
+    let paraStart = segStart;
+    let scanPos = segStart;
+    while (scanPos < segEnd) {
+        const nl = indexOfNewlineInRange(text, scanPos, segEnd);
+        if (nl === -1) break;
+        const resumeAt = resolveBreakEndAfterNewline(text, segEnd, nl);
+        if (resumeAt !== -1) {
+            const paraEnd = resolveBreakStartAtNewline(text, paraStart, nl);
+            appendParagraphInlineCodeSpans(text, paraStart, paraEnd, out);
+            paraStart = resumeAt;
+            scanPos = resumeAt;
+        } else {
+            scanPos = nl + 1;
+        }
+    }
+    appendParagraphInlineCodeSpans(text, paraStart, segEnd, out);
+};
+
+/** Collects `[start, end]` offsets for closed inline backtick code spans in O(n) time. */
 const collectInlineCodeRanges = (input: string): Array<[number, number]> => {
     if (!input.includes("`")) return [];
     const ranges: Array<[number, number]> = [];
-    let pos = 0;
-    while (pos < input.length) {
-        const tick = input.indexOf("`", pos);
-        if (tick === -1) break;
-        const runLen = countBacktickRun(input, tick);
-        const closeEnd = findMatchingBackticks(input, tick + runLen, runLen);
-        if (isValidInlineCodeSpan(input, tick, closeEnd)) {
-            ranges.push([tick, closeEnd]);
-            pos = closeEnd;
-        } else {
-            pos = tick + runLen;
-        }
-    }
+    appendInlineCodeSpansInRange(input, 0, input.length, ranges);
     return ranges;
 };
 

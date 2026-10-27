@@ -971,8 +971,9 @@ const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
 
 /** Providers that share a key prefix, so a cross-card hint stays quiet. */
 const SIBLING_PROVIDERS: Partial<Record<ProviderId, ProviderId[]>> = {
-  zen: ["zen-messages"],
-  "zen-messages": ["zen"],
+  zen: ["zen-messages", "zen-go"],
+  "zen-messages": ["zen", "zen-go"],
+  "zen-go": ["zen", "zen-messages"],
 };
 
 const SEARCH_KEY_PREFIX_REQUIREMENTS: Partial<
