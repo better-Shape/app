@@ -1786,8 +1786,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     cancelled: true,
                 });
             });
-            expect(stoppedStreamEl.textContent ?? "").toContain("Cancelled");
-            expect(stoppedStreamEl.textContent ?? "").not.toContain("Failed");
+            expect(stoppedStreamEl.textContent).toContain("Cancelled");
+            expect(stoppedStreamEl.textContent).not.toContain("Failed");
 
             const signalCrashEl = mount(
                 <TerminalCommandStep
@@ -1810,8 +1810,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     exitCode: -1,
                 });
             });
-            expect(signalCrashEl.textContent ?? "").toContain("Failed");
-            expect(signalCrashEl.textContent ?? "").not.toContain("Cancelled");
+            expect(signalCrashEl.textContent).toContain("Failed");
+            expect(signalCrashEl.textContent).not.toContain("Cancelled");
 
             const ptySignalEl = mount(
                 <TerminalCommandStep
@@ -1829,7 +1829,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 await Promise.resolve();
                 await emit("pty-exit", { id: 12, exit_code: -1 });
             });
-            expect(ptySignalEl.textContent ?? "").toContain("Failed");
+            expect(ptySignalEl.textContent).toContain("Failed");
         } finally {
             clearMocks();
         }
