@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { repairStreamGlitches } from "@/features/chat/ui/md/stream";
+import {
+    preprocessChatMarkdown,
+    repairStreamGlitches,
+} from "@/features/chat/ui/md/stream";
 
 /** The original quadratic implementation, kept as the behavioural reference. */
 function reference(text: string): string {
@@ -121,5 +124,55 @@ describe("repairStreamGlitches equivalence", () => {
         const prose = "Hello there, this sentence has Capitals but no repeated tail at all.";
         expect(repairStreamGlitches(prose)).toBe(reference(prose));
         expect(repairStreamGlitches(prose)).toBe(prose);
+    });
+
+    it("never leaves unpaired surrogates or split emoji clusters at display or preprocess caps", () => {
+        const hasLoneSurrogate = (value: string): boolean => {
+            for (let idx = 0; idx < value.length; idx += 1) {
+                const code = value.charCodeAt(idx);
+                if (code >= 0xd800 && code <= 0xdbff) {
+                    const next = value.charCodeAt(idx + 1);
+                    if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+                    idx += 1;
+                } else if (code >= 0xdc00 && code <= 0xdfff) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        const buildNonRepeatingAscii = (length: number): string => {
+            const chunks: string[] = [];
+            let total = 0;
+            let counter = 0;
+            while (total < length) {
+                const token = `[block-${String(counter).padStart(6, "0")}] `;
+                chunks.push(token);
+                total += token.length;
+                counter += 1;
+            }
+            return chunks.join("").slice(0, length);
+        };
+
+        // 47,999 ASCII chars + 2-UTF16-unit emoji ("🚀") places MAX_DISPLAY_CHARS (48,000)
+        // directly between the high and low surrogate halves during streaming.
+        const head47999 = buildNonRepeatingAscii(47_999);
+        const splitSurrogate = `${head47999}🚀 trailing text`;
+        const streamed = preprocessChatMarkdown(splitSurrogate, { streaming: true });
+        expect(hasLoneSurrogate(streamed)).toBe(false);
+        expect(streamed).toBe(`${head47999}\n\n... (response truncated for display)`);
+
+        // Multi-codepoint ZWJ family emoji straddling MAX_DISPLAY_CHARS (48,000) drops cleanly.
+        const head47996 = buildNonRepeatingAscii(47_996);
+        const splitZwj = `${head47996}👨‍👩‍👧‍👦 trailing text`;
+        const zwjOut = preprocessChatMarkdown(splitZwj, { streaming: true });
+        expect(hasLoneSurrogate(zwjOut)).toBe(false);
+        expect(zwjOut).toBe(`${head47996}\n\n... (response truncated for display)`);
+
+        // Settled mode exercises BOTH capSettledPreprocessInput (96,000) and
+        // truncateForDisplay (48,000) when emojis straddle both boundaries.
+        const splitBothCaps = `${head47999}🚀${buildNonRepeatingAscii(47_998)}🎉 trailing text`;
+        const settledOut = preprocessChatMarkdown(splitBothCaps, { streaming: false });
+        expect(hasLoneSurrogate(settledOut)).toBe(false);
+        expect(settledOut).toBe(`${head47999}\n\n... (response truncated for display)`);
     });
 });
