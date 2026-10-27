@@ -47,6 +47,7 @@ import {
     findFallbackGraphemeCutIndex,
     preprocessChatMarkdown,
     repairStreamGlitches,
+    sliceGraphemeSafe,
     stripLeakedToolMarkup,
 } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
@@ -1046,6 +1047,26 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(dcsBuf).toEqual({ output: "head", carry: "\u001bPpayload" });
         dcsBuf = appendStreamAnsiChunk(dcsBuf, "-more\u001b\\tail", true);
         expect(dcsBuf).toEqual({ output: "headtail", carry: "" });
+
+        let sixelBuf: TerminalStreamBuffer = { output: "", carry: "" };
+        sixelBuf = appendStreamAnsiChunk(
+            sixelBuf,
+            `pre\u001bPq${"#0;2;0;0;0".repeat(40)}`,
+            false,
+        );
+        expect(sixelBuf).toEqual({ output: "pre", carry: "\u001bP" });
+        sixelBuf = appendStreamAnsiChunk(
+            sixelBuf,
+            `${"#1;2;99;99;99".repeat(30)}\u001b`,
+            false,
+        );
+        expect(sixelBuf).toEqual({ output: "pre", carry: "\u001bP\u001b" });
+        sixelBuf = appendStreamAnsiChunk(sixelBuf, "\\post", true);
+        expect(sixelBuf).toEqual({ output: "prepost", carry: "" });
+
+        const longClusterPrefix = "x".repeat(100);
+        const longGrapheme = `${longClusterPrefix}a${"\u0301".repeat(80)}z`;
+        expect(sliceGraphemeSafe(longGrapheme, 160)).toBe(longClusterPrefix);
 
         const row = mount(
             <div data-chat-message-index="0">

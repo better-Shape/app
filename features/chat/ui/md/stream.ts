@@ -1579,22 +1579,53 @@ export const findFallbackGraphemeCutIndex = (
     return cut;
 };
 
-/** Finds the largest grapheme boundary `<= limit` inside a small tail window around `limit`. */
-const findGraphemeCutIndex = (text: string, limit: number): number => {
-    if (!GRAPHEME_SEGMENTER) return findFallbackGraphemeCutIndex(text, limit);
-    const winStart = alignWindowStart(text, Math.max(0, limit - 32));
-    const winEnd = alignWindowEnd(text, Math.min(text.length, limit + 16));
+/** Returns the largest grapheme boundary `<= limit` inside `text.slice(winStart, winEnd)`. */
+const lastSegmentBoundaryAtOrBefore = (
+    segmenter: Intl.Segmenter,
+    text: string,
+    winStart: number,
+    winEnd: number,
+    limit: number,
+): number => {
     let bestCut = winStart;
-    for (const seg of GRAPHEME_SEGMENTER.segment(text.slice(winStart, winEnd))) {
+    for (const seg of segmenter.segment(text.slice(winStart, winEnd))) {
         const boundary = winStart + seg.index + seg.segment.length;
         if (boundary > limit) break;
         bestCut = boundary;
     }
-    return stepBackFromTrailingHighSurrogate(text, bestCut);
+    return bestCut;
+};
+
+/** Finds the largest grapheme boundary `<= limit` without splitting long clusters at the window start. */
+const findGraphemeCutIndex = (text: string, limit: number): number => {
+    if (!GRAPHEME_SEGMENTER) return findFallbackGraphemeCutIndex(text, limit);
+    const winStart = findFallbackGraphemeCutIndex(
+        text,
+        alignWindowStart(text, Math.max(0, limit - 64)),
+    );
+    const winEnd = alignWindowEnd(text, Math.min(text.length, limit + 16));
+    const cut = lastSegmentBoundaryAtOrBefore(
+        GRAPHEME_SEGMENTER,
+        text,
+        winStart,
+        winEnd,
+        limit,
+    );
+    const resolved =
+        cut === winStart && winStart > 0
+            ? lastSegmentBoundaryAtOrBefore(
+                  GRAPHEME_SEGMENTER,
+                  text,
+                  0,
+                  winEnd,
+                  limit,
+              )
+            : cut;
+    return stepBackFromTrailingHighSurrogate(text, resolved);
 };
 
 /** Slices `text` at `limit` without splitting emoji grapheme clusters or UTF-16 surrogate pairs. */
-const sliceGraphemeSafe = (text: string, limit: number): string => {
+export const sliceGraphemeSafe = (text: string, limit: number): string => {
     if (limit <= 0) return "";
     if (text.length <= limit) return text;
     return text.slice(0, findGraphemeCutIndex(text, limit));
