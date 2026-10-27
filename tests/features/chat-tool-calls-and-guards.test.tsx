@@ -1741,6 +1741,94 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 2)).toBe(0);
         expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 4)).toBe(4);
     });
+
+    it("replaces selected dictation ranges, closes open fences before truncation notices, and marks killed terminal sessions as Cancelled", async () => {
+        const replaced = insertDictatedSlice("fix old now", 4, "this bug", 7);
+        expect(replaced).toEqual({
+            next: "fix this bug now",
+            caret: "fix this bug".length,
+        });
+        expect(insertDictatedSlice("fix old now", 7, "this bug", 4).next).toBe(
+            "fix this bug now",
+        );
+
+        const openBacktickStream = `${"A".repeat(47_990)}\n\`\`\`ts\nconst v = 1;\n${"B".repeat(2_000)}`;
+        expect(
+            preprocessChatMarkdown(openBacktickStream, { streaming: true }),
+        ).toMatch(/```\n\n\.\.\. \(response truncated for display\)$/u);
+        const openTildeStatic = `${"A".repeat(47_990)}\n~~~python\nx = 1\n${"B".repeat(2_000)}`;
+        expect(
+            preprocessChatMarkdown(openTildeStatic, { streaming: false }),
+        ).toMatch(/~~~\n\n\.\.\. \(response truncated for display\)$/u);
+
+        mockIPC(() => undefined, { shouldMockEvents: true });
+        try {
+            const killedStreamEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-killed-exit",
+                        command: "npm run dev",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-killed-exit",
+                    sessionId: 9,
+                    kind: "exit",
+                    exitCode: -1,
+                });
+            });
+            expect(killedStreamEl.textContent ?? "").toContain("Cancelled");
+            expect(killedStreamEl.textContent ?? "").not.toContain("Failed");
+
+            const killedPtyEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-pty-kill",
+                        sessionId: 11,
+                        command: "vite",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("pty-exit", { id: 11, exit_code: -1 });
+            });
+            expect(killedPtyEl.textContent ?? "").toContain("Cancelled");
+
+            const spawnFailEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-spawn-fail",
+                        command: "nonexistent-bin",
+                        commandStatus: "running",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-spawn-fail",
+                    kind: "exit",
+                    exitCode: -1,
+                    data: "Failed to spawn command: ENOENT",
+                });
+            });
+            expect(spawnFailEl.textContent ?? "").toContain("Failed");
+        } finally {
+            clearMocks();
+        }
+    });
 });
 
 

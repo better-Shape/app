@@ -1633,10 +1633,12 @@ export const sliceGraphemeSafe = (text: string, limit: number): string => {
 
 const TRUNCATED_DISPLAY_SUFFIX = "\n\n... (response truncated for display)";
 
-/** Truncates excessively long streaming or finished responses without splitting emoji or UTF-16 surrogates. */
+/** Truncates excessively long streaming or finished responses, closing any open fence before the notice. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    const safePrefix = sliceGraphemeSafe(text, MAX_DISPLAY_CHARS);
+    const safePrefix = balanceMarkdownFences(
+        sliceGraphemeSafe(text, MAX_DISPLAY_CHARS),
+    );
     return `${safePrefix}${TRUNCATED_DISPLAY_SUFFIX}`;
 };
 

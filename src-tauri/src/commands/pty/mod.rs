@@ -1760,8 +1760,9 @@ pub fn spawn_piped_session(
             // finished, so `exit_code`/`on_exit` never race a truncated buffer.
             meta_m.await_drains(PIPE_DRAIN_TIMEOUT);
             meta_m.mark_exited(Some(code));
+            let exit_code = meta_m.exit_code().unwrap_or(code);
             if let Some(cb) = &cb_exit {
-                (cb.on_exit)(id, code);
+                (cb.on_exit)(id, exit_code);
             }
             break;
         }

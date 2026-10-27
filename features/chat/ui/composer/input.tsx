@@ -336,20 +336,35 @@ const formatDictatedSuffix = (text: string, after: string): string => {
   return `${needsSpace ? " " : ""}${trimmedAfter}`;
 };
 
-/** Inserts dictated speech text around `caret` with clean single-space padding and returns next caret. */
+/** Inserts dictated speech text across `[caret, selectionEnd]` with single-space padding and returns next caret. */
 export const insertDictatedSlice = (
   val: string,
   caret: number,
   text: string,
+  selectionEnd = caret,
 ): { next: string; caret: number } => {
-  const clampedCaret = Math.max(0, Math.min(caret, val.length));
-  const before = val.slice(0, clampedCaret);
-  const after = val.slice(clampedCaret);
+  const start = Math.max(0, Math.min(caret, selectionEnd, val.length));
+  const end = Math.max(
+    start,
+    Math.min(Math.max(caret, selectionEnd), val.length),
+  );
+  const before = val.slice(0, start);
+  const after = val.slice(end);
   const pad = before && !/\s$/u.test(before) ? " " : "";
   return {
     next: `${before}${pad}${text}${formatDictatedSuffix(text, after)}`,
     caret: before.length + pad.length + text.length,
   };
+};
+
+/** Reads the `[selectionStart, selectionEnd]` range from `textarea` (defaulting to the end of `val`). */
+const readTextareaSelectionRange = (
+  textarea: HTMLTextAreaElement | null,
+  val: string,
+): [number, number] => {
+  const start = textarea?.selectionStart ?? val.length;
+  const end = textarea?.selectionEnd ?? start;
+  return [start, end];
 };
 
 /** Subscribes to external composer DOM custom events (`quote`, `focus`, `element`, `files`, `dictation`, `media`). */
@@ -549,8 +564,11 @@ const useComposerWindowBridges = (opts: {
       const text = (e as CustomEvent<{ text?: string }>).detail?.text;
       if (!text) return;
       const val = inputValueRef.current;
-      const caret = textareaRef.current?.selectionStart ?? val.length;
-      const inserted = insertDictatedSlice(val, caret, text);
+      const [selStart, selEnd] = readTextareaSelectionRange(
+        textareaRef.current,
+        val,
+      );
+      const inserted = insertDictatedSlice(val, selStart, text, selEnd);
       applyProgrammaticInputValue(inserted.next, inserted.caret);
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
