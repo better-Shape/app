@@ -148,6 +148,30 @@ fn emit_chat_stream(app: &AppHandle, payload: serde_json::Value) {
     let _ = app.emit("agent-terminal-stream", payload);
 }
 
+fn build_exit_stream_payload(
+    command_id: &str,
+    session_id: u32,
+    exit_code: i32,
+    cancelled: bool,
+) -> serde_json::Value {
+    if cancelled {
+        json!({
+            "commandId": command_id,
+            "sessionId": session_id,
+            "kind": "exit",
+            "exitCode": exit_code,
+            "cancelled": true,
+        })
+    } else {
+        json!({
+            "commandId": command_id,
+            "sessionId": session_id,
+            "kind": "exit",
+            "exitCode": exit_code,
+        })
+    }
+}
+
 fn make_callbacks(
     app: &AppHandle,
     command_id: &str,
@@ -197,17 +221,13 @@ fn make_callbacks(
             }
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
+            let cancelled = owner.cancel.is_cancelled() || exit_code < 0;
             if let Some(state) = app_exit.try_state::<AgentState>() {
                 state.unregister_session(session_id, &owner);
             }
             emit_chat_stream(
                 &app_exit,
-                json!({
-                    "commandId": cmd_id_exit,
-                    "sessionId": session_id,
-                    "kind": "exit",
-                    "exitCode": exit_code,
-                }),
+                build_exit_stream_payload(&cmd_id_exit, session_id, exit_code, cancelled),
             );
             if forward_panel_data {
                 emit_panel_event(
@@ -544,5 +564,13 @@ mod tests {
         assert_eq!(strip_ansi("plain"), "plain");
         assert_eq!(strip_ansi("a\r\nb"), "a\nb");
         assert_eq!(strip_ansi("\u{1b}[2K\u{1b}[1Gnpm install"), "npm install");
+    }
+
+    #[test]
+    fn exit_stream_payload_marks_cancelled_only_when_stopped() {
+        let stopped = build_exit_stream_payload("cmd-1", 7, -1, true);
+        assert_eq!(stopped.get("cancelled"), Some(&json!(true)));
+        let failed = build_exit_stream_payload("cmd-2", 7, 1, false);
+        assert_eq!(failed.get("cancelled"), None);
     }
 }
