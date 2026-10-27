@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown";
 import { commands } from "@/lib/backend/commands";
 import {
+    getSettings,
     useSettings,
     updateSettingSection,
     type AutoRunModeSetting,
@@ -607,10 +608,21 @@ export const LiveTerminalOutput = ({
     );
 };
 
-/** Persists `mode` to settings and notifies the active backend turn policy. */
-const selectAutoRunMode = (mode: AutoRunModeSetting): void => {
+/** Checks whether the Tauri desktop IPC bridge is present on `window`. */
+const hasDesktopIpcBridge = (): boolean =>
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Persists `mode` to settings and rolls back if active backend turn policy sync fails. */
+export const selectAutoRunMode = (mode: AutoRunModeSetting): Promise<void> => {
+    const previousMode = getSettings().ai.autoRunMode;
+    if (previousMode === mode) return Promise.resolve();
     updateSettingSection("ai", { autoRunMode: mode });
-    commands.updateTurnPolicy({ autoRunMode: mode }).catch(() => undefined);
+    if (!hasDesktopIpcBridge()) return Promise.resolve();
+    return commands.updateTurnPolicy({ autoRunMode: mode }).catch(() => {
+        if (getSettings().ai.autoRunMode === mode) {
+            updateSettingSection("ai", { autoRunMode: previousMode });
+        }
+    });
 };
 
 /** Renders the TerminalCommandMenu UI component. */
