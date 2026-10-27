@@ -252,16 +252,59 @@ const stripReferenceOpenFenceTail = (
         : inputText;
 };
 
+const findClosingTokenIndex = (
+    tokens: string[],
+    afterOpenIdx: number,
+    minWidth: number,
+): number => {
+    for (let candidate = afterOpenIdx; candidate < tokens.length; candidate += 2) {
+        if (tokens[candidate].length >= minWidth) return candidate;
+    }
+    return -1;
+};
+
+const consumeReferenceClosedToken = (
+    tokens: string[],
+    idx: number,
+): { emitted: string; nextIdx: number } => {
+    const header = /^[\w-]*[ \t\r\f\v]*\n/u.exec(tokens[idx + 1]);
+    const closeIdx = header
+        ? findClosingTokenIndex(tokens, idx + 2, tokens[idx].length)
+        : -1;
+    if (!header || closeIdx < 0) {
+        return { emitted: tokens[idx] + tokens[idx + 1], nextIdx: idx + 2 };
+    }
+    const inner =
+        tokens[idx + 1].slice(header[0].length) +
+        tokens.slice(idx + 2, closeIdx).join("");
+    const kept = looksLikeLeakedToolCode(inner)
+        ? ""
+        : tokens.slice(idx, closeIdx + 1).join("");
+    return {
+        emitted: kept + tokens[closeIdx + 1],
+        nextIdx: closeIdx + 2,
+    };
+};
+
+const stripReferenceClosedByPattern = (
+    inputText: string,
+    delimPattern: RegExp,
+): string => {
+    const tokens = inputText.split(delimPattern);
+    const pieces: string[] = [tokens[0]];
+    let idx = 1;
+    while (idx + 1 < tokens.length) {
+        const step = consumeReferenceClosedToken(tokens, idx);
+        pieces.push(step.emitted);
+        idx = step.nextIdx;
+    }
+    return pieces.join("");
+};
+
 const stripReferenceFences = (inputText: string): string => {
-    let working = inputText.replace(
-        /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/gu,
-        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
-    );
+    let working = stripReferenceClosedByPattern(inputText, /(`{3,})/gu);
     working = stripReferenceOpenFenceTail(working, "`", /^`{3,}[\w-]*[ \t\r\f\v]*\n/u);
-    working = working.replace(
-        /~~~[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~~~/gu,
-        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
-    );
+    working = stripReferenceClosedByPattern(working, /(~{3,})/gu);
     return stripReferenceOpenFenceTail(working, "~", /^~{3,}[\w-]*[ \t\r\f\v]*\n/u);
 };
 
@@ -308,6 +351,8 @@ const cases: string[] = [
     "prose with ```code fence``` inline",
     "```ts\nconst a = 1;\n```",
     "```json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n```",
+    "````json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n````",
+    "~~~~json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n~~~~",
     "hello\n\n\n\nworld",
     "<tool_call>{\"name\":\"read_file\"}</tool_call> after",
     "<tool_call>",
@@ -350,6 +395,16 @@ describe("strip equivalence", () => {
         expect(
             stripLeakedToolCode("```\ncode not a leak\n```\n<tool_code>x</tool_code>"),
         ).toBe("```\ncode not a leak\n```\n");
+        expect(
+            stripLeakedToolCode(
+                "before\n````json\n{\"tool_code\": \"print(read_file('x'))\"}\n````\nafter",
+            ),
+        ).toBe("before\n\nafter");
+        expect(
+            stripLeakedToolCode(
+                "before\n~~~~json\n{\"tool_code\": \"print(read_file('x'))\"}\n~~~~\nafter",
+            ),
+        ).toBe("before\n\nafter");
         for (const sample of cases) {
             expect(stripLeakedToolCode(sample), sample).toBe(referenceCode(sample));
         }
