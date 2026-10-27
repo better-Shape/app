@@ -168,12 +168,20 @@ const skipNfOrTwoByteEscape = (input: string, start: number): number => {
         : afterIntermediates;
 };
 
+const ANSI_STRING_SEQUENCE_OPENERS = new Set(["]", "P", "X", "^", "_"]);
+
+/** Returns true when `ch` opens an ECMA-48 string control sequence (`OSC`, `DCS`, `SOS`, `PM`, `APC`). */
+const isAnsiStringSequenceOpener = (ch: string | undefined): boolean =>
+    ch !== undefined && ANSI_STRING_SEQUENCE_OPENERS.has(ch);
+
 /** Checks whether an ANSI escape starting at `escIndex` is split across the end of `input`. */
 const isIncompleteAnsiAtEnd = (input: string, escIndex: number): boolean => {
     if (escIndex === input.length - 1) return true;
     const next = input[escIndex + 1];
     if (next === "[") return isIncompleteCsiAtEnd(input, escIndex + 2);
-    if (next === "]") return isIncompleteOscAtEnd(input, escIndex + 2);
+    if (isAnsiStringSequenceOpener(next)) {
+        return isIncompleteOscAtEnd(input, escIndex + 2);
+    }
     return isIncompleteNfAtEnd(input, escIndex + 1);
 };
 
@@ -185,7 +193,9 @@ const isLineBreakOrEmpty = (ch: string | undefined): boolean =>
 const advanceAnsiEscape = (input: string, escIndex: number): number => {
     const next = input[escIndex + 1];
     if (isLineBreakOrEmpty(next)) return escIndex + 1;
-    if (next === "]") return skipOscSequence(input, escIndex + 2);
+    if (isAnsiStringSequenceOpener(next)) {
+        return skipOscSequence(input, escIndex + 2);
+    }
     if (next === "[") return skipCsiSequence(input, escIndex + 2);
     return skipNfOrTwoByteEscape(input, escIndex + 1);
 };
