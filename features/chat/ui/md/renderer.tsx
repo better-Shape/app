@@ -359,9 +359,26 @@ const decodeXmlAttr = (raw: string): string =>
         .replace(/&gt;/g, ">")
         .replace(/&amp;/g, "&");
 
+/** Checks whether `tagText[pos]` sits on an attribute-name boundary. */
+const isAttrNameStartAt = (tagText: string, pos: number): boolean =>
+    pos === 0 || !/[A-Za-z0-9_]/u.test(tagText[pos - 1]);
+
 /** Reads a double-quoted XML attribute value (`name="..."`) from an opening tag string. */
-const readAttr = (tagText: string, name: string): string =>
-    tagText.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1] ?? "";
+const readAttr = (tagText: string, name: string): string => {
+    const prefix = `${name}="`;
+    let from = 0;
+    while (from < tagText.length) {
+        const hit = tagText.indexOf(prefix, from);
+        if (hit === -1) return "";
+        if (isAttrNameStartAt(tagText, hit)) {
+            const valStart = hit + prefix.length;
+            const valEnd = tagText.indexOf('"', valStart);
+            return valEnd === -1 ? "" : tagText.slice(valStart, valEnd);
+        }
+        from = hit + 1;
+    }
+    return "";
+};
 
 /** Reads an optional non-empty XML attribute value, returning `undefined` when absent or blank. */
 const readOptionalAttr = (tagText: string, name: string): string | undefined => {

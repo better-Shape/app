@@ -601,33 +601,23 @@ export const stripOrphanThinkTags = (text: string): string => {
 
 const LEAKED_TOOL_CALL_FN_RE =
     /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
-const LEAKED_PRINT_FN_RE = new RegExp(
-    `\\bprint\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`,
-);
-const LEAKED_FUNCTIONS_CALL_RE = new RegExp(
-    `^functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(`,
-);
+const LEAKED_PRINT_FN_RE =
+    /\bprint\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
+const LEAKED_FUNCTIONS_CALL_RE =
+    /^functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
 const GENERIC_FUNCTIONS_CALL_RE = /^functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
 const GENERIC_PRINT_CALL_RE = /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
 const LEAKED_XML_OPEN_RE =
     /<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i;
 
-const LEAKED_PRINT_LINE_RE = new RegExp(
-    `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`,
-    "g",
-);
-const LEAKED_PRINT_TAIL_RE = new RegExp(
-    `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\([^\\n]*$`,
-    "g",
-);
-const LEAKED_FN_LINE_RE = new RegExp(
-    `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*\\}\\)[ \\t]*(?=\\n|$)`,
-    "g",
-);
-const LEAKED_FN_TAIL_RE = new RegExp(
-    `(?:^|\\n)[ \\t]*functions\\.${LEAKED_TOOL_CALL_FN_RE.source}\\s*\\(\\{[^\\n]*$`,
-    "g",
-);
+const LEAKED_PRINT_LINE_RE =
+    /(?:^|\n)[ \t]*print\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\([^\n]*\)\s*\)[ \t]*(?=\n|$)/g;
+const LEAKED_PRINT_TAIL_RE =
+    /(?:^|\n)[ \t]*print\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\([^\n]*$/g;
+const LEAKED_FN_LINE_RE =
+    /(?:^|\n)[ \t]*functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(\{[^\n]*\}\)[ \t]*(?=\n|$)/g;
+const LEAKED_FN_TAIL_RE =
+    /(?:^|\n)[ \t]*functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(\{[^\n]*$/g;
 
 /** Checks whether a single trimmed line matches a leaked tool invocation signature. */
 const isLeakedToolInvocationLine = (
@@ -716,43 +706,23 @@ export const LEAKED_TOOL_XML_TAGS = [
 ] as const;
 
 /** BetterShape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
-const STRIP_ACROSS_FENCES = [
-    "tool_result",
-    "terminal_read",
-    "terminal_input",
-    "list_terminals",
-] as const;
+const STRIP_ACROSS_FENCES_RE =
+    /<(tool_result|terminal_read|terminal_input|list_terminals)\b[^>]*>[\s\S]*?<\/\1>/gi;
 
-const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
-
-const STRIP_ACROSS_FENCES_PATTERNS = STRIP_ACROSS_FENCES.map((tag) => {
-    const esc = tag.replace(ESCAPE_RE, "\\$&");
-    return new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi");
-});
-
-const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
-    const esc = tag.replace(ESCAPE_RE, "\\$&");
-    return {
-        paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"),
-        selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"),
-        openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"),
-        strayCloser: new RegExp(`<\\/${esc}>`, "gi"),
-    };
-});
+const LEAKED_TAG_PAIRED_RE =
+    /<(list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*?<\/\1>/gi;
+const LEAKED_TAG_SELF_CLOSING_RE =
+    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*\/\s*>/gi;
+const LEAKED_TAG_OPEN_TAIL_RE =
+    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*$/gi;
+const LEAKED_TAG_STRAY_CLOSER_RE =
+    /<\/(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)>/gi;
 
 const FW_BAR = "\uFF5C";
-const DSML_PAIRED_RE = new RegExp(
-    `<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
-    "gi",
-);
-const DSML_OPEN_TAIL_RE = new RegExp(
-    `<${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>[\\s\\S]*$`,
-    "gi",
-);
-const DSML_STRAY_RE = new RegExp(
-    `<\\/?${FW_BAR}{0,2}DSML${FW_BAR}{1,2}[\\w.]*?>`,
-    "gi",
-);
+const DSML_PAIRED_RE =
+    /<\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>[\s\S]*?<\/\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>/giu;
+const DSML_OPEN_TAIL_RE = /<\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>[\s\S]*$/giu;
+const DSML_STRAY_RE = /<\/?\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>/giu;
 
 /** Collapses runs of 3+ consecutive newlines down to paragraph-break pairs. */
 const collapseExcessNewlines = (text: string): string =>
@@ -765,19 +735,13 @@ const hasAnyToolMarkupSentinel = (text: string): boolean =>
     text.includes("[TOOL_CALLS]") ||
     text.includes("_execute");
 
-/** Strips XML leaked tool tags from a prose slice when `<` is present. */
-const stripLeakedXmlTagsInProse = (prose: string): string => {
-    let out = prose;
-    for (const rule of LEAKED_TAG_PATTERNS) {
-        if (!out.includes("<")) break;
-        out = out
-            .replace(rule.paired, "")
-            .replace(rule.selfClosing, "")
-            .replace(rule.openTail, "")
-            .replace(rule.strayCloser, "");
-    }
-    return out;
-};
+/** Strips XML leaked tool tags from a prose slice. */
+const stripLeakedXmlTagsInProse = (prose: string): string =>
+    prose
+        .replace(LEAKED_TAG_PAIRED_RE, "")
+        .replace(LEAKED_TAG_SELF_CLOSING_RE, "")
+        .replace(LEAKED_TAG_OPEN_TAIL_RE, "")
+        .replace(LEAKED_TAG_STRAY_CLOSER_RE, "");
 
 /** Strips DSML and pipe-delimited model tool sentinels from a prose slice. */
 const stripDsmlAndPipeSentinels = (prose: string): string =>
@@ -835,12 +799,9 @@ export const stripLeakedToolMarkup = (text: string): string => {
     if (!hasAnyToolMarkupSentinel(text)) {
         return collapseExcessNewlines(text);
     }
-    let out = text;
-    if (out.includes("<")) {
-        for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
-            out = out.replace(pattern, "");
-        }
-    }
+    let out = text.includes("<")
+        ? text.replace(STRIP_ACROSS_FENCES_RE, "")
+        : text;
     out = mapOutsideCodeFences(out, (prose) =>
         mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
     );
