@@ -1831,14 +1831,28 @@ export const redactProviderSecrets = <
   };
 };
 
+/** Builds a lowercased header-name -> live-value map for case-insensitive secret hydration. */
+const buildLowercaseHeaderValueMap = (
+  headers: Record<string, string> | undefined,
+): Map<string, string> => {
+  const map = new Map<string, string>();
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    map.set(name.toLowerCase(), value);
+  }
+  return map;
+};
+
 /** Incoming header names with whatever values only this session still holds. */
 const mergeHeaderValues = (
   live: Record<string, string> | undefined,
   incoming: Record<string, string> | undefined,
 ): Record<string, string> => {
+  const liveByLower = buildLowercaseHeaderValueMap(live);
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(incoming ?? {})) {
-    out[name] = value.trim() ? value : (live?.[name] ?? "");
+    out[name] = value.trim()
+      ? value
+      : (liveByLower.get(name.toLowerCase()) ?? "");
   }
   return out;
 };

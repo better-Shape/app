@@ -447,7 +447,11 @@ const pendingTerminalCommandKey = (chunk: Chunk): string | null => {
     return cmd ? cmd : null;
 };
 
-/** Marks duplicate pending terminal commands without IDs so only the latest card renders. */
+/**
+ * Collapses superseded pending `terminal_command` transcript blocks with identical command text
+ * so only the latest pending entry renders; Rust `run_with_approval` blocks sequentially on one
+ * pending command at a time, and interactive approval cards read from `agent-command-pending` IPC.
+ */
 const markDuplicatePendingCommands = (chunks: Chunk[], skip: Set<number>): void => {
     const byPendingCommand = new Map<string, number>();
     for (let index = 0; index < chunks.length; index += 1) {

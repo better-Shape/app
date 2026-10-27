@@ -1581,17 +1581,11 @@ const stripRawHtml = (text: string): string => {
 
 const MAX_DISPLAY_CHARS = 48_000;
 
-/** Truncates excessively long finished responses so ReactMarkdown layout stays responsive. */
+/** Truncates excessively long streaming or finished responses so preprocessing and layout stay bounded. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
     return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 };
-
-/** Caps oversized non-streaming markdown inputs up front so preprocessing never scans huge payloads. */
-const boundMarkdownInputForDisplay = (
-    text: string,
-    streaming: boolean | undefined,
-): string => (streaming ? text : truncateForDisplay(text));
 
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */
 const finalizeStreamOrStaticMarkdown = (
@@ -1638,19 +1632,58 @@ const normalizeSingleProseLine = (line: string): string => {
 const normalizeProseBulletsAndRules = (prose: string): string =>
     prose.split("\n").map(normalizeSingleProseLine).join("\n");
 
-/** Normalize assistant markdown before ReactMarkdown. */
-export const preprocessChatMarkdown = (
-    text: string,
-    options?: { trim?: boolean; streaming?: boolean },
+type PreprocessCacheEntry = {
+    bounded: string;
+    streaming: boolean;
+    trim: boolean;
+    output: string;
+};
+
+let lastPreprocessedCache: PreprocessCacheEntry | null = null;
+
+/** Checks whether `lastPreprocessedCache` matches `(bounded, streaming, trim)`. */
+const matchesPreprocessCache = (
+    entry: PreprocessCacheEntry | null,
+    bounded: string,
+    streaming: boolean,
+    trim: boolean,
+): entry is PreprocessCacheEntry =>
+    Boolean(
+        entry &&
+            entry.bounded === bounded &&
+            entry.streaming === streaming &&
+            entry.trim === trim,
+    );
+
+/** Runs the core markdown sanitization and normalization passes on an already-bounded string. */
+const computePreprocessedMarkdown = (
+    bounded: string,
+    streaming: boolean,
+    trim: boolean,
 ): string => {
-    const bounded = boundMarkdownInputForDisplay(text, options?.streaming);
     let normalized = stripOrphanThinkTags(bounded);
     normalized = stripLeakedToolCode(normalized);
     normalized = stripRawHtml(normalized);
     normalized = unwrapOuterProseFence(normalized);
     normalized = demoteIndentedMarkdown(normalized);
-    normalized = finalizeStreamOrStaticMarkdown(normalized, options?.streaming);
+    normalized = finalizeStreamOrStaticMarkdown(normalized, streaming);
     normalized = mapOutsideCodeFences(normalized, normalizeProseBulletsAndRules);
     normalized = collapseExcessNewlines(normalized);
-    return options?.trim !== false ? normalized.trim() : normalized;
+    return trim ? normalized.trim() : normalized;
+};
+
+/** Normalize assistant markdown before ReactMarkdown. */
+export const preprocessChatMarkdown = (
+    text: string,
+    options?: { trim?: boolean; streaming?: boolean },
+): string => {
+    const bounded = truncateForDisplay(text);
+    const streaming = Boolean(options?.streaming);
+    const trim = options?.trim !== false;
+    if (matchesPreprocessCache(lastPreprocessedCache, bounded, streaming, trim)) {
+        return lastPreprocessedCache.output;
+    }
+    const output = computePreprocessedMarkdown(bounded, streaming, trim);
+    lastPreprocessedCache = { bounded, streaming, trim, output };
+    return output;
 };
