@@ -320,6 +320,14 @@ const buildAttemptDictationHandlers = (
     },
 });
 
+/** Checks whether `attemptId` still owns both UI attempt state and the backend recognizer. */
+const isCurrentRecognizerAttempt = (
+    attemptId: number,
+    refs: DictationRefs,
+): boolean =>
+    refs.startAttemptIdRef.current === attemptId &&
+    refs.recognizerAttemptIdRef.current === attemptId;
+
 /** Builds an attempt-scoped IPC bridge that records recognizer ownership on `start`. */
 const buildAttemptDictationBridge = (
     attemptId: number,
@@ -338,7 +346,10 @@ const buildAttemptDictationBridge = (
         }
     },
     stop: () => commands.dictationStop(),
-    push: (wav: number[]) => commands.dictationPush(wav),
+    push: (wav: number[]) =>
+        isCurrentRecognizerAttempt(attemptId, refs)
+            ? commands.dictationPush(wav)
+            : Promise.resolve(""),
 });
 
 /** Resolves the accessible button/tooltip label from current dictation flags. */

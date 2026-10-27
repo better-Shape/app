@@ -241,16 +241,14 @@ const isCurrentDictationAttempt = (
     signal?: AbortSignal,
 ): boolean => epoch === activeDictationEpoch && !signal?.aborted;
 
-/** Stops the backend recognizer inside the serialized queue only when `epoch` still owns it. */
+/** Stops the backend recognizer inside the serialized queue only when `epoch` still owns it at teardown time. */
 const stopRecognizerIfCurrent = (
     invoke: DictationInvokeBridge,
     epoch: number,
-): Promise<void> =>
-    enqueueRecognizerOp(() =>
-        epoch === activeDictationEpoch
-            ? stopRecognizerUnconditionally(invoke)
-            : Promise.resolve(),
-    );
+): Promise<void> => {
+    if (epoch !== activeDictationEpoch) return Promise.resolve();
+    return enqueueRecognizerOp(() => stopRecognizerUnconditionally(invoke));
+};
 
 /** Creates an `AbortError` used when dictation startup is superseded or cancelled. */
 const createDictationAbortedError = (): Error => {
@@ -415,6 +413,22 @@ const triggerStopIfCurrent = (
     });
 };
 
+/** Runs `invoke.push()` inside the serialized queue and stops the recognizer if superseded mid-push. */
+const runSerializedRecognizerPush = (
+    wavBytes: number[],
+    invoke: DictationInvokeBridge,
+    token: SessionLifecycleToken,
+): Promise<unknown> =>
+    enqueueRecognizerOp(async () => {
+        if (!isCurrentDictationAttempt(token.epoch, token.signal)) return "";
+        const result = await invoke.push(wavBytes);
+        if (!isCurrentDictationAttempt(token.epoch, token.signal)) {
+            await stopRecognizerUnconditionally(invoke);
+            return "";
+        }
+        return result;
+    });
+
 /** Pushes encoded WAV bytes to the recognizer and forwards direct transcripts or push errors. */
 const pushEncodedWav = (
     wav: Uint8Array,
@@ -423,8 +437,7 @@ const pushEncodedWav = (
     setState: (state: DictationState) => void,
     handlers: Pick<DictationHandlers, "onText" | "onError">,
 ): void => {
-    invoke
-        .push(Array.from(wav))
+    runSerializedRecognizerPush(Array.from(wav), invoke, token)
         .then((result) => {
             if (!isCurrentDictationAttempt(token.epoch, token.signal)) return;
             forwardRecognizedPushText(result, setState, handlers.onText);

@@ -20,10 +20,12 @@ import { ChatErrorDialog, redactErrorSecrets } from "@/features/chat/ui/blocks/e
 import {
     appendStreamAnsiChunk,
     commandSummary,
+    selectAutoRunMode,
     stripAnsi,
     TerminalCommandStep,
     type TerminalStreamBuffer,
 } from "@/features/chat/ui/blocks/terminal-live";
+import { getSettings, updateSettingSection } from "@/lib/settings";
 import { ActionLine } from "@/features/chat/ui/blocks/action-line";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import {
@@ -1358,11 +1360,18 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         );
 
         const dedupedReviews = dropSupersededPersonaReviews([
+            { type: "persona_review", content: "anon-a" },
             { type: "persona_review", commandId: "rev-1", content: "draft" },
+            { type: "persona_review", content: "anon-b" },
             { type: "persona_review", commandId: "rev-2", content: "keep-2" },
             { type: "persona_review", commandId: "rev-1", content: "final-1" },
         ]);
-        expect(dedupedReviews.map((c) => c.content)).toEqual(["keep-2", "final-1"]);
+        expect(dedupedReviews.map((c) => c.content)).toEqual([
+            "anon-a",
+            "anon-b",
+            "keep-2",
+            "final-1",
+        ]);
 
         const oversizedStream = `${"S".repeat(47_990)}\n\`\`\`ts\nconst n = 1;\n${"T".repeat(22_000)}`;
         const cappedStream = preprocessChatMarkdown(oversizedStream, { streaming: true });
@@ -1460,6 +1469,101 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             expect(ipcLog).toEqual(["start:1", "stop", "start:2"]);
             secondSession.dispose();
             expect(ipcLog).toEqual(["start:1", "stop", "start:2", "stop"]);
+        } finally {
+            vi.unstubAllGlobals();
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: prevMediaDevices,
+            });
+        }
+    });
+
+    it("rolls back autoRunMode when updateTurnPolicy rejects and serializes cancelled dictation WAV pushes", async () => {
+        const initialMode = getSettings().ai.autoRunMode;
+        updateSettingSection("ai", { autoRunMode: "ask" });
+        mockIPC((cmd) => {
+            if (cmd === "update_turn_policy") throw new Error("IPC turn policy rejected");
+            return undefined;
+        });
+        try {
+            await selectAutoRunMode("always");
+            expect(getSettings().ai.autoRunMode).toBe("ask");
+        } finally {
+            clearMocks();
+            updateSettingSection("ai", { autoRunMode: initialMode });
+        }
+
+        const prevMediaDevices = navigator.mediaDevices;
+        const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
+        const resolveVoid = (): Promise<void> => Promise.resolve();
+        const processor: {
+            connect: () => void;
+            disconnect: () => void;
+            onaudioprocess: ((ev: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null;
+        } = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
+        vi.stubGlobal(
+            "AudioContext",
+            vi.fn(function MockAudioContext() {
+                return {
+                    sampleRate: 16_000,
+                    destination: {},
+                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+                    createScriptProcessor: () => processor,
+                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
+                    close: resolveVoid,
+                };
+            }),
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: { getUserMedia: vi.fn(() => Promise.resolve(fakeStream)) },
+        });
+        const ipcLog: string[] = [];
+        let finishPush: ((text: string) => void) | undefined;
+        let startCalls = 0;
+        const invokeBridge = {
+            start: vi.fn(() => {
+                startCalls += 1;
+                ipcLog.push(`start:${startCalls}`);
+                return Promise.resolve();
+            }),
+            push: vi.fn(() => {
+                ipcLog.push("push:1");
+                return new Promise<string>((res) => {
+                    finishPush = res;
+                });
+            }),
+            stop: vi.fn(() => {
+                ipcLog.push("stop");
+                return Promise.resolve();
+            }),
+        };
+        try {
+            const firstText = vi.fn();
+            const firstSession = await startDictation(
+                { onText: firstText, onError: vi.fn() },
+                true,
+                invokeBridge,
+            );
+            processor.onaudioprocess?.({
+                inputBuffer: { getChannelData: () => new Float32Array(320).fill(0.25) },
+            });
+            firstSession.commit();
+            firstSession.dispose();
+            const secondAttempt = startDictation(
+                { onText: vi.fn(), onError: vi.fn() },
+                true,
+                invokeBridge,
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(ipcLog).toEqual(["start:1", "push:1"]);
+            finishPush?.("stale transcript");
+            const secondSession = await secondAttempt;
+            expect(firstText).not.toHaveBeenCalled();
+            expect(ipcLog).toEqual(["start:1", "push:1", "stop", "stop", "start:2"]);
+            secondSession.dispose();
         } finally {
             vi.unstubAllGlobals();
             Object.defineProperty(navigator, "mediaDevices", {

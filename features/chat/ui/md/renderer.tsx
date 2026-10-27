@@ -1608,27 +1608,36 @@ const finalizeParsedChunks = (
         finalizeSingleParsedChunk(chunk, isGenerating, isFileEditResolved),
     );
 
-/** Indexes the last array position of each `persona_review` chunk keyed by `commandId`. */
+/** Indexes the last array position of each `persona_review` chunk with a non-empty `commandId`. */
 const collectLastPersonaReviewIndexById = (
     chunks: Chunk[],
-): Map<string | undefined, number> => {
-    const lastById = new Map<string | undefined, number>();
+): Map<string, number> => {
+    const lastById = new Map<string, number>();
     for (let i = 0; i < chunks.length; i += 1) {
-        if (chunks[i].type === "persona_review") {
-            lastById.set(chunks[i].commandId, i);
+        const chunk = chunks[i];
+        if (chunk.type === "persona_review" && chunk.commandId) {
+            lastById.set(chunk.commandId, i);
         }
     }
     return lastById;
 };
 
-/** Retains only the final `persona_review` chunk for each `commandId` in linear time. */
+/** Checks whether a chunk is non-review, anonymous, or the final review for its `commandId`. */
+const isRetainedPersonaReview = (
+    chunk: Chunk,
+    index: number,
+    lastById: Map<string, number>,
+): boolean => {
+    if (chunk.type !== "persona_review" || !chunk.commandId) return true;
+    return lastById.get(chunk.commandId) === index;
+};
+
+/** Retains only the final `persona_review` chunk for each non-empty `commandId` in linear time. */
 export const dropSupersededPersonaReviews = (chunks: Chunk[]): Chunk[] => {
     const lastById = collectLastPersonaReviewIndexById(chunks);
     if (lastById.size === 0) return chunks;
-    return chunks.filter(
-        (chunk, index) =>
-            chunk.type !== "persona_review" ||
-            lastById.get(chunk.commandId) === index,
+    return chunks.filter((chunk, index) =>
+        isRetainedPersonaReview(chunk, index, lastById),
     );
 };
 
