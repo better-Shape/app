@@ -1355,6 +1355,14 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             cappedStream,
         );
 
+        const [multilineChunk] = parseMessageContent(
+            '<terminal_command status="failed" exit="1">curl -s \\\n  https://api.example.test/health\n{"status":"degraded"}</terminal_command>',
+        );
+        const multilineCmdEl = mount(<TerminalCommandStep block={multilineChunk!} />);
+        const expandedOutputText = multilineCmdEl.querySelector(".pr-8")?.textContent ?? "";
+        expect(expandedOutputText).toContain('{"status":"degraded"}');
+        expect(expandedOutputText).not.toContain("https://api.example.test/health");
+
         const prevMediaDevices = navigator.mediaDevices;
         const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
         /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
