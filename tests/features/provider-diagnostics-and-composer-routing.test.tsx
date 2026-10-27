@@ -163,6 +163,10 @@ describe("Settings -> Providers Check chat and Test connection diagnostics guard
             expect(alert).toBeTruthy();
             expect(alert?.textContent).toContain("Could not complete chat check");
             expect(alert?.textContent).not.toContain("Cannot read properties of null");
+            expect(host.querySelectorAll("button button").length).toBe(0);
+            expect(
+                host.querySelector('[role="switch"][aria-label="Enable OpenAI"]'),
+            ).toBeTruthy();
         } finally {
             unmount(root, host);
         }
