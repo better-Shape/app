@@ -893,8 +893,8 @@ const renderMirrorContent = (
   return buildHighlightedMirrorNodes(inputValue, merged, trailingBreak);
 };
 
-/** Renders the synchronized mirror overlay beneath the transparent composer `<textarea>`. */
-export const ComposerHighlightMirror = ({
+/** Synchronized mirror overlay inner component beneath the transparent composer `<textarea>`. */
+const ComposerHighlightMirrorInner = ({
   overlayRef,
   inputValue,
   workflows,
@@ -904,18 +904,27 @@ export const ComposerHighlightMirror = ({
   inputValue: string;
   workflows: WorkflowList;
   composerBreakAll: boolean;
-}) => (
-  <div
-    ref={overlayRef}
-    aria-hidden
-    className={cn(
-      "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap px-1.5 py-0 text-sm font-medium leading-[22px] text-text-primary",
-      composerBreakAll ? "break-all" : "break-words",
-    )}
-  >
-    {renderMirrorContent(inputValue, workflows)}
-  </div>
-);
+}) => {
+  const content = React.useMemo(
+    () => renderMirrorContent(inputValue, workflows),
+    [inputValue, workflows],
+  );
+  return (
+    <div
+      ref={overlayRef}
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap px-1.5 py-0 text-sm font-medium leading-[22px] text-text-primary",
+        composerBreakAll ? "break-all" : "break-words",
+      )}
+    >
+      {content}
+    </div>
+  );
+};
+
+/** Renders the synchronized mirror overlay beneath the transparent composer `<textarea>`. */
+export const ComposerHighlightMirror = React.memo(ComposerHighlightMirrorInner);
 
 /** Renders Cut / Copy / Paste / Select All items inside the composer context menu. */
 export const ComposerContextMenuItems = ({

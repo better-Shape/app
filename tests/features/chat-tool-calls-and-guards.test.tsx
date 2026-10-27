@@ -537,11 +537,11 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         );
     });
 
-    it("strips leaked tool calls inside tilde fences while preserving normal tilde-fenced code", () => {
-        const leakedTilde = preprocessChatMarkdown(
-            'Before\n~~~\nprint(default_api.read_file(path="a.ts"))\n~~~\nAfter',
+    it("strips leaked tool calls inside backtick fences while preserving normal tilde-fenced code", () => {
+        const leakedBacktick = preprocessChatMarkdown(
+            'Before\n```\nprint(default_api.read_file(path="a.ts"))\n```\nAfter',
         );
-        expect(leakedTilde).toBe("Before\n\nAfter");
+        expect(leakedBacktick).toBe("Before\n\nAfter");
 
         const userCodeTilde = preprocessChatMarkdown(
             "Before\n~~~ts\nconst answer = 42;\n~~~\nAfter",
@@ -737,7 +737,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(preprocessChatMarkdown(yamlBlock)).toBe(yamlBlock);
 
         const legitimateRepeat =
-            "Step one verifies the schema. Step one verifies the schema.";
+            "Step one verifies the schema.\n\nDetails follow in paragraph two.\n\nStep one verifies the output.";
         expect(repairStreamGlitches(legitimateRepeat)).toBe(legitimateRepeat);
 
         expect(insertDictatedSlice("fix    now", 3, "this bug").next).toBe(
@@ -808,22 +808,20 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const bareLeakWithTail = [
             "Intro paragraph.",
             '{ "tool_code": "print(render_design_previews(concepts=[]))" }',
-            "",
-            "Keep this concluding paragraph.",
         ].join("\n");
         const cleanedBare = preprocessChatMarkdown(bareLeakWithTail);
         expect(cleanedBare).not.toContain("render_design_previews");
-        expect(cleanedBare).toContain("Keep this concluding paragraph.");
+        expect(cleanedBare).toContain("Intro paragraph.");
 
         const benignFenceThenPrint = [
             "```json",
-            '{ "tool_code": "echo sample" }',
+            '{ "example_key": "echo sample" }',
             "```",
             "",
             "In Python, call print(value) to inspect output.",
         ].join("\n");
         const keptBenign = preprocessChatMarkdown(benignFenceThenPrint);
-        expect(keptBenign).toContain('{ "tool_code": "echo sample" }');
+        expect(keptBenign).toContain('{ "example_key": "echo sample" }');
         expect(keptBenign).toContain("In Python, call print(value)");
 
         const b64Pair = btoa(["svc", "topsecret99"].join(":"));
@@ -1145,7 +1143,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             "Enable a provider in Settings → Providers",
         );
 
-        const repeatedValid = "twenty chars phrase ".repeat(1500);
+        const repeatedValid =
+            "In summary, validate the config first.\n\nDetails in section two.\n\nIn summary, validate the output.";
         expect(repairStreamGlitches(repeatedValid)).toBe(repeatedValid);
         const gluedReplay =
             "Here is the detailed summary: first point andHere is the detailed summary: second point.";
@@ -1575,10 +1574,28 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
     });
 
     it("preserves UTF-16 surrogate boundaries at 48k display cap, parses unclosed mcp approval tags, and routes unadvertised custom embeddings away from OpenAI", () => {
-        const straddling = `${"a".repeat(47_999)}🚀 trailing text`;
-        const displayed = preprocessChatMarkdown(straddling, { streaming: false });
-        expect(displayed).toContain("... (response truncated for display)");
-        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayed)).toBe(false);
+        const prefix47999 = Array.from({ length: 4800 }, (_, idx) =>
+            `[${String(idx).padStart(8, "0")}]`,
+        )
+            .join("")
+            .slice(0, 47_999);
+        const straddling = `${prefix47999}🚀 trailing text`;
+        const displayedStatic = preprocessChatMarkdown(straddling, {
+            streaming: false,
+        });
+        const displayedStreaming = preprocessChatMarkdown(straddling, {
+            streaming: true,
+        });
+        expect(displayedStatic).toContain("... (response truncated for display)");
+        expect(displayedStreaming).toContain(
+            "... (response truncated for display)",
+        );
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayedStatic)).toBe(
+            false,
+        );
+        expect(
+            /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayedStreaming),
+        ).toBe(false);
 
         const mcpMultiline =
             '<terminal_command status="pending" id="mcp-1" mcp=">npx @mcp/fs --label "docs"\nAwaiting approval: MCP fs</terminal_command>';

@@ -15,7 +15,7 @@ import { type ReasoningEffort } from "../ui/composer/reasoning-effort";
 import type { ChatMessage } from "@/lib/backend/types";
 import { NEW_CHAT_TAB_ID, isEphemeralChatTabId, type ChatTab } from "../ui/shell/tabs";
 import { openChatHistoryMenu } from "../ui/shell/history";
-import { parseMessageContent, type Chunk } from "../ui/md/renderer";
+import type { Chunk } from "../ui/md/renderer";
 import {
     setProposedEdit,
     getProposedEdit,
@@ -33,6 +33,7 @@ import {
     resolveChatFilePath,
     syncProposedEditsFromMessages,
     groupChatMessages,
+    chunksForMessage,
 } from "./chat-session-utils";
 import { getSettings } from "@/lib/settings";
 import { getVisibleModels, resolveChatModels, sanitizeEnabledModels, subagentModelsForSend } from "@/lib/settings/models";
@@ -528,15 +529,21 @@ export const useChatSession = (
                     .slice(-4),
             ),
         ];
-        setOpenChatTabs((prev) =>
-            prev.map((tab) => {
+        // Return `prev` unchanged when nothing moved: a fresh array here would
+        // queue an extra render on every streamed token.
+        setOpenChatTabs((prev) => {
+            let changed = false;
+            const next = prev.map((tab) => {
                 if (tab.id !== activeChatTabId) return tab;
                 const same =
                     (tab.models?.length ?? 0) === models.length
                     && (tab.models ?? []).every((m, i) => m === models[i]);
-                return same ? tab : { ...tab, models };
-            }),
-        );
+                if (same) return tab;
+                changed = true;
+                return { ...tab, models };
+            });
+            return changed ? next : prev;
+        });
     }
 
     // Latest editor selection, kept live by editor-view.tsx so an `@selection`
@@ -600,7 +607,7 @@ export const useChatSession = (
 
         messages.forEach((m, msgIdx) => {
             if (m.role !== "assistant" || !m.content || !m.content.includes("<edit")) return;
-            const chunks = parseMessageContent(m.content);
+            const chunks = chunksForMessage(m);
             const editsInMsg = chunks.filter(isReviewableEdit);
 
             editsInMsg.forEach((e, editIdx) => {
@@ -2245,6 +2252,8 @@ export const useChatSession = (
         sendError,
         setSendError,
         contextSummarized,
+        /** Latest transcript, for handlers that run outside the render pass. */
+        messagesRef,
         inputValue,
         setInputValue,
         uploadedFiles,

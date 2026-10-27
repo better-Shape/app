@@ -615,8 +615,6 @@ export const stripOrphanThinkTags = (text: string): string => {
     );
 };
 
-const LEAKED_TOOL_CALL_FN_RE =
-    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
 const LEAKED_PRINT_FN_RE =
     /\bprint\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
 const LEAKED_FUNCTIONS_CALL_RE =
@@ -661,14 +659,12 @@ const hasLeakedInvocationLine = (
     return false;
 };
 
-const BARE_TOOL_CODE_TRIGGER_RE =
-    /print\s*\(|render_design_previews|concepts\s*=/u;
+/** Case-insensitive probe for leaked `_execute` / `_EXECUTE` tool-dump blocks. */
+const hasExecuteDump = (text: string): boolean => /_[eE]xecute/i.test(text);
 
 /** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
-    /"tool_code"\s*:/u.test(trimmed) &&
-    (BARE_TOOL_CODE_TRIGGER_RE.test(trimmed) ||
-        LEAKED_TOOL_CALL_FN_RE.test(trimmed));
+    /"tool_code"\s*:/u.test(trimmed);
 
 /** Checks whether `trimmed` starts with a leaked JSON `tool_code` or `print(...)` wrapper. */
 const hasDirectToolLeakSignature = (
@@ -685,7 +681,7 @@ const hasDirectToolLeakSignature = (
 export const looksLikeLeakedToolCode = (body: string): boolean => {
     const trimmed = body.trim();
     if (!trimmed) return false;
-    const hasExecute = trimmed.includes("_execute");
+    const hasExecute = hasExecuteDump(trimmed);
     if (hasDirectToolLeakSignature(trimmed, hasExecute)) return true;
     if (hasLeakedInvocationLine(trimmed, hasExecute)) return true;
     return LEAKED_XML_OPEN_RE.test(trimmed);
@@ -728,7 +724,7 @@ const STRIP_ACROSS_FENCES_RE =
 const LEAKED_TAG_PAIRED_RE =
     /<(list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*?<\/\1>/gi;
 const LEAKED_TAG_SELF_CLOSING_RE =
-    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*\/\s*>/gi;
+    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*\/?>/gi;
 const LEAKED_TAG_OPEN_TAIL_RE =
     /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*$/gi;
 const LEAKED_TAG_STRAY_CLOSER_RE =
@@ -749,7 +745,7 @@ const hasAnyToolMarkupSentinel = (text: string): boolean =>
     text.includes("<") ||
     text.includes(FW_BAR) ||
     text.includes("[TOOL_CALLS]") ||
-    text.includes("_execute");
+    hasExecuteDump(text);
 
 /** Strips XML leaked tool tags from a prose slice. */
 const stripLeakedXmlTagsInProse = (prose: string): string =>
@@ -786,7 +782,7 @@ const stripMistralAndExecuteBlocks = (prose: string): string => {
             .replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "")
             .replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
     }
-    if (out.includes("_execute")) {
+    if (hasExecuteDump(out)) {
         out = out.replace(
             /(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi,
             "\n",
@@ -824,162 +820,29 @@ export const stripLeakedToolMarkup = (text: string): string => {
     return collapseExcessNewlines(out);
 };
 
-/** Removes a single trailing `\r\n`, `\n`, or `\r` line break from `value`. */
-const trimTrailingLineBreak = (value: string): string => {
-    if (value.endsWith("\r\n")) return value.slice(0, -2);
-    if (value.endsWith("\n") || value.endsWith("\r")) return value.slice(0, -1);
-    return value;
-};
+const BARE_TOOL_CODE_TRIGGER_RE =
+    /print\s*\(|render_design_previews|concepts\s*=/u;
 
-/** Strips any trailing closing fence line from `afterOpen`. */
-const trimClosingFenceTail = (afterOpen: string): string => {
-    const trimmedEnd = trimTrailingLineBreak(afterOpen);
-    const lastNl = trimmedEnd.lastIndexOf("\n");
-    const tailLine = lastNl === -1 ? trimmedEnd : trimmedEnd.slice(lastNl + 1);
-    const parsedTail = scanStreamFenceLine(tailLine);
-    if (!parsedTail.marker || !/^[ \t]*$/u.test(parsedTail.marker.suffix)) {
-        return afterOpen;
-    }
-    return lastNl === -1 ? "" : trimmedEnd.slice(0, lastNl);
-};
-
-/** Strips CommonMark `>` blockquote prefixes from a single line when present. */
-const stripSingleBlockquoteLine = (line: string): string => {
-    const prefix = readLineFencePrefix(line);
-    return prefix.quoteDepth > 0 ? line.slice(prefix.afterQuotes) : line;
-};
-
-/** Extracts the inner body of a fenced slice `[start, end)` without fence delimiter lines. */
-const extractFencedSliceBody = (slice: string): string => {
-    const firstNl = slice.indexOf("\n");
-    if (firstNl === -1) return "";
-    const body = trimClosingFenceTail(slice.slice(firstNl + 1));
-    if (!body.includes(">")) return body;
-    return body.split("\n").map(stripSingleBlockquoteLine).join("\n");
-};
-
-/** Returns `fenceSlice` when user-facing, or its trailing newline (if any) when leaked. */
-const replacementForFenceSlice = (fenceSlice: string): string => {
-    if (!looksLikeLeakedToolCode(extractFencedSliceBody(fenceSlice))) {
-        return fenceSlice;
-    }
-    return fenceSlice.endsWith("\n") ? "\n" : "";
-};
-
-/** Appends non-leaked fence ranges and intervening prose slices from `ranges` into `kept`. */
-const collectKeptFencedSlices = (
-    text: string,
-    ranges: ReadonlyArray<readonly [number, number]>,
-): string => {
-    const kept: string[] = [];
-    let cursor = 0;
-    for (const [start, end] of ranges) {
-        if (start > cursor) kept.push(text.slice(cursor, start));
-        const keptFence = replacementForFenceSlice(text.slice(start, end));
-        if (keptFence) kept.push(keptFence);
-        cursor = end;
-    }
-    if (cursor < text.length) kept.push(text.slice(cursor));
-    return kept.join("");
-};
-
-/** Strips backtick- or tilde-fenced code blocks (closed or mid-stream) whose bodies are leaked tool calls. */
+/** Strips complete and streaming fenced code blocks whose bodies look like leaked tool calls. */
 const stripLeakedFencedToolBlocks = (text: string): string => {
-    if (!text.includes("```") && !text.includes("~~~")) return text;
-    const { ranges } = scanMarkdownCodeFences(text, 0);
-    return ranges.length === 0 ? text : collectKeptFencedSlices(text, ranges);
-};
-
-/** Advances past a double-quoted JSON string starting at opening `"` (`openIdx`). */
-const skipJsonStringLiteral = (text: string, openIdx: number): number => {
-    let idx = openIdx + 1;
-    while (idx < text.length) {
-        const code = text.charCodeAt(idx);
-        if (code === 92) {
-            idx += 2;
-            continue;
-        }
-        if (code === 34) return idx + 1;
-        idx += 1;
-    }
-    return text.length;
-};
-
-/** Updates brace nesting `depth` for a single non-string character `code`. */
-const adjustJsonBraceDepth = (depth: number, code: number): number => {
-    if (code === 123) return depth + 1;
-    return code === 125 ? depth - 1 : depth;
-};
-
-/** Finds the closing `}` index of a JSON object starting at `openBraceIdx`, or `-1` if unclosed. */
-const findBalancedJsonObjectEnd = (
-    text: string,
-    openBraceIdx: number,
-): number => {
-    let depth = 0;
-    let idx = openBraceIdx;
-    while (idx < text.length) {
-        const code = text.charCodeAt(idx);
-        if (code === 34) {
-            idx = skipJsonStringLiteral(text, idx);
-        } else {
-            depth = adjustJsonBraceDepth(depth, code);
-            if (depth === 0) return idx;
-            idx += 1;
-        }
-    }
-    return -1;
-};
-
-/** Resolves end offset of a candidate `{ "tool_code": ... }` JSON object starting at `start`. */
-const resolveToolCodeObjectEnd = (prose: string, start: number): number => {
-    const closeIdx = findBalancedJsonObjectEnd(prose, start);
-    return closeIdx === -1 ? prose.length : closeIdx + 1;
-};
-
-/** Records one leaked `{ "tool_code": ... }` span `[start, end)` into `out` and returns next cursor. */
-const consumeToolCodeCandidate = (
-    prose: string,
-    start: number,
-    cursor: number,
-    out: string[],
-): number => {
-    const end = resolveToolCodeObjectEnd(prose, start);
-    if (!isLeakedToolCodeJson(prose.slice(start, end))) return cursor;
-    if (start > cursor) out.push(prose.slice(cursor, start));
-    return end;
-};
-
-/** Joins rebuilt segments after `cursor` when at least one leaked `tool_code` object was removed. */
-const finalizeStrippedToolCodeProse = (
-    prose: string,
-    cursor: number,
-    out: string[],
-): string => {
-    if (cursor === 0) return prose;
-    if (cursor < prose.length) out.push(prose.slice(cursor));
-    return out.join("");
-};
-
-/** Strips leaked bare `{ "tool_code": ... }` JSON objects in `prose` while preserving trailing text. */
-const stripBareToolCodeObjectsInProse = (prose: string): string => {
-    if (!prose.includes("tool_code")) return prose;
-    const out: string[] = [];
-    let cursor = 0;
-    for (const match of prose.matchAll(/\{\s*"tool_code"\s*:/gu)) {
-        const start = match.index;
-        if (start >= cursor) {
-            cursor = consumeToolCodeCandidate(prose, start, cursor, out);
-        }
-    }
-    return finalizeStrippedToolCodeProse(prose, cursor, out);
+    if (!text.includes("```")) return text;
+    const withoutComplete = text.replace(
+        /```[\w-]*\s*\n([\s\S]*?)```/g,
+        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
+    );
+    return withoutComplete.replace(
+        /```[\w-]*\s*\n([\s\S]*)$/g,
+        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
+    );
 };
 
 /** Strips bare `{ "tool_code": "..." }` JSON dumps and leaked `print`/`functions.*` lines. */
 const stripBareToolInvocations = (text: string): string => {
     let out = text;
     if (out.includes("tool_code")) {
-        out = mapOutsideCodeFences(out, stripBareToolCodeObjectsInProse);
+        out = out.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) =>
+            BARE_TOOL_CODE_TRIGGER_RE.test(match) ? "" : match,
+        );
     }
     if (out.includes("print") || out.includes("functions.")) {
         out = mapOutsideCodeFences(out, (prose) =>
@@ -993,36 +856,24 @@ const stripBareToolInvocations = (text: string): string => {
     return out;
 };
 
+/** Checks whether `text` contains any backtick, invocation, or JSON marker for tool-code stripping. */
+const hasToolCodeMarker = (text: string): boolean =>
+    text.includes("`") ||
+    text.includes("tool_code") ||
+    text.includes("print") ||
+    text.includes("functions.");
+
 /**
  * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
  * markdown JSON instead of issuing a real tool call, plus cross-model XML sentinels.
  */
 export const stripLeakedToolCode = (text: string): string => {
+    if (!hasToolCodeMarker(text) && !hasAnyToolMarkupSentinel(text)) {
+        return collapseExcessNewlines(text);
+    }
     const withoutFences = stripLeakedFencedToolBlocks(text);
     const withoutInvocations = stripBareToolInvocations(withoutFences);
     return collapseExcessNewlines(stripLeakedToolMarkup(withoutInvocations));
-};
-
-/** Checks whether `i` is the leftmost start of a candidate `[i, i + len)` tandem repeat. */
-const isLeftmostRepeatBoundary = (
-    text: string,
-    i: number,
-    len: number,
-): boolean =>
-    i === 0 || text.charCodeAt(i - 1) !== text.charCodeAt(i + len - 1);
-
-/** Checks whether a repeated span `[i, i + len)` is glued mid-stream without whitespace at the seam. */
-const hasGluedMultiWordSeam = (
-    text: string,
-    i: number,
-    len: number,
-): boolean => {
-    if (!isLeftmostRepeatBoundary(text, i, len)) return false;
-    const seam = i + len;
-    if (/\s/u.test(text.charAt(seam - 1)) || /\s/u.test(text.charAt(seam))) {
-        return false;
-    }
-    return /\s/u.test(text.slice(i, seam));
 };
 
 /** Fast 3-point character precheck before comparing `text.slice(i, i + len)` against `i + len`. */
@@ -1035,7 +886,7 @@ const matchesAdjacentRepeatAt = (
     const matchesEnds =
         text.charCodeAt(i) === text.charCodeAt(i + len) &&
         text.charCodeAt(i + len - 1) === text.charCodeAt(i + len * 2 - 1);
-    if (!matchesEnds || !hasGluedMultiWordSeam(text, i, len)) return false;
+    if (!matchesEnds) return false;
     return (
         text.charCodeAt(i + midOffset) ===
             text.charCodeAt(i + len + midOffset) &&
@@ -1043,7 +894,7 @@ const matchesAdjacentRepeatAt = (
     );
 };
 
-/** Collapses an immediate glued back-to-back repeated multi-word span (`>= 20` chars) if present. */
+/** Collapses an immediate back-to-back repeated span (`>= 20` chars) if present. */
 const collapseAdjacentDuplicateSpan = (text: string): string | null => {
     const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
     for (let len = maxAdjLen; len >= 20; len -= 1) {
@@ -1081,30 +932,30 @@ const isGluedReplaySeam = (text: string, start: number): boolean => {
     return prevChar.length > 0 && !/\s/u.test(prevChar);
 };
 
-/** Builds the minimum opening prefix (`>= 20` chars and containing whitespace) required for a replay match. */
-const buildOpeningReplayNeedle = (text: string): string | null => {
-    const firstWhitespace = text.search(/\s/u);
-    if (firstWhitespace === -1) return null;
-    const needleLen = Math.max(20, firstWhitespace + 1);
-    return text.length >= needleLen * 2 ? text.slice(0, needleLen) : null;
-};
+/** Checks whether a `matched`-char prefix match at `start` qualifies as a stream glitch replay. */
+const isPrefixGlitchReplay = (
+    text: string,
+    start: number,
+    matched: number,
+): boolean =>
+    matched === start ||
+    matched >= 80 ||
+    start + matched >= text.length - 1 ||
+    isGluedReplaySeam(text, start);
 
 /** Removes an accidental re-emission of the message opening (`>= 20` chars) while keeping valid prose. */
 const collapseOpeningPrefixReplay = (text: string): string | null => {
-    const needle = buildOpeningReplayNeedle(text);
-    if (needle === null) return null;
-    const maxStart = text.length - needle.length;
-    let start = text.indexOf(needle, needle.length);
-    while (start !== -1 && start <= maxStart) {
-        if (isGluedReplaySeam(text, start)) {
-            const matched = measurePrefixReplayLength(
-                text,
-                start,
-                needle.length,
-            );
+    const prefix20 = text.slice(0, 20);
+    const maxStart = text.length - 20;
+    let searchFrom = 20;
+    while (searchFrom <= maxStart) {
+        const start = text.indexOf(prefix20, searchFrom);
+        if (start === -1 || start > maxStart) break;
+        const matched = measurePrefixReplayLength(text, start, 20);
+        if (isPrefixGlitchReplay(text, start, matched)) {
             return text.slice(0, start) + text.slice(start + matched);
         }
-        start = text.indexOf(needle, start + 1);
+        searchFrom = start + 1;
     }
     return null;
 };
@@ -1126,19 +977,15 @@ const collapseGluedTailReplay = (text: string): string | null => {
     return null;
 };
 
-/** Repairs glued stream replays within a single prose segment outside code fences. */
-const repairProseStreamGlitches = (prose: string): string => {
-    if (prose.length < 40) return prose;
-    const adjacent = collapseAdjacentDuplicateSpan(prose);
+/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
+export const repairStreamGlitches = (text: string): string => {
+    if (text.length < 40) return text;
+    const adjacent = collapseAdjacentDuplicateSpan(text);
     if (adjacent !== null) return adjacent;
-    const replay = collapseOpeningPrefixReplay(prose);
+    const replay = collapseOpeningPrefixReplay(text);
     if (replay !== null) return replay;
-    return collapseGluedTailReplay(prose) ?? prose;
+    return collapseGluedTailReplay(text) ?? text;
 };
-
-/** Repair cumulative-stream glitches and obvious glued duplicate phrases outside code fences. */
-export const repairStreamGlitches = (text: string): string =>
-    text.length < 40 ? text : mapOutsideCodeFences(text, repairProseStreamGlitches);
 
 /** Normalize assistant markdown before ReactMarkdown. */
 export const looksLikeProseMarkdown = (text: string): boolean =>
@@ -1580,6 +1427,7 @@ const stripRawHtml = (text: string): string => {
 };
 
 const MAX_DISPLAY_CHARS = 48_000;
+const MAX_PREPROCESS_HEAD_CHARS = MAX_DISPLAY_CHARS * 2;
 
 /** Checks whether `text` splits a UTF-16 surrogate pair across `cutIndex - 1` and `cutIndex`. */
 const splitsUtf16SurrogatePair = (text: string, cutIndex: number): boolean => {
@@ -1588,14 +1436,21 @@ const splitsUtf16SurrogatePair = (text: string, cutIndex: number): boolean => {
     return lead >= 0xd800 && lead <= 0xdbff && trail >= 0xdc00 && trail <= 0xdfff;
 };
 
+/** Slices `text` at `limit` without leaving a trailing lone UTF-16 high surrogate. */
+const sliceSurrogateSafe = (text: string, limit: number): string =>
+    text.slice(0, splitsUtf16SurrogatePair(text, limit) ? limit - 1 : limit);
+
 /** Truncates excessively long streaming or finished responses without splitting UTF-16 surrogates. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    const cut = splitsUtf16SurrogatePair(text, MAX_DISPLAY_CHARS)
-        ? MAX_DISPLAY_CHARS - 1
-        : MAX_DISPLAY_CHARS;
-    return `${text.slice(0, cut)}\n\n... (response truncated for display)`;
+    return `${sliceSurrogateSafe(text, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 };
+
+/** Caps raw settled input at `2 * MAX_DISPLAY_CHARS` so glitch repair stays O(1) before the 48k cap. */
+const capSettledPreprocessInput = (text: string): string =>
+    text.length <= MAX_PREPROCESS_HEAD_CHARS
+        ? text
+        : sliceSurrogateSafe(text, MAX_PREPROCESS_HEAD_CHARS);
 
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */
 const finalizeStreamOrStaticMarkdown = (
@@ -1687,8 +1542,10 @@ export const preprocessChatMarkdown = (
     text: string,
     options?: { trim?: boolean; streaming?: boolean },
 ): string => {
-    const bounded = truncateForDisplay(text);
     const streaming = Boolean(options?.streaming);
+    const bounded = streaming
+        ? truncateForDisplay(text)
+        : capSettledPreprocessInput(text);
     const trim = options?.trim !== false;
     if (matchesPreprocessCache(lastPreprocessedCache, bounded, streaming, trim)) {
         return lastPreprocessedCache.output;

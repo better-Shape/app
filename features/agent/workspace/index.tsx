@@ -1,14 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useProjectState } from "@/lib/backend";
 import { EditorViewProvider, EditorSplitProvider } from "@/core/providers/editor";
-import { PlanTabView } from "./plan-tab";
-import { FileEditor } from "./editor";
 import { FileTree } from "./tree";
-import { SingleFileDiffEditor, type FileDiffTabInfo } from "./file-diff";
+import type { FileDiffTabInfo } from "./file-diff";
 import Graph from "@/features/git/ui/graph/graph";
-import { PullRequestsPanel } from "@/features/chat/ui/prs/view";
 import { ProblemsTab } from "./problems-tab";
 import { BlameTab } from "./blame-tab";
 import { PackagesTab } from "./packages-tab";
@@ -18,6 +16,32 @@ import { isBrowserTab } from "@/lib/window/browser-tab";
 import { WorkspaceTabs } from "./tabs";
 import { FileBar } from "./file-bar";
 import type { CSSProperties } from "react";
+
+/**
+ * Panels behind a tab the user has to open are split out of the first-load
+ * bundle — CodeMirror alone is ~330 KB and the diff view pulls its own editor.
+ * The Graph is the default tab and stays eager so the workspace paints on the
+ * first frame; these placeholders only cover the tick before the chunk lands
+ * (it is served from local disk, not the network).
+ */
+const PanelFallback = () => <div className="h-full w-full" aria-hidden />;
+
+const FileEditor = dynamic(() => import("./editor").then((m) => m.FileEditor), {
+    ssr: false,
+    loading: PanelFallback,
+});
+const SingleFileDiffEditor = dynamic(
+    () => import("./file-diff").then((m) => m.SingleFileDiffEditor),
+    { ssr: false, loading: PanelFallback },
+);
+const PlanTabView = dynamic(() => import("./plan-tab").then((m) => m.PlanTabView), {
+    ssr: false,
+    loading: PanelFallback,
+});
+const PullRequestsPanel = dynamic(
+    () => import("@/features/chat/ui/prs/view").then((m) => m.PullRequestsPanel),
+    { ssr: false, loading: PanelFallback },
+);
 
 const SIDEBAR_SURFACE = {
     "--panel": "var(--sidebar)",

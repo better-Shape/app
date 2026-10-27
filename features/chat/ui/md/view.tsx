@@ -528,6 +528,11 @@ export const ChatMarkdown = React.memo(({
 
     const live = !nested && Boolean(isLast) && (Boolean(isGenerating) || hold);
     const visible = useRevealText(content, live);
+    // Parsing markdown is the expensive half of a streamed frame. Hand React a
+    // deferred slice so it can drop intermediate typewriter frames instead of
+    // building a full AST for every one; the settled text is never deferred.
+    const deferred = React.useDeferredValue(visible);
+    const renderedText = live ? deferred : visible;
 
     const settledComponents = React.useMemo(
         () => createMarkdownComponents({ nested, streamingFence: false }),
@@ -553,12 +558,12 @@ export const ChatMarkdown = React.memo(({
         if (!live) {
             return {
                 settled: [] as string[],
-                tail: preprocessChatMarkdown(visible, { streaming: false, trim: true }),
+                tail: preprocessChatMarkdown(renderedText, { streaming: false, trim: true }),
             };
         }
-        const normalized = preprocessChatMarkdown(visible, { streaming: true, trim: false });
+        const normalized = preprocessChatMarkdown(renderedText, { streaming: true, trim: false });
         return splitStreamingMarkdownBlocks(normalized);
-    }, [visible, live]);
+    }, [renderedText, live]);
 
     return (
         <div className="font-sans chat-markdown-body">

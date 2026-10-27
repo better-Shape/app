@@ -80,16 +80,18 @@ const eslintConfig = defineConfig([
     "public/preview/**",
     // Coverage
     "coverage/**",
-    // Playwright output from `npm run qa`: traces, screenshots and a report bundle
-    // whose assets are minified. ESLint reads them as source and its formatter
-    // dies on the 500KB+ bundles, so `npm run qa && npm run lint` used to crash.
-    "test-results/**",
+    // Playwright output. `npm run qa` / `npm run test:e2e` write both
+    // directories (they are gitignored), and the HTML reporter ships its own
+    // minified trace viewer. Linting them reported thousands of minifier
+    // artefacts and then killed the stylish formatter with
+    // `RangeError: Invalid string length` on any machine that had run QA.
     "playwright-report/**",
-    "blob-report/**",
-    "playwright/.cache/**",
-    // Generated QA output: screenshots, GIF frames, probe scripts and manifests.
-    // They are artifacts of a run, not application source, and they are not tracked.
-    ".dump/app/qa/**",
+    "test-results/**",
+      "blob-report/**",
+      "playwright/.cache/**",
+      // Generated QA output: screenshots, GIF frames, probe scripts and manifests.
+      // They are artifacts of a run, not application source, and they are not tracked.
+      ".dump/app/qa/**",
   ]),
   {
     // Every CommonJS file, not only the ones under `scripts`: the Next.js config

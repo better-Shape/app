@@ -1430,8 +1430,13 @@ const consumeMatchedTagAt = (
     };
 };
 
-/** Parse message content into chronological prose, workflow, and rich card chunks. */
-export const parseMessageContent = (rawText: string): Chunk[] => {
+const PARSE_CACHE_MAX_ENTRIES = 8;
+const PARSE_CACHE_MAX_CHARS = 192_000;
+const parseCache = new Map<string, Chunk[]>();
+let parseCacheChars = 0;
+
+/** Parses uncached message content into chronological prose, workflow, and rich card chunks. */
+const parseMessageContentUncached = (rawText: string): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
     const fenceRanges = collectProtectedCodeRanges(text);
     const fenceCursor = { idx: 0 };
@@ -1458,6 +1463,37 @@ export const parseMessageContent = (rawText: string): Chunk[] => {
     }
 
     return dedupeTerminalChunks(chunks);
+};
+
+/** Checks whether the bounded LRU parse cache must evict its oldest entry. */
+const shouldEvictParseCache = (): boolean =>
+    parseCache.size > PARSE_CACHE_MAX_ENTRIES ||
+    (parseCacheChars > PARSE_CACHE_MAX_CHARS && parseCache.size > 1);
+
+/** Records `chunks` under `rawText` in the bounded LRU parse cache. */
+const storeParsedMessageCache = (rawText: string, chunks: Chunk[]): void => {
+    if (rawText.length > PARSE_CACHE_MAX_CHARS) return;
+    parseCache.set(rawText, chunks);
+    parseCacheChars += rawText.length;
+    while (shouldEvictParseCache()) {
+        const oldest = parseCache.keys().next().value;
+        if (oldest === undefined) break;
+        parseCache.delete(oldest);
+        parseCacheChars -= oldest.length;
+    }
+};
+
+/** Parse message content into chronological prose, workflow, and rich card chunks. */
+export const parseMessageContent = (rawText: string): Chunk[] => {
+    const cached = parseCache.get(rawText);
+    if (cached) {
+        parseCache.delete(rawText);
+        parseCache.set(rawText, cached);
+        return cached;
+    }
+    const chunks = parseMessageContentUncached(rawText);
+    storeParsedMessageCache(rawText, chunks);
+    return chunks;
 };
 
 /** Merges two adjacent plain-text chunks in place. */
