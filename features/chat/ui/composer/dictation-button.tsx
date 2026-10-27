@@ -24,6 +24,15 @@ const formatElapsed = (sec: number): string => {
     return `${m}:${String(s).padStart(2, "0")}`;
 };
 
+/** Wraps a Tauri `UnlistenFn` so bridge teardown rejections never surface as unhandled promises. */
+const wrapSafeUnlisten =
+    (stop: () => unknown): (() => void) =>
+    () => {
+        Promise.resolve()
+            .then(() => stop())
+            .catch(() => undefined);
+    };
+
 /** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
 const safeListen = <T,>(
     eventName: string,
@@ -31,6 +40,7 @@ const safeListen = <T,>(
 ): Promise<() => void> =>
     Promise.resolve()
         .then(() => listen<T>(eventName, handler))
+        .then(wrapSafeUnlisten)
         .catch(() => () => undefined);
 
 /** Registers an async event listener onto `unlisteners`, or disposes immediately if unmounted. */
@@ -258,18 +268,25 @@ const useDictationTimersAndEscape = (
     }, [dispose, isListening, isProcessing, isStarting, refs, setElapsedSec]);
 };
 
+/** Computes elapsed recording milliseconds from a non-zero `startedAt` timestamp. */
+const computeRecordedDictationMs = (startedAt: number): number =>
+    startedAt > 0 ? Math.max(0, Date.now() - startedAt) : 0;
+
 /** Updates capture start timestamp and scaled recognition timeout on `refs` when `next` changes. */
 const updateTimingRefsForDictationState = (
     next: DictationState,
     refs: DictationRefs,
 ): void => {
     if (next === "listening") {
-        refs.listenStartedAtRef.current = Date.now();
+        if (!refs.startingRef.current) {
+            refs.listenStartedAtRef.current = Date.now();
+        }
         return;
     }
     if (next === "processing") {
-        const startedAt = refs.listenStartedAtRef.current;
-        const recordedMs = startedAt > 0 ? Date.now() - startedAt : 0;
+        const recordedMs = computeRecordedDictationMs(
+            refs.listenStartedAtRef.current,
+        );
         refs.processingTimeoutMsRef.current =
             computeProcessingSafetyTimeoutMs(recordedMs);
     }
@@ -442,6 +459,7 @@ const beginNewDictationAttempt = async (
     refs.abortRef.current?.abort();
     const controller = new AbortController();
     refs.abortRef.current = controller;
+    refs.listenStartedAtRef.current = 0;
     ui.setElapsedSec(0);
     refs.startingRef.current = true;
     const attemptId = (refs.startAttemptIdRef.current += 1);
@@ -457,6 +475,7 @@ const beginNewDictationAttempt = async (
             return;
         }
         refs.startingRef.current = false;
+        refs.listenStartedAtRef.current = Date.now();
         ui.setIsStarting(false);
         refs.session.current = active;
     } catch {
