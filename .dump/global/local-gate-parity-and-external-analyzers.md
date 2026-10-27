@@ -2,11 +2,17 @@
 
 ## Conclusion
 
-Passing `npm run lint`, `npx tsc --noEmit` and a targeted Vitest file in a network-restricted sandbox does not prove that CI or external pull request analyzers will pass. Before pushing any branch in this repository, run the full Verification gate in `AGENTS.md`, including `npm ci`, `npm run lint:strict`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify` and the Cargo fmt and clippy gates when Rust changes, check touched JavaScript and TypeScript files against the external analyzer rules below, isolate TTL-cached network tests with explicit cache bypass or `fetch` stubs, and poll every page of `gh api --paginate` on both `check-runs` and `status` for the pushed head SHA.
+Passing `npm run lint`, `npx tsc --noEmit` and a single Vitest file in a network-restricted sandbox does not prove that CI or external pull request analyzers will pass. Run every step below before you push a branch in this repository.
+
+- Run `npm ci`, `npm run lint:strict`, `npm run typecheck`, `npm run test:all` and `npm run skills:verify`.
+- Run the Cargo format and Clippy commands in `AGENTS.md` whenever `src-tauri` changes.
+- Check touched JavaScript and TypeScript files against the external analyzer rules below.
+- Isolate TTL-cached network tests with explicit cache bypass or `fetch` stubs.
+- Poll every page of `gh api --paginate` on both `check-runs` and `status` for the pushed head SHA.
 
 ## Evidence from PR 53
 
-On branch `arena/c0114966-app` in PR 53, commit `414ce6b11938aa828534b2b1184c90df79fa9bb6` passed `npx eslint` on changed files, `npx tsc --noEmit` and a targeted Vitest file locally, then failed four separate checks on GitHub:
+On branch `arena/c0114966-app` in PR 53, commit `414ce6b11938aa828534b2b1184c90df79fa9bb6` passed `npx eslint` on changed files, `npx tsc --noEmit` and a targeted Vitest file locally, then failed four separate checks on GitHub.
 
 | Check or status | Failure on `414ce6b1` | Root cause | Fix verified on `3387105b` and `2a6cfe8089` |
 | --- | --- | --- | --- |

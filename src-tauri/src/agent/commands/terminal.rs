@@ -218,9 +218,9 @@ fn forward_panel_exit(app: &AppHandle, enabled: bool, session_id: u32, exit_code
     let _ = app.emit("pty-exit", exit);
 }
 
-/// Returns `true` when session exit came from turn cancellation or an explicit kill (`< 0`).
-fn is_session_exit_cancelled(owner: &TerminalOwner, exit_code: i32) -> bool {
-    owner.cancel.is_cancelled() || exit_code < 0
+/// Returns `true` when session exit came from user turn cancellation.
+fn is_session_exit_cancelled(owner: &TerminalOwner) -> bool {
+    owner.cancel.is_cancelled()
 }
 
 /// Constructs output and exit callbacks linking a PTY or piped session to chat stream events.
@@ -260,7 +260,7 @@ fn make_callbacks(
             forward_panel_output(&app_out, forward_panel_data, session_id, data);
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
-            let cancelled = is_session_exit_cancelled(&owner, exit_code);
+            let cancelled = is_session_exit_cancelled(&owner);
             if let Some(state) = app_exit.try_state::<AgentState>() {
                 state.unregister_session(session_id, &owner);
             }

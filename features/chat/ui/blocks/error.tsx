@@ -220,7 +220,8 @@ const resolveChatErrorHint = ({
 const SECRET_ASSIGNMENT_RE =
     /(["']?\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|authorization|x-api-key)\b["']?[ \t]*[:=][ \t]*["']?)(?:(?:Bearer|Basic)[ \t]+[A-Za-z0-9._~+/=-]{4,}|[A-Za-z0-9._~+/=-]{8,})/giu;
 const BEARER_TOKEN_RE = /\bBearer[ \t]+[A-Za-z0-9._~+/=-]{8,}/giu;
-const BASIC_TOKEN_CANDIDATE_RE = /\b(Basic[ \t]+)([A-Za-z0-9+/=_-]{4,})\b/giu;
+const BASIC_TOKEN_CANDIDATE_RE =
+    /\b(Basic[ \t]+)([A-Za-z0-9+/=_-]{4,})(?![A-Za-z0-9+/=_-])/giu;
 const URL_AUTHORITY_RE = /\b(https?:\/\/)([^\s/?#"']+)/giu;
 const QUERY_SECRET_RE =
     /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
