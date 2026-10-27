@@ -660,7 +660,7 @@ const hasLeakedInvocationLine = (
 };
 
 /** Case-insensitive probe for leaked `_execute` / `_EXECUTE` tool-dump blocks. */
-const hasExecuteDump = (text: string): boolean => /_[eE]xecute/i.test(text);
+const hasExecuteDump = (text: string): boolean => /_execute/i.test(text);
 
 /** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
@@ -822,28 +822,46 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
+const UNCLOSED_FENCE_HEAD_RE = /^```[\w-]*[ \t\r\f\v]*\n/u;
+const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
+
+/** Strips an unclosed trailing backtick fence when its body looks like a leaked tool call. */
+const stripUnclosedLeakedFenceTail = (text: string): string => {
+    let idx = text.indexOf("```");
+    while (idx !== -1) {
+        const tail = text.slice(idx);
+        const head = UNCLOSED_FENCE_HEAD_RE.exec(tail);
+        if (head && looksLikeLeakedToolCode(tail.slice(head[0].length))) {
+            return text.slice(0, idx);
+        }
+        idx = text.indexOf("```", idx + 3);
+    }
+    return text;
+};
 
 /** Strips complete and streaming fenced code blocks whose bodies look like leaked tool calls. */
 const stripLeakedFencedToolBlocks = (text: string): string => {
     if (!text.includes("```")) return text;
     const withoutComplete = text.replace(
-        /```[\w-]*\s*\n([\s\S]*?)```/g,
+        /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/g,
         (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
     );
-    return withoutComplete.replace(
-        /```[\w-]*\s*\n([\s\S]*)$/g,
-        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
-    );
+    return stripUnclosedLeakedFenceTail(withoutComplete);
+};
+
+/** Strips a bare `{ "tool_code": ... }` tail when its body contains a leaked tool trigger. */
+const stripBareToolCodeTail = (text: string): string => {
+    const match = BARE_TOOL_CODE_OPEN_RE.exec(text);
+    if (!match) return text;
+    const tail = text.slice(match.index);
+    return BARE_TOOL_CODE_TRIGGER_RE.test(tail)
+        ? text.slice(0, match.index)
+        : text;
 };
 
 /** Strips bare `{ "tool_code": "..." }` JSON dumps and leaked `print`/`functions.*` lines. */
 const stripBareToolInvocations = (text: string): string => {
-    let out = text;
-    if (out.includes("tool_code")) {
-        out = out.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) =>
-            BARE_TOOL_CODE_TRIGGER_RE.test(match) ? "" : match,
-        );
-    }
+    let out = text.includes("tool_code") ? stripBareToolCodeTail(text) : text;
     if (out.includes("print") || out.includes("functions.")) {
         out = mapOutsideCodeFences(out, (prose) =>
             prose
