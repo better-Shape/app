@@ -296,16 +296,22 @@ export const commandSummary = (command: string, max = 56): string => {
     return `${units.slice(0, Math.max(1, max - 3)).join("")}...`;
 };
 
-/** Output portion of a persisted terminal chunk (body minus the command line). */
+/** Strips `command` when it occupies whole leading line(s) of `trimmed`. */
+const stripCommandPrefix = (trimmed: string, command: string): string => {
+    if (!command || !trimmed.startsWith(command)) return trimmed;
+    const rest = trimmed.slice(command.length);
+    return /^[ \t]*(?:\n|$)/.test(rest) ? rest.trim() : trimmed;
+};
+
+/** Output portion of a persisted terminal chunk (body minus the command lines). */
 const stripTerminalChunkOutput = (block: Chunk): string => {
-    const content = stripAnsi(block.content ?? "");
-    const command = (block.command ?? "").trim();
-    const lines = content.split("\n");
-    if (lines[0]?.trim() === command) {
-        return lines.slice(1).join("\n").trim();
-    }
-    const trimmed = content.trim();
-    return trimmed === command ? "" : trimmed;
+    const trimmed = stripAnsi(block.content ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+    const command = stripAnsi(block.command ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+    return stripCommandPrefix(trimmed, command);
 };
 
 /** Subscribes to a Tauri event while safely falling back to a no-op outside the desktop bridge. */
