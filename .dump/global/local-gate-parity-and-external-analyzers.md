@@ -2,7 +2,7 @@
 
 ## Conclusion
 
-Passing `npm run lint`, `npx tsc --noEmit` and a targeted Vitest file in a network-restricted sandbox does not prove that CI or external pull request analyzers will pass. Before pushing any branch in this repository, run `npm run lint:strict`, run the full `npx vitest run` suite, check touched TypeScript files against the external analyzer rules below, isolate TTL-cached network tests with explicit cache bypass or `fetch` stubs, and poll both `check-runs` and `status` endpoints on the pushed head SHA.
+Passing `npm run lint`, `npx tsc --noEmit` and a targeted Vitest file in a network-restricted sandbox does not prove that CI or external pull request analyzers will pass. Before pushing any branch in this repository, run the full Verification gate in `AGENTS.md`, including `npm ci`, `npm run lint:strict`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify` and the Cargo fmt and clippy gates when Rust changes, check touched JavaScript and TypeScript files against the external analyzer rules below, isolate TTL-cached network tests with explicit cache bypass or `fetch` stubs, and poll every page of `gh api --paginate` on both `check-runs` and `status` for the pushed head SHA.
 
 ## Evidence from PR 53
 

@@ -96,9 +96,14 @@ const isCsiParameterByte = (code: number): boolean =>
 const isCsiIntermediateByte = (code: number): boolean =>
     code >= 0x20 && code <= 0x2f;
 
-/** Returns true when `code` is neither BEL (`0x07`) nor ESC (`0x1B`). */
+const ESC_CHAR = String.fromCharCode(0x1b);
+const MAX_STREAM_CARRY_CHARS = 256;
+const SINGLE_BYTE_STRING_TERMINATORS = new Set([0x07, 0x18, 0x1a]);
+const STRING_CONTROL_BREAK_CODES = new Set([0x07, 0x18, 0x1a, 0x1b]);
+
+/** Returns true when `code` stays inside an ECMA-48 control string (`not BEL, CAN, SUB, or ESC`). */
 const isOscPayloadByte = (code: number): boolean =>
-    code !== 0x07 && code !== 0x1b;
+    !STRING_CONTROL_BREAK_CODES.has(code);
 
 /** Skips an ANSI CSI sequence (`ESC [` ... `@-~`), falling back to `start` if unterminated. */
 const skipCsiSequence = (input: string, start: number): number => {
@@ -114,14 +119,15 @@ const skipCsiSequence = (input: string, start: number): number => {
         : start;
 };
 
-/** Skips an ANSI OSC sequence (`ESC ]` ... `BEL` or `ESC \\`), falling back to `start` if unterminated. */
+/** Skips an ECMA-48 string sequence (`OSC`, `DCS`, `SOS`, `PM`, `APC`), discarding payload until terminated. */
 const skipOscSequence = (input: string, start: number): number => {
     const end = advanceWhileCharCode(input, start, isOscPayloadByte);
-    if (input.charCodeAt(end) === 0x07) return end + 1;
-    if (input.charCodeAt(end) === 0x1b && input.charCodeAt(end + 1) === 0x5c) {
-        return end + 2;
+    const term = input.charCodeAt(end);
+    if (SINGLE_BYTE_STRING_TERMINATORS.has(term)) return end + 1;
+    if (term === 0x1b) {
+        return input.charCodeAt(end + 1) === 0x5c ? end + 2 : end;
     }
-    return start;
+    return input.length;
 };
 
 /** Checks whether a CSI sequence starting at `start` (`after ESC [`) is still open at EOF. */
@@ -135,9 +141,8 @@ const isIncompleteCsiAtEnd = (input: string, start: number): boolean => {
     return afterIntermediates === input.length;
 };
 
-/** Checks whether an OSC sequence starting at `start` (`after ESC ]`) is still open at EOF. */
+/** Checks whether an ECMA-48 string sequence starting at `start` remains open at chunk end. */
 const isIncompleteOscAtEnd = (input: string, start: number): boolean => {
-    if (input.length - start > 256) return false;
     const end = advanceWhileCharCode(input, start, isOscPayloadByte);
     if (end === input.length) return true;
     return end === input.length - 1 && input.charCodeAt(end) === 0x1b;
@@ -282,29 +287,42 @@ const splitTrailingCarriageReturns = (
         : { body: text.slice(0, end), trailingCr: "\r" };
 };
 
+/** Caps an open string-sequence carry to its 2-byte opener (plus trailing ESC for split ST) past 256 chars. */
+const compactIncompleteAnsiCarry = (
+    input: string,
+    escIndex: number,
+): string => {
+    const raw = input.slice(escIndex);
+    if (raw.length <= MAX_STREAM_CARRY_CHARS) return raw;
+    if (!isAnsiStringSequenceOpener(raw[1])) {
+        return raw.slice(0, MAX_STREAM_CARRY_CHARS);
+    }
+    const trailingEsc = raw.charCodeAt(raw.length - 1) === 0x1b ? ESC_CHAR : "";
+    return `${raw.slice(0, 2)}${trailingEsc}`;
+};
+
 /** Strips complete ANSI escapes from `combined` while holding split trailing escapes or `\r` in `carry`. */
 const consumeStreamingAnsi = (
     combined: string,
     flush: boolean,
 ): { stripped: string; carry: string } => {
     if (flush) return { stripped: stripAnsiSequences(combined), carry: "" };
-    const escChar = String.fromCharCode(0x1b);
     let output = "";
     let ansiCarry = "";
-    if (!combined.includes(escChar)) {
+    if (!combined.includes(ESC_CHAR)) {
         output = combined;
     } else {
         let cursor = 0;
-        let escIndex = combined.indexOf(escChar, cursor);
+        let escIndex = combined.indexOf(ESC_CHAR, cursor);
         while (escIndex !== -1) {
             output += combined.slice(cursor, escIndex);
             if (isIncompleteAnsiAtEnd(combined, escIndex)) {
-                ansiCarry = combined.slice(escIndex);
+                ansiCarry = compactIncompleteAnsiCarry(combined, escIndex);
                 cursor = combined.length;
                 break;
             }
             cursor = advanceAnsiEscape(combined, escIndex);
-            escIndex = combined.indexOf(escChar, cursor);
+            escIndex = combined.indexOf(ESC_CHAR, cursor);
         }
         output += combined.slice(cursor);
     }
