@@ -1608,23 +1608,28 @@ const finalizeParsedChunks = (
         finalizeSingleParsedChunk(chunk, isGenerating, isFileEditResolved),
     );
 
-/** Checks whether a later `persona_review` chunk with the same `commandId` supersedes `index`. */
-const isSupersededPersonaReview = (
+/** Indexes the last array position of each `persona_review` chunk keyed by `commandId`. */
+const collectLastPersonaReviewIndexById = (
     chunks: Chunk[],
-    chunk: Chunk,
-    index: number,
-): boolean => {
-    if (chunk.type !== "persona_review") return false;
-    for (let next = index + 1; next < chunks.length; next += 1) {
-        const candidate = chunks[next];
-        if (
-            candidate.type === "persona_review" &&
-            candidate.commandId === chunk.commandId
-        ) {
-            return true;
+): Map<string | undefined, number> => {
+    const lastById = new Map<string | undefined, number>();
+    for (let i = 0; i < chunks.length; i += 1) {
+        if (chunks[i].type === "persona_review") {
+            lastById.set(chunks[i].commandId, i);
         }
     }
-    return false;
+    return lastById;
+};
+
+/** Retains only the final `persona_review` chunk for each `commandId` in linear time. */
+export const dropSupersededPersonaReviews = (chunks: Chunk[]): Chunk[] => {
+    const lastById = collectLastPersonaReviewIndexById(chunks);
+    if (lastById.size === 0) return chunks;
+    return chunks.filter(
+        (chunk, index) =>
+            chunk.type !== "persona_review" ||
+            lastById.get(chunk.commandId) === index,
+    );
 };
 
 /** Decides whether a chunk should remain visible when constructing chronological segments. */
@@ -2075,12 +2080,10 @@ export const MessageRenderer = ({
         }
     }, [chunks, isGenerating, skipSubagentSync]);
 
-    const contentChunks = useMemo(() => {
-        const merged = mergeAdjacentTextChunks(chunks);
-        return merged.filter(
-            (chunk, index) => !isSupersededPersonaReview(merged, chunk, index),
-        );
-    }, [chunks]);
+    const contentChunks = useMemo(
+        () => dropSupersededPersonaReviews(mergeAdjacentTextChunks(chunks)),
+        [chunks],
+    );
 
     const browsing = contentChunks.some((chunk) => chunk.type === "browse_session");
 
