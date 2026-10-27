@@ -1067,17 +1067,27 @@ const isAuthStyle = (value: unknown): value is AuthStyle | "" =>
 const isObjectRecord = (raw: unknown): raw is Record<string, unknown> =>
   Boolean(raw) && typeof raw === "object";
 
-/** Drop junk header names, keep the last value for duplicates. */
+/** Applies `entries` onto `byLower`, replacing any prior entry with the same ASCII-lowercased header name. */
+const applyCaseInsensitiveHeaders = (
+  byLower: Map<string, [string, string]>,
+  entries: Iterable<readonly [string, string]>,
+): void => {
+  for (const [name, value] of entries) {
+    byLower.set(name.toLowerCase(), [name, value]);
+  }
+};
+
+/** Drop junk header names, keep the last value for case-insensitive duplicates. */
 export const normalizeHeaders = (raw: unknown): Record<string, string> => {
   if (!isObjectRecord(raw)) return {};
-  const out: Record<string, string> = {};
+  const byLower = new Map<string, [string, string]>();
   for (const [name, value] of Object.entries(raw)) {
     const header = name.trim();
     if (header && typeof value === "string") {
-      out[header] = value.trim();
+      byLower.set(header.toLowerCase(), [header, value.trim()]);
     }
   }
-  return out;
+  return Object.fromEntries(byLower.values());
 };
 
 /** How the key travels for this connection. */
@@ -1220,18 +1230,20 @@ export const isConnectionUsable = (
   return true;
 };
 
-/** Request headers for a connection: preset defaults, then the user's own. */
+/** Request headers for a connection: preset defaults, then case-insensitive user overrides. */
 export const providerHeaders = (
   id: ProviderId,
   connection: ProviderConnection | undefined,
 ): Record<string, string> => {
   const preset = providerPreset(id);
-  const merged: Record<string, string> = {
-    ...(preset.headers ?? {}),
-    ...normalizeHeaders(connection?.headers),
-  };
+  const byLower = new Map<string, [string, string]>();
+  applyCaseInsensitiveHeaders(byLower, Object.entries(preset.headers ?? {}));
+  applyCaseInsensitiveHeaders(
+    byLower,
+    Object.entries(normalizeHeaders(connection?.headers)),
+  );
   return Object.fromEntries(
-    Object.entries(merged).filter(([, value]) => Boolean(value.trim())),
+    Array.from(byLower.values()).filter(([, value]) => Boolean(value.trim())),
   );
 };
 
@@ -1249,14 +1261,14 @@ const parseSingleHeaderLine = (
 
 /** `Name: value` lines ⇄ the header map shown next to a provider. */
 export const parseHeaderLines = (text: string): Record<string, string> => {
-  const out: Record<string, string> = {};
+  const byLower = new Map<string, [string, string]>();
   for (const line of text.split("\n")) {
     const entry = parseSingleHeaderLine(line);
     if (entry) {
-      out[entry[0]] = entry[1];
+      byLower.set(entry[0].toLowerCase(), entry);
     }
   }
-  return out;
+  return Object.fromEntries(byLower.values());
 };
 
 /** Serializes custom HTTP header key-value pairs into newline-delimited `Key: Value` text. */

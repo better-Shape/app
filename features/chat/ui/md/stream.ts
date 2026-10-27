@@ -410,15 +410,31 @@ const isCrLfAt = (text: string, segEnd: number, pos: number): boolean =>
     text.charCodeAt(pos) === 0x0d &&
     text.charCodeAt(pos + 1) === 0x0a;
 
-/** Returns the index right after a blank-line break starting at `nl`, or `-1` when single-line. */
+/** Advances past ASCII spaces (`0x20`) and tabs (`0x09`) starting at `from` up to `limit`. */
+const skipHorizontalSpace = (
+    text: string,
+    from: number,
+    limit: number,
+): number => {
+    let idx = from;
+    while (idx < limit) {
+        const code = text.charCodeAt(idx);
+        if (code !== 0x20 && code !== 0x09) break;
+        idx += 1;
+    }
+    return idx;
+};
+
+/** Returns the index right after a CommonMark blank line starting after `nl`, or `-1` when non-blank. */
 const resolveBreakEndAfterNewline = (
     text: string,
     segEnd: number,
     nl: number,
 ): number => {
-    if (nl + 1 >= segEnd) return -1;
-    if (text.charCodeAt(nl + 1) === 0x0a) return nl + 2;
-    return isCrLfAt(text, segEnd, nl + 1) ? nl + 3 : -1;
+    const afterWs = skipHorizontalSpace(text, nl + 1, segEnd);
+    if (afterWs >= segEnd) return -1;
+    if (text.charCodeAt(afterWs) === 0x0a) return afterWs + 1;
+    return isCrLfAt(text, segEnd, afterWs) ? afterWs + 2 : -1;
 };
 
 /** Finds the next `\n` within `[from, limit)`, or `-1` when none exists. */

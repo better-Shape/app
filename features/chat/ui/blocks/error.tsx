@@ -13,7 +13,6 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-    BETTERSHAPE_ERRORS,
     classifyAiError,
     errorDocsUrl,
 } from "@/lib/errors/catalog";
@@ -25,6 +24,8 @@ const CONTEXT_OVERFLOW_RE =
     /context_length_exceeded|context\s*window\s*(?:exceeded|overflow|full|limit)|exceed(?:s|ed)?\s*(?:the\s*)?(?:maximum\s*)?context\s*(?:window|length)|maximum\s*context\s*length|prompt\s*is\s*too\s*long/i;
 const MODEL_BUSY_RE = /model_busy|model is busy|high\s*(load|demand)/i;
 const RATE_LIMIT_RE = /rate\s*limit|too many requests/i;
+const UNCONFIGURED_PROVIDER_ERROR_RE =
+    /no model provider is configured|has no api key|add one in settings/i;
 
 const OPENROUTER_BILLING_PREFIXES = [
     "/credits",
@@ -293,13 +294,13 @@ const resolveChatErrorDocsUrl = (
 
 /** Checks whether `ChatErrorDialog` should expose `onRetry` ("Try again") for a classified error. */
 const isRetryableChatError = (
-    code: number,
+    rawMessage: string,
     isQuota: boolean,
     isContextOverflow: boolean,
 ): boolean =>
     !isQuota &&
     !isContextOverflow &&
-    code !== BETTERSHAPE_ERRORS.AI_KEY_MISSING;
+    !UNCONFIGURED_PROVIDER_ERROR_RE.test(rawMessage);
 
 /** Computes title, hint, detail, docs link, and action flags for `ChatErrorDialog`. */
 const deriveChatErrorViewModel = (rawMessage: string) => {
@@ -336,7 +337,7 @@ const deriveChatErrorViewModel = (rawMessage: string) => {
         hint,
         detail: resolveChatErrorDetail(rawMessage, title, hint),
         isContextOverflow,
-        canRetry: isRetryableChatError(entry.code, isQuota, isContextOverflow),
+        canRetry: isRetryableChatError(rawMessage, isQuota, isContextOverflow),
         hasBillingProvider: Boolean(billingProvider),
         docsUrl: resolveChatErrorDocsUrl(billingProvider, entry.code),
     };
