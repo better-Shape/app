@@ -110,7 +110,9 @@ const abortPendingDictationPhases = (
     }
     if (refs.processingRef.current) {
         refs.processingRef.current = false;
-        void stopDictationRecognizer(() => commands.dictationStop());
+        stopDictationRecognizer(() => commands.dictationStop()).catch(() => {
+            /* ignore recognizer teardown errors */
+        });
     }
 };
 
@@ -131,7 +133,9 @@ const handleRecognizedDictationEvent = (
     const text = rawText?.trim();
     refs.recognizerAttemptIdRef.current = -1;
     refs.processingRef.current = false;
-    void stopDictationRecognizer(() => commands.dictationStop());
+    stopDictationRecognizer(() => commands.dictationStop()).catch(() => {
+        /* ignore recognizer teardown errors */
+    });
     ui.setState("idle");
     ui.setLevel(0);
     if (!text) return;
