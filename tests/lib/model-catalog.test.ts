@@ -108,17 +108,23 @@ describe("model catalog", () => {
             }),
         );
         try {
-            const refreshed = await refreshModelCatalog();
+            const refreshed = await refreshModelCatalog(true);
             expect(fetchSpy).toHaveBeenCalledWith(
                 "https://openrouter.ai/api/v1/models",
                 expect.objectContaining({ cache: "no-cache" }),
             );
             expect(refreshed.fromNetwork).toBe(true);
             expect(refreshed.models.length).toBeGreaterThanOrEqual(210);
+
+            const cached = await refreshModelCatalog();
+            expect(cached.fromNetwork).toBe(false);
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
         } finally {
             if (typeof window !== "undefined") {
                 window.localStorage.removeItem("bettershape.model-catalog.v2");
             }
+            fetchSpy.mockRejectedValueOnce(new Error("offline"));
+            await refreshModelCatalog(true);
             fetchSpy.mockRestore();
         }
     });
