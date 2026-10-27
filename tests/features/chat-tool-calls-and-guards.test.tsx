@@ -71,7 +71,10 @@ import {
 } from "@/lib/ai/providers";
 import { commands } from "@/lib/backend/commands";
 import { shortenMentionTokensInText } from "@/lib/chat/mentions";
-import { startDictation } from "@/lib/editor/dictation";
+import {
+    startDictation,
+    stopDictationRecognizer,
+} from "@/lib/editor/dictation";
 import { terminalSessionStore } from "@/features/terminal/session";
 import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 
@@ -98,6 +101,13 @@ const createMockAudioContextFactory = (
             close: (): Promise<void> => Promise.resolve(),
         };
     });
+
+/** Returns the first mounted `<button>` inside `container`, throwing if absent. */
+const requireMountedButton = (container: HTMLElement): HTMLButtonElement => {
+    const btn = container.querySelector("button");
+    if (!btn) throw new Error("Expected mounted button");
+    return btn;
+};
 
 /** Mounts `node` inside a fresh DOM container with `TooltipProvider`, tearing down any prior mount. */
 const mount = (node: React.ReactElement) => {
@@ -1883,37 +1893,69 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             ),
         ).toBe(false);
 
-        vi.useFakeTimers();
-        mockIPC(() => "", { shouldMockEvents: true });
-        type AudioProcessHandler = (e: {
-            inputBuffer: { getChannelData: () => Float32Array };
-        }) => void;
-        let onAudio: AudioProcessHandler = () => undefined;
+        expect(
+            insertDictatedSlice("hello world, next", 6, "speech", 11).next,
+        ).toBe("hello speech, next");
+
+        const ipcOrder: string[] = [];
+        const slowStop = stopDictationRecognizer(
+            () =>
+                new Promise<void>((resolve) => {
+                    setTimeout(() => {
+                        ipcOrder.push("stop-done");
+                        resolve();
+                    }, 10);
+                }),
+        );
         vi.stubGlobal(
             "AudioContext",
-            class {
-                sampleRate = 16_000;
-                destination = {};
-                createMediaStreamSource() {
-                    return { connect: vi.fn(), disconnect: vi.fn() };
-                }
-                createScriptProcessor() {
-                    return {
-                        set onaudioprocess(fn: AudioProcessHandler | null) {
-                            onAudio = fn!;
-                        },
-                        get onaudioprocess() {
-                            return onAudio;
-                        },
-                        connect: vi.fn(),
-                        disconnect: vi.fn(),
-                    };
-                }
-                createGain() {
-                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
-                }
-                async close() {}
+            createMockAudioContextFactory(() => ({
+                connect: vi.fn(),
+                disconnect: vi.fn(),
+                onaudioprocess: null,
+            })),
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(() =>
+                    Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }),
+                ),
             },
+        });
+        const queuedSession = await startDictation(
+            { onText: vi.fn(), onError: vi.fn() },
+            true,
+            {
+                start: () => {
+                    ipcOrder.push("start");
+                    return Promise.resolve();
+                },
+                stop: () => Promise.resolve(),
+                push: () => Promise.resolve(""),
+            },
+        );
+        await slowStop;
+        queuedSession.dispose();
+        expect(ipcOrder).toEqual(["stop-done", "start"]);
+
+        vi.useFakeTimers();
+        mockIPC(() => "", { shouldMockEvents: true });
+        type AudioProcessHandler = (ev: {
+            inputBuffer: { getChannelData: () => Float32Array };
+        }) => void;
+        const processor: {
+            connect: () => void;
+            disconnect: () => void;
+            onaudioprocess: AudioProcessHandler | null;
+        } = {
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            onaudioprocess: null,
+        };
+        vi.stubGlobal(
+            "AudioContext",
+            createMockAudioContextFactory(() => processor),
         );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1935,7 +1977,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     <DictationButton />
                 </TooltipProvider>,
             );
-            const btn = btnWrap.querySelector("button")!;
+            const btn = requireMountedButton(btnWrap);
             await act(async () => {
                 btn.click();
                 await vi.advanceTimersByTimeAsync(60_000);
@@ -1943,7 +1985,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             expect(btn.getAttribute("aria-label")).toBe("Stop dictation");
             expect(btnWrap.textContent).toContain("0:00");
             await act(async () => {
-                onAudio({
+                processor.onaudioprocess?.({
                     inputBuffer: {
                         getChannelData: () => new Float32Array(256).fill(0.25),
                     },

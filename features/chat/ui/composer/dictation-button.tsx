@@ -12,6 +12,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
     startDictation,
+    stopDictationRecognizer,
     type DictationHandlers,
     type DictationSession,
     type DictationState,
@@ -109,9 +110,7 @@ const abortPendingDictationPhases = (
     }
     if (refs.processingRef.current) {
         refs.processingRef.current = false;
-        commands.dictationStop().catch(() => {
-            /* ignore recognizer teardown errors */
-        });
+        void stopDictationRecognizer(() => commands.dictationStop());
     }
 };
 
@@ -132,9 +131,7 @@ const handleRecognizedDictationEvent = (
     const text = rawText?.trim();
     refs.recognizerAttemptIdRef.current = -1;
     refs.processingRef.current = false;
-    commands.dictationStop().catch(() => {
-        /* ignore recognizer teardown errors */
-    });
+    void stopDictationRecognizer(() => commands.dictationStop());
     ui.setState("idle");
     ui.setLevel(0);
     if (!text) return;
