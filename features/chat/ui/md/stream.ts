@@ -1455,13 +1455,19 @@ const truncateForDisplay = (text: string): string => {
     return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
 };
 
-/** Applies streaming-specific fence balancing or finished-turn glitch repair + length cap. */
+/** Caps oversized non-streaming markdown inputs up front so preprocessing never scans huge payloads. */
+const boundMarkdownInputForDisplay = (
+    text: string,
+    streaming: boolean | undefined,
+): string => (streaming ? text : truncateForDisplay(text));
+
+/** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */
 const finalizeStreamOrStaticMarkdown = (
     text: string,
     streaming: boolean | undefined,
 ): string => {
     if (!streaming) {
-        return truncateForDisplay(repairStreamGlitches(text));
+        return balanceMarkdownFences(truncateForDisplay(repairStreamGlitches(text)));
     }
     const balanced = balanceMarkdownFences(text);
     return balanced !== text ? stripLeakedToolCode(balanced) : text;
@@ -1505,7 +1511,8 @@ export const preprocessChatMarkdown = (
     text: string,
     options?: { trim?: boolean; streaming?: boolean },
 ): string => {
-    let normalized = stripOrphanThinkTags(text);
+    const bounded = boundMarkdownInputForDisplay(text, options?.streaming);
+    let normalized = stripOrphanThinkTags(bounded);
     normalized = stripLeakedToolCode(normalized);
     normalized = stripRawHtml(normalized);
     normalized = unwrapOuterProseFence(normalized);

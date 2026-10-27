@@ -2025,6 +2025,31 @@ const presetModelMatchesNeedles = (
   return tail.length >= 6 && tails.has(tail);
 };
 
+/** Collects built-in preset models plus any user-saved `models` / `extraModels` on `connections`. */
+const collectPresetCandidateModels = (
+  preset: ProviderPreset,
+  connections: Record<ProviderId, ProviderConnection>,
+): Array<{ id: string; name: string }> => {
+  const configuredIds = modelIdsFor(preset.id, connections);
+  if (configuredIds.length === 0) return preset.models;
+  const seen = new Set(preset.models.map((model) => model.id));
+  const extras = configuredIds
+    .filter((id) => !seen.has(id))
+    .map((id) => ({ id, name: fallbackModelDisplayName(id) }));
+  return [...preset.models, ...extras];
+};
+
+/** Checks whether `conn` holds either an API key or configured keyless endpoint/models. */
+const hasEnableableCredentials = (
+  preset: ProviderPreset,
+  conn: ProviderConnection | undefined,
+): conn is ProviderConnection => {
+  if (!conn) return false;
+  return (
+    Boolean(conn.apiKey.trim()) || hasSavedKeylessProviderConfig(preset, conn)
+  );
+};
+
 /** Checks whether `preset` is usable now or already configured with credentials to be enabled. */
 const canEnableMatchingPreset = (
   preset: ProviderPreset,
@@ -2032,20 +2057,21 @@ const canEnableMatchingPreset = (
 ): boolean => {
   if (isConnectionUsable(preset.id, connections)) return true;
   const conn = connections[preset.id];
-  if (!conn?.apiKey.trim()) return false;
+  if (!hasEnableableCredentials(preset, conn)) return false;
   return preset.needsBaseUrl ? Boolean(conn.baseUrl.trim()) : true;
 };
 
-/** Checks whether `preset` has built-in models matching `needles` / `tails` and is configured. */
+/** Checks whether `preset` has built-in or configured models matching `needles` / `tails`. */
 const isMatchingUsablePreset = (
   preset: ProviderPreset,
   needles: string[],
   tails: Set<string>,
   connections: Record<ProviderId, ProviderConnection>,
 ): boolean => {
-  if (preset.models.length === 0) return false;
+  const candidates = collectPresetCandidateModels(preset, connections);
+  if (candidates.length === 0) return false;
   if (!canEnableMatchingPreset(preset, connections)) return false;
-  return preset.models.some((model) =>
+  return candidates.some((model) =>
     presetModelMatchesNeedles(model, needles, tails),
   );
 };

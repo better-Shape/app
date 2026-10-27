@@ -1337,6 +1337,47 @@ const findMatchingBacktickClose = (
     return -1;
 };
 
+/** Checks whether the character at `index` is preceded by an odd number of `\` within `[segStart, index)`. */
+const isBackslashEscapedAt = (
+    text: string,
+    segStart: number,
+    index: number,
+): boolean => {
+    let backslashes = 0;
+    let cursor = index - 1;
+    while (cursor >= segStart && text.charCodeAt(cursor) === 0x5c) {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    return backslashes % 2 === 1;
+};
+
+/** Advances past an inline backtick candidate at `openIdx`, recording a span in `out` when unescaped and closed. */
+const consumeInlineBacktickCandidate = (
+    text: string,
+    segStart: number,
+    segEnd: number,
+    openIdx: number,
+    out: Array<readonly [number, number]>,
+): number => {
+    if (isBackslashEscapedAt(text, segStart, openIdx)) {
+        return openIdx + 1;
+    }
+    const runLen = countBacktickRun(text, openIdx, segEnd);
+    const bound = findParagraphBreakBound(text, openIdx + runLen, segEnd);
+    const closeEnd = findMatchingBacktickClose(
+        text,
+        openIdx + runLen,
+        bound,
+        runLen,
+    );
+    if (closeEnd !== -1) {
+        out.push([openIdx, closeEnd]);
+        return closeEnd;
+    }
+    return openIdx + runLen;
+};
+
 /** Appends closed CommonMark inline backtick code spans in `[segStart, segEnd)` to `out`. */
 const appendInlineCodeSpansInGap = (
     text: string,
@@ -1348,20 +1389,13 @@ const appendInlineCodeSpansInGap = (
     while (cursor < segEnd) {
         const openIdx = text.indexOf("`", cursor);
         if (openIdx === -1 || openIdx >= segEnd) return;
-        const runLen = countBacktickRun(text, openIdx, segEnd);
-        const bound = findParagraphBreakBound(text, openIdx + runLen, segEnd);
-        const closeEnd = findMatchingBacktickClose(
+        cursor = consumeInlineBacktickCandidate(
             text,
-            openIdx + runLen,
-            bound,
-            runLen,
+            segStart,
+            segEnd,
+            openIdx,
+            out,
         );
-        if (closeEnd !== -1) {
-            out.push([openIdx, closeEnd]);
-            cursor = closeEnd;
-        } else {
-            cursor = openIdx + runLen;
-        }
     }
 };
 

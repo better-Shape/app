@@ -964,9 +964,24 @@ const tryHandleHistoryKeyBranch = (opts: {
   return applyDownOrEscapeOutcome(opts);
 };
 
+/** Checks whether `e` carries any Shift, Ctrl, Meta, or Alt modifier key. */
+const hasAnySubmitKeyModifier = (
+  e: Pick<
+    React.KeyboardEvent<HTMLTextAreaElement>,
+    "shiftKey" | "ctrlKey" | "metaKey" | "altKey"
+  >,
+): boolean => e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
+
 /** Checks whether `e` is an unmodified, non-IME `Enter` submit keydown. */
-const isPlainEnterSubmit = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean =>
-  e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing;
+export const isPlainEnterSubmit = (
+  e: Pick<
+    React.KeyboardEvent<HTMLTextAreaElement>,
+    "key" | "shiftKey" | "ctrlKey" | "metaKey" | "altKey" | "nativeEvent"
+  >,
+): boolean =>
+  e.key === "Enter" &&
+  !hasAnySubmitKeyModifier(e) &&
+  !e.nativeEvent.isComposing;
 
 /** Handles pre-submit composer intercept keys (`Ctrl+Shift+E`, popover `Escape`, history). */
 const consumeComposerInterceptKey = (opts: {

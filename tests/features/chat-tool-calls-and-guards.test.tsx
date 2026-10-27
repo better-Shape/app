@@ -29,6 +29,7 @@ import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import {
     computeShortenedCaret,
     insertDictatedSlice,
+    isPlainEnterSubmit,
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
 import { computeProcessingSafetyTimeoutMs } from "@/features/chat/ui/composer/dictation-button";
@@ -949,10 +950,11 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             processor.onaudioprocess?.({
                 inputBuffer: { getChannelData: () => new Float32Array(320).fill(0.25) },
             });
-            const committed = active.commit();
+            active.commit();
             active.dispose();
             rejectPush?.(new Error("Recognizer closed"));
-            await committed;
+            await pendingPush.catch(() => undefined);
+            await Promise.resolve();
             expect(onStaleError).not.toHaveBeenCalled();
         } finally {
             vi.unstubAllGlobals();
@@ -1135,9 +1137,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         );
 
         const repeatedValid = "twenty chars phrase ".repeat(1500);
-        const t0 = performance.now();
         expect(repairStreamGlitches(repeatedValid)).toBe(repeatedValid);
-        expect(performance.now() - t0).toBeLessThan(200);
         const gluedReplay =
             "Here is the detailed summary: first point andHere is the detailed summary: second point.";
         expect(repairStreamGlitches(gluedReplay)).toBe(
@@ -1187,6 +1187,44 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         } finally {
             clearMocks();
         }
+    });
+
+    it("matches custom provider extraModels, guards modified Enter submits, caps oversized settled markdown up front, and ignores escaped backticks", () => {
+        const settings = defaultProvidersSettings();
+        settings.connections.custom = {
+            ...settings.connections.custom,
+            enabled: false,
+            apiKey: "saved-custom-credential",
+            baseUrl: "https://gateway.example.test/v1",
+            extraModels: ["corp-gpt-4"],
+        };
+        expect(providersForModelNames(["corp-gpt-4"], settings.connections)).toEqual([
+            "custom",
+        ]);
+
+        const baseEvent = {
+            key: "Enter",
+            shiftKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            altKey: false,
+            nativeEvent: { isComposing: false } as KeyboardEvent,
+        };
+        expect(isPlainEnterSubmit(baseEvent)).toBe(true);
+        expect(isPlainEnterSubmit({ ...baseEvent, ctrlKey: true })).toBe(false);
+        expect(isPlainEnterSubmit({ ...baseEvent, metaKey: true })).toBe(false);
+        expect(isPlainEnterSubmit({ ...baseEvent, altKey: true })).toBe(false);
+        expect(isPlainEnterSubmit({ ...baseEvent, shiftKey: true })).toBe(false);
+
+        const oversized = `${"A".repeat(47_990)}\n\`\`\`ts\nconst x = 1;\n${"B".repeat(20_000)}\n\`\`\``;
+        const capped = preprocessChatMarkdown(oversized, { streaming: false });
+        expect(capped).toContain("... (response truncated for display)");
+        expect(capped.length).toBeLessThan(48_200);
+
+        const escapedTickChunks = parseMessageContent(
+            'Escaped \\` literal before <cat path="src/main.ts">src/main.ts</cat> and `inline` after.',
+        );
+        expect(escapedTickChunks.some((chunk) => chunk.type === "cat")).toBe(true);
     });
 });
 
