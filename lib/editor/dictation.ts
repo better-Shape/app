@@ -210,6 +210,30 @@ const resolveAudioContextCtor = (): typeof AudioContext | undefined =>
         .webkitAudioContext;
 
 let activeDictationEpoch = 0;
+let inFlightRecognizerOp: Promise<void> | null = null;
+
+/** Runs `op` immediately when idle, or queues behind any in-flight recognizer IPC. */
+const enqueueRecognizerOp = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = inFlightRecognizerOp ? inFlightRecognizerOp.then(op) : op();
+    const settled: Promise<void> = run.then(
+        () => {
+            if (inFlightRecognizerOp === settled) inFlightRecognizerOp = null;
+        },
+        () => {
+            if (inFlightRecognizerOp === settled) inFlightRecognizerOp = null;
+        },
+    );
+    inFlightRecognizerOp = settled;
+    return run;
+};
+
+/** Tears down the backend recognizer unconditionally, swallowing benign teardown errors. */
+const stopRecognizerUnconditionally = (
+    invoke: DictationInvokeBridge,
+): Promise<void> =>
+    invoke.stop().catch(() => {
+        /* ignore recognizer teardown errors */
+    });
 
 /** Checks whether `epoch` still owns dictation and `signal` has not aborted. */
 const isCurrentDictationAttempt = (
@@ -217,16 +241,16 @@ const isCurrentDictationAttempt = (
     signal?: AbortSignal,
 ): boolean => epoch === activeDictationEpoch && !signal?.aborted;
 
-/** Stops the backend recognizer only when `epoch` still owns the global recognizer. */
+/** Stops the backend recognizer inside the serialized queue only when `epoch` still owns it. */
 const stopRecognizerIfCurrent = (
     invoke: DictationInvokeBridge,
     epoch: number,
 ): Promise<void> =>
-    epoch === activeDictationEpoch
-        ? invoke.stop().catch(() => {
-              /* ignore recognizer teardown errors */
-          })
-        : Promise.resolve();
+    enqueueRecognizerOp(() =>
+        epoch === activeDictationEpoch
+            ? stopRecognizerUnconditionally(invoke)
+            : Promise.resolve(),
+    );
 
 /** Creates an `AbortError` used when dictation startup is superseded or cancelled. */
 const createDictationAbortedError = (): Error => {
@@ -279,6 +303,22 @@ const requestMicrophoneStream = async (
     return stream;
 };
 
+/** Runs `invoke.start()` inside the serialized queue and immediately stops it if superseded mid-IPC. */
+const runSerializedRecognizerStart = (
+    invoke: DictationInvokeBridge,
+    ctx: StartupAttemptContext,
+): Promise<void> =>
+    enqueueRecognizerOp(async () => {
+        if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+            throw createDictationAbortedError();
+        }
+        await invoke.start();
+        if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
+            await stopRecognizerUnconditionally(invoke);
+            throw createDictationAbortedError();
+        }
+    });
+
 /** Starts the backend recognizer for `stream`, tearing down cleanly if cancelled mid-start. */
 const startRecognizerForStream = async (
     stream: MediaStream,
@@ -286,18 +326,13 @@ const startRecognizerForStream = async (
     ctx: StartupAttemptContext,
 ): Promise<MediaStream> => {
     try {
-        await invoke.start();
+        await runSerializedRecognizerStart(invoke, ctx);
+        return stream;
     } catch (error) {
         stopMediaStreamTracks(stream);
         reportErrorIfCurrent(error, ctx.epoch, ctx.signal, ctx.setState, ctx.onError);
         throw error;
     }
-    if (!isCurrentDictationAttempt(ctx.epoch, ctx.signal)) {
-        stopMediaStreamTracks(stream);
-        await stopRecognizerIfCurrent(invoke, ctx.epoch);
-        throw createDictationAbortedError();
-    }
-    return stream;
 };
 
 /** Requests microphone capture and starts the backend recognizer process. */
@@ -375,8 +410,7 @@ const triggerStopIfCurrent = (
     invoke: DictationInvokeBridge,
     epoch: number,
 ): void => {
-    if (epoch !== activeDictationEpoch) return;
-    invoke.stop().catch(() => {
+    stopRecognizerIfCurrent(invoke, epoch).catch(() => {
         /* ignore recognizer teardown errors */
     });
 };
@@ -499,9 +533,11 @@ const createActiveDictationSession = (
             teardown();
             if (token.epoch === activeDictationEpoch) {
                 activeDictationEpoch += 1;
-                invoke.stop().catch(() => {
-                    /* ignore recognizer teardown errors */
-                });
+                enqueueRecognizerOp(() => stopRecognizerUnconditionally(invoke)).catch(
+                    () => {
+                        /* ignore recognizer teardown errors */
+                    },
+                );
                 setState("idle");
             }
         },

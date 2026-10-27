@@ -52,6 +52,7 @@ import {
     describeProviderSetupGap,
     embeddingsTarget,
     keyFormatWarning,
+    mergeProviderConnections,
     normalizeProvidersSettings,
     providerHeaders,
     providersForModelNames,
@@ -1320,6 +1321,120 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             expect(el.textContent ?? "").not.toContain("Failed");
         } finally {
             clearMocks();
+        }
+    });
+
+    it("highlights project-path buttons, hydrates case-varied header secrets, caps streaming markdown, and serializes overlapping dictation restarts", async () => {
+        const container = document.createElement("div");
+        const row = document.createElement("div");
+        row.setAttribute("data-chat-message-index", "0");
+        row.innerHTML =
+            '<p>Inspect <button type="button" class="text-accent-text underline">src/app.tsx</button> and <button type="button" class="chat-text">providers.ts</button></p>';
+        container.appendChild(row);
+        document.body.appendChild(container);
+        try {
+            expect(syncChatDomHighlights(container, "src/app.tsx").ranges).toHaveLength(1);
+            expect(syncChatDomHighlights(container, "providers.ts").ranges).toHaveLength(1);
+        } finally {
+            clearChatDomHighlights();
+            container.remove();
+        }
+
+        const liveSettings = defaultProvidersSettings();
+        liveSettings.connections.custom.headers = { "X-Gateway-Token": "live-token-val" };
+        const loadedSettings = defaultProvidersSettings();
+        loadedSettings.connections.custom.headers = { "x-gateway-token": "" };
+        const hydrated = mergeProviderConnections(liveSettings, loadedSettings);
+        expect(hydrated.connections.custom.headers["x-gateway-token"]).toBe("live-token-val");
+
+        const oversizedStream = `${"S".repeat(47_990)}\n\`\`\`ts\nconst n = 1;\n${"T".repeat(22_000)}`;
+        const cappedStream = preprocessChatMarkdown(oversizedStream, { streaming: true });
+        expect(cappedStream).toContain("... (response truncated for display)");
+        expect(cappedStream.length).toBeLessThan(48_200);
+        expect(preprocessChatMarkdown(`${oversizedStream}extra`, { streaming: true })).toBe(
+            cappedStream,
+        );
+
+        const prevMediaDevices = navigator.mediaDevices;
+        const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
+        const resolveVoid = (): Promise<void> => Promise.resolve();
+        vi.stubGlobal(
+            "AudioContext",
+            vi.fn(function MockAudioContext() {
+                return {
+                    sampleRate: 16_000,
+                    destination: {},
+                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+                    createScriptProcessor: () => ({
+                        connect: vi.fn(),
+                        disconnect: vi.fn(),
+                        onaudioprocess: null,
+                    }),
+                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
+                    close: resolveVoid,
+                };
+            }),
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: { getUserMedia: vi.fn(() => Promise.resolve(fakeStream)) },
+        });
+        const ipcLog: string[] = [];
+        let notifyFirstStartEntered: (() => void) | undefined;
+        const firstStartEntered = new Promise<void>((res) => {
+            notifyFirstStartEntered = res;
+        });
+        let finishFirstStart: (() => void) | undefined;
+        let startCalls = 0;
+        const invokeBridge = {
+            start: vi.fn(() => {
+                startCalls += 1;
+                const callNo = startCalls;
+                ipcLog.push(`start:${callNo}`);
+                if (callNo === 1) {
+                    notifyFirstStartEntered?.();
+                    return new Promise<void>((res) => {
+                        finishFirstStart = res;
+                    });
+                }
+                return Promise.resolve();
+            }),
+            push: vi.fn(resolveVoid),
+            stop: vi.fn(() => {
+                ipcLog.push("stop");
+                return Promise.resolve();
+            }),
+        };
+        try {
+            const abortFirst = new AbortController();
+            const firstAttempt = startDictation(
+                { onText: vi.fn(), onError: vi.fn(), signal: abortFirst.signal },
+                true,
+                invokeBridge,
+            );
+            await firstStartEntered;
+            abortFirst.abort();
+            const secondAttempt = startDictation(
+                { onText: vi.fn(), onError: vi.fn() },
+                true,
+                invokeBridge,
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(ipcLog).toEqual(["start:1"]);
+            finishFirstStart?.();
+            await expect(firstAttempt).rejects.toThrow("Dictation cancelled");
+            const secondSession = await secondAttempt;
+            expect(ipcLog).toEqual(["start:1", "stop", "start:2"]);
+            secondSession.dispose();
+            expect(ipcLog).toEqual(["start:1", "stop", "start:2", "stop"]);
+        } finally {
+            vi.unstubAllGlobals();
+            Object.defineProperty(navigator, "mediaDevices", {
+                configurable: true,
+                value: prevMediaDevices,
+            });
         }
     });
 });
