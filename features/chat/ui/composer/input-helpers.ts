@@ -29,98 +29,23 @@ import { notify } from "@/features/notifications";
 
 export const COMPOSER_LINE_HEIGHT = 22;
 
-const IMAGE_EXTENSIONS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "bmp",
-  "webp",
-  "svg",
-  "ico",
-  "tiff",
-  "tif",
-  "avif",
-  "heic",
-  "heif",
-]);
+const IMAGE_EXTENSIONS = new Set(
+  "png jpg jpeg gif bmp webp svg ico tiff tif avif heic heif".split(" "),
+);
 
-const CODE_EXTENSIONS = new Set([
-  "ts",
-  "tsx",
-  "js",
-  "jsx",
-  "rs",
-  "py",
-  "go",
-  "java",
-  "c",
-  "cpp",
-  "h",
-  "hpp",
-  "css",
-  "scss",
-  "less",
-  "html",
-  "xml",
-  "svg",
-  "json",
-  "toml",
-  "yaml",
-  "yml",
-  "md",
-  "mdx",
-  "sh",
-  "bat",
-  "ps1",
-  "rb",
-  "php",
-  "swift",
-  "kt",
-  "kts",
-  "dart",
-  "lua",
-  "r",
-  "sql",
-  "graphql",
-  "gql",
-  "proto",
-  "dockerfile",
-  "makefile",
-  "gitignore",
-  "env",
-  "ini",
-  "cfg",
-  "conf",
-  "txt",
-  "log",
-  "csv",
-  "lock",
-]);
+const CODE_EXTENSIONS = new Set(
+  "ts tsx js jsx rs py go java c cpp h hpp css scss less html xml svg json toml yaml yml md mdx sh bat ps1 rb php swift kt kts dart lua r sql graphql gql proto dockerfile makefile gitignore env ini cfg conf txt log csv lock".split(
+    " ",
+  ),
+);
 
-const ASSET_EXTENSIONS = new Set([
-  "ttf",
-  "otf",
-  "woff",
-  "woff2",
-  "eot",
-  "ico",
-  "icns",
-  "pdf",
-]);
+const ASSET_EXTENSIONS = new Set(
+  "ttf otf woff woff2 eot ico icns pdf".split(" "),
+);
 
-const VIDEO_EXTENSIONS = new Set([
-  "mp4",
-  "mov",
-  "webm",
-  "avi",
-  "mkv",
-  "m4v",
-  "wmv",
-  "flv",
-  "mpeg",
-  "mpg",
-]);
+const VIDEO_EXTENSIONS = new Set(
+  "mp4 mov webm avi mkv m4v wmv flv mpeg mpg".split(" "),
+);
 
 export const ACCEPT_STRING = [
   ...Array.from(IMAGE_EXTENSIONS).map((ext) => `.${ext}`),

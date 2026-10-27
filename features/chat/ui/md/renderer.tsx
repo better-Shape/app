@@ -37,49 +37,15 @@ import { hostnameOf } from "@/lib/ui/favicon";
 
 export type Chunk = {
     type:
-        | "text"
-        | "edit"
-        | "edit_pending"
-        | "search"
-        | "grep"
-        | "status"
-        | "web_search"
-        | "think"
-        | "thought"
-        | "search_result"
-        | "web_result"
-        | "web_visit"
-        | "inspect_runtime"
-        | "terminal_command"
-        | "git_operation"
-        | "run"
-        | "ls"
-        | "cat"
-        | "create_file"
-        | "mkdir"
-        | "delete_file"
-        | "rename_file"
-        | "rename_chat"
-        | "tool_result"
-        | "plan"
-        | "plan_saved"
-        | "todos"
-        | "attached_image"
-        | "sent_file"
-        | "subagent"
-        | "subagent_ref"
-        | "design_previews"
-        | "review_debate"
-        | "persona_review"
-        | "question"
-        | "questions"
-        | "plugin_call"
-        | "generated_svg"
-        | "generated_image"
-        | "generated_audio"
-        | "browse_session"
-        | "chart"
-        | "insight_card";
+        | "text" | "edit" | "edit_pending" | "search" | "grep" | "status"
+        | "web_search" | "think" | "thought" | "search_result" | "web_result"
+        | "web_visit" | "inspect_runtime" | "terminal_command" | "git_operation"
+        | "run" | "ls" | "cat" | "create_file" | "mkdir" | "delete_file"
+        | "rename_file" | "rename_chat" | "tool_result" | "plan" | "plan_saved"
+        | "todos" | "attached_image" | "sent_file" | "subagent" | "subagent_ref"
+        | "design_previews" | "review_debate" | "persona_review" | "question"
+        | "questions" | "plugin_call" | "generated_svg" | "generated_image"
+        | "generated_audio" | "browse_session" | "chart" | "insight_card";
     content?: string;
     file?: string;
     query?: string;
@@ -248,73 +214,49 @@ const GENERATED_MEDIA_KINDS: Record<
     generated_image: "image",
 };
 
+/** Builds a paired `<tag ...>...</tag>` search spec whose `Chunk["type"]` equals `tag`. */
+const buildDirectTagSpec = (tag: Chunk["type"]): SearchTagSpec => ({
+    type: tag,
+    start: `<${tag}`,
+    end: `</${tag}>`,
+});
+
+/** Builds a paired `<tag ...>...</tag>` search spec mapped to hidden `tool_result`. */
+const buildHiddenToolTagSpec = (tag: string): SearchTagSpec => ({
+    type: "tool_result",
+    start: `<${tag}`,
+    end: `</${tag}>`,
+});
+
+const DIRECT_PAIRED_TAG_PREFIX = (
+    "edit edit_pending design_previews review_debate persona_review questions question " +
+    "inspect_runtime search_result search grep web_search status think thought plan " +
+    "plan_saved todos web_result web_visit generated_svg"
+).split(" ") as Array<Chunk["type"]>;
+
+const DIRECT_PAIRED_TAG_MID = (
+    "generated_image generated_audio plugin_call browse_session chart insight_card " +
+    "ls cat run create_file mkdir delete_file rename_file rename_chat"
+).split(" ") as Array<Chunk["type"]>;
+
+const HIDDEN_TOOL_TAG_NAMES = (
+    "tool_result terminal_read terminal_input list_terminals tool_code tool_call " +
+    "tool_calls tool_response function_call function_calls function_response " +
+    "minimax:tool_call invoke parameter arg_key arg_value pre_dispatch_explanation " +
+    "tools new_path analysis file_content"
+).split(" ");
+
 const SEARCH_TAGS: SearchTagSpec[] = [
-    { type: "edit", start: "<edit", end: "</edit>" },
-    // Longer tag wins the same-index tie-break against '<edit'.
-    { type: "edit_pending", start: "<edit_pending", end: "</edit_pending>" },
-    { type: "design_previews", start: "<design_previews", end: "</design_previews>" },
-    { type: "review_debate", start: "<review_debate", end: "</review_debate>" },
-    { type: "persona_review", start: "<persona_review", end: "</persona_review>" },
-    { type: "questions", start: "<questions", end: "</questions>" },
-    { type: "question", start: "<question", end: "</question>" },
-    { type: "inspect_runtime", start: "<inspect_runtime", end: "</inspect_runtime>" },
-    { type: "search_result", start: "<search_result", end: "</search_result>" },
-    { type: "search", start: "<search", end: "</search>" },
-    { type: "grep", start: "<grep", end: "</grep>" },
-    { type: "web_search", start: "<web_search", end: "</web_search>" },
-    { type: "status", start: "<status", end: "</status>" },
-    { type: "think", start: "<think", end: "</think>" },
-    { type: "thought", start: "<thought", end: "</thought>" },
-    { type: "plan", start: "<plan", end: "</plan>" },
-    { type: "plan_saved", start: "<plan_saved", end: "</plan_saved>" },
-    { type: "todos", start: "<todos", end: "</todos>" },
-    { type: "web_result", start: "<web_result", end: "</web_result>" },
-    { type: "web_visit", start: "<web_visit", end: "</web_visit>" },
-    { type: "generated_svg", start: "<generated_svg", end: "</generated_svg>" },
+    ...DIRECT_PAIRED_TAG_PREFIX.map(buildDirectTagSpec),
     { type: "generated_svg", start: "<recraft_svg", end: "</recraft_svg>" },
-    { type: "generated_image", start: "<generated_image", end: "</generated_image>" },
-    { type: "generated_audio", start: "<generated_audio", end: "</generated_audio>" },
-    { type: "plugin_call", start: "<plugin_call", end: "</plugin_call>" },
-    { type: "browse_session", start: "<browse_session", end: "</browse_session>" },
-    { type: "chart", start: "<chart", end: "</chart>" },
-    { type: "insight_card", start: "<insight_card", end: "</insight_card>" },
-    { type: "ls", start: "<ls", end: "</ls>" },
-    { type: "cat", start: "<cat", end: "</cat>" },
-    { type: "run", start: "<run", end: "</run>" },
-    { type: "create_file", start: "<create_file", end: "</create_file>" },
-    { type: "mkdir", start: "<mkdir", end: "</mkdir>" },
-    { type: "delete_file", start: "<delete_file", end: "</delete_file>" },
-    { type: "rename_file", start: "<rename_file", end: "</rename_file>" },
-    { type: "rename_chat", start: "<rename_chat", end: "</rename_chat>" },
+    ...DIRECT_PAIRED_TAG_MID.map(buildDirectTagSpec),
     { type: "subagent_ref", start: "<subagent_ref", end: "/>" },
-    { type: "subagent", start: "<subagent", end: "</subagent>" },
-    { type: "terminal_command", start: "<terminal_command", end: "</terminal_command>" },
-    { type: "git_operation", start: "<git_operation", end: "</git_operation>" },
-    // Hidden tool/result scaffolding (BetterShape UI + cross-model leak grammars).
-    // Defense-in-depth with stripLeakedToolCode: never render as prose.
-    { type: "tool_result", start: "<tool_result", end: "</tool_result>" },
-    { type: "tool_result", start: "<terminal_read", end: "</terminal_read>" },
-    { type: "tool_result", start: "<terminal_input", end: "</terminal_input>" },
-    { type: "tool_result", start: "<list_terminals", end: "</list_terminals>" },
-    { type: "tool_result", start: "<tool_code", end: "</tool_code>" },
-    { type: "tool_result", start: "<tool_call", end: "</tool_call>" },
-    { type: "tool_result", start: "<tool_calls", end: "</tool_calls>" },
-    { type: "tool_result", start: "<tool_response", end: "</tool_response>" },
-    { type: "tool_result", start: "<function_call", end: "</function_call>" },
-    { type: "tool_result", start: "<function_calls", end: "</function_calls>" },
-    { type: "tool_result", start: "<function_response", end: "</function_response>" },
-    { type: "tool_result", start: "<minimax:tool_call", end: "</minimax:tool_call>" },
-    { type: "tool_result", start: "<invoke", end: "</invoke>" },
-    { type: "tool_result", start: "<parameter", end: "</parameter>" },
-    { type: "tool_result", start: "<arg_key", end: "</arg_key>" },
-    { type: "tool_result", start: "<arg_value", end: "</arg_value>" },
-    { type: "tool_result", start: "<pre_dispatch_explanation", end: "</pre_dispatch_explanation>" },
-    { type: "tool_result", start: "<tools", end: "</tools>" },
-    { type: "tool_result", start: "<new_path", end: "</new_path>" },
-    { type: "tool_result", start: "<analysis", end: "</analysis>" },
-    { type: "tool_result", start: "<file_content", end: "</file_content>" },
-    { type: "attached_image", start: "<attached_image", end: "</attached_image>" },
-    { type: "sent_file", start: "<sent_file", end: "</sent_file>" },
+    buildDirectTagSpec("subagent"),
+    buildDirectTagSpec("terminal_command"),
+    buildDirectTagSpec("git_operation"),
+    ...HIDDEN_TOOL_TAG_NAMES.map(buildHiddenToolTagSpec),
+    buildDirectTagSpec("attached_image"),
+    buildDirectTagSpec("sent_file"),
 ];
 
 const SEARCH_TAG_BY_PREFIX: ReadonlyMap<string, SearchTagSpec> = new Map(
@@ -2029,7 +1971,7 @@ const CHUNK_VIEW_RENDERERS: Partial<Record<Chunk["type"], ChunkViewRenderer>> = 
 /** Resolves the fallback signature hint from a standalone chunk's path, URL, or content prefix. */
 const resolveChunkSignatureHint = (chunk: Chunk): string => {
     const primary = chunk.file ?? chunk.visitUrl;
-    return primary ?? captureOrEmpty(chunk.content).slice(0, 24);
+    return primary ?? Array.from(captureOrEmpty(chunk.content)).slice(0, 24).join("");
 };
 
 /** Derives a stable, collision-safe React key token for a chronological segment. */

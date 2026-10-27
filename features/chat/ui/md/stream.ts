@@ -1076,46 +1076,15 @@ const unwrapOuterProseFence = (text: string): string => {
     return inner !== null && looksLikeProseMarkdown(inner) ? inner : text;
 };
 
-const PAIRED_STRIP_TAG_LIST = [
-    "iframe",
-    "script",
-    "style",
-    "object",
-    "embed",
-] as const;
-const PAIRED_STRIP_TAGS = new Set<string>(PAIRED_STRIP_TAG_LIST);
-const LAYOUT_HTML_TAGS = new Set([
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "p",
-    "div",
-    "span",
-    "a",
-    "ul",
-    "ol",
-    "li",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "section",
-    "article",
-    "header",
-    "footer",
-]);
-const DISALLOWED_UNQUOTED_TAG_CHARS = new Set([
-    "<",
-    "&",
-    "|",
-    ",",
-    ";",
-    "(",
-    ")",
-]);
+const PAIRED_STRIP_TAGS = new Set(
+    "iframe script style object embed".split(" "),
+);
+const LAYOUT_HTML_TAGS = new Set(
+    "h1 h2 h3 h4 h5 h6 p div span a ul ol li strong em b i section article header footer".split(
+        " ",
+    ),
+);
+const DISALLOWED_UNQUOTED_TAG_CHARS = new Set(["<", "&", "|", ",", ";", "(", ")"]);
 
 /** True when `ch` is an ASCII letter (`A-Z` or `a-z`). */
 const isAsciiAlpha = (ch: string): boolean => {
@@ -1446,17 +1415,60 @@ const stripRawHtml = (text: string): string => {
 
 const MAX_DISPLAY_CHARS = 48_000;
 const MAX_PREPROCESS_HEAD_CHARS = MAX_DISPLAY_CHARS * 2;
+const GRAPHEME_SEGMENTER =
+    typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+        ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+        : null;
 
-/** Checks whether `text` splits a UTF-16 surrogate pair across `cutIndex - 1` and `cutIndex`. */
-const splitsUtf16SurrogatePair = (text: string, cutIndex: number): boolean => {
-    const lead = text.charCodeAt(cutIndex - 1);
-    const trail = text.charCodeAt(cutIndex);
-    return lead >= 0xd800 && lead <= 0xdbff && trail >= 0xdc00 && trail <= 0xdfff;
+/** Checks whether `code` is a UTF-16 high (leading) surrogate (`0xD800..0xDBFF`). */
+const isHighSurrogateCode = (code: number): boolean =>
+    code >= 0xd800 && code <= 0xdbff;
+
+/** Checks whether `code` is a UTF-16 low (trailing) surrogate (`0xDC00..0xDFFF`). */
+const isLowSurrogateCode = (code: number): boolean =>
+    code >= 0xdc00 && code <= 0xdfff;
+
+/** Adjusts `index` backward across a UTF-16 surrogate split or trailing lone high surrogate. */
+const stepBackFromTrailingHighSurrogate = (
+    text: string,
+    index: number,
+): number =>
+    index > 0 && isHighSurrogateCode(text.charCodeAt(index - 1))
+        ? index - 1
+        : index;
+
+/** Aligns a window start offset backward so it does not begin on a UTF-16 low surrogate. */
+const alignWindowStart = (text: string, rawStart: number): number =>
+    rawStart > 0 && isLowSurrogateCode(text.charCodeAt(rawStart))
+        ? rawStart - 1
+        : rawStart;
+
+/** Aligns a window end offset forward so it includes a trailing surrogate pair partner. */
+const alignWindowEnd = (text: string, rawEnd: number): number =>
+    rawEnd < text.length && isHighSurrogateCode(text.charCodeAt(rawEnd - 1))
+        ? rawEnd + 1
+        : rawEnd;
+
+/** Finds the largest grapheme boundary `<= limit` inside a small tail window around `limit`. */
+const findGraphemeCutIndex = (text: string, limit: number): number => {
+    if (!GRAPHEME_SEGMENTER) return stepBackFromTrailingHighSurrogate(text, limit);
+    const winStart = alignWindowStart(text, Math.max(0, limit - 32));
+    const winEnd = alignWindowEnd(text, Math.min(text.length, limit + 16));
+    let bestCut = winStart;
+    for (const seg of GRAPHEME_SEGMENTER.segment(text.slice(winStart, winEnd))) {
+        const boundary = winStart + seg.index + seg.segment.length;
+        if (boundary > limit) break;
+        bestCut = boundary;
+    }
+    return stepBackFromTrailingHighSurrogate(text, bestCut);
 };
 
-/** Slices `text` at `limit` without leaving a trailing lone UTF-16 high surrogate. */
-const sliceSurrogateSafe = (text: string, limit: number): string =>
-    text.slice(0, splitsUtf16SurrogatePair(text, limit) ? limit - 1 : limit);
+/** Slices `text` at `limit` without splitting emoji grapheme clusters or UTF-16 surrogate pairs. */
+const sliceSurrogateSafe = (text: string, limit: number): string => {
+    if (limit <= 0) return "";
+    if (text.length <= limit) return text;
+    return text.slice(0, findGraphemeCutIndex(text, limit));
+};
 
 /** Truncates excessively long streaming or finished responses without splitting UTF-16 surrogates. */
 const truncateForDisplay = (text: string): string => {
