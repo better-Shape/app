@@ -71,9 +71,13 @@ describe("model catalog", () => {
     it("primeModelCatalog warms the bundled snapshot without network fetches in Browser Preview", () => {
         vi.useFakeTimers();
         const fetchSpy = vi.spyOn(globalThis, "fetch");
-        const win = window as Window & { __BETTERSHAPE_PREVIEW__?: unknown };
-        const previous = win.__BETTERSHAPE_PREVIEW__;
-        win.__BETTERSHAPE_PREVIEW__ = { seed: "welcome", invokes: [] };
+        const previous = window.__BETTERSHAPE_PREVIEW__;
+        window.__BETTERSHAPE_PREVIEW__ = {
+            seed: "welcome",
+            invokes: [],
+            unknownCommands: () => [],
+            clearInvokes: () => undefined,
+        };
         try {
             primeModelCatalog();
             vi.advanceTimersByTime(15_000);
@@ -81,9 +85,9 @@ describe("model catalog", () => {
             expect(fetchSpy).not.toHaveBeenCalled();
         } finally {
             if (previous === undefined) {
-                delete win.__BETTERSHAPE_PREVIEW__;
+                delete window.__BETTERSHAPE_PREVIEW__;
             } else {
-                win.__BETTERSHAPE_PREVIEW__ = previous;
+                window.__BETTERSHAPE_PREVIEW__ = previous;
             }
             fetchSpy.mockRestore();
             vi.useRealTimers();

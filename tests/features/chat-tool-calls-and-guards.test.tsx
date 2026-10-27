@@ -859,14 +859,16 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const b64Pair = btoa(["svc", "topsecret99"].join(":"));
         const b64Short = btoa(["u", "p"].join(":"));
+        const b64PaddedNoDigits = btoa(["user", "pa"].join(":"));
         const rawAuthErr = [
             `Header Authorization: Basic ${b64Pair} rejected;`,
-            `echoed basic ${b64Short} and BASIC ${b64Pair} and`,
+            `echoed basic ${b64Short} and BASIC ${b64Pair} and Basic ${b64PaddedNoDigits} and`,
             ["https://svc:", "topsecret99", "@llm.internal/v1"].join(""),
         ].join(" ");
         const redactedAuth = redactErrorSecrets(rawAuthErr);
         expect(redactedAuth).not.toContain(b64Pair);
         expect(redactedAuth).not.toContain(b64Short);
+        expect(redactedAuth).not.toContain(b64PaddedNoDigits);
         expect(redactedAuth).not.toContain("topsecret99");
         expect(redactErrorSecrets("401 Basic authentication failed")).toBe(
             "401 Basic authentication failed",
@@ -1742,7 +1744,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 4)).toBe(4);
     });
 
-    it("replaces selected dictation ranges, closes open fences before truncation notices, and marks killed terminal sessions as Cancelled", async () => {
+    it("replaces selected dictation ranges, closes open fences before truncation notices, and preserves explicit terminal cancellation vs signal crashes", async () => {
         const replaced = insertDictatedSlice("fix old now", 4, "this bug", 7);
         expect(replaced).toEqual({
             next: "fix this bug now",
@@ -1763,11 +1765,11 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         mockIPC(() => undefined, { shouldMockEvents: true });
         try {
-            const killedStreamEl = mount(
+            const stoppedStreamEl = mount(
                 <TerminalCommandStep
                     block={{
                         type: "terminal_command",
-                        commandId: "cmd-killed-exit",
+                        commandId: "cmd-stopped-exit",
                         command: "npm run dev",
                         commandStatus: "background",
                         isGenerating: true,
@@ -1777,21 +1779,46 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             await act(async () => {
                 await Promise.resolve();
                 await emit("agent-terminal-stream", {
-                    commandId: "cmd-killed-exit",
+                    commandId: "cmd-stopped-exit",
                     sessionId: 9,
+                    kind: "exit",
+                    exitCode: 143,
+                    cancelled: true,
+                });
+            });
+            expect(stoppedStreamEl.textContent ?? "").toContain("Cancelled");
+            expect(stoppedStreamEl.textContent ?? "").not.toContain("Failed");
+
+            const signalCrashEl = mount(
+                <TerminalCommandStep
+                    block={{
+                        type: "terminal_command",
+                        commandId: "cmd-signal-crash",
+                        sessionId: 11,
+                        command: "segfault-bin",
+                        commandStatus: "background",
+                        isGenerating: true,
+                    }}
+                />,
+            );
+            await act(async () => {
+                await Promise.resolve();
+                await emit("agent-terminal-stream", {
+                    commandId: "cmd-signal-crash",
+                    sessionId: 11,
                     kind: "exit",
                     exitCode: -1,
                 });
             });
-            expect(killedStreamEl.textContent ?? "").toContain("Cancelled");
-            expect(killedStreamEl.textContent ?? "").not.toContain("Failed");
+            expect(signalCrashEl.textContent ?? "").toContain("Failed");
+            expect(signalCrashEl.textContent ?? "").not.toContain("Cancelled");
 
-            const killedPtyEl = mount(
+            const ptySignalEl = mount(
                 <TerminalCommandStep
                     block={{
                         type: "terminal_command",
-                        commandId: "cmd-pty-kill",
-                        sessionId: 11,
+                        commandId: "cmd-pty-crash",
+                        sessionId: 12,
                         command: "vite",
                         commandStatus: "background",
                         isGenerating: true,
@@ -1800,31 +1827,9 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             );
             await act(async () => {
                 await Promise.resolve();
-                await emit("pty-exit", { id: 11, exit_code: -1 });
+                await emit("pty-exit", { id: 12, exit_code: -1 });
             });
-            expect(killedPtyEl.textContent ?? "").toContain("Cancelled");
-
-            const spawnFailEl = mount(
-                <TerminalCommandStep
-                    block={{
-                        type: "terminal_command",
-                        commandId: "cmd-spawn-fail",
-                        command: "nonexistent-bin",
-                        commandStatus: "running",
-                        isGenerating: true,
-                    }}
-                />,
-            );
-            await act(async () => {
-                await Promise.resolve();
-                await emit("agent-terminal-stream", {
-                    commandId: "cmd-spawn-fail",
-                    kind: "exit",
-                    exitCode: -1,
-                    data: "Failed to spawn command: ENOENT",
-                });
-            });
-            expect(spawnFailEl.textContent ?? "").toContain("Failed");
+            expect(ptySignalEl.textContent ?? "").toContain("Failed");
         } finally {
             clearMocks();
         }

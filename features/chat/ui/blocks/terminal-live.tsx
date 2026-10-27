@@ -429,13 +429,7 @@ const reduceStreamDataEvent = (
     waitingForInput: false,
 });
 
-/** Checks whether an `"exit"` payload carries the negative exit-code marker of a killed session. */
-const isKilledSessionExit = (payload: AgentTerminalEvent): boolean =>
-    typeof payload.sessionId === "number" &&
-    typeof payload.exitCode === "number" &&
-    payload.exitCode < 0;
-
-/** Reduces an `"exit"` terminal event into the finished `StreamState`, preserving cancellation on killed sessions. */
+/** Reduces an `"exit"` terminal event into the finished `StreamState`, preserving explicit cancellation state. */
 const reduceStreamExitEvent = (
     prev: StreamState,
     payload: AgentTerminalEvent,
@@ -445,8 +439,7 @@ const reduceStreamExitEvent = (
     phase: "finished",
     output,
     exitCode: payload.exitCode ?? -1,
-    cancelled:
-        payload.cancelled ?? (prev.cancelled || isKilledSessionExit(payload)),
+    cancelled: payload.cancelled ?? prev.cancelled,
     waitingForInput: false,
 });
 
@@ -506,19 +499,18 @@ const dispatchTerminalStreamPayload = (
     handler?.(payload, bufferRef, setState);
 };
 
-/** Resolves `{ exitCode, cancelled }` for a fallback `pty-exit` event based on non-negative `exitCode`. */
+/** Normalizes a nullable `pty-exit` status code into a non-negative exit code or `-1`. */
+const normalizePtyExitCode = (exitCode: number | null | undefined): number =>
+    typeof exitCode === "number" && exitCode >= 0 ? exitCode : -1;
+
+/** Resolves `{ exitCode, cancelled }` for a fallback `pty-exit` event while preserving explicit cancellation state. */
 const resolvePtyExitOutcome = (
     prev: StreamState,
     exitCode: number | null | undefined,
-): { exitCode: number; cancelled: boolean } => {
-    if (typeof exitCode === "number" && exitCode >= 0) {
-        return {
-            exitCode: prev.exitCode ?? exitCode,
-            cancelled: prev.cancelled,
-        };
-    }
-    return { exitCode: prev.exitCode ?? -1, cancelled: true };
-};
+): { exitCode: number; cancelled: boolean } => ({
+    exitCode: prev.exitCode ?? normalizePtyExitCode(exitCode),
+    cancelled: prev.cancelled,
+});
 
 /** Reduces a `pty-exit` event for `sid` when it matches the tracked terminal session. */
 const applyPtyExitToState = (

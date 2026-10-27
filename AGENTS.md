@@ -116,7 +116,7 @@ Verification coverage target: aim for full class coverage, not just instance cov
 
 ### 6. Enforcement
 
-- The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint:strict`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify`, and Rust gates when relevant. Every progress claim MUST cite the tool output that proves it.
+- The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint:strict`, `npm run typecheck`, `npm run test:all`, `npm run skills:verify`, and the Cargo format and Clippy gates when relevant. Every progress claim MUST cite the tool output that proves it.
 - The Code Research Gate MUST list queries, sources, pattern class, instances found, edge cases, and failed attempts. A gate that omits the pattern class is not run.
 - The PR description MUST include the proactive proposal and verification that the class is addressed; include human confirmation evidence only when scope expansion was proposed and confirmed, otherwise state that no expansion was needed with evidence that no broader class exists. For UI work, attach the observed capture artifact and name what it confirmed.
 - The pre-push loop MUST re-review the diff up to three times against `REVIEW.md` and `FULL-REVIEW.md`, fixing every critical, major, minor, and UI concern on each pass. A pass that finds nothing is a reason to dig deeper.
@@ -224,11 +224,9 @@ Run every gate that applies to your diff, then report each one as passed, failed
 ```bash
 npm ci                            # the install CI runs
 npm run lint:strict               # ESLint with --max-warnings=0, the CI lint gate
-npx tsc --noEmit                  # TypeScript, app and tests, zero errors
-npm run test                      # full Vitest suite, after build:runtime
-npm run test:rust                 # Cargo tests for src-tauri
+npm run typecheck                 # TypeScript for app and tests/tsconfig.json, zero errors
+npm run test:all                  # build:runtime, full Vitest suite and Cargo tests
 npm run skills:verify             # every vendored skill matches skills-lock.json
-npm run test:all                  # the full local gate: Vitest plus Cargo
 ```
 
 `npm run test` alone or a single-file Vitest run is not enough because targeted runs skip cross-module equivalence suites and Rust tests. Use `npm run test:all`, which builds the runtime and runs the full Vitest suite plus Cargo tests, before you call a change done. For a Tauri or Rust change, also run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`, because CI runs both.
@@ -240,15 +238,12 @@ Preflight checklist (required before any push)
 - Run these locally and paste the head SHA plus results in the PR verification block:
   - npm ci
   - npm run lint:strict
-  - npx tsc --noEmit
-  - npm run build:runtime
+  - npm run typecheck
   - npm run test:all
-  - npm run test:rust (if touched src-tauri)
   - npm run skills:verify
 - If changing Rust, also run:
   - cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
   - cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-  - cargo test --manifest-path src-tauri/Cargo.toml
 - Never push directly to `main`. Create a branch per concern and open a PR against its base.
 
 ## Blocked sandbox toolchain
@@ -503,7 +498,7 @@ These preferences come from the user's standing instructions across many session
 - Port concepts, not architecture, from upstream projects whose stack differs from ours. Read the upstream implementation before you port anything, and write the port against this repository's stack.
 - Do not claim a platform is supported until an installer for it is produced by CI. Record the real support matrix in the docs, and name each platform's verification source.
 - On Linux, `cargo clippy` does not compile code behind `#[cfg(windows)]` or `#[cfg(target_os = "macos")]`. Say that a platform-gated Rust change was checked only by CI for that platform.
-- Vitest does not typecheck. Run `npx tsc --noEmit` after your last edit, and report the result from that run.
+- Vitest does not typecheck. Run `npm run typecheck` after your last edit, and report the result from that run.
 - Keep telemetry removed. Before you add any outbound call, follow the network rule above and confirm that the user asked for it.
 - Finish the work the task scopes. When a blocker stops you, name the blocker, the evidence and the next step in your report. Do not silently defer work. Do not silently invent or execute follow-up tasks the user did not confirm. You MUST proactively identify broader scope and offer a comprehensive solution, but you MUST get explicit confirmation before acting on it per the Proactive Problem Solving Protocol below.
 - Record a mistake's root cause, the corrected understanding, and the change in behaviour in `.dump/`, not in the chat or the pull request. Never write secrets or raw provider output there.
