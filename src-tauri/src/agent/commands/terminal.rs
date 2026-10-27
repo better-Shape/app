@@ -140,14 +140,17 @@ pub struct AgentCommandResult {
     pub cancelled: bool,
 }
 
+/// Emits a legacy terminal panel action event.
 fn emit_panel_event(app: &AppHandle, payload: serde_json::Value) {
     let _ = app.emit("bettershape-terminal-ai-action", payload);
 }
 
+/// Emits a command-correlated chat terminal stream event.
 fn emit_chat_stream(app: &AppHandle, payload: serde_json::Value) {
     let _ = app.emit("agent-terminal-stream", payload);
 }
 
+/// Builds the `agent-terminal-stream` exit payload, tagging `cancelled` when stopped or killed.
 fn build_exit_stream_payload(
     command_id: &str,
     session_id: u32,
@@ -172,6 +175,55 @@ fn build_exit_stream_payload(
     }
 }
 
+/// Appends `data` to the bounded prompt buffer and returns `true` on the first input prompt.
+fn take_prompt_wait_signal(
+    output_buf: &std::sync::Mutex<String>,
+    waiting_emitted: &std::sync::atomic::AtomicBool,
+    data: &str,
+) -> bool {
+    let Ok(mut buf) = output_buf.lock() else {
+        return false;
+    };
+    buf.push_str(data);
+    crate::core::bounded_text::retain_tail(&mut buf, 8_000);
+    if waiting_emitted.load(std::sync::atomic::Ordering::Relaxed) {
+        return false;
+    }
+    let matched = pty::looks_like_input_prompt(&strip_ansi(&buf));
+    if matched {
+        waiting_emitted.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    matched
+}
+
+/// Forwards output chunks to the terminal panel and `pty-output` when mirroring is enabled.
+fn forward_panel_output(app: &AppHandle, enabled: bool, session_id: u32, data: &str) {
+    if !enabled {
+        return;
+    }
+    let panel = json!({ "type": "data", "data": data.replace('\n', "\r\n") });
+    emit_panel_event(app, panel);
+    let out = json!({ "id": session_id, "data": data });
+    let _ = app.emit("pty-output", out);
+}
+
+/// Forwards exit status to the terminal panel and `pty-exit` when mirroring is enabled.
+fn forward_panel_exit(app: &AppHandle, enabled: bool, session_id: u32, exit_code: i32) {
+    if !enabled {
+        return;
+    }
+    let finish = json!({ "type": "finish", "exitCode": exit_code });
+    emit_panel_event(app, finish);
+    let exit = json!({ "id": session_id, "exit_code": exit_code });
+    let _ = app.emit("pty-exit", exit);
+}
+
+/// Returns `true` when session exit came from turn cancellation or an explicit kill (`< 0`).
+fn is_session_exit_cancelled(owner: &TerminalOwner, exit_code: i32) -> bool {
+    owner.cancel.is_cancelled() || exit_code < 0
+}
+
+/// Constructs output and exit callbacks linking a PTY or piped session to chat stream events.
 fn make_callbacks(
     app: &AppHandle,
     command_id: &str,
@@ -195,33 +247,20 @@ fn make_callbacks(
                     "data": data,
                 }),
             );
-            if let Ok(mut buf) = output_buf.lock() {
-                buf.push_str(&data);
-                crate::core::bounded_text::retain_tail(&mut buf, 8_000);
-                if !waiting_emitted.load(std::sync::atomic::Ordering::Relaxed)
-                    && pty::looks_like_input_prompt(&strip_ansi(&buf))
-                {
-                    waiting_emitted.store(true, std::sync::atomic::Ordering::Relaxed);
-                    emit_chat_stream(
-                        &app_out,
-                        json!({
-                            "commandId": cmd_id_out,
-                            "sessionId": session_id,
-                            "kind": "waiting_for_input",
-                        }),
-                    );
-                }
-            }
-            if forward_panel_data {
-                emit_panel_event(
+            if take_prompt_wait_signal(&output_buf, &waiting_emitted, data) {
+                emit_chat_stream(
                     &app_out,
-                    json!({ "type": "data", "data": data.replace('\n', "\r\n") }),
+                    json!({
+                        "commandId": cmd_id_out,
+                        "sessionId": session_id,
+                        "kind": "waiting_for_input",
+                    }),
                 );
-                let _ = app_out.emit("pty-output", json!({ "id": session_id, "data": data }));
             }
+            forward_panel_output(&app_out, forward_panel_data, session_id, data);
         }),
         on_exit: Arc::new(move |session_id, exit_code| {
-            let cancelled = owner.cancel.is_cancelled() || exit_code < 0;
+            let cancelled = is_session_exit_cancelled(&owner, exit_code);
             if let Some(state) = app_exit.try_state::<AgentState>() {
                 state.unregister_session(session_id, &owner);
             }
@@ -229,16 +268,7 @@ fn make_callbacks(
                 &app_exit,
                 build_exit_stream_payload(&cmd_id_exit, session_id, exit_code, cancelled),
             );
-            if forward_panel_data {
-                emit_panel_event(
-                    &app_exit,
-                    json!({ "type": "finish", "exitCode": exit_code }),
-                );
-                let _ = app_exit.emit(
-                    "pty-exit",
-                    json!({ "id": session_id, "exit_code": exit_code }),
-                );
-            }
+            forward_panel_exit(&app_exit, forward_panel_data, session_id, exit_code);
         }),
     }
 }
@@ -566,6 +596,7 @@ mod tests {
         assert_eq!(strip_ansi("\u{1b}[2K\u{1b}[1Gnpm install"), "npm install");
     }
 
+    /// Verifies `build_exit_stream_payload` sets `cancelled: true` only for stopped sessions.
     #[test]
     fn exit_stream_payload_marks_cancelled_only_when_stopped() {
         let stopped = build_exit_stream_payload("cmd-1", 7, -1, true);
