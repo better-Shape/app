@@ -116,7 +116,7 @@ Verification coverage target: aim for full class coverage, not just instance cov
 
 ### 6. Enforcement
 
-- The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify`, and Rust gates when relevant. Every progress claim MUST cite the tool output that proves it.
+- The Verification Gate MUST show head SHA plus results for `npm ci`, `npm run lint:strict`, `npx tsc --noEmit`, `npm run build:runtime`, `npm run test:all`, `npm run skills:verify`, and Rust gates when relevant. Every progress claim MUST cite the tool output that proves it.
 - The Code Research Gate MUST list queries, sources, pattern class, instances found, edge cases, and failed attempts. A gate that omits the pattern class is not run.
 - The PR description MUST include the proactive proposal and verification that the class is addressed; include human confirmation evidence only when scope expansion was proposed and confirmed, otherwise state that no expansion was needed with evidence that no broader class exists. For UI work, attach the observed capture artifact and name what it confirmed.
 - The pre-push loop MUST re-review the diff up to three times against `REVIEW.md` and `FULL-REVIEW.md`, fixing every critical, major, minor, and UI concern on each pass. A pass that finds nothing is a reason to dig deeper.
@@ -223,15 +223,15 @@ Run every gate that applies to your diff, then report each one as passed, failed
 
 ```bash
 npm ci                            # the install CI runs
-npm run lint                      # ESLint, the CI lint gate
+npm run lint:strict               # ESLint with --max-warnings=0, the CI lint gate
 npx tsc --noEmit                  # TypeScript, app and tests, zero errors
-npm run test                      # Vitest, after build:runtime
+npm run test                      # full Vitest suite, after build:runtime
 npm run test:rust                 # Cargo tests for src-tauri
 npm run skills:verify             # every vendored skill matches skills-lock.json
 npm run test:all                  # the full local gate: Vitest plus Cargo
 ```
 
-`npm run test` alone is not enough. Use `npm run test:all` before you call a change done. For a Tauri or Rust change, also run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`, because CI runs both.
+`npm run test` alone is not enough, and a targeted Vitest file run skips cross-module equivalence suites. Run the full Vitest suite and `npm run test:all` before you call a change done. For a Tauri or Rust change, also run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`, because CI runs both.
 
 Run the gate the way CI runs it. A piped command reports the exit code of the pipe, so read the printed diagnostics too.
 
@@ -239,7 +239,7 @@ Preflight checklist (required before any push)
 
 - Run these locally and paste the head SHA plus results in the PR verification block:
   - npm ci
-  - npm run lint
+  - npm run lint:strict
   - npx tsc --noEmit
   - npm run build:runtime
   - npm run test:all
@@ -329,7 +329,7 @@ Keep thinking what is missing.
 1. Run the verification gate and the code research gate.
 2. For a change a user sees and interacts with, capture and watch it with the `ui-capture` skill, then attach the GIF to the pull request. See UI capture above. Do not push a UI change with no recording.
 3. Load `REVIEW.md` and `FULL-REVIEW.md` from the working tree of the branch under review, since neither file is on `main`. Load the CodeRabbit profile in `.coderabbit.yaml`.
-4. Review the full diff against its base. Classify each finding as critical, major, minor, nitpick or UI concern, and fix it.
+4. Review the full diff against its base. Classify each finding as critical, major, minor, nitpick or UI concern, and fix it. Check touched TypeScript and JavaScript files against the external analyzer rules recorded in `.dump/global/local-gate-parity-and-external-analyzers.md`, because `SonarQube Cloud`, `DeepSource`, `DeepScan` and `CodeAnt` enforce type-aware nullish checks, Unicode character-class rules, cyclomatic complexity limits, documented arrow declarations and zero new-code duplication outside `eslint.config.cjs`.
 5. Repeat steps 1 to 4 up to three times until a pass finds nothing new. A pass that finds nothing is a reason to dig deeper, not a reason to stop. Re-check the parts that the fixes touched.
 6. Push only after the local gate is green.
 
@@ -380,8 +380,8 @@ Never write a name that an earlier instruction told you to use, and never write 
 
 You own the quality of the PR until it is merged or closed. Polling continues in the same turn until the head commit is terminal and no review is unfinished.
 
-1. Read the PR state with `gh pr view <number> --json headRefOid,mergeable,reviewDecision`.
-2. Read every check on the head commit with `gh pr checks <number>`, or with `gh api repos/<owner>/<repo>/commits/<sha>/check-runs` when that command does not show a check. Treat any pending required check as pending, and any failed check as a fix cycle.
+1. Read the PR state with `gh pr view <number> --json headRefOid,mergeable,reviewDecision`. Update pull request descriptions with `gh api -X PATCH repos/<owner>/<repo>/pulls/<number>` because `gh pr edit` fails on GitHub's removed `projectCards` GraphQL field.
+2. Read every check and commit status on the head commit with `gh api repos/<owner>/<repo>/commits/<sha>/check-runs` and `gh api repos/<owner>/<repo>/commits/<sha>/status`, because `DeepSource`, `CodeAnt`, `DeepScan` and `Snyk` publish commit statuses that `gh pr checks` and `check-runs` omit. Treat any pending required check or status as pending, and any failed check or status as a fix cycle.
 3. Read the unresolved review threads with GraphQL, paginating both threads and comments. Filter `isResolved == false`. If GraphQL is unavailable, read `repos/<owner>/<repo>/pulls/<number>/comments` and `issues/<number>/comments`.
 4. Check normal PR thread comments, inline review threads, submitted reviews, check summaries and linked bot reports. They can contain actionable findings even when the check itself passes.
 5. Triage new PR feedback ASAP when the PR opens and after every push or review update. Verify each finding against the current head; classify it as valid, duplicate, non-actionable, false positive or blocked. Fix confirmed issues promptly on this branch, run the relevant checks, and push the fixes. Reply with the disposition and head SHA; resolve a thread only after the fix is on the pushed head. Do not defer triage until the final report.
@@ -444,6 +444,7 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 
 - The app is a Tauri 2 shell around a Next.js renderer. The Rust backend lives in `src-tauri/src/`. The renderer lives in `app/`, `components/`, `features/`, `lib/` and `core/`.
 - Tests live in `tests/**/*.test.ts` and run under Vitest with the jsdom environment. `tests/setup.ts` is the shared setup. Cargo tests run under `src-tauri`.
+- Vitest tests that assert network behaviour on modules with in-memory TTL caches, such as `lib/ai/model-catalog.ts`, must stub `fetch` or pass explicit cache-bypass flags and reset module state in `finally`. Network-blocked sandboxes leave TTL caches cold on failed fetches, whereas GitHub Actions runners reach external hosts and warm the cache in earlier tests in the same file.
 - `npm run build:runtime` builds the preview runtime that the Vitest run needs, so run it before `npm run test`.
 - `public/preview/` and `src-tauri/runtime/` are generated. Do not edit them by hand.
 - `.bettershape/` and `.shape/` are local app state, and both are ignored by git.
@@ -480,7 +481,7 @@ in a spec. Desktop behaviour still requires `npm run test:all`.
 
 Three bots review pull requests. Follow these rules.
 
-- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, tag it again and wait until CodeAnt approves the new head. An earlier approval does not carry over to a new head.
+- CodeAnt. Tag `@codeant-ai review` on every pull request, every time. The tag is mandatory even when CodeAnt has already approved. After each push or fix round, wait for CodeAnt's automatic incremental push review to complete, tag `@codeant-ai review`, and wait until CodeAnt approves the new head and refreshes its nitpick summary. An earlier approval does not carry over to a new head.
 - CodeRabbit. Do not tag by default. Request `@coderabbitai review` only when the PR is substantially critical. A substantially critical PR includes any of the following: a breaking change, a security fix, a major architecture or protocol change, a new platform support claim, or a change to repo policy or workflow that materially affects future work.
 - Rate limits and pauses. CodeRabbit or another bot can pause, or fail a check with a rate-limit message. When that happens, tell the human in your report which bot paused, which check failed, the message text and the time. Then keep polling the other checks and threads without waiting for the bot to resume. Retry the bot's review request when the pause window ends, and record that retry in your report to the human, not in the pull request description.
 - Kilocode bot. Tag `@kilocode-bot` only to ask a question or to delegate work you cannot do from your sandbox. Use it for research on blocked domains, for fetching files you cannot reach, and for work that needs a network or a tool your sandbox does not have. Write the request so it names the exact files, the exact question and the exact output you need back. Treat its answer as evidence to verify, not as a verdict.
