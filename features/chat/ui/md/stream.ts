@@ -1470,10 +1470,13 @@ const sliceSurrogateSafe = (text: string, limit: number): string => {
     return text.slice(0, findGraphemeCutIndex(text, limit));
 };
 
-/** Truncates excessively long streaming or finished responses without splitting UTF-16 surrogates. */
+const TRUNCATED_DISPLAY_SUFFIX = "\n\n... (response truncated for display)";
+
+/** Truncates excessively long streaming or finished responses without splitting emoji or UTF-16 surrogates. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    return `${sliceSurrogateSafe(text, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
+    const safePrefix = sliceSurrogateSafe(text, MAX_DISPLAY_CHARS);
+    return `${safePrefix}${TRUNCATED_DISPLAY_SUFFIX}`;
 };
 
 /** Caps raw settled input at `2 * MAX_DISPLAY_CHARS` so glitch repair stays O(1) before the 48k cap. */

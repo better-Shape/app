@@ -930,8 +930,7 @@ const applyDownOrEscapeOutcome = (opts: {
   return true;
 };
 
-/** Evaluates `ArrowUp`, `ArrowDown`, and `Escape` prompt-history actions; returns `true` when consumed. */
-const tryHandleHistoryKeyBranch = (opts: {
+type HistoryKeyBranchOpts = {
   e: React.KeyboardEvent<HTMLTextAreaElement>;
   inputValue: string;
   queuedIds: string[];
@@ -943,7 +942,17 @@ const tryHandleHistoryKeyBranch = (opts: {
     stepped: { cursor: PromptHistoryCursor | null; value: string },
   ) => void;
   isBusy: boolean;
-}): boolean => {
+};
+
+type ComposerInterceptKeyOpts = HistoryKeyBranchOpts & {
+  canToggleExpand: boolean;
+  toggleExpanded: () => void;
+  popoverOpen: boolean;
+  closePopovers: () => void;
+};
+
+/** Evaluates `ArrowUp`, `ArrowDown`, and `Escape` prompt-history actions; returns `true` when consumed. */
+const tryHandleHistoryKeyBranch = (opts: HistoryKeyBranchOpts): boolean => {
   const up = resolveArrowUpAction({
     e: opts.e,
     inputValue: opts.inputValue,
@@ -984,23 +993,7 @@ export const isPlainEnterSubmit = (
   !e.nativeEvent.isComposing;
 
 /** Handles pre-submit composer intercept keys (`Ctrl+Shift+E`, popover `Escape`, history). */
-const consumeComposerInterceptKey = (opts: {
-  e: React.KeyboardEvent<HTMLTextAreaElement>;
-  canToggleExpand: boolean;
-  toggleExpanded: () => void;
-  popoverOpen: boolean;
-  closePopovers: () => void;
-  inputValue: string;
-  queuedIds: string[];
-  onEditQueuedMessage?: (id: string) => void;
-  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
-  recallablePrompts: string[];
-  applySteppedHistory: (
-    e: React.KeyboardEvent<HTMLTextAreaElement>,
-    stepped: { cursor: PromptHistoryCursor | null; value: string },
-  ) => void;
-  isBusy: boolean;
-}): boolean => {
+const consumeComposerInterceptKey = (opts: ComposerInterceptKeyOpts): boolean => {
   if (isToggleExpandShortcut(opts.e, opts.canToggleExpand)) {
     opts.e.preventDefault();
     opts.toggleExpanded();
@@ -1016,26 +1009,13 @@ const consumeComposerInterceptKey = (opts: {
 };
 
 /** Handles prompt history navigation and special shortcuts before delegating `onKeyDown`. */
-const handleComposerKeyDownFlow = (opts: {
-  e: React.KeyboardEvent<HTMLTextAreaElement>;
-  canToggleExpand: boolean;
-  toggleExpanded: () => void;
-  popoverOpen: boolean;
-  closePopovers: () => void;
-  inputValue: string;
-  queuedIds: string[];
-  onEditQueuedMessage?: (id: string) => void;
-  historyCursorRef: React.MutableRefObject<PromptHistoryCursor | null>;
-  recallablePrompts: string[];
-  applySteppedHistory: (
-    e: React.KeyboardEvent<HTMLTextAreaElement>,
-    stepped: { cursor: PromptHistoryCursor | null; value: string },
-  ) => void;
-  isBusy: boolean;
-  recordIfEligible: () => void;
-  runNewChatIfMatched: () => boolean;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-}): void => {
+const handleComposerKeyDownFlow = (
+  opts: ComposerInterceptKeyOpts & {
+    recordIfEligible: () => void;
+    runNewChatIfMatched: () => boolean;
+    onKeyDown: (e: React.KeyboardEvent) => void;
+  },
+): void => {
   if (consumeComposerInterceptKey(opts)) return;
   if (isPlainEnterSubmit(opts.e)) {
     if (opts.runNewChatIfMatched()) {

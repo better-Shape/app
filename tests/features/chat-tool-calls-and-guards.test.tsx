@@ -73,6 +73,25 @@ import { buildFailingTestPrompt } from "@/features/testing/ui/test-panel";
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
+/** Creates a mocked `AudioContext` constructor wired to `getProcessor`. */
+const createMockAudioContextFactory = (
+    getProcessor: () => {
+        connect: () => void;
+        disconnect: () => void;
+        onaudioprocess: ((ev: { inputBuffer: { getChannelData: () => Float32Array } }) => void) | null;
+    },
+) =>
+    vi.fn(function MockAudioContext() {
+        return {
+            sampleRate: 16_000,
+            destination: {},
+            createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+            createScriptProcessor: getProcessor,
+            createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
+            close: (): Promise<void> => Promise.resolve(),
+        };
+    });
+
 /** Mounts `node` inside a fresh DOM container with `TooltipProvider`, tearing down any prior mount. */
 const mount = (node: React.ReactElement) => {
     if (root) {
@@ -908,17 +927,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             disconnect: vi.fn(),
             onaudioprocess: null,
         };
-        /** Constructs a mocked Web Audio `AudioContext` instance without class methods. */
-        const createMockAudioContext = vi.fn(function MockAudioContext() {
-            return {
-                sampleRate: 16_000,
-                destination: {},
-                createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                createScriptProcessor: () => processor,
-                createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                close: resolveVoid,
-            };
-        });
+        const createMockAudioContext = createMockAudioContextFactory(() => processor);
         vi.stubGlobal("AudioContext", createMockAudioContext);
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1397,24 +1406,13 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const prevMediaDevices = navigator.mediaDevices;
         const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
-        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
-        const resolveVoid = (): Promise<void> => Promise.resolve();
         vi.stubGlobal(
             "AudioContext",
-            vi.fn(function MockAudioContext() {
-                return {
-                    sampleRate: 16_000,
-                    destination: {},
-                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                    createScriptProcessor: () => ({
-                        connect: vi.fn(),
-                        disconnect: vi.fn(),
-                        onaudioprocess: null,
-                    }),
-                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                    close: resolveVoid,
-                };
-            }),
+            createMockAudioContextFactory(() => ({
+                connect: vi.fn(),
+                disconnect: vi.fn(),
+                onaudioprocess: null,
+            })),
         );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1440,7 +1438,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 }
                 return Promise.resolve();
             }),
-            push: vi.fn(resolveVoid),
+            push: vi.fn((): Promise<void> => Promise.resolve()),
             stop: vi.fn(() => {
                 ipcLog.push("stop");
                 return Promise.resolve();
@@ -1495,8 +1493,6 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
         const prevMediaDevices = navigator.mediaDevices;
         const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
-        /** Resolves an empty promise for mocked recognizer lifecycle hooks. */
-        const resolveVoid = (): Promise<void> => Promise.resolve();
         const processor: {
             connect: () => void;
             disconnect: () => void;
@@ -1504,16 +1500,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         } = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null };
         vi.stubGlobal(
             "AudioContext",
-            vi.fn(function MockAudioContext() {
-                return {
-                    sampleRate: 16_000,
-                    destination: {},
-                    createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-                    createScriptProcessor: () => processor,
-                    createGain: () => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }),
-                    close: resolveVoid,
-                };
-            }),
+            createMockAudioContextFactory(() => processor),
         );
         Object.defineProperty(navigator, "mediaDevices", {
             configurable: true,
@@ -1596,6 +1583,18 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(
             /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayedStreaming),
         ).toBe(false);
+        const zwjStraddling = `${prefix47999.slice(0, 47_996)}👨‍👩‍👧‍👦 trailing text`;
+        const zwjStreaming = preprocessChatMarkdown(zwjStraddling, {
+            streaming: true,
+        });
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(zwjStreaming)).toBe(
+            false,
+        );
+        expect(
+            zwjStreaming.startsWith(
+                `${prefix47999.slice(0, 47_996)}\n\n... (response truncated for display)`,
+            ),
+        ).toBe(true);
 
         const mcpMultiline =
             '<terminal_command status="pending" id="mcp-1" mcp=">npx @mcp/fs --label "docs"\nAwaiting approval: MCP fs</terminal_command>';
