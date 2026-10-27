@@ -871,12 +871,21 @@ export const stripLeakedToolCode = (text: string): string => {
     return collapseExcessNewlines(stripLeakedToolMarkup(withoutInvocations));
 };
 
+/** Checks whether `i` is the leftmost start of a candidate `[i, i + len)` tandem repeat. */
+const isLeftmostRepeatBoundary = (
+    text: string,
+    i: number,
+    len: number,
+): boolean =>
+    i === 0 || text.charCodeAt(i - 1) !== text.charCodeAt(i + len - 1);
+
 /** Checks whether a repeated span `[i, i + len)` is glued mid-stream without whitespace at the seam. */
 const hasGluedMultiWordSeam = (
     text: string,
     i: number,
     len: number,
 ): boolean => {
+    if (!isLeftmostRepeatBoundary(text, i, len)) return false;
     const seam = i + len;
     if (/\s/u.test(text.charAt(seam - 1)) || /\s/u.test(text.charAt(seam))) {
         return false;
@@ -917,10 +926,14 @@ const collapseAdjacentDuplicateSpan = (text: string): string | null => {
     return null;
 };
 
-/** Measures how many characters starting at `0` and `start` match identically (`>= 20`). */
-const measurePrefixReplayLength = (text: string, start: number): number => {
+/** Measures how many characters starting at `0` and `start` match identically (`>= minMatched`). */
+const measurePrefixReplayLength = (
+    text: string,
+    start: number,
+    minMatched: number,
+): number => {
     const maxLen = Math.min(start, text.length - start);
-    let matched = 20;
+    let matched = minMatched;
     while (
         matched < maxLen &&
         text.charCodeAt(matched) === text.charCodeAt(start + matched)
@@ -930,29 +943,36 @@ const measurePrefixReplayLength = (text: string, start: number): number => {
     return matched;
 };
 
-/** Checks whether a repeated opening prefix at `start` is glued mid-token without preceding whitespace. */
-const isPrefixReplayGlitch = (
-    text: string,
-    start: number,
-    matched: number,
-): boolean => {
-    if (!/\s/u.test(text.slice(0, matched))) return false;
+/** Checks whether `start` sits immediately after a non-whitespace character (a mid-token seam). */
+const isGluedReplaySeam = (text: string, start: number): boolean => {
     const prevChar = text.charAt(start - 1);
     return prevChar.length > 0 && !/\s/u.test(prevChar);
 };
 
+/** Builds the minimum opening prefix (`>= 20` chars and containing whitespace) required for a replay match. */
+const buildOpeningReplayNeedle = (text: string): string | null => {
+    const firstWhitespace = text.search(/\s/u);
+    if (firstWhitespace === -1) return null;
+    const needleLen = Math.max(20, firstWhitespace + 1);
+    return text.length >= needleLen * 2 ? text.slice(0, needleLen) : null;
+};
+
 /** Removes an accidental re-emission of the message opening (`>= 20` chars) while keeping valid prose. */
 const collapseOpeningPrefixReplay = (text: string): string | null => {
-    const prefix20 = text.slice(0, 20);
-    let searchFrom = 20;
-    while (searchFrom <= text.length - 20) {
-        const start = text.indexOf(prefix20, searchFrom);
-        if (start === -1 || start > text.length - 20) break;
-        const matched = measurePrefixReplayLength(text, start);
-        if (isPrefixReplayGlitch(text, start, matched)) {
+    const needle = buildOpeningReplayNeedle(text);
+    if (needle === null) return null;
+    const maxStart = text.length - needle.length;
+    let start = text.indexOf(needle, needle.length);
+    while (start !== -1 && start <= maxStart) {
+        if (isGluedReplaySeam(text, start)) {
+            const matched = measurePrefixReplayLength(
+                text,
+                start,
+                needle.length,
+            );
             return text.slice(0, start) + text.slice(start + matched);
         }
-        searchFrom = start + 1;
+        start = text.indexOf(needle, start + 1);
     }
     return null;
 };

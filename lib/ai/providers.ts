@@ -1410,6 +1410,38 @@ const findMissingBaseUrlSetupGap = (
   return null;
 };
 
+/** Checks whether a keyless connection holds user-saved endpoint or model configuration. */
+const hasSavedKeylessProviderConfig = (
+  preset: ProviderPreset,
+  conn: ProviderConnection,
+): boolean => {
+  if (!connectionAllowsKeylessAuth(preset.id, preset, conn)) return false;
+  return preset.needsBaseUrl
+    ? Boolean(conn.baseUrl.trim())
+    : conn.extraModels.length > 0;
+};
+
+/** Checks whether a disabled connection already holds a saved API key or user-configured keyless setup. */
+const hasDisabledSavedProvider = (
+  preset: ProviderPreset,
+  conn: ProviderConnection | undefined,
+): boolean => {
+  if (!conn || conn.enabled) return false;
+  return (
+    Boolean(conn.apiKey.trim()) || hasSavedKeylessProviderConfig(preset, conn)
+  );
+};
+
+/** Resolves enable-provider guidance when credentials are already saved on a disabled provider. */
+const findDisabledSavedProviderGap = (
+  settings: ProvidersSettings,
+): string | null =>
+  PROVIDER_PRESETS.some((preset) =>
+    hasDisabledSavedProvider(preset, settings.connections[preset.id]),
+  )
+    ? "Enable a provider in Settings -> Providers"
+    : null;
+
 /** Diagnostics for why no provider model is currently routable, or `null` when ready. */
 export const providerSetupIssue = (
   settings: ProvidersSettings,
@@ -1429,6 +1461,7 @@ export const describeProviderSetupGap = (
   }
   return (
     findMissingBaseUrlSetupGap(settings) ??
+    findDisabledSavedProviderGap(settings) ??
     "Add an API key in Settings -> Providers"
   );
 };
