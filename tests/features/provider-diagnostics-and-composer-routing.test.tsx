@@ -231,8 +231,20 @@ describe("Provider usability, model routing edge cases, and brand icons", () => 
 
         // Hiding every model from the picker keeps the configured provider usable and routable
         settings.connections.custom.hiddenModels = ["custom/deepseek-ai/deepseek-r1"];
+        settings.chatMode = "custom/deepseek-ai/deepseek-r1";
         expect(hasAnyUsableProvider(settings)).toBe(true);
         expect(resolveActiveDefaultModelId(settings)).toBe("custom/deepseek-ai/deepseek-r1");
+        settings.chatMode = "auto";
+        expect(resolveActiveDefaultModelId(settings)).toBe("custom/deepseek-ai/deepseek-r1");
+
+        // An endpoint whose only discovered models are non-chat embeddings is not chat-usable
+        settings.connections.custom.extraModels = [];
+        settings.connections.custom.hiddenModels = [];
+        settings.connections.custom.discoveredModels = [
+            { id: "custom/text-embedding-3-small", name: "Embedding", nonChat: true },
+        ];
+        expect(hasAnyUsableProvider(settings)).toBe(false);
+        expect(resolveActiveDefaultModelId(settings)).toBeNull();
     });
 
     it("treats authStyle 'none' as usable without an API key and prefixes vendor-slashed extraModels", () => {

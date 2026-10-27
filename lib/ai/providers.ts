@@ -1672,20 +1672,20 @@ export const availableModels = (settings: ProvidersSettings): ModelOption[] => {
   return out;
 };
 
-/** Every chat model ID across usable connections regardless of picker `hiddenModels` toggles. */
-const routableModelIds = (settings: ProvidersSettings): string[] => {
+/** Every chat-capable model ID across usable connections regardless of picker `hiddenModels`. */
+const routableChatModelIds = (settings: ProvidersSettings): string[] => {
   const out: string[] = [];
   for (const preset of PROVIDER_PRESETS) {
     if (isConnectionUsable(preset.id, settings.connections)) {
-      out.push(...modelIdsFor(preset.id, settings.connections));
+      out.push(...chatModelIdsFor(preset.id, settings.connections));
     }
   }
   return out;
 };
 
-/** Has any usable provider with at least one routable model ID (even if hidden from the picker). */
+/** Has any usable provider with at least one chat-capable model ID (even if hidden in pickers). */
 export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean =>
-  routableModelIds(settings).length > 0;
+  routableChatModelIds(settings).length > 0;
 
 /** True when at least one connection is enabled and usable (with credentials or keyless auth). */
 export const hasAnyConfiguredConnection = (
@@ -1792,25 +1792,34 @@ export const describeProviderSetupGap = (
   );
 };
 
-/** Checks whether `wanted` names a specific model ID present in `models`. */
-const isExplicitAvailableModel = (
+/** Checks whether `wanted` names a specific explicit model ID in `routableIds`. */
+const isExplicitRoutableModel = (
   wanted: string,
-  models: ModelOption[],
+  routableIds: readonly string[],
 ): boolean =>
   Boolean(wanted) &&
   wanted !== "auto" &&
   wanted !== "ask" &&
-  models.some((model) => model.id === wanted);
+  routableIds.includes(wanted);
+
+/** Picks the first visible model ID, falling back to the first routable chat model ID. */
+const pickFirstRoutableModelId = (
+  visible: readonly ModelOption[],
+  routableIds: readonly string[],
+): string | null => {
+  if (visible.length > 0) return visible[0].id;
+  return routableIds.length > 0 ? routableIds[0] : null;
+};
 
 /** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
 export const resolveActiveDefaultModelId = (
   settings: ProvidersSettings,
 ): string | null => {
   if (settings.chatMode === "ask") return null;
-  const visible = availableModels(settings);
+  const routable = routableChatModelIds(settings);
   const wanted = translateModelId(settings.chatMode.trim());
-  if (isExplicitAvailableModel(wanted, visible)) return wanted;
-  return visible[0]?.id ?? routableModelIds(settings)[0] ?? null;
+  if (isExplicitRoutableModel(wanted, routable)) return wanted;
+  return pickFirstRoutableModelId(availableModels(settings), routable);
 };
 
 /** Providers that can embed, in the order the app prefers to route to them. */

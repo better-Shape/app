@@ -116,7 +116,9 @@ describe("model catalog", () => {
             expect(refreshed.fromNetwork).toBe(true);
             expect(refreshed.models.length).toBeGreaterThanOrEqual(210);
         } finally {
-            window.localStorage?.removeItem("bettershape.model-catalog.v2");
+            if (typeof window !== "undefined") {
+                window.localStorage.removeItem("bettershape.model-catalog.v2");
+            }
             fetchSpy.mockRestore();
         }
     });

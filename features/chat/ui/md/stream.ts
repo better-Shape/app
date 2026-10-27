@@ -825,8 +825,8 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
-const COMPLETE_BACKTICK_FENCE_RE = /`{3,}[\w-]*[ \t\r\f\v]*\n([\s\S]*?)`{3,}/gu;
-const COMPLETE_TILDE_FENCE_RE = /~{3,}[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~{3,}/gu;
+const COMPLETE_BACKTICK_FENCE_RE = /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/gu;
+const COMPLETE_TILDE_FENCE_RE = /~~~[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~~~/gu;
 const UNCLOSED_BACKTICK_HEAD_RE = /^`{3,}[\w-]*[ \t\r\f\v]*\n/u;
 const UNCLOSED_TILDE_HEAD_RE = /^~{3,}[\w-]*[ \t\r\f\v]*\n/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
@@ -1496,8 +1496,25 @@ const alignWindowEnd = (text: string, rawEnd: number): number =>
         ? rawEnd + 1
         : rawEnd;
 
-const GRAPHEME_EXTENDER_AT_START_RE =
-    /^(?:\u200D|\p{Mark}|\p{Emoji_Modifier}|[\uFE0E\uFE0F\u{E0020}-\u{E007F}\u{E0100}-\u{E01EF}])/u;
+const COMBINING_OR_MODIFIER_START_RE = /^(?:\p{Mark}|\p{Emoji_Modifier})/u;
+
+/** Checks whether `cp` is an emoji tag or supplementary variation selector (`U+E0020..U+E01EF`). */
+const isTagOrVariationSupplement = (cp: number): boolean =>
+    (cp >= 0xe0020 && cp <= 0xe007f) || (cp >= 0xe0100 && cp <= 0xe01ef);
+
+/** Checks whether `cp` is ZWJ (`U+200D`), BMP variation selector (`U+FE0E..U+FE0F`), or tag/supplement. */
+const isJoinerOrSelectorCodePoint = (cp: number): boolean =>
+    cp === 0x200d ||
+    cp === 0xfe0e ||
+    cp === 0xfe0f ||
+    isTagOrVariationSupplement(cp);
+
+/** Checks whether the codepoint starting at `cut` continues the preceding grapheme cluster. */
+const hasExtendingCodePointAt = (text: string, cut: number): boolean => {
+    const cp = text.codePointAt(cut) ?? 0;
+    if (isJoinerOrSelectorCodePoint(cp)) return true;
+    return COMBINING_OR_MODIFIER_START_RE.test(text.slice(cut, cut + 4));
+};
 
 /** Steps backward to the start of the UTF-16 codepoint ending at `index`. */
 const prevCodePointStart = (text: string, index: number): number => {
@@ -1542,9 +1559,7 @@ const splitsRegionalIndicatorPair = (text: string, cut: number): boolean =>
 const splitsExtendedGraphemeCluster = (text: string, cut: number): boolean => {
     if (cut <= 0 || cut >= text.length) return false;
     if (text.charCodeAt(cut - 1) === 0x200d) return true;
-    if (GRAPHEME_EXTENDER_AT_START_RE.test(text.slice(cut, cut + 4))) {
-        return true;
-    }
+    if (hasExtendingCodePointAt(text, cut)) return true;
     return splitsRegionalIndicatorPair(text, cut);
 };
 

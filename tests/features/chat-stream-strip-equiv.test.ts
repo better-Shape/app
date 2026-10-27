@@ -6,131 +6,301 @@ import {
     LEAKED_TOOL_XML_TAGS,
 } from "@/features/chat/ui/md/stream";
 
-const STRIP_ACROSS_FENCES = ["tool_result", "terminal_read", "terminal_input", "list_terminals"] as const;
+const STRIP_ACROSS_FENCES = [
+    "tool_result",
+    "terminal_read",
+    "terminal_input",
+    "list_terminals",
+] as const;
+
+type ReferenceFenceMarker = {
+    char: string;
+    len: number;
+    suffix: string;
+};
+
+type ReferenceFenceTracker = {
+    proseStart: number;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+};
+
+const countLeadingIndent = (line: string): number => {
+    let spaces = 0;
+    while (spaces < 3 && line.charCodeAt(spaces) === 32) spaces += 1;
+    return spaces;
+};
+
+const countRunOfChar = (line: string, from: number, ch: string): number => {
+    let end = from;
+    while (end < line.length && line.charAt(end) === ch) end += 1;
+    return end - from;
+};
+
+const parseReferenceFenceMarker = (
+    rawLine: string,
+): ReferenceFenceMarker | null => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    const indent = countLeadingIndent(line);
+    const ch = line.charAt(indent);
+    if (ch !== "`" && ch !== "~") return null;
+    const len = countRunOfChar(line, indent, ch);
+    return len >= 3 ? { char: ch, len, suffix: line.slice(indent + len) } : null;
+};
+
+const isReferenceFenceOpen = (
+    marker: ReferenceFenceMarker | null,
+): marker is ReferenceFenceMarker =>
+    Boolean(marker && (marker.char !== "`" || !marker.suffix.includes("`")));
+
+const isReferenceFenceClose = (
+    marker: ReferenceFenceMarker | null,
+    tracker: ReferenceFenceTracker,
+): boolean =>
+    Boolean(
+        marker &&
+            tracker.fenceChar &&
+            marker.char === tracker.fenceChar &&
+            marker.len >= tracker.fenceLen &&
+            /^[ \t]*$/u.test(marker.suffix),
+    );
+
+const sliceReferenceLineWithoutLf = (
+    source: string,
+    lineStart: number,
+    afterLine: number,
+): string => {
+    const end = source.charCodeAt(afterLine - 1) === 10 ? afterLine - 1 : afterLine;
+    return source.slice(lineStart, end);
+};
+
+const openReferenceFence = (
+    tracker: ReferenceFenceTracker,
+    segments: string[],
+    source: string,
+    lineStart: number,
+    parsed: ReferenceFenceMarker,
+    transformProse: (prose: string) => string,
+): void => {
+    if (lineStart > tracker.proseStart) {
+        segments.push(transformProse(source.slice(tracker.proseStart, lineStart)));
+    }
+    tracker.fenceStart = lineStart;
+    tracker.fenceChar = parsed.char;
+    tracker.fenceLen = parsed.len;
+};
+
+const advanceReferenceFenceLine = (
+    tracker: ReferenceFenceTracker,
+    segments: string[],
+    source: string,
+    lineStart: number,
+    afterLine: number,
+    transformProse: (prose: string) => string,
+): void => {
+    const parsed = parseReferenceFenceMarker(
+        sliceReferenceLineWithoutLf(source, lineStart, afterLine),
+    );
+    if (!tracker.fenceChar) {
+        if (isReferenceFenceOpen(parsed)) {
+            openReferenceFence(tracker, segments, source, lineStart, parsed, transformProse);
+        }
+        return;
+    }
+    if (isReferenceFenceClose(parsed, tracker)) {
+        segments.push(source.slice(tracker.fenceStart, afterLine));
+        tracker.proseStart = afterLine;
+        tracker.fenceStart = -1;
+        tracker.fenceChar = "";
+        tracker.fenceLen = 0;
+    }
+};
 
 /**
- * CommonMark fence tracking, mirroring `stream.ts`. The older `split(/(```[\s\S]*?```)/)`
- * version paired any three backticks with the next one, so a line like "``` trailing"
- * closed a block here but not in the real renderer. This oracle must not disagree with
- * the splitter about which text is code, only about the strip rules inside prose.
+ * CommonMark fence tracking oracle. Tracks closed vs open fences so prose transforms
+ * and unclosed-fence truncation agree with CommonMark line-start rules.
  */
-function mapOutsideCodeFences(text: string, fn: (prose: string) => string): string {
-    const marker = (rawLine: string) => {
-        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-        let spaces = 0;
-        while (spaces < 3 && line.charCodeAt(spaces) === 32) spaces += 1;
-        const char = line.charAt(spaces);
-        if (char !== "`" && char !== "~") return null;
-        let end = spaces;
-        while (end < line.length && line.charAt(end) === char) end += 1;
-        const len = end - spaces;
-        if (len < 3) return null;
-        return { char, len, suffix: line.slice(end) };
+const scanReferenceFences = (
+    source: string,
+    transformProse: (prose: string) => string,
+): { joined: string; openStart: number; openChar: string } => {
+    const segments: string[] = [];
+    const tracker: ReferenceFenceTracker = {
+        proseStart: 0,
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
     };
-    const out: string[] = [];
-    let proseStart = 0;
-    let fenceStart = -1;
-    let fenceChar = "";
-    let fenceLen = 0;
-    let cursor = 0;
-    while (cursor < text.length) {
-        const nl = text.indexOf("\n", cursor);
-        const afterLine = nl === -1 ? text.length : nl + 1;
-        const parsed = marker(nl === -1 ? text.slice(cursor) : text.slice(cursor, nl));
-        const opens = Boolean(parsed && (parsed.char !== "`" || !parsed.suffix.includes("`")));
-        const closes = Boolean(
-            parsed && fenceChar && parsed.char === fenceChar && parsed.len >= fenceLen
-            && /^[ \t]*$/.test(parsed.suffix),
+    let offset = 0;
+    while (offset < source.length) {
+        const nlIdx = source.indexOf("\n", offset);
+        const nextOffset = nlIdx === -1 ? source.length : nlIdx + 1;
+        advanceReferenceFenceLine(
+            tracker,
+            segments,
+            source,
+            offset,
+            nextOffset,
+            transformProse,
         );
-        if (!fenceChar && parsed && opens) {
-            if (cursor > proseStart) out.push(fn(text.slice(proseStart, cursor)));
-            fenceStart = cursor;
-            fenceChar = parsed.char;
-            fenceLen = parsed.len;
-        } else if (fenceChar && closes) {
-            out.push(text.slice(fenceStart, afterLine));
-            proseStart = afterLine;
-            fenceStart = -1;
-            fenceChar = "";
-            fenceLen = 0;
-        }
-        cursor = afterLine;
+        offset = nextOffset;
     }
-    if (fenceChar) out.push(text.slice(fenceStart));
-    else if (proseStart < text.length) out.push(fn(text.slice(proseStart)));
-    return out.join("");
-}
+    if (tracker.fenceChar) {
+        segments.push(source.slice(tracker.fenceStart));
+    } else if (tracker.proseStart < source.length) {
+        segments.push(transformProse(source.slice(tracker.proseStart)));
+    }
+    return {
+        joined: segments.join(""),
+        openStart: tracker.fenceStart,
+        openChar: tracker.fenceChar,
+    };
+};
 
-/** The original implementation, kept here as the behavioural reference. */
-function referenceMarkup(text: string): string {
-    const fw = "\uFF5C";
-    let s = text;
-    for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        s = s.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
+const mapOutsideReferenceFences = (
+    source: string,
+    transformProse: (prose: string) => string,
+): string => scanReferenceFences(source, transformProse).joined;
+
+const escapeRegexLiteral = (token: string): string =>
+    token.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+const stripReferenceTagList = (prose: string): string => {
+    let cleaned = prose;
+    for (const tag of LEAKED_TOOL_XML_TAGS) {
+        const esc = escapeRegexLiteral(tag);
+        cleaned = cleaned
+            .replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"), "")
+            .replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "giu"), "")
+            .replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "giu"), "")
+            .replace(new RegExp(`<\\/${esc}>`, "giu"), "");
     }
-    s = mapOutsideCodeFences(s, (prose) => {
-        let p = prose;
-        for (const tag of LEAKED_TOOL_XML_TAGS) {
-            const esc = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "gi"), "");
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "gi"), "");
-            p = p.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "gi"), "");
-            p = p.replace(new RegExp(`<\\/${esc}>`, "gi"), "");
-        }
-        const dsmlOpen = new RegExp(
-            `<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`,
-            "gi",
-        );
-        p = p.replace(dsmlOpen, "");
-        p = p.replace(new RegExp(`<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*$`, "gi"), "");
-        p = p.replace(new RegExp(`<\\/?${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`, "gi"), "");
-        p = p.replace(/<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-        p = p.replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/gi, "");
-        p = p.replace(
-            /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/gi,
+    return cleaned;
+};
+
+const stripReferenceSentinelsInProse = (prose: string): string => {
+    const fw = "\uFF5C";
+    let cleaned = stripReferenceTagList(prose);
+    cleaned = cleaned
+        .replace(
+            new RegExp(
+                `<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*?<\\/${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`,
+                "giu",
+            ),
+            "",
+        )
+        .replace(new RegExp(`<${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>[\\s\\S]*$`, "giu"), "")
+        .replace(new RegExp(`<\\/?${fw}{0,2}DSML${fw}{1,2}[\\w.]*?>`, "giu"), "")
+        .replace(
+            /<\s*\|\s*DSML\s*\|\s*[\w.]*?>[\s\S]*?<\/\s*\|\s*DSML\s*\|\s*[\w.]*?>/giu,
+            "",
+        )
+        .replace(/<\/?\s*\|\s*DSML\s*\|\s*[\w.]*?>/giu, "")
+        .replace(
+            /<\|(?:tool_calls_section_begin|tool_calls_section_end|tool_call_section_begin|tool_call_section_end|tool_call_begin|tool_call_end|tool_call_argument_begin|tool_call|tool_response|python_tag)\|>/giu,
+            "",
+        )
+        .replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/giu, "")
+        .replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/gu, "")
+        .replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/gu, "")
+        .replace(
+            /(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/giu,
+            "\n",
+        )
+        .replace(/<\/?function\s*=[^>]*>/giu, "")
+        .replace(/<\/?parameter\s*=[^>]*>/giu, "");
+    return cleaned;
+};
+
+/** Behavioural reference for `stripLeakedToolMarkup`. */
+const referenceMarkup = (inputText: string): string => {
+    let working = inputText;
+    for (const tag of STRIP_ACROSS_FENCES) {
+        const esc = escapeRegexLiteral(tag);
+        working = working.replace(
+            new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
             "",
         );
-        p = p.replace(/<\|[^|]{0,48}tool[^|]{0,48}\|>/gi, "");
-        p = p.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/g, "");
-        p = p.replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/g, "");
-        p = p.replace(/(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi, "\n");
-        p = p.replace(/<\/?function\s*=[^>]*>/gi, "");
-        p = p.replace(/<\/?parameter\s*=[^>]*>/gi, "");
-        return p;
-    });
-    return s.replace(/\n{3,}/g, "\n\n");
-}
+    }
+    working = mapOutsideReferenceFences(working, stripReferenceSentinelsInProse);
+    return working.replace(/\n{3,}/gu, "\n\n");
+};
 
-function referenceCode(text: string): string {
-    let s = text;
-    // Unknown helper names are prose, not a leak: `print(foo(bar))` is a normal
-    // Python example. Only the app's own tool helpers (and `default_api.*`) are
-    // stripped, matching production.
-    const toolFn = /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/;
-    s = s.replace(/```[\w-]*\s*\n([\s\S]*?)```/g, (full, body: string) =>
-        looksLikeLeakedToolCode(body) ? "" : full,
+const readOpenFenceBodyOffset = (
+    inputText: string,
+    openStart: number,
+    headPattern: RegExp,
+): number => {
+    const nl = inputText.indexOf("\n", openStart);
+    if (nl === -1) return -1;
+    const head = inputText.slice(openStart, nl + 1).trimStart();
+    return headPattern.test(head) ? nl + 1 : -1;
+};
+
+const stripReferenceOpenFenceTail = (
+    inputText: string,
+    fenceChar: "`" | "~",
+    headPattern: RegExp,
+): string => {
+    const scan = scanReferenceFences(inputText, (prose) => prose);
+    if (scan.openChar !== fenceChar || scan.openStart < 0) return inputText;
+    const bodyStart = readOpenFenceBodyOffset(inputText, scan.openStart, headPattern);
+    if (bodyStart < 0) return inputText;
+    return looksLikeLeakedToolCode(inputText.slice(bodyStart))
+        ? inputText.slice(0, scan.openStart)
+        : inputText;
+};
+
+const stripReferenceFences = (inputText: string): string => {
+    let working = inputText.replace(
+        /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/gu,
+        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
     );
-    s = s.replace(/```[\w-]*\s*\n([\s\S]*)$/g, (full, body: string) =>
-        looksLikeLeakedToolCode(body) ? "" : full,
+    working = stripReferenceOpenFenceTail(working, "`", /^`{3,}[\w-]*[ \t\r\f\v]*\n/u);
+    working = working.replace(
+        /~~~[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~~~/gu,
+        (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
     );
-    s = s.replace(/\{\s*"tool_code"\s*:[\s\S]*$/g, (match) =>
-        /print\s*\(|render_design_previews|concepts\s*=/.test(match) ? "" : match,
+    return stripReferenceOpenFenceTail(working, "~", /^~{3,}[\w-]*[ \t\r\f\v]*\n/u);
+};
+
+const REFERENCE_TOOL_FN =
+    /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/u;
+
+/** Behavioural reference for `stripLeakedToolCode`. */
+const referenceCode = (inputText: string): string => {
+    let working = stripReferenceFences(inputText);
+    working = working.replace(/\{\s*"tool_code"\s*:[\s\S]*$/gu, (match) =>
+        /print\s*\(|render_design_previews|concepts\s*=/u.test(match) ? "" : match,
     );
-    s = mapOutsideCodeFences(s, (prose) => {
-        const printLine = new RegExp(`(?:^|\\n)[ \\t]*print\\s*\\(\\s*${toolFn.source}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`, "g");
-        const printTail = new RegExp(`(?:^|\\n)[ \\t]*print\\s*\\(\\s*${toolFn.source}\\s*\\([^\\n]*$`, "g");
-        const fnLine = new RegExp(`(?:^|\\n)[ \\t]*functions\\.${toolFn.source}\\s*\\(\\{[^\\n]*\\}\\)[ \\t]*(?=\\n|$)`, "g");
-        const fnTail = new RegExp(`(?:^|\\n)[ \\t]*functions\\.${toolFn.source}\\s*\\(\\{[^\\n]*$`, "g");
+    working = mapOutsideReferenceFences(working, (prose) => {
+        const src = REFERENCE_TOOL_FN.source;
+        const printLine = new RegExp(
+            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${src}\\s*\\([^\\n]*\\)\\s*\\)[ \\t]*(?=\\n|$)`,
+            "gu",
+        );
+        const printTail = new RegExp(
+            `(?:^|\\n)[ \\t]*print\\s*\\(\\s*${src}\\s*\\([^\\n]*$`,
+            "gu",
+        );
+        const fnLine = new RegExp(
+            `(?:^|\\n)[ \\t]*functions\\.${src}\\s*\\(\\{[^\\n]*\\}\\)[ \\t]*(?=\\n|$)`,
+            "gu",
+        );
+        const fnTail = new RegExp(
+            `(?:^|\\n)[ \\t]*functions\\.${src}\\s*\\(\\{[^\\n]*$`,
+            "gu",
+        );
         return prose
             .replace(printLine, "\n")
             .replace(printTail, "\n")
             .replace(fnLine, "\n")
             .replace(fnTail, "\n");
     });
-    s = referenceMarkup(s);
-    return s.replace(/\n{3,}/g, "\n\n");
-}
+    working = referenceMarkup(working);
+    return working.replace(/\n{3,}/gu, "\n\n");
+};
 
 const cases: string[] = [
     "plain prose with no markers at all",
@@ -169,25 +339,35 @@ const cases: string[] = [
 
 describe("strip equivalence", () => {
     it("stripLeakedToolMarkup matches reference", () => {
-        for (const c of cases) {
-            expect(stripLeakedToolMarkup(c), c).toBe(referenceMarkup(c));
+        for (const sample of cases) {
+            expect(stripLeakedToolMarkup(sample), sample).toBe(
+                referenceMarkup(sample),
+            );
         }
     });
-    it("stripLeakedToolCode matches reference", () => {
-        for (const c of cases) {
-            expect(stripLeakedToolCode(c), c).toBe(referenceCode(c));
+
+    it("stripLeakedToolCode matches reference and preserves closed code blocks before leaked tags", () => {
+        expect(
+            stripLeakedToolCode("```\ncode not a leak\n```\n<tool_code>x</tool_code>"),
+        ).toBe("```\ncode not a leak\n```\n");
+        for (const sample of cases) {
+            expect(stripLeakedToolCode(sample), sample).toBe(referenceCode(sample));
         }
     });
+
     it("random combinations", () => {
         let seed = 99;
-        const rand = () => {
+        const nextRandom = (): number => {
             seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
             return seed / 0x100000000;
         };
-        for (let i = 0; i < 300; i++) {
+        for (let iter = 0; iter < 300; iter++) {
             const parts: string[] = [];
-            for (let j = 0; j < 4; j++) parts.push(cases[Math.floor(rand() * cases.length)]!);
-            const text = parts.join(rand() > 0.5 ? "\n" : " ");
+            for (let slot = 0; slot < 4; slot++) {
+                const idx = Math.floor(nextRandom() * cases.length);
+                parts.push(cases[idx] ?? "");
+            }
+            const text = parts.join(nextRandom() > 0.5 ? "\n" : " ");
             expect(stripLeakedToolCode(text), text).toBe(referenceCode(text));
             expect(stripLeakedToolMarkup(text), text).toBe(referenceMarkup(text));
         }
