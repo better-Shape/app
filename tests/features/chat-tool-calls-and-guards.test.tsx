@@ -2266,7 +2266,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 onDismiss={vi.fn()}
             />,
         );
-        expect(document.body.textContent ?? "").toContain(
+        expect(document.body.textContent).toContain(
             "Your OpenRouter account has run out of credits. Add credits to continue.",
         );
 

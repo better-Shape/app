@@ -143,14 +143,15 @@ const isIncompleteOscAtEnd = (input: string, start: number): boolean => {
     return end === input.length - 1 && input.charCodeAt(end) === 0x1b;
 };
 
-/** Checks whether an ECMA-35 nF intermediate byte run (`0x20..0x2F`) reaches EOF without a final byte. */
+/** Checks whether a bounded ECMA-35 nF intermediate byte run (`0x20..0x2F`) reaches EOF. */
 const isIncompleteNfAtEnd = (input: string, start: number): boolean => {
     const afterIntermediates = advanceWhileCharCode(
         input,
         start,
         isCsiIntermediateByte,
     );
-    return afterIntermediates > start && afterIntermediates === input.length;
+    const span = afterIntermediates - start;
+    return span > 0 && span <= 4 && afterIntermediates === input.length;
 };
 
 /** Skips an ECMA-35 nF or two-byte escape starting at `start` (`escIndex + 1`). */
