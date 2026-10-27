@@ -138,12 +138,12 @@ const CHAT_INSTRUCT_SLUG_RE = /chat|instruct|turbo/iu;
 // Non-chat heuristics: match on known embedding/audio/moderation slugs AND on
 // the output modalities field (when present AND non-empty).
 const NON_CHAT_RE =
-    /(?:^|[/\-])(?:embed|embedding|rerank|whisper|tts|speech|dall-?e|tts-?\d|safety|moderation|promptguard|prompt-guard|jailbreak|nsfw|segmind|stable-diffusion|imagen|pollinations)(?:[/\-]|$)/iu;
+    /(?:^|[/-])(?:embed|embedding|rerank|whisper|tts|speech|dall-?e|tts-?\d|safety|moderation|promptguard|prompt-guard|jailbreak|nsfw|segmind|stable-diffusion|imagen|pollinations)(?:[/-]|$)/iu;
 const VISION_TOKEN_RE =
     /vision|-vl|gemini|gpt-4o|gpt-5|gpt-6|grok|multimodal|qwen-?2-?vl|qwen-?2\.5-?vl|llama-?4/iu;
 const LLAMA_32_PREFIX_RE = /llama-?3\.2-/iu;
 const REASONING_RE =
-    /(?:^|[/\-])(?:o[1-9]|o3|o4|r1|reason(?:er|ing)?|think(?:ing)?|opus-[4-9]|deepseek-reasoner|claude-opus)/iu;
+    /(?:^|[/-])(?:o[1-9]|o3|o4|r1|reason(?:er|ing)?|think(?:ing)?|opus-[4-9]|deepseek-reasoner|claude-opus)/iu;
 const TOOL_TOKEN_RE =
     /gpt-[456]|o[134]|claude|gemini-[234]|grok|llama-?3\.[1-9]|llama-?[4-9]|mistral|glm-5|kimi|command/iu;
 const QWEN_OR_DEEPSEEK_RE = /qwen|deepseek/iu;
@@ -236,33 +236,33 @@ const saveToStorage = (data: CatalogModel[]): void => {
 /** Parses finite numbers from string or numeric catalog fields. */
 const parseNum = (value: string | number | null | undefined): number | null => {
     if (value === null || value === undefined) return null;
-    const n = typeof value === "number" ? value : Number(value);
-    return Number.isFinite(n) ? n : null;
+    const num = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(num) ? num : null;
 };
 
 /** Converts per-token USD strings to rounded USD-per-million-token numbers. */
 const pricePerMillion = (
     perToken: string | number | null | undefined,
 ): number | null => {
-    const n = parseNum(perToken);
-    if (n === null) return null;
-    return Math.round(n * 1_000_000 * 10000) / 10000;
+    const num = parseNum(perToken);
+    if (num === null) return null;
+    return Math.round(num * 1_000_000 * 10000) / 10000;
 };
 
 /** Formats million-scale context windows (e.g. `1_000_000` -> `"1M"`). */
 const formatMillionWindow = (tokens: number): string => {
-    const m = tokens / 1_000_000;
+    const millions = tokens / 1_000_000;
     const decimals = tokens % 1_000_000 === 0 ? 0 : 1;
-    return `${m.toFixed(decimals).replace(TRAILING_POINT_ZERO_RE, "")}M`;
+    return `${millions.toFixed(decimals).replace(TRAILING_POINT_ZERO_RE, "")}M`;
 };
 
 /** Formats `>= 10_000` context windows, snapping near binary tiers (`128K`, `256K`). */
 const formatLargeKilobyteWindow = (tokens: number): string => {
-    const k = tokens / 1000;
+    const kilobytes = tokens / 1000;
     for (const tier of BINARY_TIERS_KB) {
-        if (Math.abs(k - tier) < 3) return `${tier}K`;
+        if (Math.abs(kilobytes - tier) < 3) return `${tier}K`;
     }
-    return `${Math.round(k)}K`;
+    return `${Math.round(kilobytes)}K`;
 };
 
 /** Human-friendly context-window formatting (`"128K"`, `"400K"`, `"1M"`). */
@@ -474,10 +474,16 @@ const computeSortBucketRank = (meta: ModelMetadata): number =>
     (FLAGSHIP_RE.test(meta.id) ? 0 : 1);
 
 /** Orders chat flagships first, deprecated/non-chat last, then by context window and name. */
-const compareModelMetadata = (a: ModelMetadata, b: ModelMetadata): number => {
-    const bucketDiff = computeSortBucketRank(a) - computeSortBucketRank(b);
+const compareModelMetadata = (
+    left: ModelMetadata,
+    right: ModelMetadata,
+): number => {
+    const bucketDiff = computeSortBucketRank(left) - computeSortBucketRank(right);
     if (bucketDiff !== 0) return bucketDiff;
-    return b.contextWindow - a.contextWindow || a.name.localeCompare(b.name);
+    return (
+        right.contextWindow - left.contextWindow ||
+        left.name.localeCompare(right.name)
+    );
 };
 
 /** Inserts one catalog entry into `byId` and `byProvider` if unseen. */
@@ -664,18 +670,18 @@ const preferCatalogHit = (
 /* -------------------------------------------------------------------------- */
 
 /** Formats sub-cent prices (`< $0.01`) without regex backtracking on trailing zeros. */
-const formatSubcentPrice = (n: number): string => {
-    const s = n.toFixed(4);
-    let end = s.length;
-    while (end > 0 && s[end - 1] === "0") end -= 1;
-    if (end > 0 && s[end - 1] === ".") end -= 1;
-    return `$${s.slice(0, end)}`;
+const formatSubcentPrice = (price: number): string => {
+    const fixed = price.toFixed(4);
+    let end = fixed.length;
+    while (end > 0 && fixed[end - 1] === "0") end -= 1;
+    if (end > 0 && fixed[end - 1] === ".") end -= 1;
+    return `$${fixed.slice(0, end)}`;
 };
 
 /** Formats one prompt or completion price value in USD per million tokens. */
-const formatPriceToken = (n: number): string => {
-    if (n === 0) return "$0";
-    return n < 0.01 ? formatSubcentPrice(n) : `$${n.toFixed(2)}`;
+const formatPriceToken = (price: number): string => {
+    if (price === 0) return "$0";
+    return price < 0.01 ? formatSubcentPrice(price) : `$${price.toFixed(2)}`;
 };
 
 /** Flattens all provider model arrays into a single list. */
@@ -842,10 +848,10 @@ export const enrichDiscoveredModels = (
 };
 
 /** Formats combined `(input, output)` million-token prices once non-null is verified. */
-const formatPricePair = (i: number, o: number): string =>
-    i === 0 && o === 0
+const formatPricePair = (inputPrice: number, outputPrice: number): string =>
+    inputPrice === 0 && outputPrice === 0
         ? "Free"
-        : `${formatPriceToken(i)} / ${formatPriceToken(o)}`;
+        : `${formatPriceToken(inputPrice)} / ${formatPriceToken(outputPrice)}`;
 
 /** Format a price-per-million as `"$3.00 / $15.00"` (or `"Free"`, or empty). */
 export const formatModelPricing = (meta: ModelMetadata): string => {
@@ -860,15 +866,15 @@ export const formatModelPricing = (meta: ModelMetadata): string => {
  * the in-memory index (which may be snapshot-only if all network attempts
  * fail) - never rejects.
  */
-export const refreshModelCatalog = async (
+export const refreshModelCatalog = (
     force = false,
 ): Promise<RefreshResult> => {
     if (hasFreshInMemoryCatalog(force) && cachedById) {
-        return {
+        return Promise.resolve({
             models: flattenProviderMap(cachedById),
             fetchedAt: cachedFetchedAt,
             fromNetwork: false,
-        };
+        });
     }
     if (refreshPromise) return refreshPromise;
     /** Executes the de-duplicated network fetch and rebuilds the catalog index. */
