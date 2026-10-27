@@ -2052,18 +2052,20 @@ const presetModelMatchesNeedles = (
   return tail.length >= 6 && tails.has(tail);
 };
 
-/** Collects built-in preset models plus any user-saved `models` / `extraModels` on `connections`. */
+/** Maps routable `modelIdsFor` entries onto `{ id, name }` candidates using preset display names when known. */
 const collectPresetCandidateModels = (
   preset: ProviderPreset,
   connections: Record<ProviderId, ProviderConnection>,
 ): Array<{ id: string; name: string }> => {
   const configuredIds = modelIdsFor(preset.id, connections);
-  if (configuredIds.length === 0) return preset.models;
-  const seen = new Set(preset.models.map((model) => model.id));
-  const extras = configuredIds
-    .filter((id) => !seen.has(id))
-    .map((id) => ({ id, name: fallbackModelDisplayName(id) }));
-  return [...preset.models, ...extras];
+  if (configuredIds.length === 0) return [];
+  const presetNameById = new Map(
+    preset.models.map((model) => [model.id, model.name] as const),
+  );
+  return configuredIds.map((id) => ({
+    id,
+    name: presetNameById.get(id) ?? fallbackModelDisplayName(id),
+  }));
 };
 
 /** Checks whether `conn` holds either an API key or configured keyless endpoint/models. */

@@ -216,10 +216,10 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
                 this.ranges = ranges;
             }
         }
-        (window as unknown as { Highlight?: unknown; CSS?: unknown }).Highlight = FakeHighlight;
-        (window as unknown as { CSS?: unknown }).CSS = {
+        vi.stubGlobal("Highlight", FakeHighlight);
+        vi.stubGlobal("CSS", {
             highlights: { set: setSpy, delete: deleteSpy },
-        };
+        });
 
         const container = document.createElement("div");
         container.innerHTML = `
@@ -251,6 +251,7 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
             expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");
         } finally {
             container.remove();
+            vi.unstubAllGlobals();
         }
     });
 });
@@ -1347,6 +1348,14 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const hydrated = mergeProviderConnections(liveSettings, loadedSettings);
         expect(hydrated.connections.custom.headers["x-gateway-token"]).toBe("live-token-val");
 
+        const pinnedSettings = defaultProvidersSettings();
+        pinnedSettings.connections.openai.apiKey = ["sk", "test", "placeholder0000"].join("-");
+        pinnedSettings.connections.openai.models = ["openai/gpt-4.1-mini"];
+        expect(providersForModelNames(["openai/o4-mini"], pinnedSettings.connections)).toEqual([]);
+        expect(providersForModelNames(["openai/gpt-4.1-mini"], pinnedSettings.connections)).toEqual(
+            ["openai"],
+        );
+
         const oversizedStream = `${"S".repeat(47_990)}\n\`\`\`ts\nconst n = 1;\n${"T".repeat(22_000)}`;
         const cappedStream = preprocessChatMarkdown(oversizedStream, { streaming: true });
         expect(cappedStream).toContain("... (response truncated for display)");
@@ -1355,10 +1364,16 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             cappedStream,
         );
 
-        const [multilineChunk] = parseMessageContent(
+        /** Parses the first structured chunk from `raw` without non-null assertions. */
+        const parseFirstChunk = (raw: string): Chunk => {
+            const [first] = parseMessageContent(raw);
+            if (!first) throw new Error("Expected parsed chunk");
+            return first;
+        };
+        const multilineChunk = parseFirstChunk(
             '<terminal_command status="failed" exit="1">curl -s \\\n  https://api.example.test/health\n{"status":"degraded"}</terminal_command>',
         );
-        const multilineCmdEl = mount(<TerminalCommandStep block={multilineChunk!} />);
+        const multilineCmdEl = mount(<TerminalCommandStep block={multilineChunk} />);
         const expandedOutputText = multilineCmdEl.querySelector(".pr-8")?.textContent ?? "";
         expect(expandedOutputText).toContain('{"status":"degraded"}');
         expect(expandedOutputText).not.toContain("https://api.example.test/health");
