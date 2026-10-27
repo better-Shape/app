@@ -556,11 +556,22 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         );
     });
 
-    it("strips leaked tool calls inside backtick fences while preserving normal tilde-fenced code", () => {
+    it("strips leaked tool calls inside backtick and tilde fences while preserving normal tilde-fenced code", () => {
         const leakedBacktick = preprocessChatMarkdown(
             'Before\n```\nprint(default_api.read_file(path="a.ts"))\n```\nAfter',
         );
         expect(leakedBacktick).toBe("Before\n\nAfter");
+
+        const leakedTilde = preprocessChatMarkdown(
+            'Before\n~~~\nprint(default_api.read_file(path="a.ts"))\n~~~\nAfter',
+        );
+        expect(leakedTilde).toBe("Before\n\nAfter");
+
+        const leakedUnclosedTilde = preprocessChatMarkdown(
+            'Before\n~~~python\nprint(default_api.read_file(path="a.ts"))\n',
+            { streaming: true },
+        );
+        expect(leakedUnclosedTilde).toBe("Before");
 
         const userCodeTilde = preprocessChatMarkdown(
             "Before\n~~~ts\nconst answer = 42;\n~~~\nAfter",

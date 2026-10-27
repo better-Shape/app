@@ -822,31 +822,59 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
-const UNCLOSED_FENCE_HEAD_RE = /^```[\w-]*[ \t\r\f\v]*\n/u;
+const COMPLETE_BACKTICK_FENCE_RE = /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/gu;
+const COMPLETE_TILDE_FENCE_RE = /~~~[\w-]*[ \t\r\f\v]*\n([\s\S]*?)~~~/gu;
+const UNCLOSED_BACKTICK_HEAD_RE = /^```[\w-]*[ \t\r\f\v]*\n/u;
+const UNCLOSED_TILDE_HEAD_RE = /^~~~[\w-]*[ \t\r\f\v]*\n/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
 
-/** Strips an unclosed trailing backtick fence when its body looks like a leaked tool call. */
-const stripUnclosedLeakedFenceTail = (text: string): string => {
-    let idx = text.indexOf("```");
+/** Strips an unclosed trailing code fence (`marker`) when its body looks like a leaked tool call. */
+const stripUnclosedLeakedFenceTail = (
+    text: string,
+    marker: "```" | "~~~",
+    headRe: RegExp,
+): string => {
+    let idx = text.indexOf(marker);
     while (idx !== -1) {
         const tail = text.slice(idx);
-        const head = UNCLOSED_FENCE_HEAD_RE.exec(tail);
+        const head = headRe.exec(tail);
         if (head && looksLikeLeakedToolCode(tail.slice(head[0].length))) {
             return text.slice(0, idx);
         }
-        idx = text.indexOf("```", idx + 3);
+        idx = text.indexOf(marker, idx + 3);
     }
     return text;
 };
 
-/** Strips complete and streaming fenced code blocks whose bodies look like leaked tool calls. */
-const stripLeakedFencedToolBlocks = (text: string): string => {
-    if (!text.includes("```")) return text;
+/** Strips complete and streaming fenced blocks for a single fence marker (` ``` ` or `~~~`). */
+const stripLeakedFenceMarkerBlocks = (
+    text: string,
+    marker: "```" | "~~~",
+    completeRe: RegExp,
+    headRe: RegExp,
+): string => {
+    if (!text.includes(marker)) return text;
     const withoutComplete = text.replace(
-        /```[\w-]*[ \t\r\f\v]*\n([\s\S]*?)```/g,
+        completeRe,
         (full, body: string) => (looksLikeLeakedToolCode(body) ? "" : full),
     );
-    return stripUnclosedLeakedFenceTail(withoutComplete);
+    return stripUnclosedLeakedFenceTail(withoutComplete, marker, headRe);
+};
+
+/** Strips complete and streaming fenced code blocks (` ``` ` and `~~~`) whose bodies look like leaked tool calls. */
+const stripLeakedFencedToolBlocks = (text: string): string => {
+    const afterBackticks = stripLeakedFenceMarkerBlocks(
+        text,
+        "```",
+        COMPLETE_BACKTICK_FENCE_RE,
+        UNCLOSED_BACKTICK_HEAD_RE,
+    );
+    return stripLeakedFenceMarkerBlocks(
+        afterBackticks,
+        "~~~",
+        COMPLETE_TILDE_FENCE_RE,
+        UNCLOSED_TILDE_HEAD_RE,
+    );
 };
 
 /** Strips a bare `{ "tool_code": ... }` tail when its body contains a leaked tool trigger. */
@@ -874,12 +902,11 @@ const stripBareToolInvocations = (text: string): string => {
     return out;
 };
 
-/** Checks whether `text` contains any backtick, invocation, or JSON marker for tool-code stripping. */
+const TOOL_CODE_MARKERS = ["`", "~", "tool_code", "print", "functions."] as const;
+
+/** Checks whether `text` contains any fence, invocation, or JSON marker for tool-code stripping. */
 const hasToolCodeMarker = (text: string): boolean =>
-    text.includes("`") ||
-    text.includes("tool_code") ||
-    text.includes("print") ||
-    text.includes("functions.");
+    TOOL_CODE_MARKERS.some((marker) => text.includes(marker));
 
 /**
  * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
