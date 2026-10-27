@@ -9,6 +9,8 @@ import {
     isConnectionUsable,
     matchesProviderQuery,
     mergeProviderConnections,
+    modelForFeature,
+    normalizeProvidersSettings,
     parseHeaderLines,
     parseHeaderSecretId,
     providerAuthStyle,
@@ -17,9 +19,15 @@ import {
     providerPreset,
     providerSecrets,
     providersForModelNames,
+    usableProvidersForModelNames,
     redactProviderSecrets,
+    setChatMode,
     toRustAiConfig,
     translateModelId,
+    withFeatureModel,
+    enrichDiscovered,
+    withDiscoveredModels,
+    modelIdsFor,
     type ProviderId,
     type ProvidersSettings,
 } from "@/lib/ai/providers";
@@ -195,18 +203,25 @@ describe("model ids from other clients", () => {
         settings.connections.openrouter.apiKey = "sk-or-live";
         settings.connections.together.apiKey = "tgp_v1_live";
 
-        expect(providersForModelNames(["claude-3-7-sonnet"], settings.connections)).toEqual(["anthropic"]);
+        // providersForModelNames returns any preset whose catalog matches,
+        // regardless of whether the user has a key yet; usableProvidersForModelNames
+        // filters down to already-usable connections.
+        expect(usableProvidersForModelNames(["claude-3-7-sonnet"], settings.connections)).toEqual(["anthropic"]);
+        expect(providersForModelNames(["claude-3-7-sonnet"], settings.connections)).toContain("anthropic");
         // A display name that two providers can serve matches both.
-        expect(providersForModelNames(["Claude Sonnet 4.5"], settings.connections)).toEqual([
+        expect(usableProvidersForModelNames(["Claude Sonnet 4.5"], settings.connections)).toEqual([
             "anthropic",
             "openrouter",
         ]);
         // Namespaces differ between clients; the model is what matters.
-        expect(providersForModelNames(["deepseek/DeepSeek-R1"], settings.connections)).toEqual(["together"]);
-        // A provider the user has no key for is never suggested, and presets that
-        // can serve anything are left alone.
-        expect(providersForModelNames(["kimi-k2-0905-preview"], settings.connections)).toEqual([]);
+        expect(usableProvidersForModelNames(["deepseek/DeepSeek-R1"], settings.connections)).toEqual(["together"]);
+        // A preset the user has no key for is still matched (the UI uses this to
+        // enable the card); usableProvidersForModelNames filters those out.
+        expect(providersForModelNames(["kimi-k2-0905-preview"], settings.connections)).toContain("moonshot");
+        expect(usableProvidersForModelNames(["kimi-k2-0905-preview"], settings.connections)).toEqual([]);
+        // Presets that can serve anything (custom, LM Studio) are never guessed.
         expect(providersForModelNames(["llama3.1"], settings.connections)).toEqual([]);
+        expect(usableProvidersForModelNames(["llama3.1"], settings.connections)).toEqual([]);
     });
 });
 
@@ -252,3 +267,51 @@ it.each(["openrouter", "nvidia", "llmgateway", "zenmux", "kilo"] as const)(
         }
     },
 );
+describe("chat mode + feature routing", () => {
+    it("defaults chat mode to auto with all features inheriting", () => {
+        const s = defaultProvidersSettings();
+        expect(s.chatMode).toBe("auto");
+        expect(modelForFeature(s, "chat")).toBe("auto");
+        expect(modelForFeature(s, "agent")).toBe("auto");
+        expect(modelForFeature(s, "commits")).toBe("auto");
+        expect(modelForFeature(s, "embeddings")).toBe("");
+    });
+
+    it("migrates legacy defaultModel=__ask__ to chatMode=ask", () => {
+        const migrated = normalizeProvidersSettings({ defaultModel: "__ask__" } as Partial<ProvidersSettings> & { defaultModel?: string });
+        expect(migrated.chatMode).toBe("ask");
+        expect(modelForFeature(migrated, "chat")).toBe("");
+    });
+
+    it("migrates legacy embeddingModel into the embeddings slot", () => {
+        const migrated = normalizeProvidersSettings({ embeddingModel: "nomic-embed-text" } as Partial<ProvidersSettings> & { embeddingModel?: string });
+        expect(modelForFeature(migrated, "embeddings")).toBe("nomic-embed-text");
+    });
+
+    it("overrides per-feature model while inheriting chat default for unspecified features", () => {
+        let s = defaultProvidersSettings();
+        s = setChatMode(s, "openai/gpt-5");
+        s = withFeatureModel(s, "commits", "anthropic/claude-sonnet-4-5");
+        expect(modelForFeature(s, "chat")).toBe("openai/gpt-5");
+        expect(modelForFeature(s, "agent")).toBe("openai/gpt-5"); // inherited
+        expect(modelForFeature(s, "commits")).toBe("anthropic/claude-sonnet-4-5");
+    });
+});
+
+describe("discovered models", () => {
+    it("persists catalog-enriched discovered ids on a connection", () => {
+        const s = defaultProvidersSettings();
+        const disc = enrichDiscovered("openai", ["gpt-4o-mini"]);
+        expect(disc.length).toBe(1);
+        expect(disc[0].id).toBe("openai/gpt-4o-mini");
+        // Non-empty timestamp.
+        expect(typeof disc[0].discoveredAt).toBe("number");
+        const next: ProvidersSettings = {
+            ...s,
+            connections: { ...s.connections, openai: withDiscoveredModels(s.connections.openai, disc) },
+        };
+        // Discovered models should appear in the model list automatically.
+        expect(modelIdsFor("openai", next.connections)).toContain("openai/gpt-4o-mini");
+    });
+});
+

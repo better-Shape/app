@@ -1581,10 +1581,20 @@ const stripRawHtml = (text: string): string => {
 
 const MAX_DISPLAY_CHARS = 48_000;
 
-/** Truncates excessively long streaming or finished responses so preprocessing and layout stay bounded. */
+/** Checks whether `text` splits a UTF-16 surrogate pair across `cutIndex - 1` and `cutIndex`. */
+const splitsUtf16SurrogatePair = (text: string, cutIndex: number): boolean => {
+    const lead = text.charCodeAt(cutIndex - 1);
+    const trail = text.charCodeAt(cutIndex);
+    return lead >= 0xd800 && lead <= 0xdbff && trail >= 0xdc00 && trail <= 0xdfff;
+};
+
+/** Truncates excessively long streaming or finished responses without splitting UTF-16 surrogates. */
 const truncateForDisplay = (text: string): string => {
     if (text.length <= MAX_DISPLAY_CHARS) return text;
-    return `${text.slice(0, MAX_DISPLAY_CHARS)}\n\n... (response truncated for display)`;
+    const cut = splitsUtf16SurrogatePair(text, MAX_DISPLAY_CHARS)
+        ? MAX_DISPLAY_CHARS - 1
+        : MAX_DISPLAY_CHARS;
+    return `${text.slice(0, cut)}\n\n... (response truncated for display)`;
 };
 
 /** Applies streaming-specific fence balancing or finished-turn glitch repair + fence safety. */

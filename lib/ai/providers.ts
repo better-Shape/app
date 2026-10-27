@@ -6,62 +6,67 @@
  * OpenAI-compatible services people commonly bring (OpenRouter, xAI,
  * DeepSeek, Groq, Mistral, local runtimes, or a fully custom base URL).
  *
- * Model ids are `provider/model` — the prefix selects the connection and the
+ * Model ids are `provider/model`: the prefix selects the connection and the
  * remainder is the native slug the provider expects. Nested ids are fine:
  * `openrouter/anthropic/claude-sonnet-4.5` routes through an OpenRouter key.
  */
 
 import publicDefaultHeaders from "./provider-default-headers.json";
+import {
+  enrichDiscoveredModels,
+  getModelMetadata as catalogGetModelMetadata,
+  registerProviderLabels,
+} from "./model-catalog";
+import type { ProviderId as ProviderIdType } from "./provider-ids";
+
+export type ProviderId = ProviderIdType;
 
 export type ProviderKind = "openai" | "anthropic" | "google";
 
-export type ProviderId =
-  | "openai"
-  | "anthropic"
-  | "google"
-  | "azure"
-  | "openrouter"
-  | "zen"
-  | "zen-messages"
-  | "zen-go"
-  | "nvidia"
-  | "xai"
-  | "deepseek"
-  | "groq"
-  | "mistral"
-  | "cerebras"
-  | "together"
-  | "fireworks"
-  | "moonshot"
-  | "zai"
-  | "zai-coding"
-  | "qwen"
-  | "deepinfra"
-  | "venice"
-  | "vercel"
-  | "minimax"
-  | "baseten"
-  | "digitalocean"
-  | "cohere"
-  | "perplexity"
-  | "llmgateway"
-  | "zenmux"
-  | "kilo"
-  | "cloudflare"
-  | "cloudflare-gateway"
-  | "databricks"
-  | "ollama"
-  | "lmstudio"
-  | "vllm"
-  | "custom";
-
 /** Header the provider expects the API key in. */
-export type AuthStyle = "bearer" | "api-key" | "x-api-key" | "x-goog-api-key" | "none";
+export type AuthStyle =
+  | "bearer"
+  | "api-key"
+  | "x-api-key"
+  | "x-goog-api-key"
+  | "none";
+
+/** Capability flags for a model. */
+export type ModelCapabilities = {
+  /** The model accepts image inputs in addition to text. */
+  vision: boolean;
+  /** The model supports native tool/function calling. */
+  toolUse: boolean;
+  /** The model exposes a reasoning/thinking effort or budget. */
+  reasoning: boolean;
+};
+
+export type ModelMeta = {
+  id: string;
+  name: string;
+  /** Display-formatted context window (e.g. "128K", "1M"). */
+  contextWindow: string;
+  vision?: boolean;
+  /** Supports tool/function calling. */
+  toolUse?: boolean;
+  /** Has a reasoning/thinking mode (OpenAI o-series, DeepSeek R1, Claude Opus…). */
+  reasoning?: boolean;
+  /** Raw token count for the context window, when known (0 = unknown). */
+  contextTokens?: number;
+  /** Maximum output tokens the model can produce in one turn, when known. */
+  maxOutputTokens?: number;
+  /** Input price in USD per 1M tokens, when known. */
+  inputCostPerM?: number;
+  /** Output price in USD per 1M tokens, when known. */
+  outputCostPerM?: number;
+  /** True for known embedding/audio/moderation models (filtered from chat pickers). */
+  nonChat?: boolean;
+};
 
 export type ProviderPreset = {
   id: ProviderId;
   label: string;
-  /** Short group heading in Settings → Providers. */
+  /** Short group heading in Settings -> Providers. */
   group: string;
   kind: ProviderKind;
   baseUrl: string;
@@ -71,31 +76,122 @@ export type ProviderPreset = {
   docsUrl: string;
   /** One line under the wire name: what this provider needs, or what it includes. */
   note?: string;
-  /**
-   * True when the endpoint answers without an API key: local runtimes, and
-   * gateways with a free tier. Keyless providers ship turned off so a fresh
-   * install never routes somewhere the user did not choose.
-   */
+  /** True when the endpoint answers without an API key. */
   keyless?: boolean;
-  /** Start disabled. Defaults to `keyless`. */
+  /** Start disabled. Defaults to `!keyless`. */
   defaultEnabled?: boolean;
   /** How the key travels. Defaults to `bearer` on the OpenAI wire. */
   authStyle?: AuthStyle;
-  /**
-   * Headers the gateway expects on every request (attribution, gateways with
-   * their own auth header). User-added headers win on conflicts.
-   */
+  /** Headers the gateway expects on every request. */
   headers?: Record<string, string>;
-  /**
-   * True when this provider serves an OpenAI-compatible `/embeddings` endpoint
-   * and the app therefore knows a default embedding model id for it. Providers
-   * without it (Groq, xAI, DeepSeek) can still embed if the user types a model
-   * id by hand — the indexer only guesses a default for the ones listed here.
-   */
+  /** True when this provider serves an OpenAI-compatible `/embeddings` endpoint. */
   embeddings?: boolean;
   /** Embedding model ids to offer for this provider. */
   embeddingModels?: string[];
-  models: { id: string; name: string; contextWindow: string; vision?: boolean }[];
+  models: ModelMeta[];
+};
+
+/** One id the provider itself listed, enriched with catalog metadata. */
+export type DiscoveredModelEntry = {
+  id: string;
+  name?: string;
+  contextWindow?: string;
+  contextTokens?: number;
+  maxOutputTokens?: number;
+  inputCostPerM?: number;
+  outputCostPerM?: number;
+  vision?: boolean;
+  reasoning?: boolean;
+  toolUse?: boolean;
+  nonChat?: boolean;
+  /** "catalog" when models.dev had a match, "discovered" when only the raw id is known. */
+  source?: "catalog" | "discovered" | "inferred";
+  /** Unix ms of when the discovery ran. */
+  discoveredAt?: number;
+};
+
+/** One user-configured connection. */
+export type ProviderConnection = {
+  /** Stored in the OS keychain, never in the settings file. */
+  apiKey: string;
+  /** Empty means "use the preset default". */
+  baseUrl: string;
+  enabled: boolean;
+  /** Model ids the user pinned for this provider (empty = every preset model). */
+  models: string[];
+  /** Model ids the user has hidden from pickers. */
+  hiddenModels: string[];
+  /** Free-form model ids for providers without a preset list (custom). */
+  extraModels: string[];
+  /** Model ids the provider reported on the most recent Test/Refresh. */
+  discoveredModels: DiscoveredModelEntry[];
+  /** Extra request headers, on top of the preset's own. */
+  headers: Record<string, string>;
+  /** Override how the key travels. Empty means "use the preset default". */
+  authStyle: AuthStyle | "";
+};
+
+/** How Auto picks a model for a new chat. */
+export type ChatMode = "auto" | "ask" | (string & {});
+
+/** Named slots that each route to their own model. */
+export type FeatureModel = "chat" | "agent" | "commits" | "embeddings";
+
+/** One feature-to-model override. Empty id means "use the chat default". */
+export type FeatureModelAssignment = {
+  feature: FeatureModel;
+  /** Provider/model id. Empty string inherits from chat default. */
+  modelId: string;
+};
+
+export type AiServicesSettings = {
+  search: { provider: "none" | "tavily" | "brave"; apiKey: string };
+  composio: { apiKey: string; userId: string };
+};
+
+export type ProvidersSettings = {
+  connections: Record<ProviderId, ProviderConnection>;
+  /** How new chats pick their starting model. */
+  chatMode: ChatMode;
+  /** Per-feature model overrides. */
+  featureModels: FeatureModelAssignment[];
+  services: AiServicesSettings;
+};
+
+export type ModelOption = {
+  id: string;
+  name: string;
+  provider: string;
+  providerId: ProviderId;
+  contextWindow: string;
+  capabilities: ModelCapabilities;
+};
+
+/** Payload for the Rust `set_ai_config` command. */
+export type RustAiProviderEntry = {
+  id: string;
+  kind: ProviderKind;
+  label: string;
+  apiKey: string;
+  baseUrl: string;
+  models: string[];
+  enabled: boolean;
+  /** Endpoint answers without a key (local runtimes, free tiers). */
+  keyless: boolean;
+  /** Extra headers, preset defaults already merged in. */
+  headers: Record<string, string>;
+  /** `bearer` | `api-key` | `x-api-key` | `none`. */
+  authStyle: AuthStyle;
+};
+
+export type RustAiConfig = {
+  providers: RustAiProviderEntry[];
+  defaultModel: string;
+  embeddingModel: string;
+  /** Provider that serves `embeddingModel`; Rust routes to it, not to a guess. */
+  embeddingProvider: string;
+  search: { provider: string; apiKey: string };
+  composio: { apiKey: string; userId: string };
 };
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
@@ -114,13 +210,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     embeddings: true,
     embeddingModels: ["text-embedding-3-small", "text-embedding-3-large"],
     models: [
-      { id: "openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true },
-      { id: "openai/gpt-5-mini", name: "GPT-5 mini", contextWindow: "400K", vision: true },
-      { id: "openai/gpt-5-nano", name: "GPT-5 nano", contextWindow: "400K" },
-      { id: "openai/gpt-4.1", name: "GPT-4.1", contextWindow: "1M", vision: true },
-      { id: "openai/gpt-4.1-mini", name: "GPT-4.1 mini", contextWindow: "1M", vision: true },
-      { id: "openai/o4-mini", name: "o4-mini", contextWindow: "200K" },
-      { id: "openai/o3", name: "o3", contextWindow: "200K" },
+      { id: "openai/gpt-5", name: "GPT-5", contextWindow: "400K", vision: true, toolUse: true },
+      { id: "openai/gpt-5-mini", name: "GPT-5 mini", contextWindow: "400K", vision: true, toolUse: true },
+      { id: "openai/gpt-5-nano", name: "GPT-5 nano", contextWindow: "400K", toolUse: true },
+      { id: "openai/gpt-4.1", name: "GPT-4.1", contextWindow: "1M", vision: true, toolUse: true },
+      { id: "openai/gpt-4.1-mini", name: "GPT-4.1 mini", contextWindow: "1M", vision: true, toolUse: true },
+      { id: "openai/o4-mini", name: "o4-mini", contextWindow: "200K", reasoning: true, toolUse: true },
+      { id: "openai/o3", name: "o3", contextWindow: "200K", reasoning: true, toolUse: true },
     ],
   },
   {
@@ -791,73 +887,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   },
 ];
 
-/** One user-configured connection. */
-export type ProviderConnection = {
-  /** Stored in the OS keychain, never in the settings file. */
-  apiKey: string;
-  /** Empty means "use the preset default". */
-  baseUrl: string;
-  enabled: boolean;
-  /** Model ids the user pinned for this provider (empty = every preset model). */
-  models: string[];
-  /** Free-form model ids for providers without a preset list (custom). */
-  extraModels: string[];
-  /**
-   * Extra request headers, on top of the preset's own. Values are stored in the
-   * keychain beside the API key, since gateways put tokens here.
-   */
-  headers: Record<string, string>;
-  /** Override how the key travels. Empty means "use the preset default". */
-  authStyle: AuthStyle | "";
-};
-
-export type AiServicesSettings = {
-  search: { provider: "none" | "tavily" | "brave"; apiKey: string };
-  composio: { apiKey: string; userId: string };
-};
-
-export type ProvidersSettings = {
-  connections: Record<ProviderId, ProviderConnection>;
-  defaultModel: string;
-  embeddingModel: string;
-  services: AiServicesSettings;
-};
-
-export type ModelOption = {
-  id: string;
-  name: string;
-  provider: string;
-  providerId: ProviderId;
-  contextWindow: string;
-  vision: boolean;
-};
-
-/** Payload for the Rust `set_ai_config` command. */
-export type RustAiProviderEntry = {
-  id: string;
-  kind: ProviderKind;
-  label: string;
-  apiKey: string;
-  baseUrl: string;
-  models: string[];
-  enabled: boolean;
-  /** Endpoint answers without a key (local runtimes, free tiers). */
-  keyless: boolean;
-  /** Extra headers, preset defaults already merged in. */
-  headers: Record<string, string>;
-  /** `bearer` | `api-key` | `x-api-key` | `none`. */
-  authStyle: AuthStyle;
-};
-
-export type RustAiConfig = {
-  providers: RustAiProviderEntry[];
-  defaultModel: string;
-  embeddingModel: string;
-  /** Provider that serves `embeddingModel`; Rust routes to it, not to a guess. */
-  embeddingProvider: string;
-  search: { provider: string; apiKey: string };
-  composio: { apiKey: string; userId: string };
-};
+// Register provider labels with the catalog module so it can render friendly
+// names without creating a circular import back into this file.
+registerProviderLabels(
+  Object.fromEntries(
+    PROVIDER_PRESETS.map((preset) => [preset.id, preset.label]),
+  ),
+);
 
 export const SEARCH_PROVIDERS = [
   { id: "none", label: "Off", keyHint: "", docsUrl: "" },
@@ -879,14 +915,7 @@ export const SEARCH_PROVIDERS = [
 export const SEARCH_SECRET_ID = "service:search";
 export const COMPOSIO_SECRET_ID = "service:composio";
 
-/**
- * Prefixes other clients use for the same providers.
- *
- * Model ids travel between tools — a conversation saved by another agent, an
- * exported preset, a config file. Knowing that `gemini/x`, `google-ai/x` and
- * `google/x` are the same provider means a pasted id resolves instead of being
- * sent to whichever provider happens to be first.
- */
+/** Prefixes other clients use for the same providers. */
 export const PROVIDER_ALIASES: Record<string, ProviderId> = {
   "google-ai": "google",
   googleai: "google",
@@ -934,7 +963,7 @@ export const PROVIDER_ALIASES: Record<string, ProviderId> = {
   "perplexity-ai": "perplexity",
 };
 
-const VALID_AUTH_STYLES = new Set<string>([
+const VALID_AUTH_STYLES = new Set([
   "",
   "bearer",
   "api-key",
@@ -948,11 +977,15 @@ const KIND_DEFAULT_AUTH_STYLES: Partial<Record<ProviderKind, AuthStyle>> = {
   google: "x-goog-api-key",
 };
 
-/**
- * Prefixes that identify a provider's keys. Only formats we are confident about
- * are listed: `sk-` alone is shared by OpenAI, DeepSeek, Moonshot and gateways,
- * so a plain `sk-…` value never triggers advice either way.
- */
+const VALID_SEARCH_PROVIDERS = new Set(["tavily", "brave"]);
+
+const FEATURE_MODEL_NAMES: ReadonlySet<string> = new Set([
+  "chat",
+  "agent",
+  "commits",
+  "embeddings",
+]);
+
 const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
   { id: "anthropic", prefix: "sk-ant-" },
   { id: "openrouter", prefix: "sk-or-" },
@@ -969,7 +1002,6 @@ const KEY_PREFIXES: { id: ProviderId; prefix: string }[] = [
   { id: "vercel", prefix: "vck_" },
 ];
 
-/** Providers that share a key prefix, so a cross-card hint stays quiet. */
 const SIBLING_PROVIDERS: Partial<Record<ProviderId, ProviderId[]>> = {
   zen: ["zen-messages", "zen-go"],
   "zen-messages": ["zen", "zen-go"],
@@ -986,8 +1018,14 @@ const SEARCH_KEY_PREFIX_REQUIREMENTS: Partial<
   brave: { prefix: "BSA", message: "Brave Search keys start with BSA." },
 };
 
-const VISION_MODEL_SLUG_RE =
-  /vision|-vl|gemini|gpt-4o|gpt-4\.1|gpt-5|claude|grok/i;
+const REASONING_MODEL_RE =
+  /(^|[/\-\s])(o[1-9]|o3|o4|r1|reasoning|reasoner|deepseek-reasoner|think(ing)?|opus-?[4-9])([/\-\s]|$)/i;
+const VISION_MODEL_RE =
+  /vision|-vl|gemini|gpt-4o|gpt-4\.1|gpt-5|claude|grok|multimodal/i;
+const TOOL_USE_MODEL_RE =
+  /(gpt-[45]|o[34]|claude|gemini-2|grok|qwen|llama-?3\.[1-9]|mistral|deepseek|glm-5)/i;
+const NON_TOOL_MODEL_RE = /(^|[/\-\s])(embed|embedding|rerank|whisper|tts)/i;
+const EMBEDDING_ID_RE = /embed|embedding/i;
 
 /** Presets in display order, bucketed by their `group` heading. */
 export const providerGroups = (): {
@@ -1044,11 +1082,7 @@ export const canonicalProviderId = (prefix: string): ProviderId | null => {
   return PROVIDER_ALIASES[trimmed.toLowerCase()] ?? null;
 };
 
-/**
- * Rewrite an imported model id onto our provider names:
- * `gemini/gemini-2.5-pro` -> `google/gemini-2.5-pro`. Ids this app already
- * understands come back untouched.
- */
+/** Model id rewritten onto the canonical provider prefix this app stores. */
 export const translateModelId = (model: string): string => {
   const trimmed = model.trim();
   const separator = trimmed.indexOf("/");
@@ -1067,7 +1101,7 @@ const isAuthStyle = (value: unknown): value is AuthStyle | "" =>
 const isObjectRecord = (raw: unknown): raw is Record<string, unknown> =>
   Boolean(raw) && typeof raw === "object";
 
-/** Applies `entries` onto `byLower`, replacing any prior entry with the same ASCII-lowercased header name. */
+/** Applies `entries` onto `byLower`, replacing prior entries with the same lowercased header name. */
 const applyCaseInsensitiveHeaders = (
   byLower: Map<string, [string, string]>,
   entries: Iterable<readonly [string, string]>,
@@ -1109,10 +1143,20 @@ const emptyConnection = (preset?: ProviderPreset): ProviderConnection => ({
   baseUrl: "",
   enabled: preset ? (preset.defaultEnabled ?? !preset.keyless) : true,
   models: [],
+  hiddenModels: [],
   extraModels: [],
+  discoveredModels: [],
   headers: {},
   authStyle: "",
 });
+
+/** Baseline per-feature assignment used by a fresh settings object. */
+const emptyFeatureModels = (): FeatureModelAssignment[] => [
+  { feature: "chat", modelId: "auto" },
+  { feature: "agent", modelId: "" },
+  { feature: "commits", modelId: "" },
+  { feature: "embeddings", modelId: "" },
+];
 
 /** Creates the default multi-provider BYOK settings structure. */
 export const defaultProvidersSettings = (): ProvidersSettings => {
@@ -1122,14 +1166,50 @@ export const defaultProvidersSettings = (): ProvidersSettings => {
   }
   return {
     connections,
-    defaultModel: "auto",
-    embeddingModel: "",
+    chatMode: "auto",
+    featureModels: emptyFeatureModels(),
     services: {
       search: { provider: "none", apiKey: "" },
       composio: { apiKey: "", userId: "" },
     },
   };
 };
+
+/** Resolves the `chat` feature model string from `settings.chatMode`. */
+const resolveChatFeatureModel = (settings: ProvidersSettings): string =>
+  settings.chatMode === "ask" ? "" : settings.chatMode || "auto";
+
+/** Resolve the model id currently assigned to a given feature, inheriting from chat default when empty. */
+export const modelForFeature = (
+  settings: ProvidersSettings,
+  feature: FeatureModel,
+): string => {
+  if (feature === "chat") return resolveChatFeatureModel(settings);
+  const assignment = settings.featureModels.find((a) => a.feature === feature);
+  const id =
+    typeof assignment?.modelId === "string" ? assignment.modelId.trim() : "";
+  if (id) return id;
+  return feature === "embeddings" ? "" : resolveChatFeatureModel(settings);
+};
+
+/** Update one feature's assigned model id. */
+export const withFeatureModel = (
+  settings: ProvidersSettings,
+  feature: FeatureModel,
+  modelId: string,
+): ProvidersSettings => {
+  const others = settings.featureModels.filter((a) => a.feature !== feature);
+  return { ...settings, featureModels: [...others, { feature, modelId }] };
+};
+
+/** Update the active chat mode selector (`"auto"`, `"ask"`, or a concrete model id). */
+export const setChatMode = (
+  settings: ProvidersSettings,
+  mode: ChatMode,
+): ProvidersSettings => ({
+  ...settings,
+  chatMode: mode,
+});
 
 /** Filters an unknown list of model IDs into trimmed non-empty strings. */
 const normalizeStringList = (raw: unknown): string[] =>
@@ -1144,7 +1224,17 @@ const normalizeStringList = (raw: unknown): string[] =>
 const normalizeStringField = (raw: unknown, fallback = ""): string =>
   typeof raw === "string" ? raw : fallback;
 
-const VALID_SEARCH_PROVIDERS = new Set(["tavily", "brave"]);
+/** Type-guards a persisted `DiscoveredModelEntry` record. */
+const isDiscoveredModelEntry = (
+  entry: unknown,
+): entry is DiscoveredModelEntry =>
+  isObjectRecord(entry) &&
+  typeof entry.id === "string" &&
+  Boolean(entry.id.trim());
+
+/** Filters an unknown discovered-model array into valid `DiscoveredModelEntry` records. */
+const normalizeDiscoveredList = (raw: unknown): DiscoveredModelEntry[] =>
+  Array.isArray(raw) ? raw.filter(isDiscoveredModelEntry) : [];
 
 /** Coerces an unknown search provider value to a valid `AiServicesSettings["search"]["provider"]`. */
 const normalizeSearchProvider = (
@@ -1161,12 +1251,15 @@ const normalizeSingleConnection = (
 ): ProviderConnection => {
   const defaults = emptyConnection(preset);
   return {
+    ...(isObjectRecord(saved) ? saved : {}),
     apiKey: normalizeStringField(saved?.apiKey, defaults.apiKey),
     baseUrl: normalizeStringField(saved?.baseUrl, defaults.baseUrl),
     enabled:
       typeof saved?.enabled === "boolean" ? saved.enabled : defaults.enabled,
     models: normalizeStringList(saved?.models),
+    hiddenModels: normalizeStringList(saved?.hiddenModels),
     extraModels: normalizeStringList(saved?.extraModels),
+    discoveredModels: normalizeDiscoveredList(saved?.discoveredModels),
     headers: normalizeHeaders(saved?.headers),
     authStyle: isAuthStyle(saved?.authStyle) ? saved.authStyle : "",
   };
@@ -1186,6 +1279,60 @@ const normalizeServicesSettings = (
   },
 });
 
+/** Converts a legacy `defaultModel` string into a normalized `ChatMode`. */
+const legacyDefaultToChatMode = (legacyDefault: string): ChatMode => {
+  if (legacyDefault === "__ask__") return "ask";
+  return legacyDefault && legacyDefault !== "auto" ? legacyDefault : "auto";
+};
+
+/** Resolves `chatMode` from saved `chatMode` or legacy `defaultModel`. */
+const resolveMigratedChatMode = (
+  rawChatMode: unknown,
+  legacyDefault: string,
+): ChatMode => {
+  const saved = normalizeStringField(rawChatMode).trim();
+  return saved ? saved : legacyDefaultToChatMode(legacyDefault);
+};
+
+/** Type-guards a persisted `FeatureModelAssignment` entry. */
+const isValidFeatureAssignment = (
+  entry: unknown,
+): entry is FeatureModelAssignment =>
+  isObjectRecord(entry) &&
+  typeof entry.feature === "string" &&
+  FEATURE_MODEL_NAMES.has(entry.feature) &&
+  typeof entry.modelId === "string";
+
+/** Backfills `legacyEmbedding` onto an empty `embeddings` slot when migrating old settings. */
+const applyLegacyEmbeddingFallback = (
+  list: FeatureModelAssignment[],
+  legacyEmbedding: string,
+): void => {
+  if (!legacyEmbedding) return;
+  const embeddingsSlot = list.find((a) => a.feature === "embeddings");
+  if (embeddingsSlot && !embeddingsSlot.modelId) {
+    embeddingsSlot.modelId = legacyEmbedding;
+  }
+};
+
+/** Normalizes `featureModels` and migrates legacy `embeddingModel` when needed. */
+const normalizeFeatureAssignments = (
+  rawList: unknown,
+  legacyEmbedding: string,
+): FeatureModelAssignment[] => {
+  const list: FeatureModelAssignment[] = Array.isArray(rawList)
+    ? rawList
+        .filter(isValidFeatureAssignment)
+        .map((a) => ({ feature: a.feature, modelId: a.modelId }))
+    : emptyFeatureModels();
+  const known = new Set(list.map((a) => a.feature));
+  for (const slot of emptyFeatureModels()) {
+    if (!known.has(slot.feature)) list.push({ ...slot });
+  }
+  applyLegacyEmbeddingFallback(list, legacyEmbedding);
+  return list;
+};
+
 /** Fill in connections added by newer versions without losing user values. */
 export const normalizeProvidersSettings = (
   raw: Partial<ProvidersSettings> | undefined,
@@ -1199,10 +1346,19 @@ export const normalizeProvidersSettings = (
       raw.connections?.[preset.id],
     );
   }
+  const legacy = raw as Partial<ProvidersSettings> & {
+    defaultModel?: unknown;
+    embeddingModel?: unknown;
+  };
+  const legacyDefault = normalizeStringField(legacy.defaultModel).trim();
+  const legacyEmbedding = normalizeStringField(legacy.embeddingModel).trim();
   return {
     connections,
-    defaultModel: normalizeStringField(raw.defaultModel, base.defaultModel),
-    embeddingModel: normalizeStringField(raw.embeddingModel),
+    chatMode: resolveMigratedChatMode(raw.chatMode, legacyDefault),
+    featureModels: normalizeFeatureAssignments(
+      raw.featureModels,
+      legacyEmbedding,
+    ),
     services: normalizeServicesSettings(raw.services),
   };
 };
@@ -1248,9 +1404,7 @@ export const providerHeaders = (
 };
 
 /** Parses a single `Name: Value` header line when non-comment and colon-delimited. */
-const parseSingleHeaderLine = (
-  line: string,
-): [string, string] | null => {
+const parseSingleHeaderLine = (line: string): [string, string] | null => {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("#")) return null;
   const separator = trimmed.indexOf(":");
@@ -1259,7 +1413,7 @@ const parseSingleHeaderLine = (
   return name ? [name, trimmed.slice(separator + 1).trim()] : null;
 };
 
-/** `Name: value` lines ⇄ the header map shown next to a provider. */
+/** `Name: value` lines <-> the header map shown next to a provider. */
 export const parseHeaderLines = (text: string): Record<string, string> => {
   const byLower = new Map<string, [string, string]>();
   for (const line of text.split("\n")) {
@@ -1294,22 +1448,145 @@ const normalizeExtraModelEntry = (id: ProviderId, raw: string): string => {
   return `${id}/${raw}`;
 };
 
-/** Model ids offered by a connection: preset list plus anything the user added. */
+/** Selects base model ids with precedence: user-pinned -> discovered -> preset. */
+const resolveBaseConnectionModelIds = (
+  preset: ProviderPreset,
+  connection: ProviderConnection,
+  discoveredAll: string[],
+): string[] => {
+  if (connection.models.length > 0) return connection.models;
+  if (discoveredAll.length > 0) return discoveredAll;
+  return preset.models.map((model) => model.id);
+};
+
+/** Full list of model ids the connection can serve (chat + non-chat). */
 export const modelIdsFor = (
   id: ProviderId,
   connections: Record<ProviderId, ProviderConnection>,
 ): string[] => {
   const connection = connections[id];
   const preset = providerPreset(id);
-  const pinned =
-    connection.models.length > 0
-      ? connection.models
-      : preset.models.map((model) => model.id);
+  const discoveredAll = connection.discoveredModels.map((model) => model.id);
+  const base = resolveBaseConnectionModelIds(preset, connection, discoveredAll);
   const extra = connection.extraModels
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((raw) => normalizeExtraModelEntry(id, raw));
-  return [...new Set([...pinned, ...extra])];
+  return [...new Set([...base, ...extra, ...discoveredAll])];
+};
+
+/** Checks whether `modelId` was explicitly added or pinned by the user on `connection`. */
+const isUserExplicitModelOnConnection = (
+  id: ProviderId,
+  connection: ProviderConnection,
+  modelId: string,
+): boolean =>
+  connection.models.includes(modelId) ||
+  connection.extraModels.some(
+    (entry) => entry === modelId || `${id}/${entry}` === modelId,
+  );
+
+/** Checks whether a preset model id should stay visible in chat model lists. */
+const isChatCapablePresetModel = (
+  id: ProviderId,
+  preset: ProviderPreset,
+  modelId: string,
+): boolean => {
+  if (!preset.models.some((entry) => entry.id === modelId)) return true;
+  const meta = catalogGetModelMetadata(modelId, id);
+  return meta.source !== "catalog" || !meta.nonChat;
+};
+
+/** Evaluates whether a single model id belongs in `chatModelIdsFor`. */
+const shouldIncludeInChatModels = (
+  id: ProviderId,
+  preset: ProviderPreset,
+  connection: ProviderConnection,
+  discoveredChat: Set<string>,
+  discoveredNonChat: Set<string>,
+  modelId: string,
+): boolean => {
+  if (discoveredChat.has(modelId)) return true;
+  if (discoveredNonChat.has(modelId)) return false;
+  if (isUserExplicitModelOnConnection(id, connection, modelId)) return true;
+  return isChatCapablePresetModel(id, preset, modelId);
+};
+
+/** Chat-capable subset of {@link modelIdsFor} (embeddings/audio filtered out). */
+export const chatModelIdsFor = (
+  id: ProviderId,
+  connections: Record<ProviderId, ProviderConnection>,
+): string[] => {
+  const connection = connections[id];
+  const all = modelIdsFor(id, connections);
+  if (connection.discoveredModels.length === 0) return all;
+  const preset = providerPreset(id);
+  const discoveredChat = new Set(
+    connection.discoveredModels
+      .filter((model) => !model.nonChat)
+      .map((model) => model.id),
+  );
+  const discoveredNonChat = new Set(
+    connection.discoveredModels
+      .filter((model) => model.nonChat)
+      .map((model) => model.id),
+  );
+  return all.filter((modelId) =>
+    shouldIncludeInChatModels(
+      id,
+      preset,
+      connection,
+      discoveredChat,
+      discoveredNonChat,
+      modelId,
+    ),
+  );
+};
+
+/** Subset of chat-capable models the user has not hidden from pickers. */
+export const visibleModelIdsFor = (
+  id: ProviderId,
+  connections: Record<ProviderId, ProviderConnection>,
+): string[] => {
+  const hidden = new Set(connections[id]?.hiddenModels ?? []);
+  return chatModelIdsFor(id, connections).filter(
+    (modelId) => !hidden.has(modelId),
+  );
+};
+
+/** Toggle a single model's visibility in pickers. */
+export const withModelVisibility = (
+  connection: ProviderConnection,
+  modelId: string,
+  visible: boolean,
+): ProviderConnection => {
+  const hidden = new Set(connection.hiddenModels);
+  if (visible) hidden.delete(modelId);
+  else hidden.add(modelId);
+  return { ...connection, hiddenModels: [...hidden] };
+};
+
+/** Infers default `toolUse` capability for a known preset model entry. */
+const inferKnownToolUse = (id: string, known: ModelMeta): boolean =>
+  known.toolUse ?? (!known.reasoning || /o3|o4/i.test(id));
+
+/** Infers capability flags when the catalog has no exact record for `id`. */
+const inferCapabilities = (
+  id: string,
+  known?: ModelMeta,
+): ModelCapabilities => {
+  if (known) {
+    return {
+      vision: known.vision ?? VISION_MODEL_RE.test(id),
+      toolUse: inferKnownToolUse(id, known),
+      reasoning: known.reasoning ?? REASONING_MODEL_RE.test(id),
+    };
+  }
+  return {
+    vision: VISION_MODEL_RE.test(id),
+    toolUse: TOOL_USE_MODEL_RE.test(id) && !NON_TOOL_MODEL_RE.test(id),
+    reasoning: REASONING_MODEL_RE.test(id),
+  };
 };
 
 /** Resolves the display name for a model identifier when absent from built-in presets. */
@@ -1318,51 +1595,73 @@ const fallbackModelDisplayName = (id: string): string => {
   return tail ? tail : id;
 };
 
-/** Resolves the provider preset matching the prefix of `id`, if any. */
-const findPresetForModelId = (id: string): ProviderPreset | undefined => {
-  const prefix = id.split("/")[0] ?? "";
-  const providerId = canonicalProviderId(prefix) ?? ("custom" as ProviderId);
-  return PROVIDER_PRESETS.find((preset) => preset.id === providerId);
+/** Resolves the best display name across catalog metadata, preset metadata, and raw slug. */
+const resolveModelDisplayName = (
+  slug: string,
+  known: ModelMeta | undefined,
+  catMeta: ReturnType<typeof catalogGetModelMetadata>,
+): string => {
+  const catName = catMeta.source !== "inferred" ? catMeta.name : "";
+  if (catName && catName.toLowerCase() !== slug.toLowerCase()) return catName;
+  return known?.name ?? slug;
 };
 
-/** Resolves preset label and ID defaults for a `ModelOption`. */
-const resolveModelProviderInfo = (
-  preset: ProviderPreset | undefined,
-): { provider: string; providerId: ProviderId } =>
-  preset
-    ? { provider: preset.label, providerId: preset.id }
-    : { provider: "Custom", providerId: "custom" };
+/** Resolves the context window label across catalog metadata and preset metadata. */
+const resolveModelContextLabel = (
+  known: ModelMeta | undefined,
+  catMeta: ReturnType<typeof catalogGetModelMetadata>,
+): string => {
+  if (catMeta.source !== "inferred" && catMeta.contextWindowLabel) {
+    return catMeta.contextWindowLabel;
+  }
+  return known?.contextWindow ?? "";
+};
+
+/** Resolves `ModelCapabilities` from catalog metadata or heuristic inference. */
+const resolveModelCapabilities = (
+  id: string,
+  known: ModelMeta | undefined,
+  catMeta: ReturnType<typeof catalogGetModelMetadata>,
+): ModelCapabilities =>
+  catMeta.source !== "inferred"
+    ? {
+        vision: catMeta.vision,
+        toolUse: catMeta.toolUse,
+        reasoning: catMeta.reasoning,
+      }
+    : inferCapabilities(id, known);
 
 /** Builds a normalized `ModelOption` descriptor from a raw model identifier. */
 export const modelOption = (id: string): ModelOption => {
-  const preset = findPresetForModelId(id);
-  const known = preset?.models.find((model) => model.id === id);
-  const { provider, providerId } = resolveModelProviderInfo(preset);
+  const prefix = id.split("/")[0] ?? "";
+  const providerId = canonicalProviderId(prefix) ?? ("custom" as ProviderId);
+  const preset = PROVIDER_PRESETS.find((entry) => entry.id === providerId);
+  const known = preset?.models.find((entry) => entry.id === id);
+  const catMeta = catalogGetModelMetadata(id, providerId);
+  const slug = fallbackModelDisplayName(id);
   return {
     id,
-    name: known?.name ?? fallbackModelDisplayName(id),
-    provider,
-    providerId,
-    contextWindow: known?.contextWindow ?? "",
-    vision: known?.vision ?? VISION_MODEL_SLUG_RE.test(id),
+    name: resolveModelDisplayName(slug, known, catMeta),
+    provider: preset?.label ?? "Custom",
+    providerId: preset?.id ?? "custom",
+    contextWindow: resolveModelContextLabel(known, catMeta),
+    capabilities: resolveModelCapabilities(id, known, catMeta),
   };
 };
 
-/** Appends valid `ModelOption` entries for a usable `presetId` into `out`. */
+/** Appends visible chat `ModelOption` entries for `presetId` into `out`. */
 const appendModelsForPreset = (
   presetId: ProviderId,
   connections: Record<ProviderId, ProviderConnection>,
   out: ModelOption[],
 ): void => {
-  for (const id of modelIdsFor(presetId, connections)) {
+  for (const id of visibleModelIdsFor(presetId, connections)) {
     const option = modelOption(id);
-    if (option.name) {
-      out.push(option);
-    }
+    if (option.name) out.push(option);
   }
 };
 
-/** Every model the user can pick right now, grouped by provider order. */
+/** Every model the user can pick right now, respecting per-model visibility. */
 export const availableModels = (settings: ProvidersSettings): ModelOption[] => {
   const out: ModelOption[] = [];
   for (const preset of PROVIDER_PRESETS) {
@@ -1377,7 +1676,7 @@ export const availableModels = (settings: ProvidersSettings): ModelOption[] => {
 export const hasAnyUsableProvider = (settings: ProvidersSettings): boolean =>
   availableModels(settings).length > 0;
 
-/** True when at least one connection is enabled and usable (with credentials or keyless auth), even if model IDs still need to be added. */
+/** True when at least one connection is enabled and usable (with credentials or keyless auth). */
 export const hasAnyConfiguredConnection = (
   settings: ProvidersSettings,
 ): boolean =>
@@ -1385,14 +1684,17 @@ export const hasAnyConfiguredConnection = (
     isConnectionUsable(preset.id, settings.connections),
   );
 
-/** Checks whether `conn` has any configured or preset model IDs. */
+/** Checks whether `conn` has any configured, discovered, or preset model IDs. */
 const connectionHasAnyModelId = (
   preset: ProviderPreset,
   conn: ProviderConnection,
 ): boolean =>
-  preset.models.length > 0 ||
-  conn.models.length > 0 ||
-  conn.extraModels.length > 0;
+  Boolean(
+    preset.models.length ||
+      conn.models.length ||
+      conn.extraModels.length ||
+      conn.discoveredModels.length,
+  );
 
 /** Checks whether an enabled connection already has credentials or keyless auth and lacks only `baseUrl`. */
 const isAuthenticatedMissingBaseUrl = (
@@ -1431,7 +1733,7 @@ const hasSavedKeylessProviderConfig = (
   if (!connectionAllowsKeylessAuth(preset.id, preset, conn)) return false;
   return preset.needsBaseUrl
     ? Boolean(conn.baseUrl.trim())
-    : conn.extraModels.length > 0;
+    : conn.extraModels.length > 0 || conn.discoveredModels.length > 0;
 };
 
 /** Checks whether a disabled connection already holds a saved API key or user-configured keyless setup. */
@@ -1486,6 +1788,7 @@ const isExplicitAvailableModel = (
 ): boolean =>
   Boolean(wanted) &&
   wanted !== "auto" &&
+  wanted !== "ask" &&
   models.some((model) => model.id === wanted);
 
 /** Concrete model ID that `"auto"` routes to right now, or `null` when none is routable. */
@@ -1493,8 +1796,8 @@ export const resolveActiveDefaultModelId = (
   settings: ProvidersSettings,
 ): string | null => {
   const models = availableModels(settings);
-  if (models.length === 0) return null;
-  const wanted = settings.defaultModel.trim();
+  if (models.length === 0 || settings.chatMode === "ask") return null;
+  const wanted = translateModelId(settings.chatMode.trim());
   if (isExplicitAvailableModel(wanted, models)) return wanted;
   return models[0]?.id ?? null;
 };
@@ -1509,17 +1812,15 @@ export const embeddingProviders = (
       isConnectionUsable(preset.id, settings.connections),
   ).map((preset) => preset.id);
 
-/** Collects available embedding model identifiers across configured providers. */
-export const embeddingModelOptions = (
-  settings: ProvidersSettings,
-): string[] => {
-  const presets: string[] = [];
-  for (const id of embeddingProviders(settings)) {
-    presets.push(...(providerPreset(id).embeddingModels ?? []));
-  }
-  const chosen = settings.embeddingModel.trim();
-  if (chosen && !presets.includes(chosen)) presets.unshift(chosen);
-  return [...new Set(presets.filter(Boolean))];
+/** Converts a `provider/model` id into the wire slug `targetProvider` expects. */
+const embeddingSlugFor = (
+  targetProvider: ProviderId,
+  modelId: string,
+): string => {
+  const id = modelId.trim();
+  if (!id) return "";
+  const ownPrefix = `${targetProvider}/`;
+  return id.startsWith(ownPrefix) ? id.slice(ownPrefix.length) : id;
 };
 
 /** Picks `openai`, then `openrouter`, then the first candidate provider ID. */
@@ -1530,7 +1831,15 @@ const selectPreferredEmbeddingProvider = (
   ids.find((id) => id === "openrouter") ??
   ids[0];
 
-/** Checks whether any entry in `extraModels` matches `model` verbatim or after provider-prefix canonicalization. */
+/** Collects discovered embedding model IDs reported on `conn`. */
+const collectDiscoveredEmbeddingIds = (
+  conn: ProviderConnection | undefined,
+): string[] =>
+  (conn?.discoveredModels ?? [])
+    .filter((entry) => entry.nonChat && EMBEDDING_ID_RE.test(entry.id))
+    .map((entry) => entry.id);
+
+/** Checks whether any entry in `extraModels` matches `model` verbatim or after prefix normalization. */
 const extraModelsAdvertiseModel = (
   id: ProviderId,
   extraModels: string[],
@@ -1542,76 +1851,165 @@ const extraModelsAdvertiseModel = (
     return trimmed === model || normalizeExtraModelEntry(id, trimmed) === model;
   });
 
-/** Checks whether connection `id` explicitly advertises or pins `model`. */
-const connectionAdvertisesEmbeddingModel = (
-  settings: ProvidersSettings,
+/** Checks whether `list` contains any model id in `candidates`. */
+const listIncludesAnyCandidate = (
+  list: readonly string[],
+  candidates: readonly string[],
+): boolean => candidates.some((candidate) => list.includes(candidate));
+
+/** Checks whether `conn` explicitly pins or adds `chosen` or its provider variants. */
+const connectionPinsEmbeddingModel = (
   id: ProviderId,
-  model: string,
+  conn: ProviderConnection | undefined,
+  chosen: string,
+  candidates: readonly string[],
 ): boolean => {
-  const presetModels = providerPreset(id).embeddingModels;
-  if (presetModels?.includes(model)) return true;
-  const connection = settings.connections[id];
-  if (!connection) return false;
+  if (!conn) return false;
   return (
-    connection.models.includes(model) ||
-    extraModelsAdvertiseModel(id, connection.extraModels, model)
+    listIncludesAnyCandidate(conn.models, candidates) ||
+    extraModelsAdvertiseModel(id, conn.extraModels, chosen)
   );
 };
 
-/** Resolves the OpenAI-wire provider that should serve an explicitly chosen embedding model. */
-const resolveExplicitEmbeddingTarget = (
+/** Checks whether `pid` advertises `chosen` via preset, discovery, or user model lists. */
+const providerOffersEmbeddingModel = (
   settings: ProvidersSettings,
+  pid: ProviderId,
+  chosen: string,
+): boolean => {
+  const conn = settings.connections[pid];
+  const presetEmbeds = providerPreset(pid).embeddingModels ?? [];
+  const native = embeddingSlugFor(pid, chosen);
+  const prefixed = chosen.includes("/") ? chosen : `${pid}/${chosen}`;
+  const candidates = [native, chosen, prefixed];
+  return (
+    listIncludesAnyCandidate(presetEmbeds, [native, chosen]) ||
+    listIncludesAnyCandidate(collectDiscoveredEmbeddingIds(conn), candidates) ||
+    connectionPinsEmbeddingModel(pid, conn, chosen, candidates)
+  );
+};
+
+/** Resolves an explicit `provider/` prefix on `chosen` when that wire connection is usable. */
+const resolveExplicitPrefixedWireOwner = (
+  chosen: string,
+  wireIds: ProviderId[],
+): ProviderId | undefined => {
+  const slashIdx = chosen.indexOf("/");
+  if (slashIdx <= 0) return undefined;
+  const explicitId = canonicalProviderId(chosen.slice(0, slashIdx));
+  return explicitId && wireIds.includes(explicitId) ? explicitId : undefined;
+};
+
+/** Picks a usable custom or local runtime when `chosen` is a free-form unadvertised slug. */
+const selectOpenEndedEmbeddingWire = (
+  wireIds: ProviderId[],
+): ProviderId | undefined =>
+  wireIds.find((id) => {
+    const preset = providerPreset(id);
+    return (
+      preset.embeddings === true && (preset.embeddingModels ?? []).length === 0
+    );
+  }) ?? wireIds.find((id) => providerPreset(id).models.length === 0);
+
+/** Selects the best wire owner for `chosen` across explicit prefix, catalog, open runtime, and fallback. */
+const selectEmbeddingWireOwner = (
+  settings: ProvidersSettings,
+  wireIds: ProviderId[],
+  chosen: string,
+): ProviderId | undefined =>
+  resolveExplicitPrefixedWireOwner(chosen, wireIds) ??
+  wireIds.find((pid) => providerOffersEmbeddingModel(settings, pid, chosen)) ??
+  selectOpenEndedEmbeddingWire(wireIds) ??
+  selectPreferredEmbeddingProvider(wireIds);
+
+/** Resolves the OpenAI-wire provider that should serve an explicitly chosen embedding model. */
+const resolveChosenEmbeddingTarget = (
+  settings: ProvidersSettings,
+  wireIds: ProviderId[],
   chosen: string,
 ): { id: ProviderId; model: string } | null => {
-  const wire = PROVIDER_PRESETS.filter(
+  if (wireIds.length === 0) return null;
+  const owner = selectEmbeddingWireOwner(settings, wireIds, chosen);
+  return owner ? { id: owner, model: embeddingSlugFor(owner, chosen) } : null;
+};
+
+/** Provider that will serve the semantic index, plus the model id to send. */
+export const embeddingsTarget = (
+  settings: ProvidersSettings,
+): { id: ProviderId; model: string } | null => {
+  const wireIds = PROVIDER_PRESETS.filter(
     (preset) =>
       preset.kind === "openai" &&
       isConnectionUsable(preset.id, settings.connections),
   ).map((preset) => preset.id);
-  const owner =
-    wire.find((id) =>
-      connectionAdvertisesEmbeddingModel(settings, id, chosen),
-    ) ?? selectPreferredEmbeddingProvider(wire);
-  return owner ? { id: owner, model: chosen } : null;
-};
-
-/**
- * Provider that will serve the semantic index, plus the model id to send.
- *
- * Mirrors the Rust side: OpenAI and OpenRouter have a known default, every other
- * provider needs the user to name a model — an empty result means the index
- * stays off rather than calling an endpoint that cannot answer.
- */
-export const embeddingsTarget = (
-  settings: ProvidersSettings,
-): { id: ProviderId; model: string } | null => {
-  const chosen = settings.embeddingModel.trim();
+  const chosen = modelForFeature(settings, "embeddings").trim();
   if (chosen) {
-    return resolveExplicitEmbeddingTarget(settings, chosen);
+    return resolveChosenEmbeddingTarget(settings, wireIds, chosen);
   }
-  const preferred = selectPreferredEmbeddingProvider(
-    embeddingProviders(settings),
-  );
+  const known = wireIds.filter((id) => providerPreset(id).embeddings === true);
+  const preferred = selectPreferredEmbeddingProvider(known);
   if (!preferred) return null;
   const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
   return fallback ? { id: preferred, model: fallback } : null;
+};
+
+/** Prepends the normalized wire slug for `chosen` onto `presets` when absent. */
+const prependChosenEmbeddingOption = (
+  settings: ProvidersSettings,
+  presets: string[],
+  chosen: string,
+): void => {
+  if (!chosen) return;
+  const owner = embeddingsTarget(settings)?.id;
+  const normalised = owner ? embeddingSlugFor(owner, chosen) : chosen;
+  if (!presets.includes(normalised)) presets.unshift(normalised);
+};
+
+/** Collects available embedding model identifiers across configured providers. */
+export const embeddingModelOptions = (
+  settings: ProvidersSettings,
+): string[] => {
+  const presets: string[] = [];
+  for (const id of embeddingProviders(settings)) {
+    presets.push(...(providerPreset(id).embeddingModels ?? []));
+    const discovered = collectDiscoveredEmbeddingIds(
+      settings.connections[id],
+    ).map((modelId) => embeddingSlugFor(id, modelId));
+    presets.push(...discovered);
+  }
+  prependChosenEmbeddingOption(
+    settings,
+    presets,
+    modelForFeature(settings, "embeddings").trim(),
+  );
+  return [...new Set(presets.filter(Boolean))];
 };
 
 /** True when the semantic index has somewhere to run. */
 export const embeddingsAvailable = (settings: ProvidersSettings): boolean =>
   embeddingsTarget(settings) !== null;
 
-/**
- * `auto` needs a concrete model. Prefer the user's pick, else the first pinned
- * model, else anything the first usable provider offers.
- */
+/** Checks whether `wanted` is a concrete model id present in `usableIds`. */
+const isUsableConcreteModel = (
+  wanted: string,
+  usableIds: Set<string>,
+): boolean => Boolean(wanted) && wanted !== "auto" && usableIds.has(wanted);
+
+/** Canonicalizes a non-`auto` chatMode string via `translateModelId`. */
+const canonicalNonAutoMode = (mode: ChatMode): string => {
+  const rawWanted = mode === "auto" ? "" : mode.trim();
+  return rawWanted ? translateModelId(rawWanted) : "";
+};
+
+/** Resolve the concrete chat model for the Rust side. */
 const resolveDefaultModel = (
   settings: ProvidersSettings,
   providers: RustAiProviderEntry[],
 ): string => {
-  const wanted = translateModelId(settings.defaultModel);
+  if (settings.chatMode === "ask") return "";
+  const wanted = canonicalNonAutoMode(settings.chatMode);
   const usableIds = new Set(providers.flatMap((provider) => provider.models));
-  if (wanted && wanted !== "auto" && usableIds.has(wanted)) return wanted;
+  if (isUsableConcreteModel(wanted, usableIds)) return wanted;
   const pinned = providers.find((provider) => provider.models.length > 0);
   return pinned?.models[0] ?? "";
 };
@@ -1629,7 +2027,7 @@ const buildRustProviderEntry = (
     label: preset.label,
     apiKey: connection.apiKey.trim(),
     baseUrl: trimmedBase ? trimmedBase : preset.baseUrl,
-    models: modelIdsFor(preset.id, connections),
+    models: chatModelIdsFor(preset.id, connections),
     enabled: connection.enabled,
     keyless: preset.keyless === true,
     headers: providerHeaders(preset.id, connection),
@@ -1794,10 +2192,7 @@ export const blankHeaderValues = (
   return out;
 };
 
-/**
- * A copy safe to write to disk: the OS keychain owns the secrets, so nothing
- * here contains a key. Non-secret fields are copied verbatim.
- */
+/** A copy safe to write to disk: the OS keychain owns the secrets. */
 export const redactProviderSecrets = <
   T extends { ai: { providers: ProvidersSettings } },
 >(
@@ -1906,13 +2301,7 @@ const mergeScopedServiceEntry = <T extends { apiKey: string }>(
   };
 };
 
-/**
- * Fill secrets that only exist in memory back into a freshly loaded copy.
- *
- * Storage never holds keys once the keychain is in use, so a plain merge would
- * wipe the session's keys the first time a settings payload arrived from disk or
- * from the other window. Existing values always win for non-secret fields.
- */
+/** Fill secrets that only exist in memory back into a freshly loaded copy. */
 export const mergeProviderConnections = (
   live: ProvidersSettings,
   loaded: ProvidersSettings,
@@ -1977,14 +2366,10 @@ const expectedPrefixMismatchWarning = (
 ): string | null => {
   const expected = KEY_PREFIXES.find((entry) => entry.id === id);
   if (!expected || key.startsWith(expected.prefix)) return null;
-  return `${providerPreset(id).label} keys start with ${expected.prefix} — double-check the value.`;
+  return `${providerPreset(id).label} keys start with ${expected.prefix} - double-check the value.`;
 };
 
-/**
- * One-line warning for the field the user is typing in, or null when the key
- * looks plausible. Never blocks a save: gateways hand out their own formats, so
- * this only ever suggests.
- */
+/** One-line warning for the field the user is typing in, or null when plausible. */
 export const keyFormatWarning = (
   id: ProviderId,
   apiKey: string,
@@ -1993,7 +2378,7 @@ export const keyFormatWarning = (
   if (!key) return null;
   const owner = keyOwnerHint(key);
   if (owner && isForeignProviderOwner(owner.id, id)) {
-    return `This looks like a ${owner.label} key — paste it into the ${owner.label} card instead.`;
+    return `This looks like a ${owner.label} key - paste it into the ${owner.label} card instead.`;
   }
   return expectedPrefixMismatchWarning(id, key);
 };
@@ -2009,7 +2394,7 @@ export const searchKeyWarning = (
   return rule.message;
 };
 
-/** `sk-abc…1234` — enough to recognise a key without showing it in full. */
+/** `sk-abc…1234` - enough to recognise a key without showing it in full. */
 export const maskApiKey = (apiKey: string): string => {
   const key = apiKey.trim();
   if (key.length <= 10) return key ? `${key.slice(0, 2)}…` : "";
@@ -2091,28 +2476,26 @@ const canEnableMatchingPreset = (
 };
 
 /** Checks whether `preset` has built-in or configured models matching `needles` / `tails`. */
-const isMatchingUsablePreset = (
+const isMatchingPreset = (
   preset: ProviderPreset,
   needles: string[],
   tails: Set<string>,
   connections: Record<ProviderId, ProviderConnection>,
 ): boolean => {
+  if (
+    preset.models.length === 0 &&
+    !canEnableMatchingPreset(preset, connections)
+  ) {
+    return false;
+  }
   const candidates = collectPresetCandidateModels(preset, connections);
   if (candidates.length === 0) return false;
-  if (!canEnableMatchingPreset(preset, connections)) return false;
   return candidates.some((model) =>
     presetModelMatchesNeedles(model, needles, tails),
   );
 };
 
-/**
- * Model names a pasted config mentions, mapped onto providers the user has.
- *
- * Matching is by model name (`deepseek/deepseek-r1` or a full display name),
- * case-insensitively, so a list copied from another tool becomes the right
- * connections instead of everything landing on "custom". Provider order follows
- * the preset order, so the result is stable.
- */
+/** Model names a pasted config mentions, mapped onto matching provider ids. */
 export const providersForModelNames = (
   names: string[],
   connections: Record<ProviderId, ProviderConnection>,
@@ -2126,13 +2509,72 @@ export const providersForModelNames = (
     needles.map(extractLastPathSegment).filter((tail) => tail.length >= 6),
   );
   return PROVIDER_PRESETS.filter((preset) =>
-    isMatchingUsablePreset(preset, needles, tails, connections),
+    isMatchingPreset(preset, needles, tails, connections),
   ).map((preset) => preset.id);
 };
+
+/** Subset of {@link providersForModelNames} that are already usable today. */
+export const usableProvidersForModelNames = (
+  names: string[],
+  connections: Record<ProviderId, ProviderConnection>,
+): ProviderId[] =>
+  providersForModelNames(names, connections).filter((id) =>
+    isConnectionUsable(id, connections),
+  );
 
 /* -------------------------------------------------------------------------- */
 /* Model discovery                                                            */
 /* -------------------------------------------------------------------------- */
+
+/** Converts catalog metadata into the persisted `DiscoveredModelEntry` shape. */
+const toDiscoveredEntry = (
+  entry: ReturnType<typeof enrichDiscoveredModels>[number],
+  now: number,
+): DiscoveredModelEntry => ({
+  id: entry.id,
+  name: entry.name,
+  contextWindow: entry.contextWindowLabel,
+  contextTokens: entry.contextWindow || undefined,
+  maxOutputTokens: entry.maxOutputTokens ?? undefined,
+  inputCostPerM: entry.inputCostPerM ?? undefined,
+  outputCostPerM: entry.outputCostPerM ?? undefined,
+  vision: entry.vision,
+  reasoning: entry.reasoning,
+  toolUse: entry.toolUse,
+  nonChat: entry.nonChat,
+  source: entry.source,
+  discoveredAt: now,
+});
+
+/** Convert raw ids the provider's `/models` returned into enriched `DiscoveredModelEntry` records. */
+export const enrichDiscovered = (
+  providerId: ProviderId,
+  discoveredIds: string[],
+): DiscoveredModelEntry[] => {
+  const now = Date.now();
+  return enrichDiscoveredModels(providerId, discoveredIds).map((entry) =>
+    toDiscoveredEntry(entry, now),
+  );
+};
+
+/** Return a copy of `connection` with its discovered-models list replaced. */
+export const withDiscoveredModels = (
+  connection: ProviderConnection,
+  entries: DiscoveredModelEntry[],
+): ProviderConnection => ({
+  ...connection,
+  discoveredModels: entries,
+});
+
+/** Persist raw provider-reported ids as discovered models on `connection`. */
+export const withRefreshedModels = (
+  connection: ProviderConnection,
+  discoveredIds: string[],
+  providerId: ProviderId,
+): ProviderConnection => ({
+  ...connection,
+  discoveredModels: enrichDiscovered(providerId, discoveredIds),
+});
 
 /** Turn discovered native slugs into the `provider/model` ids the app stores. */
 export const modelsWithProviderPrefix = (
@@ -2142,17 +2584,15 @@ export const modelsWithProviderPrefix = (
   const out: string[] = [];
   for (const raw of discovered) {
     const slug = raw.trim();
-    if (!slug) continue;
-    out.push(slug.startsWith(`${id}/`) ? slug : `${id}/${slug}`);
+    if (slug) out.push(slug.startsWith(`${id}/`) ? slug : `${id}/${slug}`);
   }
   return [...new Set(out)];
 };
 
-/** `provider/model` ids → the raw slugs `extraModels` expects. */
+/** `provider/model` ids -> the raw slugs `extraModels` expects. */
 export const stripProviderPrefix = (id: ProviderId, ids: string[]): string[] =>
   ids
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((raw) => (raw.startsWith(`${id}/`) ? raw.slice(id.length + 1) : raw))
     .filter((raw, index, all) => all.indexOf(raw) === index);
-

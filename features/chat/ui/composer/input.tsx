@@ -608,7 +608,7 @@ const useComposerModelCatalog = (
     () =>
       resolveAutoTargetModel(
         concreteAllModels,
-        settings.ai.providers?.defaultModel,
+        settings.ai.providers?.chatMode,
       ),
     [concreteAllModels, settings.ai.providers],
   );

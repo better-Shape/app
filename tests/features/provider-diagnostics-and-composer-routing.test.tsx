@@ -107,6 +107,16 @@ describe("Settings -> Providers Check chat and Test connection diagnostics guard
                 });
             }
 
+            // The split providers view lists unconfigured providers as add
+            // actions, so add NVIDIA first to mount its card.
+            const addNvidia = Array.from(host.querySelectorAll("button")).find((b) =>
+                (b.textContent ?? "").includes("NVIDIA NIM"),
+            );
+            if (!addNvidia) throw new Error("expected NVIDIA NIM add button");
+            await act(async () => {
+                addNvidia.click();
+            });
+
             const checkButtons = Array.from(host.querySelectorAll("button")).filter(
                 (b) => b.textContent?.trim() === "Check chat",
             );

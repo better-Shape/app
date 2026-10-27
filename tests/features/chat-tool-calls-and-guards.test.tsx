@@ -60,6 +60,7 @@ import {
     providerHeaders,
     providersForModelNames,
     toRustAiConfig,
+    withFeatureModel,
 } from "@/lib/ai/providers";
 import { commands } from "@/lib/backend/commands";
 import { shortenMentionTokensInText } from "@/lib/chat/mentions";
@@ -684,7 +685,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
 
     it("normalizes non-string provider credentials, redacts echoed error secrets, collapses dictation spaces, and breaks highlight runs on br", () => {
         const normalized = normalizeProvidersSettings({
-            defaultModel: "openai/gpt-5",
+            chatMode: "openai/gpt-5",
             services: {
                 search: { provider: "brave", apiKey: "bsa-123" },
                 composio: { apiKey: "", userId: "" },
@@ -981,10 +982,10 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         settings.connections.custom.enabled = true;
         settings.connections.custom.baseUrl = "https://gateway.example.test/v1";
         settings.connections.custom.extraModels = ["bge-m3"];
-        settings.embeddingModel = "custom/bge-m3";
-        expect(embeddingsTarget(settings)).toEqual({
+        const configured = withFeatureModel(settings, "embeddings", "custom/bge-m3");
+        expect(embeddingsTarget(configured)).toEqual({
             id: "custom",
-            model: "custom/bge-m3",
+            model: "bge-m3",
         });
 
         const cleaned = stripLeakedToolMarkup(
@@ -1036,7 +1037,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         settings.connections.openai.apiKey = dummyKey;
         settings.connections.google.enabled = true;
         settings.connections.google.apiKey = ["goog", "test", "placeholder0000"].join("-");
-        settings.defaultModel = "gemini/gemini-2.5-pro";
+        settings.chatMode = "gemini/gemini-2.5-pro";
         expect(toRustAiConfig(settings).defaultModel).toBe("google/gemini-2.5-pro");
 
         const singleMatchRow = mount(
@@ -1572,6 +1573,44 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             });
         }
     });
+
+    it("preserves UTF-16 surrogate boundaries at 48k display cap, parses unclosed mcp approval tags, and routes unadvertised custom embeddings away from OpenAI", () => {
+        const straddling = `${"a".repeat(47_999)}🚀 trailing text`;
+        const displayed = preprocessChatMarkdown(straddling, { streaming: false });
+        expect(displayed).toContain("... (response truncated for display)");
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u.test(displayed)).toBe(false);
+
+        const mcpMultiline =
+            '<terminal_command status="pending" id="mcp-1" mcp=">npx @mcp/fs --label "docs"\nAwaiting approval: MCP fs</terminal_command>';
+        const mcpSingleLine =
+            '<terminal_command status="pending" id="mcp-2" mcp=">uvx mcp-git</terminal_command>';
+        const parsedMulti = parseMessageContent(mcpMultiline);
+        const parsedSingle = parseMessageContent(mcpSingleLine);
+        expect(parsedMulti[0]).toMatchObject({
+            type: "terminal_command",
+            commandId: "mcp-1",
+            commandStatus: "pending",
+            command: 'npx @mcp/fs --label "docs"',
+        });
+        expect(parsedSingle[0]).toMatchObject({
+            type: "terminal_command",
+            commandId: "mcp-2",
+            commandStatus: "pending",
+            command: "uvx mcp-git",
+        });
+
+        const base = defaultProvidersSettings();
+        base.connections.openai.enabled = true;
+        base.connections.openai.apiKey = ["sk", "test", "placeholder0000"].join("-");
+        base.connections.custom.enabled = true;
+        base.connections.custom.baseUrl = "https://embed.internal.test/v1";
+        const withCustomSlug = withFeatureModel(base, "embeddings", "BAAI/bge-m3");
+        expect(embeddingsTarget(withCustomSlug)).toEqual({
+            id: "custom",
+            model: "BAAI/bge-m3",
+        });
+    });
 });
+
 
 

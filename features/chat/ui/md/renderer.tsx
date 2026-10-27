@@ -544,6 +544,21 @@ const parsePlanBlock = (block: string): Chunk => ({
 /** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
 const isAsciiQuoteCode = (code: number): boolean => code === 34 || code === 39;
 
+/** Checks whether `text` begins a closing XML tag (`</`) at `idx`. */
+const isClosingXmlTagStart = (text: string, idx: number): boolean =>
+    text.charCodeAt(idx) === 60 && text.charCodeAt(idx + 1) === 47;
+
+/** Checks whether `text` hits a newline or `</` closing tag before closing a quote. */
+const isUnterminatedQuoteBreak = (
+    text: string,
+    idx: number,
+    code: number,
+): boolean => code === 10 || isClosingXmlTagStart(text, idx);
+
+/** Checks whether `idx` sits on the unclosed `mcp=">` marker emitted by Rust MCP approvals. */
+const isUnclosedMcpMarkerAt = (text: string, idx: number): boolean =>
+    idx >= 4 && text.slice(idx - 4, idx + 2) === 'mcp=">';
+
 /** Advances past a quoted XML attribute value starting at `openIdx` (`"` or `'`). */
 const skipQuotedTagAttr = (
     text: string,
@@ -558,7 +573,7 @@ const skipQuotedTagAttr = (
             continue;
         }
         if (code === quoteCode) return idx + 1;
-        if (code === 10) return -2;
+        if (isUnterminatedQuoteBreak(text, idx, code)) return -2;
         idx += 1;
     }
     return -1;
@@ -569,12 +584,14 @@ const resolveAfterQuotedAttr = (
     text: string,
     idx: number,
     code: number,
-    fromIndex: number,
 ): { done: true; gtIndex: number } | { done: false; nextIdx: number } => {
+    if (isUnclosedMcpMarkerAt(text, idx)) {
+        return { done: true, gtIndex: idx + 1 };
+    }
     const afterQuote = skipQuotedTagAttr(text, idx, code);
     if (afterQuote === -1) return { done: true, gtIndex: -1 };
     if (afterQuote === -2) {
-        return { done: true, gtIndex: text.indexOf(">", fromIndex) };
+        return { done: true, gtIndex: text.indexOf(">", idx + 1) };
     }
     return { done: false, nextIdx: afterQuote };
 };
@@ -586,7 +603,7 @@ const findTagHeaderCloseIndex = (text: string, fromIndex: number): number => {
         const code = text.charCodeAt(idx);
         if (code === 62) return idx;
         if (isAsciiQuoteCode(code)) {
-            const step = resolveAfterQuotedAttr(text, idx, code, fromIndex);
+            const step = resolveAfterQuotedAttr(text, idx, code);
             if (step.done) return step.gtIndex;
             idx = step.nextIdx;
         } else {
