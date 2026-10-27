@@ -861,7 +861,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const b64Short = btoa(["u", "p"].join(":"));
         const rawAuthErr = [
             `Header Authorization: Basic ${b64Pair} rejected;`,
-            `echoed Basic ${b64Short} and`,
+            `echoed basic ${b64Short} and BASIC ${b64Pair} and`,
             ["https://svc:", "topsecret99", "@llm.internal/v1"].join(""),
         ].join(" ");
         const redactedAuth = redactErrorSecrets(rawAuthErr);
@@ -870,6 +870,9 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(redactedAuth).not.toContain("topsecret99");
         expect(redactErrorSecrets("401 Basic authentication failed")).toBe(
             "401 Basic authentication failed",
+        );
+        expect(redactErrorSecrets("basic error_handling failed")).toBe(
+            "basic error_handling failed",
         );
 
         expect(resolveComposerSetupGap(true, 0, {})).toBe(
@@ -1406,7 +1409,14 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         const pinnedSettings = defaultProvidersSettings();
         pinnedSettings.connections.openai.apiKey = ["sk", "test", "placeholder0000"].join("-");
         pinnedSettings.connections.openai.models = ["openai/gpt-4.1-mini"];
+        pinnedSettings.connections.openai.discoveredModels = [
+            { id: "openai/gpt-4.1-mini", nonChat: false },
+            { id: "openai/o4-mini", nonChat: false },
+        ];
         expect(providersForModelNames(["openai/o4-mini"], pinnedSettings.connections)).toEqual([]);
+        expect(chatModelIdsFor("openai", pinnedSettings.connections)).toEqual([
+            "openai/gpt-4.1-mini",
+        ]);
         expect(providersForModelNames(["openai/gpt-4.1-mini"], pinnedSettings.connections)).toEqual(
             ["openai"],
         );

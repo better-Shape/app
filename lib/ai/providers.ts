@@ -1472,7 +1472,7 @@ export const modelIdsFor = (
     .map((raw) => raw.trim())
     .filter(Boolean)
     .map((raw) => normalizeExtraModelEntry(id, raw));
-  return [...new Set([...base, ...extra, ...discoveredAll])];
+  return [...new Set([...base, ...extra])];
 };
 
 /** Evaluates whether a single model id belongs in `chatModelIdsFor`. */
