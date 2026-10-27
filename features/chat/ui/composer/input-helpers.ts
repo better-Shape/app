@@ -985,36 +985,50 @@ export const processComposerPasteEvent = (opts: {
   processClipboardTextBranch({ ...opts, clipboardData, hadFileItem });
 };
 
-/** Attempts native `execCommand("insertText")` on the focused `<textarea>`. */
-const tryExecInsertText = (replacement: string): boolean => {
-  try {
-    return document.execCommand("insertText", false, replacement);
-  } catch {
-    return false;
-  }
+/** Commits programmatic textarea text and schedules caret restoration on the next frame. */
+const applyFallbackClipboardCaret = (
+  textarea: HTMLTextAreaElement,
+  applyProgrammaticInputValue: (next: string) => void,
+  nextValue: string,
+  nextCaret: number,
+): void => {
+  applyProgrammaticInputValue(nextValue);
+  requestAnimationFrame(() => {
+    textarea.focus();
+    textarea.setSelectionRange(nextCaret, nextCaret);
+  });
 };
 
-/** Applies fallback controlled value + caret selection when `execCommand` is unavailable. */
-const applyContextMenuFallbackInsert = (opts: {
-  textarea: HTMLTextAreaElement;
-  inputValue: string;
-  start: number;
-  end: number;
-  text: string;
-  wrapped: ReturnType<typeof tryWrapMarkdownLinkOnPaste>;
-  applyProgrammaticInputValue: (next: string) => void;
-}): void => {
-  const nextValue = opts.wrapped
-    ? opts.wrapped.nextValue
-    : `${opts.inputValue.slice(0, opts.start)}${opts.text}${opts.inputValue.slice(opts.end)}`;
-  const nextCaret = opts.wrapped
-    ? opts.wrapped.nextCaret
-    : opts.start + opts.text.length;
-  opts.applyProgrammaticInputValue(nextValue);
-  requestAnimationFrame(() => {
-    opts.textarea.focus();
-    opts.textarea.setSelectionRange(nextCaret, nextCaret);
-  });
+/** Resolves replacement range and resulting value for inline clipboard insertion. */
+const resolveInlineClipboardEdit = (
+  inputValue: string,
+  start: number,
+  end: number,
+  text: string,
+): {
+  rangeStart: number;
+  rangeEnd: number;
+  replacement: string;
+  nextValue: string;
+  wrapped: boolean;
+} => {
+  const mdLink = tryWrapMarkdownLinkOnPaste(inputValue, start, end, text);
+  if (mdLink) {
+    return {
+      rangeStart: mdLink.start,
+      rangeEnd: mdLink.end,
+      replacement: mdLink.replacement,
+      nextValue: mdLink.nextValue,
+      wrapped: true,
+    };
+  }
+  return {
+    rangeStart: start,
+    rangeEnd: end,
+    replacement: text,
+    nextValue: `${inputValue.slice(0, start)}${text}${inputValue.slice(end)}`,
+    wrapped: false,
+  };
 };
 
 /** Inserts inline context-menu clipboard text into `textarea` after size checks. */
@@ -1025,28 +1039,29 @@ const insertInlineContextMenuClipboard = (opts: {
   clearHistoryCursor: () => void;
   applyProgrammaticInputValue: (next: string) => void;
 }): void => {
-  const start = opts.textarea.selectionStart;
-  const end = opts.textarea.selectionEnd;
-  const wrapped = tryWrapMarkdownLinkOnPaste(opts.inputValue, start, end, opts.text);
-  const replacement = wrapped
-    ? `[${opts.inputValue.slice(start, end)}](${opts.text.trim()})`
-    : opts.text;
-  opts.textarea.focus();
-  opts.textarea.setSelectionRange(start, end);
-  const insertedNatively = tryExecInsertText(replacement);
+  const edit = resolveInlineClipboardEdit(
+    opts.inputValue,
+    opts.textarea.selectionStart,
+    opts.textarea.selectionEnd,
+    opts.text,
+  );
   opts.clearHistoryCursor();
-  if (!insertedNatively) {
-    applyContextMenuFallbackInsert({
-      textarea: opts.textarea,
-      inputValue: opts.inputValue,
-      start,
-      end,
-      text: opts.text,
-      wrapped,
-      applyProgrammaticInputValue: opts.applyProgrammaticInputValue,
-    });
-  }
-  if (wrapped) {
+  insertTextareaRangeWithUndo(
+    opts.textarea,
+    edit.rangeStart,
+    edit.rangeEnd,
+    edit.replacement,
+    edit.nextValue,
+    /** Applies controlled fallback value and restores caret when native undo insert fails. */
+    (val, caret) =>
+      applyFallbackClipboardCaret(
+        opts.textarea,
+        opts.applyProgrammaticInputValue,
+        val,
+        caret,
+      ),
+  );
+  if (edit.wrapped) {
     notify.info("Formatted as Markdown link", "Press Ctrl/Cmd+Z to keep the raw URL.");
   }
 };

@@ -2249,6 +2249,58 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             clearMocks();
         }
     });
+
+    it("covers ECMA-35 nF escapes, billing provider copy, fence-aware leaked tool guards, and non-Segmenter grapheme fallback", () => {
+        expect(stripAnsi("pre\u001b(Bmid\u001b)0\u001b#8post")).toBe("premidpost");
+        const firstChunk = appendStreamAnsiChunk(
+            { output: "", carry: "" },
+            "line\u001b(",
+        );
+        expect(firstChunk).toEqual({ output: "line", carry: "\u001b(" });
+        const secondChunk = appendStreamAnsiChunk(firstChunk, "Bok");
+        expect(secondChunk).toEqual({ output: "lineok", carry: "" });
+
+        mount(
+            <ChatErrorDialog
+                message="402 Payment Required: insufficient credits on openrouter.ai"
+                onDismiss={vi.fn()}
+            />,
+        );
+        expect(document.body.textContent ?? "").toContain(
+            "Your OpenRouter account has run out of credits. Add credits to continue.",
+        );
+
+        const pythonExecuteMethod = [
+            "```python",
+            "class Runner:",
+            "    def _execute(self, rows):",
+            "        print(len(rows))",
+            "```",
+        ].join("\n");
+        expect(preprocessChatMarkdown(pythonExecuteMethod)).toContain("def _execute(self, rows):");
+
+        const executeToolDump = [
+            "```",
+            "_execute",
+            "tool_name: read_file",
+            "functions.custom_helper({\"path\": \"a.ts\"})",
+            "```",
+        ].join("\n");
+        expect(preprocessChatMarkdown(executeToolDump)).toBe("");
+
+        const closedFencePlusInlineTag =
+            "```ts\nconst safe = 1;\n```\nExplain `<tool_call>` syntax while streaming";
+        expect(preprocessChatMarkdown(closedFencePlusInlineTag, { streaming: true })).toBe(
+            closedFencePlusInlineTag,
+        );
+
+        const familySample = "ab👨‍👩‍👧‍👦cd";
+        expect(findFallbackGraphemeCutIndex(familySample, 12)).toBe(2);
+        expect(findFallbackGraphemeCutIndex("a👍🏽b", 3)).toBe(1);
+        expect(findFallbackGraphemeCutIndex("x1️⃣y", 3)).toBe(1);
+        expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 2)).toBe(0);
+        expect(findFallbackGraphemeCutIndex("🇳🇬🇺🇸", 4)).toBe(4);
+    });
 });
 
 

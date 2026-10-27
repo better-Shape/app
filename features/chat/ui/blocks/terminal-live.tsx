@@ -143,13 +143,37 @@ const isIncompleteOscAtEnd = (input: string, start: number): boolean => {
     return end === input.length - 1 && input.charCodeAt(end) === 0x1b;
 };
 
+/** Checks whether an ECMA-35 nF intermediate byte run (`0x20..0x2F`) reaches EOF without a final byte. */
+const isIncompleteNfAtEnd = (input: string, start: number): boolean => {
+    const afterIntermediates = advanceWhileCharCode(
+        input,
+        start,
+        isCsiIntermediateByte,
+    );
+    return afterIntermediates > start && afterIntermediates === input.length;
+};
+
+/** Skips an ECMA-35 nF or two-byte escape starting at `start` (`escIndex + 1`). */
+const skipNfOrTwoByteEscape = (input: string, start: number): number => {
+    const afterIntermediates = advanceWhileCharCode(
+        input,
+        start,
+        isCsiIntermediateByte,
+    );
+    if (afterIntermediates === start) return start + 1;
+    const finalCode = input.charCodeAt(afterIntermediates);
+    return finalCode >= 0x30 && finalCode <= 0x7e
+        ? afterIntermediates + 1
+        : afterIntermediates;
+};
+
 /** Checks whether an ANSI escape starting at `escIndex` is split across the end of `input`. */
 const isIncompleteAnsiAtEnd = (input: string, escIndex: number): boolean => {
     if (escIndex === input.length - 1) return true;
     const next = input[escIndex + 1];
     if (next === "[") return isIncompleteCsiAtEnd(input, escIndex + 2);
     if (next === "]") return isIncompleteOscAtEnd(input, escIndex + 2);
-    return false;
+    return isIncompleteNfAtEnd(input, escIndex + 1);
 };
 
 /** Returns true when `ch` is undefined or a line-break character (`\n` / `\r`). */
@@ -162,7 +186,7 @@ const advanceAnsiEscape = (input: string, escIndex: number): number => {
     if (isLineBreakOrEmpty(next)) return escIndex + 1;
     if (next === "]") return skipOscSequence(input, escIndex + 2);
     if (next === "[") return skipCsiSequence(input, escIndex + 2);
-    return escIndex + 2;
+    return skipNfOrTwoByteEscape(input, escIndex + 1);
 };
 
 /** Strips ANSI CSI/OSC/two-byte escape sequences while preserving `\r` and `\n` control characters. */

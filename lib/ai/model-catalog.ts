@@ -120,15 +120,10 @@ const MAX_CATALOG_MODELS = 3000;
 const BINARY_TIERS_KB = [16, 32, 64, 128, 256, 512];
 
 /**
- * Browser-CORS-safe catalog URL serving the `{ data: CatalogModel[] }` envelope
- * from `sst/models.dev` (`Access-Control-Allow-Origin: *`). Note that
- * `https://models.dev/models.json` omits `Access-Control-Allow-Origin` and
- * returns a keyed map rather than `{ data: [...] }`, causing CORS console errors
- * in Chromium/WebView origins.
+ * Public CORS-enabled catalog endpoint serving the `{ data: CatalogModel[] }`
+ * envelope matching `catalog-snapshot.json` (`Access-Control-Allow-Origin: *`).
  */
-const CATALOG_URLS = [
-    "https://raw.githubusercontent.com/sst/models.dev/main/models.json",
-];
+const CATALOG_URLS = ["https://openrouter.ai/api/v1/models"];
 
 const VENDOR_PREFIX_RE = /^[A-Za-z0-9 .&+-]{1,48}:[ \t]*/u;
 const TRAILING_POINT_ZERO_RE = /\.0$/u;
@@ -256,17 +251,20 @@ const formatMillionWindow = (tokens: number): string => {
     return `${millions.toFixed(decimals).replace(TRAILING_POINT_ZERO_RE, "")}M`;
 };
 
-/** Formats `>= 10_000` context windows, snapping near binary tiers (`128K`, `256K`). */
+/** Checks whether `tokens` lies within 3K of `tier` in decimal (`1000`) or binary (`1024`) units. */
+const matchesBinaryContextTier = (tokens: number, tier: number): boolean =>
+    Math.abs(tokens / 1000 - tier) < 3 || Math.abs(tokens / 1024 - tier) < 3;
+
+/** Formats `>= 10_000` context windows, snapping near binary tiers (`128K`, `256K`, `512K`). */
 const formatLargeKilobyteWindow = (tokens: number): string => {
-    const kilobytes = tokens / 1000;
-    for (const tier of BINARY_TIERS_KB) {
-        if (Math.abs(kilobytes - tier) < 3) return `${tier}K`;
-    }
-    return `${Math.round(kilobytes)}K`;
+    const matchedTier = BINARY_TIERS_KB.find((tier) =>
+        matchesBinaryContextTier(tokens, tier),
+    );
+    return matchedTier ? `${matchedTier}K` : `${Math.round(tokens / 1000)}K`;
 };
 
 /** Human-friendly context-window formatting (`"128K"`, `"400K"`, `"1M"`). */
-const formatContextWindow = (tokens: number): string => {
+export const formatContextWindow = (tokens: number): string => {
     if (tokens <= 0) return "";
     if (tokens >= 1_000_000) return formatMillionWindow(tokens);
     if (tokens >= 10_000) return formatLargeKilobyteWindow(tokens);
