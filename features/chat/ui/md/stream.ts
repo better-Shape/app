@@ -621,8 +621,10 @@ const LEAKED_FUNCTIONS_CALL_RE =
     /^functions\.(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\(/;
 const GENERIC_FUNCTIONS_CALL_RE = /^functions\.[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
 const GENERIC_PRINT_CALL_RE = /\bprint\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
-const LEAKED_XML_OPEN_RE =
-    /<(?:tool_call|function_call|minimax:tool_call|tool_code)\b/i;
+const LEAKED_XML_ROOT_OPEN_RE =
+    /^<(tool_calls?|function_calls?|minimax:tool_call|tool_code)(?:[\s>/]|$)/iu;
+const LEAKED_XML_PAYLOAD_RE =
+    /"(?:tool_)?name"\s*:|"arguments"\s*:|"parameters"\s*:|<(?:invoke|parameter|function|tool_code|arg_key|arg_value)(?:[\s=>/]|$)|\b[a-zA-Z_]\w*\s*\(/iu;
 
 const LEAKED_PRINT_LINE_RE =
     /(?:^|\n)[ \t]*print\s*\(\s*(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)\s*\([^\n]*\)\s*\)[ \t]*(?=\n|$)/g;
@@ -667,7 +669,16 @@ const hasExecuteDump = (text: string): boolean => EXECUTE_DUMP_RE.test(text);
 
 /** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
-    /"tool_code"\s*:/u.test(trimmed);
+    /^[{[][\s\S]*"tool_code"\s*:/u.test(trimmed);
+
+/** Checks whether `trimmed` starts with a root XML tool-call dump rather than sample code mentioning a tag. */
+const isLeakedXmlToolBlock = (trimmed: string): boolean => {
+    const match = LEAKED_XML_ROOT_OPEN_RE.exec(trimmed);
+    if (!match) return false;
+    const rootTag = match[1].toLowerCase();
+    if (!trimmed.toLowerCase().includes(`</${rootTag}>`)) return true;
+    return LEAKED_XML_PAYLOAD_RE.test(trimmed);
+};
 
 /** Checks whether `trimmed` starts with a leaked JSON `tool_code` or `print(...)` wrapper. */
 const hasDirectToolLeakSignature = (
@@ -687,7 +698,7 @@ export const looksLikeLeakedToolCode = (body: string): boolean => {
     const hasExecute = hasExecuteDump(trimmed);
     if (hasDirectToolLeakSignature(trimmed, hasExecute)) return true;
     if (hasLeakedInvocationLine(trimmed, hasExecute)) return true;
-    return LEAKED_XML_OPEN_RE.test(trimmed);
+    return isLeakedXmlToolBlock(trimmed);
 };
 
 /**

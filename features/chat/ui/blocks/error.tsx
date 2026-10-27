@@ -25,7 +25,7 @@ const CONTEXT_OVERFLOW_RE =
 const MODEL_BUSY_RE = /model_busy|model is busy|high\s*(load|demand)/i;
 const RATE_LIMIT_RE = /rate\s*limit|too many requests/i;
 const UNCONFIGURED_PROVIDER_ERROR_RE =
-    /no model provider is configured|has no api key|add one in settings/i;
+    /no model provider is configured|\bno api key\b|\bmissing api key\b|(?:add (?:one|an? api key)|paste it) in settings/i;
 
 const OPENROUTER_BILLING_PREFIXES = [
     "/credits",

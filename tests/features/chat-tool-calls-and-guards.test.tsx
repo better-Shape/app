@@ -34,7 +34,10 @@ import {
     isPlainEnterSubmit,
     shouldComposerBreakAll,
 } from "@/features/chat/ui/composer/input";
-import { computeProcessingSafetyTimeoutMs } from "@/features/chat/ui/composer/dictation-button";
+import {
+    DictationButton,
+    computeProcessingSafetyTimeoutMs,
+} from "@/features/chat/ui/composer/dictation-button";
 import { resolveComposerSetupGap } from "@/features/chat/ui/composer/input-helpers";
 import {
     dropSupersededPersonaReviews,
@@ -48,6 +51,7 @@ import {
     preprocessChatMarkdown,
     repairStreamGlitches,
     sliceGraphemeSafe,
+    stripLeakedToolCode,
     stripLeakedToolMarkup,
 } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
@@ -1832,6 +1836,130 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             expect(ptySignalEl.textContent).toContain("Failed");
         } finally {
             clearMocks();
+        }
+    });
+
+    it("normalizes string nonChat flags, preserves sample tool-tag code fences, suppresses retry on missing-key title, and excludes mic permission wait from dictation timeout", async () => {
+        const rawSettings = defaultProvidersSettings();
+        rawSettings.connections.openai = {
+            ...rawSettings.connections.openai,
+            apiKey: "sk-test-openai-key",
+            enabled: true,
+            discoveredModels: [
+                {
+                    id: "openai/gpt-4o-custom",
+                    nonChat: "false" as unknown as boolean,
+                },
+            ],
+        };
+        const normalized = normalizeProvidersSettings(rawSettings);
+        expect(normalized.connections.openai.discoveredModels[0].nonChat).toBeUndefined();
+        expect(chatModelIdsFor("openai", normalized.connections)).toContain(
+            "openai/gpt-4o-custom",
+        );
+
+        const tsSampleFence = [
+            "```ts",
+            'const sample = "<tool_call>{\\"name\\":\\"read_file\\"}</tool_call>";',
+            "```",
+        ].join("\n");
+        expect(stripLeakedToolCode(tsSampleFence)).toBe(tsSampleFence);
+        const xmlDocFence = "```xml\n<tool_call>example payload</tool_call>\n```";
+        expect(stripLeakedToolCode(xmlDocFence)).toBe(xmlDocFence);
+        const leakedXmlFence =
+            '```xml\n<tool_call>{"name":"read_file","arguments":{"path":"a.ts"}}</tool_call>\n```';
+        expect(stripLeakedToolCode(leakedXmlFence)).toBe("");
+
+        mount(
+            <ChatErrorDialog
+                message="No API key for this provider"
+                onDismiss={vi.fn()}
+                onRetry={vi.fn()}
+            />,
+        );
+        expect(
+            Array.from(document.body.querySelectorAll("button")).some(
+                (btn) => btn.textContent === "Try again",
+            ),
+        ).toBe(false);
+
+        vi.useFakeTimers();
+        mockIPC(() => "", { shouldMockEvents: true });
+        type AudioProcessHandler = (e: {
+            inputBuffer: { getChannelData: () => Float32Array };
+        }) => void;
+        let onAudio: AudioProcessHandler = () => undefined;
+        vi.stubGlobal(
+            "AudioContext",
+            class {
+                sampleRate = 16_000;
+                destination = {};
+                createMediaStreamSource() {
+                    return { connect: vi.fn(), disconnect: vi.fn() };
+                }
+                createScriptProcessor() {
+                    return {
+                        set onaudioprocess(fn: AudioProcessHandler | null) {
+                            onAudio = fn!;
+                        },
+                        get onaudioprocess() {
+                            return onAudio;
+                        },
+                        connect: vi.fn(),
+                        disconnect: vi.fn(),
+                    };
+                }
+                createGain() {
+                    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+                }
+                async close() {}
+            },
+        );
+        Object.defineProperty(navigator, "mediaDevices", {
+            configurable: true,
+            value: {
+                getUserMedia: vi.fn(
+                    () =>
+                        new Promise((resolve) => {
+                            setTimeout(
+                                () => resolve({ getTracks: () => [{ stop: vi.fn() }] }),
+                                60_000,
+                            );
+                        }),
+                ),
+            },
+        });
+        try {
+            const btnWrap = mount(
+                <TooltipProvider>
+                    <DictationButton />
+                </TooltipProvider>,
+            );
+            const btn = btnWrap.querySelector("button")!;
+            await act(async () => {
+                btn.click();
+                await vi.advanceTimersByTimeAsync(60_000);
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Stop dictation");
+            expect(btnWrap.textContent).toContain("0:00");
+            await act(async () => {
+                onAudio({
+                    inputBuffer: {
+                        getChannelData: () => new Float32Array(256).fill(0.25),
+                    },
+                });
+                await vi.advanceTimersByTimeAsync(2_000);
+                btn.click();
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Cancel dictation");
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(33_000);
+            });
+            expect(btn.getAttribute("aria-label")).toBe("Dictate");
+        } finally {
+            clearMocks();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
         }
     });
 });

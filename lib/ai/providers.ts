@@ -1224,6 +1224,36 @@ const normalizeStringList = (raw: unknown): string[] =>
 const normalizeStringField = (raw: unknown, fallback = ""): string =>
   typeof raw === "string" ? raw : fallback;
 
+const VALID_DISCOVERED_SOURCES = new Set<
+  NonNullable<DiscoveredModelEntry["source"]>
+>(["catalog", "discovered", "inferred"]);
+
+/** Coerces an optional boolean field, returning `undefined` when non-boolean. */
+const normalizeOptionalBoolean = (raw: unknown): boolean | undefined =>
+  typeof raw === "boolean" ? raw : undefined;
+
+/** Coerces an optional trimmed string field, returning `undefined` when empty or non-string. */
+const normalizeOptionalString = (raw: unknown): string | undefined => {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed || undefined;
+};
+
+/** Coerces an optional non-negative finite number, returning `undefined` otherwise. */
+const normalizeOptionalNumber = (raw: unknown): number | undefined =>
+  typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+
+/** Coerces an optional `DiscoveredModelEntry["source"]` tag, returning `undefined` when invalid. */
+const normalizeDiscoveredSource = (
+  raw: unknown,
+): DiscoveredModelEntry["source"] =>
+  typeof raw === "string" &&
+  VALID_DISCOVERED_SOURCES.has(
+    raw as NonNullable<DiscoveredModelEntry["source"]>,
+  )
+    ? (raw as DiscoveredModelEntry["source"])
+    : undefined;
+
 /** Type-guards a persisted `DiscoveredModelEntry` record. */
 const isDiscoveredModelEntry = (
   entry: unknown,
@@ -1232,9 +1262,30 @@ const isDiscoveredModelEntry = (
   typeof entry.id === "string" &&
   Boolean(entry.id.trim());
 
-/** Filters an unknown discovered-model array into valid `DiscoveredModelEntry` records. */
+/** Normalizes optional metadata fields on a validated `DiscoveredModelEntry` record. */
+const normalizeDiscoveredEntry = (
+  entry: DiscoveredModelEntry,
+): DiscoveredModelEntry => ({
+  id: entry.id.trim(),
+  name: normalizeOptionalString(entry.name),
+  contextWindow: normalizeOptionalString(entry.contextWindow),
+  contextTokens: normalizeOptionalNumber(entry.contextTokens),
+  maxOutputTokens: normalizeOptionalNumber(entry.maxOutputTokens),
+  inputCostPerM: normalizeOptionalNumber(entry.inputCostPerM),
+  outputCostPerM: normalizeOptionalNumber(entry.outputCostPerM),
+  vision: normalizeOptionalBoolean(entry.vision),
+  reasoning: normalizeOptionalBoolean(entry.reasoning),
+  toolUse: normalizeOptionalBoolean(entry.toolUse),
+  nonChat: normalizeOptionalBoolean(entry.nonChat),
+  source: normalizeDiscoveredSource(entry.source),
+  discoveredAt: normalizeOptionalNumber(entry.discoveredAt),
+});
+
+/** Filters and normalizes an unknown discovered-model array into valid `DiscoveredModelEntry` records. */
 const normalizeDiscoveredList = (raw: unknown): DiscoveredModelEntry[] =>
-  Array.isArray(raw) ? raw.filter(isDiscoveredModelEntry) : [];
+  Array.isArray(raw)
+    ? raw.filter(isDiscoveredModelEntry).map(normalizeDiscoveredEntry)
+    : [];
 
 /** Coerces an unknown search provider value to a valid `AiServicesSettings["search"]["provider"]`. */
 const normalizeSearchProvider = (
