@@ -825,161 +825,80 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
-const FENCE_INFO_HEADER_RE = /^[\w-]*[ \t\r\f\v]*\n/u;
-const UNCLOSED_BACKTICK_HEAD_RE = /^`{3,}[\w-]*[ \t\r\f\v]*\n/u;
-const UNCLOSED_TILDE_HEAD_RE = /^~{3,}[\w-]*[ \t\r\f\v]*\n/u;
+const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\r\f\v]*\n/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
 
-/** Counts consecutive occurrences of `charCode` in `text` starting at `from`. */
-const measureRepeatedCharCode = (
+/** Trims a single trailing `\r?\n` from `rangeEnd` so stripped closed fences preserve outer line breaks. */
+const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
+    if (text.charCodeAt(rangeEnd - 1) !== 0x0a) return rangeEnd;
+    return text.charCodeAt(rangeEnd - 2) === 0x0d ? rangeEnd - 2 : rangeEnd - 1;
+};
+
+/** Resolves `{ body, dropEnd }` for a closed CommonMark fence `[rangeStart, rangeEnd)`. */
+const resolveClosedFenceCandidate = (
     text: string,
-    from: number,
-    charCode: number,
+    headEnd: number,
+    rangeEnd: number,
+): { body: string; dropEnd: number } => {
+    const dropEnd = trimFenceRangeBreakEnd(text, rangeEnd);
+    const closeNl = text.lastIndexOf("\n", dropEnd - 1);
+    const bodyEnd = closeNl > headEnd ? closeNl + 1 : headEnd + 1;
+    return { body: text.slice(headEnd + 1, bodyEnd), dropEnd };
+};
+
+/** Extracts `{ body, dropEnd }` for a CommonMark fence `[rangeStart, rangeEnd)`, or `null` if ineligible. */
+const extractLeakedFenceCandidate = (
+    text: string,
+    rangeStart: number,
+    rangeEnd: number,
+    isOpenTail: boolean,
+): { body: string; dropEnd: number } | null => {
+    const headEnd = indexOfNewlineInRange(text, rangeStart, rangeEnd);
+    if (headEnd === -1) return null;
+    const headLine = text.slice(rangeStart, headEnd + 1).trimStart();
+    if (!LEAKED_FENCE_HEAD_RE.test(headLine)) return null;
+    return isOpenTail
+        ? { body: text.slice(headEnd + 1, rangeEnd), dropEnd: rangeEnd }
+        : resolveClosedFenceCandidate(text, headEnd, rangeEnd);
+};
+
+/** Returns `dropEnd` when CommonMark fence `[rangeStart, rangeEnd)` contains leaked tool code, or `-1`. */
+const resolveDroppedFenceEnd = (
+    text: string,
+    rangeStart: number,
+    rangeEnd: number,
+    isOpenTail: boolean,
 ): number => {
-    let end = from;
-    while (end < text.length && text.charCodeAt(end) === charCode) {
-        end += 1;
-    }
-    return end - from;
-};
-
-/** Finds the next maximal run of `marker` (`>= minLen` chars) at or after `from`, or `null`. */
-const findNextFenceDelimiterRun = (
-    text: string,
-    marker: "```" | "~~~",
-    from: number,
-    minLen: number,
-): { runStart: number; runEnd: number } | null => {
-    const charCode = marker.charCodeAt(0);
-    let pos = from;
-    while (pos < text.length) {
-        const hit = text.indexOf(marker, pos);
-        if (hit === -1) return null;
-        const runLen = measureRepeatedCharCode(text, hit, charCode);
-        if (runLen >= minLen) return { runStart: hit, runEnd: hit + runLen };
-        pos = hit + runLen;
-    }
-    return null;
-};
-
-/** Resolves `(bodyStart, closeStart, closeEnd)` for a closed `3+` fence opened at `openRun`, or `null`. */
-const matchClosedFenceSpan = (
-    text: string,
-    marker: "```" | "~~~",
-    openRun: { runStart: number; runEnd: number },
-): { bodyStart: number; closeStart: number; closeEnd: number } | null => {
-    const firstNl = text.indexOf("\n", openRun.runEnd);
-    if (firstNl === -1) return null;
-    if (!FENCE_INFO_HEADER_RE.test(text.slice(openRun.runEnd, firstNl + 1))) {
-        return null;
-    }
-    const closeRun = findNextFenceDelimiterRun(
+    const candidate = extractLeakedFenceCandidate(
         text,
-        marker,
-        firstNl + 1,
-        openRun.runEnd - openRun.runStart,
+        rangeStart,
+        rangeEnd,
+        isOpenTail,
     );
-    return closeRun
-        ? {
-              bodyStart: firstNl + 1,
-              closeStart: closeRun.runStart,
-              closeEnd: closeRun.runEnd,
-          }
-        : null;
+    return candidate && looksLikeLeakedToolCode(candidate.body)
+        ? candidate.dropEnd
+        : -1;
 };
 
-/** Returns `""` when the closed fence body looks like leaked tool code, or the original slice otherwise. */
-const keepOrDropClosedFenceSpan = (
-    text: string,
-    openStart: number,
-    closed: { bodyStart: number; closeStart: number; closeEnd: number },
-): string =>
-    looksLikeLeakedToolCode(text.slice(closed.bodyStart, closed.closeStart))
-        ? ""
-        : text.slice(openStart, closed.closeEnd);
-
-/** Strips closed `3+` backtick/tilde fenced blocks whose bodies look like leaked tool invocations. */
-const stripClosedLeakedFenceBlocks = (
-    text: string,
-    marker: "```" | "~~~",
-): string => {
+/** Strips closed and streaming CommonMark fenced blocks (`3+` backticks or tildes) containing leaked tool calls. */
+const stripLeakedFencedToolBlocks = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    if (state.ranges.length === 0) return text;
     let out = "";
     let cursor = 0;
-    while (cursor < text.length) {
-        const openRun = findNextFenceDelimiterRun(text, marker, cursor, 3);
-        if (!openRun) break;
-        const closed = matchClosedFenceSpan(text, marker, openRun);
-        if (!closed) {
-            out += text.slice(cursor, openRun.runEnd);
-            cursor = openRun.runEnd;
-        } else {
-            out +=
-                text.slice(cursor, openRun.runStart) +
-                keepOrDropClosedFenceSpan(text, openRun.runStart, closed);
-            cursor = closed.closeEnd;
+    for (const [rangeStart, rangeEnd] of state.ranges) {
+        const dropEnd = resolveDroppedFenceEnd(
+            text,
+            rangeStart,
+            rangeEnd,
+            rangeStart === state.fenceStart,
+        );
+        if (dropEnd >= 0) {
+            out += text.slice(cursor, rangeStart);
+            cursor = dropEnd;
         }
     }
     return out + text.slice(cursor);
-};
-
-/** Checks whether `state` ends inside an unclosed CommonMark fence opened with `marker`. */
-const isOpenMarkerFenceState = (
-    state: CodeFenceState,
-    marker: "```" | "~~~",
-): boolean => state.fenceChar === marker.charAt(0) && state.fenceStart >= 0;
-
-/** Resolves `(fenceStart, bodyStart)` when `text` ends inside an open `marker` fence matching `headRe`. */
-const findOpenLeakedFenceBounds = (
-    text: string,
-    marker: "```" | "~~~",
-    headRe: RegExp,
-): { fenceStart: number; bodyStart: number } | null => {
-    const state = scanMarkdownCodeFences(text, 0);
-    if (!isOpenMarkerFenceState(state, marker)) return null;
-    const firstNl = text.indexOf("\n", state.fenceStart);
-    if (firstNl === -1) return null;
-    const headLine = text.slice(state.fenceStart, firstNl + 1).trimStart();
-    return headRe.test(headLine)
-        ? { fenceStart: state.fenceStart, bodyStart: firstNl + 1 }
-        : null;
-};
-
-/** Strips an unclosed trailing code fence (`marker`) when its body looks like a leaked tool call. */
-const stripUnclosedLeakedFenceTail = (
-    text: string,
-    marker: "```" | "~~~",
-    headRe: RegExp,
-): string => {
-    const bounds = findOpenLeakedFenceBounds(text, marker, headRe);
-    if (!bounds) return text;
-    return looksLikeLeakedToolCode(text.slice(bounds.bodyStart))
-        ? text.slice(0, bounds.fenceStart)
-        : text;
-};
-
-/** Strips complete and streaming fenced blocks for a single fence marker (` ``` ` or `~~~`). */
-const stripLeakedFenceMarkerBlocks = (
-    text: string,
-    marker: "```" | "~~~",
-    headRe: RegExp,
-): string => {
-    if (!text.includes(marker)) return text;
-    const withoutComplete = stripClosedLeakedFenceBlocks(text, marker);
-    return stripUnclosedLeakedFenceTail(withoutComplete, marker, headRe);
-};
-
-/** Strips complete and streaming fenced code blocks (` ``` ` and `~~~`) whose bodies look like leaked tool calls. */
-const stripLeakedFencedToolBlocks = (text: string): string => {
-    const afterBackticks = stripLeakedFenceMarkerBlocks(
-        text,
-        "```",
-        UNCLOSED_BACKTICK_HEAD_RE,
-    );
-    return stripLeakedFenceMarkerBlocks(
-        afterBackticks,
-        "~~~",
-        UNCLOSED_TILDE_HEAD_RE,
-    );
 };
 
 /** Strips a bare `{ "tool_code": ... }` tail when its body contains a leaked tool trigger. */

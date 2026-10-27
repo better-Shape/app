@@ -52,6 +52,7 @@ import {
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import {
+    chatModelIdsFor,
     defaultProvidersSettings,
     describeProviderSetupGap,
     embeddingsTarget,
@@ -1037,6 +1038,15 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(buf.output).toBe("Start Failed done");
         expect(buf.carry).toBe("");
 
+        expect(
+            stripAnsi("a\u001bP1$r0m\u001b\\b\u001bXsos\u001b\\c\u001b^pm\u001b\\d\u001b_apc\u0007e"),
+        ).toBe("abcde");
+        let dcsBuf: TerminalStreamBuffer = { output: "", carry: "" };
+        dcsBuf = appendStreamAnsiChunk(dcsBuf, "head\u001bPpayload", false);
+        expect(dcsBuf).toEqual({ output: "head", carry: "\u001bPpayload" });
+        dcsBuf = appendStreamAnsiChunk(dcsBuf, "-more\u001b\\tail", true);
+        expect(dcsBuf).toEqual({ output: "headtail", carry: "" });
+
         const row = mount(
             <div data-chat-message-index="0">
                 <ActionLine action="Edited" detail="src/lib/router.ts" onClick={vi.fn()} />
@@ -1637,6 +1647,16 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             id: "custom",
             model: "BAAI/bge-m3",
         });
+
+        base.connections.openai.discoveredModels = [];
+        base.connections.openai.models = [
+            "openai/gpt-4o-mini",
+            "openai/text-embedding-3-small",
+        ];
+        base.connections.openai.extraModels = ["whisper-1"];
+        expect(chatModelIdsFor("openai", base.connections)).toEqual([
+            "openai/gpt-4o-mini",
+        ]);
     });
 
     it("covers ECMA-35 nF escapes, billing provider copy, fence-aware leaked tool guards, and non-Segmenter grapheme fallback", () => {

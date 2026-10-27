@@ -97,19 +97,31 @@ const advanceReferenceFenceLine = (
     source: string,
     lineStart: number,
     afterLine: number,
-    transformProse: (prose: string) => string,
+    callbacks: {
+        onProse: (prose: string) => string;
+        onFence: (fenceSlice: string, isClosed: boolean) => string;
+    },
 ): void => {
     const parsed = parseReferenceFenceMarker(
         sliceReferenceLineWithoutLf(source, lineStart, afterLine),
     );
     if (!tracker.fenceChar) {
         if (isReferenceFenceOpen(parsed)) {
-            openReferenceFence(tracker, segments, source, lineStart, parsed, transformProse);
+            openReferenceFence(
+                tracker,
+                segments,
+                source,
+                lineStart,
+                parsed,
+                callbacks.onProse,
+            );
         }
         return;
     }
     if (isReferenceFenceClose(parsed, tracker)) {
-        segments.push(source.slice(tracker.fenceStart, afterLine));
+        segments.push(
+            callbacks.onFence(source.slice(tracker.fenceStart, afterLine), true),
+        );
         tracker.proseStart = afterLine;
         tracker.fenceStart = -1;
         tracker.fenceChar = "";
@@ -119,12 +131,13 @@ const advanceReferenceFenceLine = (
 
 /**
  * CommonMark fence tracking oracle. Tracks closed vs open fences so prose transforms
- * and unclosed-fence truncation agree with CommonMark line-start rules.
+ * and leaked-fence filtering agree with CommonMark line-start rules.
  */
 const scanReferenceFences = (
     source: string,
-    transformProse: (prose: string) => string,
-): { joined: string; openStart: number; openChar: string } => {
+    onProse: (prose: string) => string,
+    onFence: (fenceSlice: string, isClosed: boolean) => string,
+): string => {
     const segments: string[] = [];
     const tracker: ReferenceFenceTracker = {
         proseStart: 0,
@@ -132,6 +145,7 @@ const scanReferenceFences = (
         fenceChar: "",
         fenceLen: 0,
     };
+    const callbacks = { onProse, onFence };
     let offset = 0;
     while (offset < source.length) {
         const nlIdx = source.indexOf("\n", offset);
@@ -142,26 +156,22 @@ const scanReferenceFences = (
             source,
             offset,
             nextOffset,
-            transformProse,
+            callbacks,
         );
         offset = nextOffset;
     }
     if (tracker.fenceChar) {
-        segments.push(source.slice(tracker.fenceStart));
+        segments.push(onFence(source.slice(tracker.fenceStart), false));
     } else if (tracker.proseStart < source.length) {
-        segments.push(transformProse(source.slice(tracker.proseStart)));
+        segments.push(onProse(source.slice(tracker.proseStart)));
     }
-    return {
-        joined: segments.join(""),
-        openStart: tracker.fenceStart,
-        openChar: tracker.fenceChar,
-    };
+    return segments.join("");
 };
 
 const mapOutsideReferenceFences = (
     source: string,
     transformProse: (prose: string) => string,
-): string => scanReferenceFences(source, transformProse).joined;
+): string => scanReferenceFences(source, transformProse, (slice) => slice);
 
 const escapeRegexLiteral = (token: string): string =>
     token.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -227,86 +237,45 @@ const referenceMarkup = (inputText: string): string => {
     return working.replace(/\n{3,}/gu, "\n\n");
 };
 
-const readOpenFenceBodyOffset = (
-    inputText: string,
-    openStart: number,
-    headPattern: RegExp,
-): number => {
-    const nl = inputText.indexOf("\n", openStart);
-    if (nl === -1) return -1;
-    const head = inputText.slice(openStart, nl + 1).trimStart();
-    return headPattern.test(head) ? nl + 1 : -1;
+const detectTrailingLineBreak = (fenceSlice: string): string => {
+    if (fenceSlice.endsWith("\r\n")) return "\r\n";
+    return fenceSlice.endsWith("\n") ? "\n" : "";
 };
 
-const stripReferenceOpenFenceTail = (
-    inputText: string,
-    fenceChar: "`" | "~",
-    headPattern: RegExp,
+const filterClosedReferenceFence = (
+    fenceSlice: string,
+    nlPos: number,
 ): string => {
-    const scan = scanReferenceFences(inputText, (prose) => prose);
-    if (scan.openChar !== fenceChar || scan.openStart < 0) return inputText;
-    const bodyStart = readOpenFenceBodyOffset(inputText, scan.openStart, headPattern);
-    if (bodyStart < 0) return inputText;
-    return looksLikeLeakedToolCode(inputText.slice(bodyStart))
-        ? inputText.slice(0, scan.openStart)
-        : inputText;
+    const suffixBreak = detectTrailingLineBreak(fenceSlice);
+    const trimmedFence = suffixBreak
+        ? fenceSlice.slice(0, -suffixBreak.length)
+        : fenceSlice;
+    const closeNl = trimmedFence.lastIndexOf("\n");
+    const bodySlice =
+        closeNl > nlPos ? trimmedFence.slice(nlPos + 1, closeNl + 1) : "";
+    return looksLikeLeakedToolCode(bodySlice) ? suffixBreak : fenceSlice;
 };
 
-const findClosingTokenIndex = (
-    tokens: string[],
-    afterOpenIdx: number,
-    minWidth: number,
-): number => {
-    for (let candidate = afterOpenIdx; candidate < tokens.length; candidate += 2) {
-        if (tokens[candidate].length >= minWidth) return candidate;
-    }
-    return -1;
-};
-
-const consumeReferenceClosedToken = (
-    tokens: string[],
-    idx: number,
-): { emitted: string; nextIdx: number } => {
-    const header = /^[\w-]*[ \t\r\f\v]*\n/u.exec(tokens[idx + 1]);
-    const closeIdx = header
-        ? findClosingTokenIndex(tokens, idx + 2, tokens[idx].length)
-        : -1;
-    if (!header || closeIdx < 0) {
-        return { emitted: tokens[idx] + tokens[idx + 1], nextIdx: idx + 2 };
-    }
-    const inner =
-        tokens[idx + 1].slice(header[0].length) +
-        tokens.slice(idx + 2, closeIdx).join("");
-    const kept = looksLikeLeakedToolCode(inner)
-        ? ""
-        : tokens.slice(idx, closeIdx + 1).join("");
-    return {
-        emitted: kept + tokens[closeIdx + 1],
-        nextIdx: closeIdx + 2,
-    };
-};
-
-const stripReferenceClosedByPattern = (
-    inputText: string,
-    delimPattern: RegExp,
+const filterReferenceLeakedFence = (
+    fenceSlice: string,
+    isClosed: boolean,
 ): string => {
-    const tokens = inputText.split(delimPattern);
-    const pieces: string[] = [tokens[0]];
-    let idx = 1;
-    while (idx + 1 < tokens.length) {
-        const step = consumeReferenceClosedToken(tokens, idx);
-        pieces.push(step.emitted);
-        idx = step.nextIdx;
+    const nlPos = fenceSlice.indexOf("\n");
+    if (nlPos === -1) return fenceSlice;
+    const header = fenceSlice.slice(0, nlPos + 1).trimStart();
+    if (!/^(?:`{3,}|~{3,})[\w-]*[ \t\r\f\v]*\n/u.test(header)) {
+        return fenceSlice;
     }
-    return pieces.join("");
+    if (!isClosed) {
+        return looksLikeLeakedToolCode(fenceSlice.slice(nlPos + 1))
+            ? ""
+            : fenceSlice;
+    }
+    return filterClosedReferenceFence(fenceSlice, nlPos);
 };
 
-const stripReferenceFences = (inputText: string): string => {
-    let working = stripReferenceClosedByPattern(inputText, /(`{3,})/gu);
-    working = stripReferenceOpenFenceTail(working, "`", /^`{3,}[\w-]*[ \t\r\f\v]*\n/u);
-    working = stripReferenceClosedByPattern(working, /(~{3,})/gu);
-    return stripReferenceOpenFenceTail(working, "~", /^~{3,}[\w-]*[ \t\r\f\v]*\n/u);
-};
+const stripReferenceFences = (inputText: string): string =>
+    scanReferenceFences(inputText, (prose) => prose, filterReferenceLeakedFence);
 
 const REFERENCE_TOOL_FN =
     /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/u;
@@ -405,6 +374,16 @@ describe("strip equivalence", () => {
                 "before\n~~~~json\n{\"tool_code\": \"print(read_file('x'))\"}\n~~~~\nafter",
             ),
         ).toBe("before\n\nafter");
+        const midLineEcho = [
+            "```bash",
+            'echo "```"',
+            "```",
+            "Prose mentioning `<tool_call>` inline",
+            "```ts",
+            "const ok = 1;",
+            "```",
+        ].join("\n");
+        expect(stripLeakedToolCode(midLineEcho)).toBe(midLineEcho);
         for (const sample of cases) {
             expect(stripLeakedToolCode(sample), sample).toBe(referenceCode(sample));
         }

@@ -1475,41 +1475,16 @@ export const modelIdsFor = (
   return [...new Set([...base, ...extra, ...discoveredAll])];
 };
 
-/** Checks whether `modelId` was explicitly added or pinned by the user on `connection`. */
-const isUserExplicitModelOnConnection = (
-  id: ProviderId,
-  connection: ProviderConnection,
-  modelId: string,
-): boolean =>
-  connection.models.includes(modelId) ||
-  connection.extraModels.some(
-    (entry) => entry === modelId || `${id}/${entry}` === modelId,
-  );
-
-/** Checks whether a preset model id should stay visible in chat model lists. */
-const isChatCapablePresetModel = (
-  id: ProviderId,
-  preset: ProviderPreset,
-  modelId: string,
-): boolean => {
-  if (!preset.models.some((entry) => entry.id === modelId)) return true;
-  const meta = catalogGetModelMetadata(modelId, id);
-  return meta.source !== "catalog" || !meta.nonChat;
-};
-
 /** Evaluates whether a single model id belongs in `chatModelIdsFor`. */
 const shouldIncludeInChatModels = (
   id: ProviderId,
-  preset: ProviderPreset,
-  connection: ProviderConnection,
   discoveredChat: Set<string>,
   discoveredNonChat: Set<string>,
   modelId: string,
 ): boolean => {
   if (discoveredChat.has(modelId)) return true;
   if (discoveredNonChat.has(modelId)) return false;
-  if (isUserExplicitModelOnConnection(id, connection, modelId)) return true;
-  return isChatCapablePresetModel(id, preset, modelId);
+  return !catalogGetModelMetadata(modelId, id).nonChat;
 };
 
 /** Chat-capable subset of {@link modelIdsFor} (embeddings/audio filtered out). */
@@ -1519,8 +1494,6 @@ export const chatModelIdsFor = (
 ): string[] => {
   const connection = connections[id];
   const all = modelIdsFor(id, connections);
-  if (connection.discoveredModels.length === 0) return all;
-  const preset = providerPreset(id);
   const discoveredChat = new Set(
     connection.discoveredModels
       .filter((model) => !model.nonChat)
@@ -1534,8 +1507,6 @@ export const chatModelIdsFor = (
   return all.filter((modelId) =>
     shouldIncludeInChatModels(
       id,
-      preset,
-      connection,
       discoveredChat,
       discoveredNonChat,
       modelId,
