@@ -32,6 +32,13 @@ describe("transcript-search", () => {
         expect(searchable).not.toContain("secret_todo");
         expect(searchable).toContain("refreshSession");
         expect(searchable).toContain("src/lib/auth.ts");
+
+        const sentFileMsg =
+            '<sent_file name="quarterly-report.pdf" title="Quarterly &amp; Annual Summary" type="application/pdf">data:application/pdf;base64,SECRET_BASE64_PAYLOAD</sent_file>';
+        const sentSearchable = extractSearchableMessageText(sentFileMsg);
+        expect(sentSearchable).toContain("Quarterly & Annual Summary");
+        expect(sentSearchable).toContain("quarterly-report.pdf");
+        expect(sentSearchable).not.toContain("SECRET_BASE64_PAYLOAD");
     });
 
     it("indexes multiple case-insensitive matches across user and assistant messages", () => {

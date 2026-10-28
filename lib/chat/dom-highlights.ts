@@ -827,6 +827,19 @@ const resolveTargetRangeInRun = (
     return getHitRangeAtIndex(runHits, readMappedDomIndex(srcToDom, targetOcc));
 };
 
+/** Appends up to `limit` hits from `runHits` into `collected`. */
+const appendCappedRunHits = (
+    collected: DomMatchRange[],
+    runHits: readonly RunRangeHit[],
+    messageIndex: number,
+    limit: number,
+): void => {
+    const count = Math.min(runHits.length, Math.max(0, limit));
+    for (let i = 0; i < count; i += 1) {
+        collected.push({ range: runHits[i].range, messageIndex });
+    }
+};
+
 /** Collects up to `maxRanges` regex matches inside a single `MessageTextRun`. */
 const collectMatchesInSingleRun = (
     run: MessageTextRun,
@@ -835,16 +848,33 @@ const collectMatchesInSingleRun = (
     options: SyncChatHighlightOptions,
     collected: DomMatchRange[],
 ): Range | null => {
+    const isTargetRun = options.targetMessageIndex === run.messageIndex;
     const remaining = maxRanges - collected.length;
-    if (remaining <= 0) return null;
-    const runHits = collectRunRangeHits(run, matcher, remaining);
-    for (const hit of runHits) {
-        collected.push({ range: hit.range, messageIndex: run.messageIndex });
-    }
+    if (remaining <= 0 && !isTargetRun) return null;
+    const scanBudget = isTargetRun ? Math.max(remaining, 500) : remaining;
+    const runHits = collectRunRangeHits(run, matcher, scanBudget);
+    appendCappedRunHits(collected, runHits, run.messageIndex, remaining);
     return resolveTargetRangeInRun(run, runHits, matcher, options);
 };
 
-/** Collects match ranges across all `runs` up to `maxRanges`. */
+/** Checks whether scanning should continue for passive collection or an unresolved target message. */
+const shouldContinueScanningRuns = (
+    collectedLen: number,
+    maxRanges: number,
+    matchedTargetRange: Range | null,
+    targetMessageIndex: number | null | undefined,
+): boolean => {
+    if (collectedLen < maxRanges) return true;
+    return typeof targetMessageIndex === "number" && matchedTargetRange === null;
+};
+
+/** Preserves the first resolved `Range` across runs. */
+const keepFirstRange = (
+    existing: Range | null,
+    candidate: Range | null,
+): Range | null => existing ?? candidate;
+
+/** Collects match ranges across all `runs` up to `maxRanges` while always resolving `targetMessageIndex`. */
 const collectAllDomMatchRanges = (
     runs: MessageTextRun[],
     matcher: RegExp,
@@ -854,7 +884,16 @@ const collectAllDomMatchRanges = (
     const collected: DomMatchRange[] = [];
     let matchedTargetRange: Range | null = null;
     for (const run of runs) {
-        if (collected.length >= maxRanges) break;
+        if (
+            !shouldContinueScanningRuns(
+                collected.length,
+                maxRanges,
+                matchedTargetRange,
+                options.targetMessageIndex,
+            )
+        ) {
+            break;
+        }
         const hit = collectMatchesInSingleRun(
             run,
             matcher,
@@ -862,9 +901,7 @@ const collectAllDomMatchRanges = (
             options,
             collected,
         );
-        if (!matchedTargetRange && hit) {
-            matchedTargetRange = hit;
-        }
+        matchedTargetRange = keepFirstRange(matchedTargetRange, hit);
     }
     return { collected, matchedTargetRange };
 };
@@ -909,22 +946,39 @@ const resolveActiveHighlightRange = (
     return resolveClampedRangeAt(collected, options.activeIndex);
 };
 
+/** Registers or clears passive `chat-find` highlights for `collected`. */
+const syncPassiveMatchesHighlight = (
+    api: HighlightApiHandle,
+    collected: DomMatchRange[],
+): void => {
+    if (collected.length === 0) {
+        deleteOwnedHighlight(
+            api.registry,
+            CHAT_FIND_HIGHLIGHT_NAME,
+            ownedMatchesHighlight,
+        );
+        ownedMatchesHighlight = null;
+        return;
+    }
+    const matchesInstance = new api.HighlightCtor(
+        ...collected.map((item) => item.range),
+    );
+    ownedMatchesHighlight = matchesInstance;
+    api.registry.set(CHAT_FIND_HIGHLIGHT_NAME, matchesInstance);
+};
+
 /** Registers or clears `CSS.highlights` entries for `collected` and `activeRange`. */
 const paintHighlightRegistry = (
     api: HighlightApiHandle,
     collected: DomMatchRange[],
     activeRange: Range | null,
 ): void => {
-    if (collected.length === 0) {
+    if (collected.length === 0 && !activeRange) {
         clearChatDomHighlights();
         return;
     }
     ensureHighlightStylesheet();
-    const matchesInstance = new api.HighlightCtor(
-        ...collected.map((item) => item.range),
-    );
-    ownedMatchesHighlight = matchesInstance;
-    api.registry.set(CHAT_FIND_HIGHLIGHT_NAME, matchesInstance);
+    syncPassiveMatchesHighlight(api, collected);
     if (activeRange) {
         const activeInstance = new api.HighlightCtor(activeRange);
         ownedActiveHighlight = activeInstance;
