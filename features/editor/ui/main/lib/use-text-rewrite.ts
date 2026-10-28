@@ -40,13 +40,13 @@ const unwrapMatchingOuterQuotes = (value: string): string => {
     return value;
 };
 
-const FENCE_LANGUAGE_HEADER_RE = /^[ \t]*[\w+#.-]*[ \t]*$/u;
+const FENCE_LANGUAGE_HEADER_RE = /^[\w+#.-]*$/u;
 
 /** Strips an optional single-token language identifier line after opening triple backticks. */
 export const stripFenceLanguageHeader = (inner: string): string => {
     const nl = inner.indexOf("\n");
     if (nl === -1) return inner;
-    const header = inner.slice(0, nl).replace(/\r$/u, "");
+    const header = inner.slice(0, nl).trim();
     return FENCE_LANGUAGE_HEADER_RE.test(header) ? inner.slice(nl + 1) : inner;
 };
 
