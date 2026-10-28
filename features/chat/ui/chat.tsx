@@ -28,7 +28,10 @@ import {
     ChatFindBar,
     registerMountedChatSurface,
 } from "./shell/find-bar";
-import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import {
+    extractSearchableMessageText,
+    findTranscriptMatches,
+} from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { extractCleanUserPrompts } from "@/lib/chat/prompt-history";
 import { formatTranscriptAsMarkdown, slugifyTranscriptFilename } from "@/lib/chat/export-markdown";
@@ -618,11 +621,19 @@ const Chat = ({
         const rafId = window.requestAnimationFrame(() => {
             const root = scrollContainerRef.current;
             if (!root) return;
+            const targetRaw =
+                activeFindMatch !== null &&
+                activeFindMatch.messageIndex >= 0 &&
+                activeFindMatch.messageIndex < session.messages.length
+                    ? session.messages[activeFindMatch.messageIndex].content
+                    : null;
             const { activeRange } = syncChatDomHighlights(root, findQuery, {
                 caseSensitive: findMatchCase,
                 activeIndex: activeFindIndex,
                 targetMessageIndex: activeFindMatch?.messageIndex ?? null,
                 targetOccurrenceInMessage: activeFindMatch?.occurrenceInMessage ?? null,
+                targetMessageSearchText:
+                    targetRaw !== null ? extractSearchableMessageText(targetRaw) : null,
             });
             if (!activeFindMatch) return;
             sessionRef.current.notifyUserScrollUp();

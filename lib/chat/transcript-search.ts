@@ -16,13 +16,101 @@ export interface TranscriptSearchOptions {
     maxMatches?: number;
 }
 
+const HIDDEN_AGENT_TAG_NAMES = [
+    "tool_result",
+    "terminal_read",
+    "terminal_input",
+    "list_terminals",
+    "tool_code",
+    "tool_calls",
+    "tool_call",
+    "tool_response",
+    "function_calls",
+    "function_call",
+    "function_response",
+    "minimax:tool_call",
+    "invoke",
+    "parameter",
+    "arg_key",
+    "arg_value",
+    "pre_dispatch_explanation",
+    "tools",
+    "new_path",
+    "file_content",
+    "sent_file",
+] as const;
+
+const INLINE_SYSTEM_MARKER_RE = /<(?:chat_renamed|forked_from)(?:[ \t][^<>]*)?\/>/giu;
+
+const TAG_BOUNDARY_CHARS = new Set([">", " ", "\t", "\n", "\r", "/"]);
+
+/** Finds the next valid `<tag` opener with a tag-boundary delimiter at or after `from`. */
+const findNextOpenTagAt = (
+    lower: string,
+    openPrefix: string,
+    from: number,
+): number => {
+    let idx = lower.indexOf(openPrefix, from);
+    while (idx !== -1) {
+        const delim = lower.charAt(idx + openPrefix.length);
+        if (TAG_BOUNDARY_CHARS.has(delim)) return idx;
+        idx = lower.indexOf(openPrefix, idx + openPrefix.length);
+    }
+    return -1;
+};
+
+/** Finds the matching `</tag>` start index after `<tag ...>`, or `-1` when unclosed. */
+const findPairedTagCloseAt = (
+    lower: string,
+    afterPrefix: number,
+    closeToken: string,
+): number => {
+    const gtIdx = lower.indexOf(">", afterPrefix);
+    return gtIdx === -1 ? -1 : lower.indexOf(closeToken, gtIdx + 1);
+};
+
+/** Strips paired `<tag ...>...</tag>` blocks for a single lowercase `tag` in linear time. */
+const stripSinglePairedTag = (text: string, tag: string): string => {
+    const lower = text.toLowerCase();
+    const openPrefix = `<${tag}`;
+    let openIdx = findNextOpenTagAt(lower, openPrefix, 0);
+    if (openIdx === -1) return text;
+    const closeToken = `</${tag}>`;
+    const parts: string[] = [];
+    let cursor = 0;
+    while (openIdx !== -1) {
+        const closeIdx = findPairedTagCloseAt(
+            lower,
+            openIdx + openPrefix.length,
+            closeToken,
+        );
+        if (closeIdx === -1) break;
+        parts.push(text.slice(cursor, openIdx), " ");
+        cursor = closeIdx + closeToken.length;
+        openIdx = findNextOpenTagAt(lower, openPrefix, cursor);
+    }
+    parts.push(text.slice(cursor));
+    return parts.join("");
+};
+
+/** Strips all hidden backend tool/payload XML blocks from `segment` without regex backtracking. */
+const stripHiddenPayloadTags = (segment: string): string => {
+    if (!segment.includes("<")) return segment;
+    let out = segment;
+    for (const tag of HIDDEN_AGENT_TAG_NAMES) {
+        out = stripSinglePairedTag(out, tag);
+    }
+    return out;
+};
+
 /** Strips hidden agent control tags on a non-fenced text slice. */
 const stripControlTagsSlice = (segment: string): string =>
-    segment
+    stripHiddenPayloadTags(segment)
         .replace(/<attached_(image|file|asset)\b[^>]*>[\s\S]*?<\/attached_\1>/gi, " ")
         .replace(/<(thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
         .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, " ")
         .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, " ")
+        .replace(INLINE_SYSTEM_MARKER_RE, " ")
         .replace(/<bettershape_action\b[^>]*\/?>/gi, " ")
         .replace(
             /<edit\b([^>]*)>[\s\S]*?<\/edit>/gi,

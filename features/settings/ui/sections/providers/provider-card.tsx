@@ -34,7 +34,7 @@ import type {
     ProviderPreset,
     ProvidersSettings,
 } from "@/lib/ai/providers";
-import { getModelMetadata } from "@/lib/ai/model-catalog";
+import { getModelMetadata, refreshModelCatalog } from "@/lib/ai/model-catalog";
 import { KeyInput, TextInput } from "./inputs";
 import {
     ChevronRight20Regular,
@@ -1197,8 +1197,9 @@ const ProviderCardBody = ({
         visibleModels.length > 0,
     );
 
-    /** Triggers `runTestProbe` without unhandled promise rejections. */
+    /** Triggers `runTestProbe` and refreshes catalog metadata on user action. */
     const handleTest = (): void => {
+        refreshModelCatalog().catch(() => undefined);
         diagnostics.runTestProbe().catch(() => undefined);
     };
     /** Triggers `runCheckProbe` without unhandled promise rejections. */

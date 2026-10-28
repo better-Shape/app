@@ -44,6 +44,7 @@ import {
     isAllowedFile,
     isCodeFile,
     observeComposerGeometry,
+    processSelectedPickerFiles,
 } from "@/features/chat/ui/composer/input-helpers";
 import { stripAssistantResponse } from "@/features/editor/ui/main/lib/use-text-rewrite";
 
@@ -180,13 +181,23 @@ describe("ChatInput overflow, sheet expansion, hints & quoted excerpts", () => {
         expect(parseInt(textarea.style.height, 10)).toBe(52);
     });
 
-    it("accepts extensionless Dockerfile and Makefile attachments and strips c++/c# rewrite fences", () => {
+    it("accepts extensionless Dockerfile and Makefile attachments via picker and strips c++/c# rewrite fences", async () => {
         const dockerfile = new File(["FROM node:22-alpine"], "Dockerfile", { type: "" });
         const makefile = new File(["all:\n\techo ok"], "Makefile", { type: "" });
+        const video = new File(["bytes"], "clip.mp4", { type: "video/mp4" });
         expect(isCodeFile(dockerfile)).toBe(true);
         expect(isAllowedFile(dockerfile)).toBe(true);
         expect(isCodeFile(makefile)).toBe(true);
         expect(isAllowedFile(makefile)).toBe(true);
+
+        const attached: File[][] = [];
+        processSelectedPickerFiles([dockerfile, video], (files) => attached.push(files));
+        expect(attached).toEqual([[dockerfile]]);
+
+        await renderComposer();
+        const mediaInput = host.querySelector<HTMLInputElement>("#chat-media-upload");
+        expect(mediaInput).not.toBeNull();
+        expect(mediaInput?.hasAttribute("accept")).toBe(false);
 
         expect(stripAssistantResponse("```c++\nint main() { return 0; }\n```")).toBe(
             "int main() { return 0; }",

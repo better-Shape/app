@@ -13,7 +13,10 @@ import {
     stripShellPromptPrefix,
     tryWrapMarkdownLinkOnPaste,
 } from "@/lib/chat/prompt-history";
-import { findTranscriptMatches } from "@/lib/chat/transcript-search";
+import {
+    extractSearchableMessageText,
+    findTranscriptMatches,
+} from "@/lib/chat/transcript-search";
 import { clearChatDomHighlights, syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { ChatErrorDialog, redactErrorSecrets } from "@/features/chat/ui/blocks/error";
@@ -283,6 +286,27 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
             // Skips unindexed banners + <button> chrome and preserves exact Text node identity without <mark> splitting!
             expect(ranges).toHaveLength(2);
             expect(activeRange?.toString()).toBe("TokenStore");
+
+            // When targetMessageSearchText includes an earlier hidden structured-tag match (`<cat>`),
+            // occurrence 0 stays unhighlighted while occurrence 1 aligns to the visible prose match.
+            const searchableMsg1 = extractSearchableMessageText(
+                '<tool_result>TokenStore</tool_result><cat path="src/TokenStore.ts"></cat>Updated TokenStore and tokenstore.',
+            );
+            expect(searchableMsg1).toBe("src/TokenStore.ts Updated TokenStore and tokenstore.");
+            const hiddenFirst = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                targetMessageIndex: 1,
+                targetOccurrenceInMessage: 0,
+                targetMessageSearchText: searchableMsg1,
+            });
+            expect(hiddenFirst.activeRange).toBeNull();
+            const alignedSecond = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                targetMessageIndex: 1,
+                targetOccurrenceInMessage: 1,
+                targetMessageSearchText: searchableMsg1,
+            });
+            expect(alignedSecond.activeRange?.toString()).toBe("TokenStore");
             expect(container.querySelectorAll("p")[1]?.firstChild).toBe(paragraphNodeBefore);
             expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
             expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));

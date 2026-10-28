@@ -50,14 +50,12 @@ import {
   RotatingComposerHint,
 } from "./input-controls";
 import {
-  ACCEPT_STRING,
   COMPOSER_LINE_HEIGHT,
   buildComposerScrollMaskImage,
   buildProviderDisplayOrder,
   detectComposerTrigger,
   hasActiveTauriBridge,
   hasAtLeastTwoNewlines,
-  isAllowedFile,
   isToggleExpandShortcut,
   measureAndSyncComposerTextarea,
   observeComposerGeometry,
@@ -65,6 +63,7 @@ import {
   persistUnmountedInlineSwap,
   processComposerDropTransfer,
   processComposerPasteEvent,
+  processSelectedPickerFiles,
   resolveArrowDownAction,
   resolveArrowUpAction,
   resolveAutoTargetModel,
@@ -1062,7 +1061,6 @@ const HiddenComposerFileInputs = ({
       id="chat-media-upload"
       className="hidden"
       multiple
-      accept={ACCEPT_STRING}
       onChange={onChange}
     />
     <input
@@ -1999,8 +1997,10 @@ const ChatInputInner = ({
     );
     const handleFilteredFileUpload = React.useCallback(
       (e: React.ChangeEvent<HTMLInputElement>) => {
-        const allowed = Array.from(e.target.files ?? []).filter(isAllowedFile);
-        if (allowed.length > 0) addUploadedFiles(allowed);
+        processSelectedPickerFiles(
+          Array.from(e.target.files ?? []),
+          addUploadedFiles,
+        );
         e.target.value = "";
       },
       [addUploadedFiles],

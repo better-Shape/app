@@ -58,20 +58,21 @@ const advanceIndentStep = (col: number, code: number): number => {
     return -1;
 };
 
-/** Measures leading space/tab indentation starting at `from` using 4-column CommonMark tab stops. */
+/** Measures leading space/tab indentation starting at `(from, startCol)` using 4-column CommonMark tab stops. */
 const measureLeadingIndent = (
     line: string,
     from: number,
+    startCol = 0,
 ): { indent: number; offset: number } => {
-    let indent = 0;
+    let col = startCol;
     let offset = from;
     while (offset < line.length) {
-        const next = advanceIndentStep(indent, line.charCodeAt(offset));
+        const next = advanceIndentStep(col, line.charCodeAt(offset));
         if (next < 0) break;
-        indent = next;
+        col = next;
         offset += 1;
     }
-    return { indent, offset };
+    return { indent: col - startCol, offset };
 };
 
 /** Returns CommonMark list marker width (`-`, `*`, `+`, `1.`, `1)`) at `offset`, or `0` if none. */
@@ -135,12 +136,13 @@ const tryAdvanceListMarker = (
     if (indent > activeIndent + 3) return null;
     const markerWidth = readListMarkerWidth(line, offset);
     if (markerWidth === 0) return null;
-    const post = measureLeadingIndent(line, offset + markerWidth);
+    const markerEndCol = indent + markerWidth;
+    const post = measureLeadingIndent(line, offset + markerWidth, markerEndCol);
     const pad = resolvePostMarkerPadding(
         post.indent,
         post.offset >= line.length,
     );
-    stack.push({ quoteDepth, contentIndent: indent + markerWidth + pad });
+    stack.push({ quoteDepth, contentIndent: markerEndCol + pad });
     return {
         offset: post.offset,
         relativeIndent: post.indent > 4 ? post.indent - 1 : 0,
@@ -1747,13 +1749,23 @@ export const sliceGraphemeSafe = (text: string, limit: number): string => {
 
 const TRUNCATED_DISPLAY_SUFFIX = "\n\n... (response truncated for display)";
 
+/** Appends the display truncation notice after closing any open Markdown code fence. */
+const appendTruncatedDisplayNotice = (text: string): string =>
+    `${balanceMarkdownFences(text)}${TRUNCATED_DISPLAY_SUFFIX}`;
+
 /** Truncates excessively long streaming or finished responses, closing any open fence before the notice. */
-const truncateForDisplay = (text: string): string => {
-    if (text.length <= MAX_DISPLAY_CHARS) return text;
-    const safePrefix = balanceMarkdownFences(
-        sliceGraphemeSafe(text, MAX_DISPLAY_CHARS),
-    );
-    return `${safePrefix}${TRUNCATED_DISPLAY_SUFFIX}`;
+const truncateForDisplay = (
+    text: string,
+    forceTruncatedNotice = false,
+): string => {
+    if (text.length > MAX_DISPLAY_CHARS) {
+        return appendTruncatedDisplayNotice(
+            sliceGraphemeSafe(text, MAX_DISPLAY_CHARS),
+        );
+    }
+    return forceTruncatedNotice && text.trim().length > 0
+        ? appendTruncatedDisplayNotice(text)
+        : text;
 };
 
 /** Caps raw settled input at `2 * MAX_DISPLAY_CHARS` so glitch repair stays O(1) before the 48k cap. */
@@ -1766,9 +1778,12 @@ const capSettledPreprocessInput = (text: string): string =>
 const finalizeStreamOrStaticMarkdown = (
     text: string,
     streaming: boolean | undefined,
+    preTruncated = false,
 ): string => {
     if (!streaming) {
-        return balanceMarkdownFences(truncateForDisplay(repairStreamGlitches(text)));
+        return balanceMarkdownFences(
+            truncateForDisplay(repairStreamGlitches(text), preTruncated),
+        );
     }
     const balanced = balanceMarkdownFences(text);
     return balanced !== text ? stripLeakedToolCode(balanced) : text;
@@ -1816,39 +1831,59 @@ const normalizeProseBulletsAndRules = (prose: string): string =>
 
 type PreprocessCacheEntry = {
     bounded: string;
-    streaming: boolean;
-    trim: boolean;
+    flags: number;
     output: string;
 };
 
 let lastPreprocessedCache: PreprocessCacheEntry | null = null;
 
-/** Checks whether `lastPreprocessedCache` matches `(bounded, streaming, trim)`. */
+/** Packs `(streaming, trim, preTruncated)` into a compact cache key bitmask. */
+const encodePreprocessFlags = (
+    streaming: boolean,
+    trim: boolean,
+    preTruncated: boolean,
+): number =>
+    (Number(streaming) << 2) | (Number(trim) << 1) | Number(preTruncated);
+
+/** Checks whether `lastPreprocessedCache` matches `(bounded, flags)`. */
 const matchesPreprocessCache = (
     entry: PreprocessCacheEntry | null,
     bounded: string,
-    streaming: boolean,
-    trim: boolean,
+    flags: number,
 ): entry is PreprocessCacheEntry =>
-    Boolean(
-        entry &&
-            entry.bounded === bounded &&
-            entry.streaming === streaming &&
-            entry.trim === trim,
-    );
+    Boolean(entry && entry.bounded === bounded && entry.flags === flags);
+
+/** Bounds raw markdown input and reports whether settled preprocessing clipped the tail. */
+const resolveBoundedPreprocessInput = (
+    text: string,
+    streaming: boolean,
+): { bounded: string; preTruncated: boolean } => {
+    if (streaming) {
+        return { bounded: truncateForDisplay(text), preTruncated: false };
+    }
+    return {
+        bounded: capSettledPreprocessInput(text),
+        preTruncated: text.length > MAX_PREPROCESS_HEAD_CHARS,
+    };
+};
 
 /** Runs the core markdown sanitization and normalization passes on an already-bounded string. */
 const computePreprocessedMarkdown = (
     bounded: string,
     streaming: boolean,
     trim: boolean,
+    preTruncated: boolean,
 ): string => {
     let normalized = stripOrphanThinkTags(bounded);
     normalized = stripLeakedToolCode(normalized);
     normalized = stripRawHtml(normalized);
     normalized = unwrapOuterProseFence(normalized);
     normalized = demoteIndentedMarkdown(normalized);
-    normalized = finalizeStreamOrStaticMarkdown(normalized, streaming);
+    normalized = finalizeStreamOrStaticMarkdown(
+        normalized,
+        streaming,
+        preTruncated,
+    );
     normalized = mapOutsideCodeFences(normalized, normalizeProseBulletsAndRules);
     normalized = collapseExcessNewlines(normalized);
     return trim ? normalized.trim() : normalized;
@@ -1860,14 +1895,21 @@ export const preprocessChatMarkdown = (
     options?: { trim?: boolean; streaming?: boolean },
 ): string => {
     const streaming = Boolean(options?.streaming);
-    const bounded = streaming
-        ? truncateForDisplay(text)
-        : capSettledPreprocessInput(text);
+    const { bounded, preTruncated } = resolveBoundedPreprocessInput(
+        text,
+        streaming,
+    );
     const trim = options?.trim !== false;
-    if (matchesPreprocessCache(lastPreprocessedCache, bounded, streaming, trim)) {
+    const flags = encodePreprocessFlags(streaming, trim, preTruncated);
+    if (matchesPreprocessCache(lastPreprocessedCache, bounded, flags)) {
         return lastPreprocessedCache.output;
     }
-    const output = computePreprocessedMarkdown(bounded, streaming, trim);
-    lastPreprocessedCache = { bounded, streaming, trim, output };
+    const output = computePreprocessedMarkdown(
+        bounded,
+        streaming,
+        trim,
+        preTruncated,
+    );
+    lastPreprocessedCache = { bounded, flags, output };
     return output;
 };
