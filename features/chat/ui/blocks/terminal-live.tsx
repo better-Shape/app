@@ -377,9 +377,11 @@ const safeListen = <T,>(
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
 
+/** Checks whether `code` is a UTF-16 high surrogate (`0xD800..0xDBFF`). */
 const isHighSurrogateCode = (code: number): boolean =>
     code >= 0xd800 && code <= 0xdbff;
 
+/** Checks whether `code` is a UTF-16 low surrogate (`0xDC00..0xDFFF`). */
 const isLowSurrogateCode = (code: number): boolean =>
     code >= 0xdc00 && code <= 0xdfff;
 
