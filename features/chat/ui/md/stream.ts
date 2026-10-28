@@ -345,6 +345,21 @@ export function stripLeakedToolCode(text: string): string {
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 /** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
 export function repairStreamGlitches(text: string): string {
+    // A duplicated chunk glued to the previous one is a streaming replay even when
+    // the whole text is shorter than the 40-character window the searches need.
+    const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
+    if (glued && glued.index !== undefined) {
+        const splitAt = glued.index + 1;
+        const prefix = text.slice(0, splitAt);
+        const suffix = text.slice(splitAt);
+        for (let checkLen = 16; checkLen <= Math.min(80, prefix.length); checkLen++) {
+            const tail = prefix.slice(-checkLen);
+            if (suffix.startsWith(tail)) {
+                return prefix + suffix.slice(tail.length);
+            }
+        }
+    }
+
     if (text.length < 40) return text;
 
     const maxAdjLen = Math.min(120, Math.floor(text.length / 2));
@@ -370,9 +385,9 @@ export function repairStreamGlitches(text: string): string {
     // legitimate repeated phrases in later paragraphs are preserved.
     const prefix20 = text.slice(0, 20);
     let searchFrom = 20;
-    while (searchFrom <= text.length - 20) {
+    while (searchFrom < text.length - 20) {
         const start = text.indexOf(prefix20, searchFrom);
-        if (start === -1 || start > text.length - 20) break;
+        if (start === -1 || start >= text.length - 20) break;
         const maxLen = Math.min(start, text.length - start);
         let matched = 20;
         while (matched < maxLen && text.charCodeAt(matched) === text.charCodeAt(start + matched)) {
@@ -392,19 +407,6 @@ export function repairStreamGlitches(text: string): string {
             return text.slice(0, start) + text.slice(start + matched);
         }
         searchFrom = start + 1;
-    }
-
-    const glued = text.match(/([a-z])([A-Z][a-z]{4,})/);
-    if (glued && glued.index !== undefined) {
-        const splitAt = glued.index + 1;
-        const prefix = text.slice(0, splitAt);
-        const suffix = text.slice(splitAt);
-        for (let checkLen = 16; checkLen <= Math.min(80, prefix.length); checkLen++) {
-            const tail = prefix.slice(-checkLen);
-            if (suffix.startsWith(tail)) {
-                return prefix + suffix.slice(tail.length);
-            }
-        }
     }
 
     return text;
