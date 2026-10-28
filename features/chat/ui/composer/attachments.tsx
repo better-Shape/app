@@ -18,6 +18,7 @@ import {
     Root as DialogRoot,
     Title as DialogTitle,
 } from "@radix-ui/react-dialog";
+import { isSupportedTextFileName } from "@/features/chat/lib/send-attachments";
 import { useObjectUrl } from "@/lib/ui/use-object-url";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -31,19 +32,21 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn, createOccurrenceKeyer, randomSuffix } from "@/lib/utils";
 
-const TEXT_PREVIEW_EXTENSIONS = new Set([
-    "txt", "log", "md", "mdx", "json", "toml", "yaml", "yml", "csv",
-    "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-    "css", "scss", "html", "xml", "sh", "sql", "graphql", "env", "ini", "cfg", "conf",
-]);
+/** Checks whether `att` is ready and within the 256 KB inline text preview cap. */
+const isWithinTextPreviewBudget = (att: ComposerAttachment): boolean =>
+    att.status === "ready" && att.size > 0 && att.size <= 256_000;
 
-/** Is previewable text attachment. */
+/** Checks whether a `"file"` attachment carries a previewable text MIME type or filename. */
+const hasPreviewableFileMimeOrName = (att: ComposerAttachment): boolean =>
+    att.mimeType.startsWith("text/") ||
+    att.mimeType === "application/json" ||
+    isSupportedTextFileName(att.name);
+
+/** Checks whether `att` can open in the inline text attachment preview dialog. */
 const isPreviewableTextAttachment = (att: ComposerAttachment): boolean => {
-    if (att.status !== "ready" || att.size <= 0 || att.size > 256_000) return false;
+    if (!isWithinTextPreviewBudget(att)) return false;
     if (att.kind === "terminal" || att.kind === "code") return true;
-    if (att.kind !== "file") return false;
-    if (att.mimeType.startsWith("text/") || att.mimeType === "application/json") return true;
-    return TEXT_PREVIEW_EXTENSIONS.has(getFileExtension(att.name));
+    return att.kind === "file" && hasPreviewableFileMimeOrName(att);
 };
 const IMAGE_EXTENSIONS = new Set([
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tiff", "tif", "avif", "heic", "heif",

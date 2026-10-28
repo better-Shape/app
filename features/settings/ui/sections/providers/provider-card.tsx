@@ -1202,6 +1202,11 @@ const ProviderCardBody = ({
         refreshModelCatalog().catch(() => undefined);
         diagnostics.runTestProbe().catch(() => undefined);
     };
+    /** Forces a fresh model catalog fetch and re-runs `runTestProbe` for `Refresh models`. */
+    const handleRefresh = (): void => {
+        refreshModelCatalog(true).catch(() => undefined);
+        diagnostics.runTestProbe().catch(() => undefined);
+    };
     /** Triggers `runCheckProbe` without unhandled promise rejections. */
     const handleCheck = (): void => {
         diagnostics.runCheckProbe().catch(() => undefined);
@@ -1264,7 +1269,7 @@ const ProviderCardBody = ({
                 checkResult={diagnostics.checkResult}
                 onTest={handleTest}
                 onCheck={handleCheck}
-                onRefresh={handleTest}
+                onRefresh={handleRefresh}
                 onImport={handleImport}
             />
             <ProviderModelsSection

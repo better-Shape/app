@@ -14,7 +14,16 @@ const ipcMocks = vi.hoisted(() => ({
     dictationStart: vi.fn(async () => undefined),
     dictationStop: vi.fn(async () => undefined),
     dictationPush: vi.fn(async () => undefined),
+    refreshModelCatalog: vi.fn(async (_force?: boolean) => ({ count: 0, updatedAt: 0 })),
 }));
+
+vi.mock("@/lib/ai/model-catalog", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/ai/model-catalog")>();
+    return {
+        ...actual,
+        refreshModelCatalog: ipcMocks.refreshModelCatalog,
+    };
+});
 
 vi.mock("@/lib/backend", () => ({
     commands: {
@@ -238,6 +247,23 @@ describe("Settings -> Providers Check chat and Test connection diagnostics guard
             expect(
                 settled.connections.openai.discoveredModels.map((entry) => entry.id),
             ).toEqual(["openai/gpt-4o-mini"]);
+            expect(ipcMocks.refreshModelCatalog).toHaveBeenCalledWith();
+
+            ipcMocks.aiTestProvider.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                message: "OpenAI reachable",
+                models: ["gpt-4o-mini"],
+                latencyMs: 30,
+            });
+            const refreshBtn = Array.from(host.querySelectorAll("button")).find(
+                (b) => b.textContent?.trim() === "Refresh models",
+            );
+            if (!refreshBtn) throw new Error("expected Refresh models button");
+            await act(async () => {
+                refreshBtn.click();
+            });
+            expect(ipcMocks.refreshModelCatalog).toHaveBeenLastCalledWith(true);
         } finally {
             unmount(root, host);
         }

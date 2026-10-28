@@ -33,6 +33,23 @@ describe("attachment serialization", () => {
         await expect(serialize(attachment({ mimeType: "" })))
             .resolves.toBe('<attached_file name="notes.txt" type="text/plain" size="5">\nhello\n</attached_file>\n\nmessage');
     });
+    it.each(["Dockerfile", "Makefile", "deploy/Dockerfile", ".gitignore"])(
+        "serializes extensionless and dotfile text attachments (%s) even without a browser MIME type",
+        async (name) => {
+            const content = "FROM alpine:3.20\n";
+            const file = new File([content], name);
+            const result = await serialize(
+                attachment({
+                    name,
+                    file,
+                    size: content.length,
+                    mimeType: "application/octet-stream",
+                }),
+            );
+            expect(result).toContain(`<attached_file name="${name}"`);
+            expect(result).toContain("FROM alpine:3.20");
+        },
+    );
     it("retains the text limit and original-size disclosure", async () => {
         const text = "a".repeat(80001);
         const result = await serialize(attachment({ file: new File([text], "notes.txt"), size: text.length }));

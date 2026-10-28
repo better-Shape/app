@@ -447,9 +447,9 @@ const getHitRangeAtIndex = (
 ): Range | null =>
     index >= 0 && index < hits.length ? hits[index].range : null;
 
-/** Collapses runs of whitespace into single spaces for context alignment. */
+/** Strips inline Markdown emphasis/code delimiters and collapses whitespace for context alignment. */
 const collapseContextSpaces = (value: string): string =>
-    value.replace(/\s+/gu, " ");
+    value.replace(/[*_`~]+/gu, "").replace(/\s+/gu, " ");
 
 /** Extracts normalized `(before, after)` windows around `span` in `text`. */
 const extractSpanContext = (text: string, span: TextSpan): SpanContext => ({
