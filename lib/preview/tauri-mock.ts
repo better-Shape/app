@@ -778,6 +778,9 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             applied: true,
             current: { apiKey: "", revision: "preview-rev-1" },
         }),
+        ai_fetch_model_catalog: () => ({
+            data: [],
+        }),
         ai_test_provider: (args) => {
             const providerId = typeof args.providerId === "string" ? args.providerId.trim() : "";
             const apiKey = typeof args.apiKey === "string" ? args.apiKey.trim() : "";

@@ -3,11 +3,13 @@
 import React from "react";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
-import { updateSettingSection, areSecretsVaulted } from "@/lib/settings";
+import { getSettings, updateSettingSection, areSecretsVaulted } from "@/lib/settings";
 import {
     SettingRow,
     SettingSelect,
@@ -172,7 +174,7 @@ const ModelBadgePill = ({ badge }: { badge: ModelBadge }) => {
     return (
         <span
             className={cn(
-                "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide",
+                "shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide",
                 toneClass,
             )}
         >
@@ -462,17 +464,18 @@ const ProviderHeaderActions = ({
                 onCheckedChange={onToggleEnabled}
                 className={PROVIDER_SWITCH_CLASS}
             />
-            <button
-                type="button"
+            <Button
+                size="icon"
+                variant="ghost"
                 aria-label={expanded ? `Collapse ${preset.label}` : `Expand ${preset.label}`}
                 onClick={onToggleExpand}
-                className="flex size-6 items-center justify-center rounded text-text-muted transition-colors duration-fast hover:text-text-primary"
+                className="size-6 min-h-6 min-w-6 text-text-muted hover:text-text-primary"
             >
                 <Icon
                     icon={expanded ? ChevronDown20Regular : ChevronRight20Regular}
                     className="size-3.5 transition-transform duration-fast"
                 />
-            </button>
+            </Button>
         </div>
     );
 };
@@ -750,14 +753,14 @@ const ExtraModelInputRow = ({
 
     return (
         <div className="flex items-center gap-1.5 pt-1">
-            <input
+            <Input
                 type="text"
                 value={value}
                 placeholder="Add model id (e.g. llama3.1)"
                 spellCheck={false}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
-                className="h-7 min-w-0 flex-1 rounded-md border border-border-secondary bg-transparent px-2 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                className="h-7 min-w-0 flex-1 rounded-md border-border-secondary bg-transparent px-2 font-mono text-xs focus-visible:border-accent focus-visible:ring-0"
             />
             <Button
                 size="xs"
@@ -939,13 +942,13 @@ const ProviderAdvancedSection = ({
                         title="Extra headers"
                         description="One Name: value per line. Values are stored in the OS keychain beside the key."
                     >
-                        <textarea
+                        <Textarea
                             value={formatHeaderLines(connection.headers)}
                             placeholder={"HTTP-Referer: https://example.com\nX-Tenant: acme"}
                             spellCheck={false}
                             rows={3}
                             onChange={handleHeadersChange}
-                            className="w-full rounded-md border border-border-secondary bg-transparent px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-accent"
+                            className="min-h-[68px] rounded-md border-border-secondary bg-transparent px-2 py-1.5 font-mono text-xs focus:border-accent"
                         />
                     </SettingRow>
                     <PresetHeadersHint preset={preset} />
@@ -1328,17 +1331,24 @@ export const ProviderCard = ({
 
     const update = React.useCallback(
         (patch: Partial<ProviderConnection>): void => {
+            const latestProviders = getSettings().ai.providers;
+            const latestConnection = Object.hasOwn(
+                latestProviders.connections,
+                id,
+            )
+                ? latestProviders.connections[id]
+                : connection;
             updateSettingSection("ai", {
                 providers: {
-                    ...providers,
+                    ...latestProviders,
                     connections: {
-                        ...providers.connections,
-                        [id]: { ...connection, ...patch },
+                        ...latestProviders.connections,
+                        [id]: { ...latestConnection, ...patch },
                     },
                 },
             });
         },
-        [providers, connection, id],
+        [connection, id],
     );
 
     const visibleModels = visibleModelIdsFor(id, providers.connections);

@@ -37,7 +37,7 @@ jobs:
         run: npm run lint:strict
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Check Next.js config & build preview script
         run: |
@@ -159,7 +159,7 @@ jobs:
         run: npm run build:runtime
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: ESLint (zero warnings)
         run: npm run lint:strict

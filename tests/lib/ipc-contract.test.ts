@@ -14,6 +14,7 @@ describe("ipc", () => {
     it("BYOK diagnostics", async () => {
         await Promise.all([
             commands.aiTestProvider("openai", "openai", "sk-live", "https://api.openai.com/v1"),
+            commands.aiFetchModelCatalog(),
             commands.aiVaultSupported(),
             commands.aiStoreKey("openai", "sk-live", "initial", "example-scope"),
             commands.aiDeleteKey("openai", "revision-1"),
@@ -33,6 +34,7 @@ describe("ipc", () => {
             apiKey: "sk-live",
             baseUrl: "https://api.openai.com/v1",
         });
+        expect(invoke).toHaveBeenCalledWith("ai_fetch_model_catalog", undefined);
         expect(invoke).toHaveBeenCalledWith("ai_vault_supported", undefined);
         expect(invoke).toHaveBeenCalledWith("ai_store_key", {
             providerId: "openai",

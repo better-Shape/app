@@ -1,27 +1,28 @@
 /**
  * Public model catalog.
  *
- * BetterShape ships with a frozen snapshot of the [models.dev](https://models.dev)
- * community catalog - an MIT-licensed, SST-maintained database of model ids,
- * context windows, modalities, pricing, and supported parameters served in an
- * OpenRouter-compatible shape. The snapshot is loaded on demand (not at module
- * import) to keep the renderer bundle small.
+ * BetterShape bundles an offline fallback snapshot (`catalog-snapshot.json`) of
+ * model ids, context windows, modalities, pricing, and supported parameters in
+ * OpenRouter `/api/v1/models` format. The snapshot is loaded on demand (not at
+ * module import) to keep the renderer bundle small.
  *
- * At runtime the renderer refreshes the catalog from the network in the
- * background and caches the freshest copy in localStorage so new models appear
- * without an app update. For a user's own API keys, the Rust side hits the
- * provider's live `/models` endpoint during Test/Refresh and returns native
- * slugs; that list is merged with catalog metadata here so users never have
- * to type model ids or look up context windows by hand.
+ * At runtime the renderer refreshes the public catalog from OpenRouter's
+ * `/api/v1/models` endpoint through the `ai_fetch_model_catalog` Tauri command
+ * and caches the freshest copy in `localStorage` so new models appear without
+ * an app update. For a user's own API keys, the Rust side hits the provider's
+ * live `/models` endpoint during Test/Refresh and returns native slugs; that
+ * list is merged with catalog metadata here so users never have to type model
+ * ids or look up context windows by hand.
  */
 
+import { commands } from "@/lib/backend/commands";
 import { MODEL_PROVIDER_PREFIX_MAP, type ProviderId } from "./provider-ids";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** Shape of one record in the catalog (sourced from models.dev). */
+/** Shape of one record in the OpenRouter-compatible `/models` catalog feed. */
 export type CatalogModel = {
     id: string;
     name: string;
@@ -118,12 +119,6 @@ const REFRESH_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 const MAX_CACHE_AGE_MS = 1000 * 60 * 60 * 24 * 14; // 2 weeks
 const MAX_CATALOG_MODELS = 3000;
 const BINARY_TIERS_KB = [16, 32, 64, 128, 256, 512];
-
-/**
- * Public CORS-enabled catalog endpoint serving the `{ data: CatalogModel[] }`
- * envelope matching `catalog-snapshot.json` (`Access-Control-Allow-Origin: *`).
- */
-const CATALOG_URLS = ["https://openrouter.ai/api/v1/models"];
 
 const VENDOR_PREFIX_RE = /^[A-Za-z0-9 .&+-]{1,48}:[ \t]*/u;
 const TRAILING_POINT_ZERO_RE = /\.0$/u;
@@ -240,7 +235,7 @@ const pricePerMillion = (
     perToken: string | number | null | undefined,
 ): number | null => {
     const num = parseNum(perToken);
-    if (num === null) return null;
+    if (num === null || num < 0) return null;
     return Math.round(num * 1_000_000 * 10000) / 10000;
 };
 
@@ -703,12 +698,10 @@ const hasFreshInMemoryCatalog = (force: boolean): boolean =>
             Date.now() - cachedFetchedAt < REFRESH_TTL_MS,
     );
 
-/** Fetches and validates one catalog URL, returning `CatalogModel[]` or `null`. */
-const fetchCatalogEntries = async (url: string): Promise<CatalogModel[] | null> => {
+/** Requests and validates the public catalog envelope from the Tauri backend. */
+const fetchCatalogEntries = async (): Promise<CatalogModel[] | null> => {
     try {
-        const res = await fetch(url, { cache: "no-cache" });
-        if (!res.ok) return null;
-        const json = (await res.json()) as CatalogEnvelope;
+        const json = (await commands.aiFetchModelCatalog()) as CatalogEnvelope | null;
         return Array.isArray(json?.data) && json.data.length > 200
             ? json.data
             : null;
@@ -717,16 +710,12 @@ const fetchCatalogEntries = async (url: string): Promise<CatalogModel[] | null> 
     }
 };
 
-/** Iterates `CATALOG_URLS` until a valid catalog payload is persisted to storage. */
-const refreshStorageFromUrls = async (): Promise<boolean> => {
-    for (const url of CATALOG_URLS) {
-        const entries = await fetchCatalogEntries(url);
-        if (entries) {
-            saveToStorage(entries);
-            return true;
-        }
-    }
-    return false;
+/** Refreshes `localStorage` from the Tauri catalog command when a valid payload arrives. */
+const refreshStorageFromBackend = async (): Promise<boolean> => {
+    const entries = await fetchCatalogEntries();
+    if (!entries) return false;
+    saveToStorage(entries);
+    return true;
 };
 
 /** Clears the in-memory index pointers so the next read rebuilds from storage/snapshot. */
@@ -875,11 +864,11 @@ export const refreshModelCatalog = (
         });
     }
     if (refreshPromise) return refreshPromise;
-    /** Executes the de-duplicated network fetch and rebuilds the catalog index. */
+    /** Executes the de-duplicated backend catalog request and rebuilds the index. */
     const runRefresh = async (): Promise<RefreshResult> => {
         let fromNetwork = false;
         try {
-            fromNetwork = await refreshStorageFromUrls();
+            fromNetwork = await refreshStorageFromBackend();
         } finally {
             refreshPromise = null;
         }

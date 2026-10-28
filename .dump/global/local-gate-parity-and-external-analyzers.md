@@ -9,11 +9,11 @@ Passing `npm run lint`, `npx tsc --noEmit` and a single Vitest file in a network
 - Run `npm ci`, `npm run lint:strict`, `npm run typecheck`, `npm run test:all` and `npm run skills:verify` under the repository toolchain in `package.json`: Node `v22.22.3`, ESLint `^9` via `eslint.config.cjs`, TypeScript `^6.0.3` via `tsconfig.json` and `tests/tsconfig.json`, Vitest `^4.1.12` via `vitest.config.ts`, and Playwright `^1.64.1` via `playwright.config.ts`.
 - Run the Cargo format and Clippy commands in `AGENTS.md` whenever `src-tauri/` changes.
 - Check touched JavaScript and TypeScript files against the external analyzer rules below.
-- Isolate TTL-cached network tests with explicit cache bypass or `fetch` stubs.
+- Isolate TTL-cached network or IPC tests with explicit cache bypass or command mocks, and restore mocks and clear persisted or in-memory cache state in `finally` blocks so later tests do not depend on execution order.
 
 ### After pushing
 
-- Poll every page of `gh api --paginate` on both `repos/better-Shape/app/commits/<sha>/check-runs` and `repos/better-Shape/app/commits/<sha>/status` for the pushed head SHA, and exit immediately when `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`.
+- Query pull request mergeability separately with `gh pr view <number> --json mergeable,mergeStateStatus` and exit immediately when `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`, then poll every page of `gh api --paginate` on both `repos/better-Shape/app/commits/<sha>/check-runs` and `repos/better-Shape/app/commits/<sha>/status` for commit checks and statuses on the pushed head SHA.
 
 ## Evidence from PR 53
 

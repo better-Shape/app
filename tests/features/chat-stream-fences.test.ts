@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import { appendStreamAnsiChunk } from "@/features/chat/ui/blocks/terminal-live";
 import { parseMessageContent, resolveLiveStatusLabel } from "@/features/chat/ui/md/renderer";
-import { preprocessChatMarkdown, stripLeakedToolCode } from "@/features/chat/ui/md/stream";
+import {
+    preprocessChatMarkdown,
+    scanMarkdownCodeFences,
+    stripLeakedToolCode,
+} from "@/features/chat/ui/md/stream";
 
 const stream = (t: string) => preprocessChatMarkdown(t, { streaming: true });
 
@@ -15,7 +21,7 @@ describe("streaming fence balancing", () => {
         ["closes four backticks with four", "````md\n```js\nx\n```", "````md\n```js\nx\n```\n````"],
         ["does not close four backticks with three", "````\nbody\n```", "````\nbody\n```\n````"],
         ["treats a longer closer as closing", "```\nbody\n`````", "```\nbody\n`````"],
-        ["balances an indented fence inside a list", "- example:\n  ```sh\n  ls", "- example:\n  ```sh\n  ls\n```"],
+        ["balances an indented fence inside a list", "- example:\n  ```sh\n  ls", "- example:\n  ```sh\n  ls\n  ```"],
         ["ignores markers indented by four spaces", "text\n    ```\nbody", "text\n    ```\nbody"],
         ["closes only once when balanced twice", "```\nx", "```\nx\n```"],
         ["keeps CRLF endings", "```\r\nbody", "```\r\nbody\n```"],
@@ -38,6 +44,17 @@ describe("streaming fence balancing", () => {
 
     it("accepts markers indented by up to three spaces", () => {
         expect(stream("text\n   ```\nbody")).toBe("text\n   ```\nbody\n```");
+    });
+
+    it("indents synthetic closing fences inside ordered list items so CommonMark emits one code block", () => {
+        const balancedOrdered = stream("1. Step:\n    ```bash\n    npm i");
+        expect(balancedOrdered.endsWith("\n   ```")).toBe(true);
+        const tree = unified().use(remarkParse).parse(balancedOrdered);
+        expect(tree.children).toHaveLength(1);
+        expect(tree.children[0]?.type).toBe("list");
+
+        const dedentedFence = scanMarkdownCodeFences("1. Step:\n   ```bash\n   npm i\n```\nafter");
+        expect(dedentedFence.ranges).toHaveLength(2);
     });
 });
 

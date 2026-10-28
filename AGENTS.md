@@ -376,7 +376,7 @@ Never write a name that an earlier instruction told you to use, and never write 
 
 You own the quality of the PR until it is merged or closed. Polling continues in the same turn until the head commit is terminal and no review is unfinished.
 
-1. Read the PR state with `gh pr view <number> --json headRefOid,mergeable,reviewDecision`. Update pull request descriptions with `gh api -X PATCH repos/<owner>/<repo>/pulls/<number>` because `gh pr edit` fails on GitHub's removed `projectCards` GraphQL field.
+1. Read the PR state with `gh pr view <number> --json headRefOid,mergeable,mergeStateStatus,reviewDecision`. Update pull request descriptions with `gh api -X PATCH repos/<owner>/<repo>/pulls/<number>` because `gh pr edit` fails on GitHub's removed `projectCards` GraphQL field.
 2. Read every check and commit status on the head commit with `gh api --paginate repos/<owner>/<repo>/commits/<sha>/check-runs` and `gh api --paginate repos/<owner>/<repo>/commits/<sha>/status`, processing every returned page because `DeepSource`, `CodeAnt`, `DeepScan` and `Snyk` publish commit statuses that `gh pr checks` and `check-runs` omit. Treat any pending required check or status as pending, and any failed check or status as a fix cycle.
 3. Read the unresolved review threads with GraphQL, paginating both threads and comments. Filter `isResolved == false`. If GraphQL is unavailable, read `repos/<owner>/<repo>/pulls/<number>/comments` and `issues/<number>/comments`.
 4. Check normal PR thread comments, inline review threads, submitted reviews, check summaries and linked bot reports. They can contain actionable findings even when the check itself passes.
@@ -440,7 +440,7 @@ Install skills only with `npx skills add <owner>/<repo> -s <skill> -a universal 
 
 - The app is a Tauri 2 shell around a Next.js renderer. The Rust backend lives in `src-tauri/src/`. The renderer lives in `app/`, `components/`, `features/`, `lib/` and `core/`.
 - Tests live in `tests/**/*.test.ts` and run under Vitest with the jsdom environment. `tests/setup.ts` is the shared setup. Cargo tests run under `src-tauri`.
-- Vitest tests that assert network behaviour on modules with in-memory TTL caches, such as `lib/ai/model-catalog.ts`, must stub `fetch` or pass explicit cache-bypass flags and reset module state in `finally`. Network-blocked sandboxes leave TTL caches cold on failed fetches, whereas GitHub Actions runners reach external hosts and warm the cache in earlier tests in the same file.
+- Vitest tests that assert network or IPC behaviour on modules with in-memory TTL caches, such as `lib/ai/model-catalog.ts`, must stub `fetch` or IPC commands or pass explicit cache-bypass flags and reset module state in `finally`. Network-blocked sandboxes leave TTL caches cold on failed fetches, whereas GitHub Actions runners reach external hosts and warm the cache in earlier tests in the same file.
 - `npm run build:runtime` builds the preview runtime that the Vitest run needs, so run it before `npm run test`.
 - `public/preview/` and `src-tauri/runtime/` are generated. Do not edit them by hand.
 - `.bettershape/` and `.shape/` are local app state, and both are ignored by git.

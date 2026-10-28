@@ -290,13 +290,13 @@ const tryConsumeOpenFenceLine = (
         return false;
     }
     const { indent, offset } = measureLeadingIndent(line, afterQuotes);
-    if (isExplicitFenceCloserAt(state, line, indent, offset)) {
-        closeCodeFenceRangeAt(state, afterLine);
-        return true;
-    }
     if (isListFenceDedentExit(line.length, offset, indent, state.fenceListIndent)) {
         closeCodeFenceRangeAt(state, cursor);
         return false;
+    }
+    if (isExplicitFenceCloserAt(state, line, indent, offset)) {
+        closeCodeFenceRangeAt(state, afterLine);
+        return true;
     }
     return true;
 };
@@ -650,7 +650,8 @@ const balanceMarkdownFences = (text: string): string => {
     const state = scanMarkdownCodeFences(text, 0);
     if (!state.fenceChar) return text;
     const quotePrefix = "> ".repeat(state.fenceQuoteDepth);
-    return `${text}\n${quotePrefix}${state.fenceChar.repeat(state.fenceLen)}`;
+    const listIndent = " ".repeat(state.fenceListIndent);
+    return `${text}\n${quotePrefix}${listIndent}${state.fenceChar.repeat(state.fenceLen)}`;
 };
 
 /** Removes stray thinking tags that leaked into plain prose outside code fences. */
