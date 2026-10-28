@@ -101,11 +101,27 @@ jobs:
       - name: Build Tauri bundle
         id: build-tauri
         shell: bash
+        env:
+          MATRIX_BUNDLES: ${{ matrix.bundles }}
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          ARGS=(build --bundles "${{ matrix.bundles }}")
-          if [ -n "${{ matrix.target }}" ]; then ARGS+=(--target "${{ matrix.target }}"); fi
-          npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
+          if [ "${RUNNER_OS:-}" = "macOS" ]; then
+            sudo mdutil -a -i off >/dev/null 2>&1 || true
+          fi
+          ARGS=(build --ci --bundles "$MATRIX_BUNDLES")
+          if [ -n "$MATRIX_TARGET" ]; then ARGS+=(--target "$MATRIX_TARGET"); fi
+          if ! npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"; then
+            if [ "${RUNNER_OS:-}" = "macOS" ] && grep -q "bundle_dmg.sh" "$RUNNER_TEMP/tauri-build.log"; then
+              for vol in /Volumes/BetterShape* /Volumes/dmg.*; do
+                [ -e "$vol" ] && hdiutil detach -force "$vol" >/dev/null 2>&1 || true
+              done
+              rm -rf "src-tauri/target/${MATRIX_TARGET}/release/bundle/dmg/"*.dmg
+              npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
+            else
+              exit 1
+            fi
+          fi
 
       - name: Report native build failure
         if: failure()
