@@ -1747,9 +1747,16 @@ const skipLineSpacesAndTabs = (line: string, start: number): number => {
     return idx;
 };
 
+/** Checks whether `line` is a CommonMark thematic break (`< 4` leading columns + `3+` `-`/`*`/`_`). */
+const isProseThematicBreakLine = (line: string): boolean => {
+    const { indent, offset } = measureLeadingIndent(line, 0);
+    if (indent >= 4) return false;
+    return isStandaloneHorizontalRule(line.slice(offset).trimEnd());
+};
+
 /** Normalizes a single prose line's Unicode bullet prefix or standalone horizontal rule. */
 const normalizeSingleProseLine = (line: string): string => {
-    if (isStandaloneHorizontalRule(line.trim())) return "";
+    if (isProseThematicBreakLine(line)) return "";
     if (!UNICODE_BULLET_SET.has(line.charAt(0))) return line;
     const afterWs = skipLineSpacesAndTabs(line, 1);
     return afterWs > 1 ? `- ${line.slice(afterWs)}` : line;

@@ -108,5 +108,16 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
         const firstCode = res.output.charCodeAt(0);
         expect(firstCode < 0xdc00 || firstCode > 0xdfff).toBe(true);
     });
+
+    it("preserves 4-space indented --- code lines and decodes XML-escaped web_visit URLs", () => {
+        const md = "Example:\n\n    const a = 1;\n    ---\n    const b = 2;";
+        expect(preprocessChatMarkdown(md)).toContain("    ---");
+
+        const visit = parseMessageContent(
+            '<web_visit url="https://example.com/search?a=1&amp;b=2" title="Docs &amp; Guide"></web_visit>',
+        ).find((c) => c.type === "web_visit");
+        expect(visit?.visitUrl).toBe("https://example.com/search?a=1&b=2");
+        expect(visit?.visitTitle).toBe("Docs & Guide");
+    });
 });
 

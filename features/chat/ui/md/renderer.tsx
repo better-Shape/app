@@ -894,15 +894,15 @@ const parseRichCard = (
     isGenerating,
 });
 
-/** Parses a `<web_visit>` citation block with host/title fallback derivation. */
+/** Parses a `<web_visit>` citation block with XML-decoded URL/host/title metadata. */
 const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
-    const url = readAttr(tagFull, "url");
-    const host = readOptionalAttr(tagFull, "host") ?? hostnameFromUrl(url);
+    const url = decodeAttrOr(tagFull, "url", "");
+    const host = decodeOptionalAttr(tagFull, "host") ?? hostnameFromUrl(url);
     return {
         type: "web_visit",
         visitUrl: url,
         visitHost: host,
-        visitTitle: readOptionalAttr(tagFull, "title") ?? host,
+        visitTitle: decodeOptionalAttr(tagFull, "title") ?? host,
         content: host,
         isGenerating,
     };
@@ -1744,6 +1744,33 @@ const resolveGeneralActivityLabel = (
     return hasWorkflows ? "Working" : undefined;
 };
 
+/** Checks whether the trailing workflow block is an unclosed in-flight edit chunk. */
+const isActivelyEditingBlock = (
+    lastBlock: Chunk | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (!isGenerating || !lastBlock?.isGenerating) return false;
+    return isEditChunk(lastBlock);
+};
+
+/** Checks whether live status should report an active file-editing label. */
+const shouldShowEditingStatus = (
+    lastBlock: Chunk | undefined,
+    activityLabel: string | null | undefined,
+    isGenerating?: boolean,
+): boolean => {
+    if (activityLabel && /\bedit/i.test(activityLabel)) return true;
+    return isActivelyEditingBlock(lastBlock, isGenerating);
+};
+
+/** Reads the blocks array from the trailing workflow segment when present. */
+const readTrailingWorkflowBlocks = (
+    workflowSegments: WorkflowSegment[],
+): Chunk[] | undefined => {
+    const lastSegment = workflowSegments.at(-1);
+    return lastSegment ? lastSegment.blocks : undefined;
+};
+
 /** Computes the live `GeneratingIndicator` status label for the current message state. */
 const resolveLiveStatusLabel = (
     pendingLabel: string | undefined,
@@ -1752,9 +1779,9 @@ const resolveLiveStatusLabel = (
     isGenerating?: boolean,
 ): string | undefined => {
     if (pendingLabel) return pendingLabel;
-    const trailingBlocks = workflowSegments.at(-1)?.blocks;
+    const trailingBlocks = readTrailingWorkflowBlocks(workflowSegments);
     const lastWorkflowBlock = trailingBlocks?.at(-1);
-    if (isEditChunk(lastWorkflowBlock) || /\bedit/i.test(activityLabel ?? "")) {
+    if (shouldShowEditingStatus(lastWorkflowBlock, activityLabel, isGenerating)) {
         return `Editing ${findLatestEditedBasename(trailingBlocks)}`;
     }
     return resolveGeneralActivityLabel(
