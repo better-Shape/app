@@ -377,6 +377,22 @@ const safeListen = <T,>(
         .then(() => listen<T>(eventName, handler))
         .catch(() => () => undefined);
 
+const isHighSurrogateCode = (code: number): boolean =>
+    code >= 0xd800 && code <= 0xdbff;
+
+const isLowSurrogateCode = (code: number): boolean =>
+    code >= 0xdc00 && code <= 0xdfff;
+
+/** Slices the trailing `cap` UTF-16 code units without leaving an orphaned leading low surrogate. */
+const sliceTrailingOutputCap = (text: string, cap: number): string => {
+    if (text.length <= cap) return text;
+    const start = text.length - cap;
+    const splitPair =
+        isLowSurrogateCode(text.charCodeAt(start)) &&
+        isHighSurrogateCode(text.charCodeAt(start - 1));
+    return text.slice(splitPair ? start + 1 : start);
+};
+
 /** Appends a PTY chunk onto `buffer`, carrying split ANSI escapes and applying `\r` line rewinds. */
 export const appendStreamAnsiChunk = (
     buffer: TerminalStreamBuffer,
@@ -389,8 +405,9 @@ export const appendStreamAnsiChunk = (
         flush,
     );
     return {
-        output: applyTerminalCarriageReturns(buffer.output, stripped).slice(
-            -OUTPUT_CAP,
+        output: sliceTrailingOutputCap(
+            applyTerminalCarriageReturns(buffer.output, stripped),
+            OUTPUT_CAP,
         ),
         carry,
     };

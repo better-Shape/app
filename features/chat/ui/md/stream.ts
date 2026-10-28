@@ -4,10 +4,21 @@ type FenceMarkerInfo = {
     suffix: string;
 };
 
-type LineFenceScan = {
+type ListScopeEntry = {
     quoteDepth: number;
-    marker: FenceMarkerInfo | null;
+    contentIndent: number;
 };
+
+export type CodeFenceState = {
+    ranges: Array<readonly [number, number]>;
+    fenceStart: number;
+    fenceChar: string;
+    fenceLen: number;
+    fenceQuoteDepth: number;
+    fenceListIndent: number;
+};
+
+const LIST_MARKER_PREFIX_RE = /^(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)/u;
 
 /** Advances past up to 3 ASCII spaces starting at `from`. */
 const skipUpToThreeSpaces = (line: string, from: number): number => {
@@ -24,21 +35,154 @@ const skipOptionalQuoteSpace = (line: string, afterGt: number): number => {
     return code === 32 || code === 9 ? afterGt + 1 : afterGt;
 };
 
-/** Strips CommonMark `>` blockquote prefixes and up to 3 fence indent spaces. */
-const readLineFencePrefix = (
+/** Strips up to `maxQuotes` CommonMark `>` blockquote prefixes from `line`. */
+const readBlockquotePrefix = (
     line: string,
-): { offset: number; afterQuotes: number; quoteDepth: number } => {
+    maxQuotes: number,
+): { afterQuotes: number; quoteDepth: number } => {
     let cursor = 0;
     let quoteDepth = 0;
-    while (cursor < line.length) {
+    while (cursor < line.length && quoteDepth < maxQuotes) {
         const afterSpaces = skipUpToThreeSpaces(line, cursor);
-        if (line.charCodeAt(afterSpaces) !== 62) {
-            return { offset: afterSpaces, afterQuotes: cursor, quoteDepth };
-        }
+        if (line.charCodeAt(afterSpaces) !== 62) break;
         quoteDepth += 1;
         cursor = skipOptionalQuoteSpace(line, afterSpaces + 1);
     }
-    return { offset: cursor, afterQuotes: cursor, quoteDepth };
+    return { afterQuotes: cursor, quoteDepth };
+};
+
+/** Computes next visual column for a single space or tab code unit (`-1` otherwise). */
+const advanceIndentStep = (col: number, code: number): number => {
+    if (code === 32) return col + 1;
+    if (code === 9) return col + 4 - (col % 4);
+    return -1;
+};
+
+/** Measures leading space/tab indentation starting at `from` using 4-column CommonMark tab stops. */
+const measureLeadingIndent = (
+    line: string,
+    from: number,
+): { indent: number; offset: number } => {
+    let indent = 0;
+    let offset = from;
+    while (offset < line.length) {
+        const next = advanceIndentStep(indent, line.charCodeAt(offset));
+        if (next < 0) break;
+        indent = next;
+        offset += 1;
+    }
+    return { indent, offset };
+};
+
+/** Returns CommonMark list marker width (`-`, `*`, `+`, `1.`, `1)`) at `offset`, or `0` if none. */
+const readListMarkerWidth = (line: string, offset: number): number => {
+    const match = LIST_MARKER_PREFIX_RE.exec(line.slice(offset));
+    return match ? match[0].length : 0;
+};
+
+/** Resolves CommonMark post-marker content column padding (`1` on blank or indented code `> 4`). */
+const resolvePostMarkerPadding = (
+    postIndent: number,
+    isBlankRest: boolean,
+): number => (isBlankRest || postIndent > 4 ? 1 : postIndent);
+
+/** Checks whether `entry` exited at `(quoteDepth, indent, isBlank)`. */
+const hasExitedListScope = (
+    entry: ListScopeEntry,
+    quoteDepth: number,
+    indent: number,
+    isBlank: boolean,
+): boolean => {
+    if (entry.quoteDepth > quoteDepth) return true;
+    if (isBlank) return false;
+    return entry.quoteDepth === quoteDepth && indent < entry.contentIndent;
+};
+
+/** Pops open list-item scopes whose blockquote or content column has ended. */
+const pruneExitedListScopes = (
+    stack: ListScopeEntry[],
+    quoteDepth: number,
+    indent: number,
+    isBlank: boolean,
+): void => {
+    while (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        if (!top || !hasExitedListScope(top, quoteDepth, indent, isBlank)) {
+            break;
+        }
+        stack.pop();
+    }
+};
+
+/** Reads active list-item content column at `quoteDepth` (`0` when outside any list item). */
+const currentListIndentAtQuote = (
+    stack: ListScopeEntry[],
+    quoteDepth: number,
+): number => {
+    const top = stack[stack.length - 1];
+    return top && top.quoteDepth === quoteDepth ? top.contentIndent : 0;
+};
+
+/** Pushes a CommonMark list-item scope when `line` at `offset` starts a list marker within `3` spaces. */
+const tryAdvanceListMarker = (
+    stack: ListScopeEntry[],
+    line: string,
+    quoteDepth: number,
+    indent: number,
+    offset: number,
+): { offset: number; relativeIndent: number } | null => {
+    const activeIndent = currentListIndentAtQuote(stack, quoteDepth);
+    if (indent > activeIndent + 3) return null;
+    const markerWidth = readListMarkerWidth(line, offset);
+    if (markerWidth === 0) return null;
+    const post = measureLeadingIndent(line, offset + markerWidth);
+    const pad = resolvePostMarkerPadding(
+        post.indent,
+        post.offset >= line.length,
+    );
+    stack.push({ quoteDepth, contentIndent: indent + markerWidth + pad });
+    return {
+        offset: post.offset,
+        relativeIndent: post.indent > 4 ? post.indent - 1 : 0,
+    };
+};
+
+/** Updates `stack` for `line` and returns the candidate fence offset and relative indent. */
+const resolveProseFenceCandidate = (
+    stack: ListScopeEntry[],
+    line: string,
+    afterQuotes: number,
+    quoteDepth: number,
+): { offset: number; relativeIndent: number; listIndent: number } => {
+    const initial = measureLeadingIndent(line, afterQuotes);
+    pruneExitedListScopes(
+        stack,
+        quoteDepth,
+        initial.indent,
+        initial.offset >= line.length,
+    );
+    let offset = initial.offset;
+    let relativeIndent =
+        initial.indent - currentListIndentAtQuote(stack, quoteDepth);
+    while (offset < line.length) {
+        const absIndent =
+            currentListIndentAtQuote(stack, quoteDepth) + relativeIndent;
+        const stepped = tryAdvanceListMarker(
+            stack,
+            line,
+            quoteDepth,
+            absIndent,
+            offset,
+        );
+        if (!stepped) break;
+        offset = stepped.offset;
+        relativeIndent = stepped.relativeIndent;
+    }
+    return {
+        offset,
+        relativeIndent,
+        listIndent: currentListIndentAtQuote(stack, quoteDepth),
+    };
 };
 
 /** Counts consecutive `markerChar` characters starting at `from`. */
@@ -54,20 +198,16 @@ const countRepeatedChar = (
     return end - from;
 };
 
-/** Reads blockquote depth and any CommonMark fence marker (`>= 3` backticks/tildes) on `rawLine`. */
-const scanStreamFenceLine = (rawLine: string): LineFenceScan => {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    const { offset, quoteDepth } = readLineFencePrefix(line);
+/** Parses a CommonMark fence marker (`>= 3` backticks or tildes) starting at `offset`. */
+const parseFenceMarkerAt = (
+    line: string,
+    offset: number,
+): FenceMarkerInfo | null => {
     const markerChar = line.charAt(offset);
-    if (markerChar !== "`" && markerChar !== "~") {
-        return { quoteDepth, marker: null };
-    }
+    if (markerChar !== "`" && markerChar !== "~") return null;
     const len = countRepeatedChar(line, offset, markerChar);
-    if (len < 3) return { quoteDepth, marker: null };
-    return {
-        quoteDepth,
-        marker: { char: markerChar, len, suffix: line.slice(offset + len) },
-    };
+    if (len < 3) return null;
+    return { char: markerChar, len, suffix: line.slice(offset + len) };
 };
 
 /** Checks whether `parsed` opens a CommonMark fenced code block. */
@@ -89,32 +229,6 @@ const isClosingStreamFence = (
             /^[ \t]*$/u.test(parsed.suffix),
     );
 
-/** Checks whether `lineScan` explicitly closes a fenced block opened at `fenceQuoteDepth`. */
-const isMatchingLineFenceClose = (
-    lineScan: LineFenceScan,
-    fenceChar: string,
-    fenceLen: number,
-    fenceQuoteDepth: number,
-): boolean =>
-    lineScan.quoteDepth === fenceQuoteDepth &&
-    isClosingStreamFence(lineScan.marker, fenceChar, fenceLen);
-
-/** Flushes any trailing open code fence or remaining prose tail into `out`. */
-const flushRemainingFenceSegments = (
-    out: string[],
-    text: string,
-    proseStart: number,
-    fenceStart: number,
-    hasOpenFence: boolean,
-    fn: (prose: string) => string,
-): void => {
-    if (hasOpenFence) {
-        out.push(text.slice(fenceStart));
-    } else if (proseStart < text.length) {
-        out.push(fn(text.slice(proseStart)));
-    }
-};
-
 /** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
 const readLineSliceAt = (
     text: string,
@@ -127,94 +241,156 @@ const readLineSliceAt = (
     return { lineText: text.slice(cursor, nl), afterLine: nl + 1 };
 };
 
-type FenceScanState = {
-    proseStart: number;
-    fenceStart: number;
-    fenceChar: string;
-    fenceLen: number;
-    fenceQuoteDepth: number;
-};
-
-/** Enters fenced code state starting at `cursor` and flushes any preceding prose segment. */
-const enterFenceAt = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    cursor: number,
-    lineScan: { quoteDepth: number; marker: FenceMarkerInfo },
-    fn: (prose: string) => string,
-): void => {
-    if (cursor > state.proseStart) {
-        out.push(fn(text.slice(state.proseStart, cursor)));
-    }
-    state.fenceStart = cursor;
-    state.fenceChar = lineScan.marker.char;
-    state.fenceLen = lineScan.marker.len;
-    state.fenceQuoteDepth = lineScan.quoteDepth;
-};
-
-/** Resets open fence fields on `FenceScanState` after flushing through `endOffset`. */
-const closeFenceScanAt = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
+/** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
+const closeCodeFenceRangeAt = (
+    state: CodeFenceState,
     endOffset: number,
 ): void => {
-    out.push(text.slice(state.fenceStart, endOffset));
-    state.proseStart = endOffset;
+    state.ranges.push([state.fenceStart, endOffset]);
     state.fenceStart = -1;
     state.fenceChar = "";
     state.fenceLen = 0;
     state.fenceQuoteDepth = 0;
+    state.fenceListIndent = 0;
 };
 
-/** Closes `state` at `cursor` when `lineScan` exits the blockquote containing the fence. */
-const maybeExitBlockquoteFence = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
-    cursor: number,
-    quoteDepth: number,
-): void => {
-    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
-        closeFenceScanAt(state, out, text, cursor);
-    }
+/** Checks whether `line` at `(indent, offset)` explicitly closes `state`'s active fence. */
+const isExplicitFenceCloserAt = (
+    state: CodeFenceState,
+    line: string,
+    indent: number,
+    offset: number,
+): boolean => {
+    if (indent > state.fenceListIndent + 3) return false;
+    const marker = parseFenceMarkerAt(line, offset);
+    return isClosingStreamFence(marker, state.fenceChar, state.fenceLen);
 };
 
-/** Advances `FenceScanState` across one line at `[cursor, afterLine)`. */
-const stepFenceScanLine = (
-    state: FenceScanState,
-    out: string[],
-    text: string,
+/** Checks whether a non-blank line dedented out of `state`'s enclosing list item. */
+const isListFenceDedentExit = (
+    lineLength: number,
+    offset: number,
+    indent: number,
+    fenceListIndent: number,
+): boolean => offset < lineLength && indent < fenceListIndent;
+
+/** Consumes `line` inside an open fence, or closes at `cursor` and returns `false` on container exit. */
+const tryConsumeOpenFenceLine = (
+    state: CodeFenceState,
+    line: string,
     cursor: number,
     afterLine: number,
-    lineScan: LineFenceScan,
-    fn: (prose: string) => string,
+): boolean => {
+    const { afterQuotes, quoteDepth } = readBlockquotePrefix(
+        line,
+        state.fenceQuoteDepth,
+    );
+    if (quoteDepth < state.fenceQuoteDepth) {
+        closeCodeFenceRangeAt(state, cursor);
+        return false;
+    }
+    const { indent, offset } = measureLeadingIndent(line, afterQuotes);
+    if (isExplicitFenceCloserAt(state, line, indent, offset)) {
+        closeCodeFenceRangeAt(state, afterLine);
+        return true;
+    }
+    if (isListFenceDedentExit(line.length, offset, indent, state.fenceListIndent)) {
+        closeCodeFenceRangeAt(state, cursor);
+        return false;
+    }
+    return true;
+};
+
+/** Updates list scopes on `line` and opens a fence on `state` when a valid opener is present. */
+const tryOpenFenceOnLine = (
+    state: CodeFenceState,
+    stack: ListScopeEntry[],
+    line: string,
+    cursor: number,
 ): void => {
-    maybeExitBlockquoteFence(state, out, text, cursor, lineScan.quoteDepth);
-    if (!state.fenceChar) {
-        if (isOpeningStreamFence(lineScan.marker)) {
-            enterFenceAt(
-                state,
-                out,
-                text,
-                cursor,
-                { quoteDepth: lineScan.quoteDepth, marker: lineScan.marker },
-                fn,
-            );
-        }
+    const { afterQuotes, quoteDepth } = readBlockquotePrefix(
+        line,
+        Number.POSITIVE_INFINITY,
+    );
+    const candidate = resolveProseFenceCandidate(
+        stack,
+        line,
+        afterQuotes,
+        quoteDepth,
+    );
+    if (candidate.relativeIndent > 3) return;
+    const marker = parseFenceMarkerAt(line, candidate.offset);
+    if (!isOpeningStreamFence(marker)) return;
+    state.fenceStart = cursor;
+    state.fenceChar = marker.char;
+    state.fenceLen = marker.len;
+    state.fenceQuoteDepth = quoteDepth;
+    state.fenceListIndent = candidate.listIndent;
+};
+
+/** Strips a trailing `\r` from a CRLF line slice. */
+const stripTrailingCarriageReturn = (rawLine: string): string =>
+    rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+
+/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
+const stepCodeFenceRangeLine = (
+    state: CodeFenceState,
+    stack: ListScopeEntry[],
+    rawLine: string,
+    cursor: number,
+    afterLine: number,
+): void => {
+    const line = stripTrailingCarriageReturn(rawLine);
+    if (state.fenceChar && tryConsumeOpenFenceLine(state, line, cursor, afterLine)) {
         return;
     }
-    if (
-        isMatchingLineFenceClose(
-            lineScan,
-            state.fenceChar,
-            state.fenceLen,
-            state.fenceQuoteDepth,
-        )
-    ) {
-        closeFenceScanAt(state, out, text, afterLine);
+    tryOpenFenceOnLine(state, stack, line, cursor);
+};
+
+/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
+export const scanMarkdownCodeFences = (
+    text: string,
+    fromIndex = 0,
+): CodeFenceState => {
+    const state: CodeFenceState = {
+        ranges: [],
+        fenceStart: -1,
+        fenceChar: "",
+        fenceLen: 0,
+        fenceQuoteDepth: 0,
+        fenceListIndent: 0,
+    };
+    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
+        return state;
     }
+    const stack: ListScopeEntry[] = [];
+    let cursor = fromIndex;
+    while (cursor < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, cursor);
+        stepCodeFenceRangeLine(state, stack, lineText, cursor, afterLine);
+        cursor = afterLine;
+    }
+    if (state.fenceChar) {
+        state.ranges.push([state.fenceStart, text.length]);
+    }
+    return state;
+};
+
+/** Applies `fn` to prose segments between `ranges` while preserving fenced blocks verbatim. */
+const appendProseAndFenceRanges = (
+    text: string,
+    ranges: ReadonlyArray<readonly [number, number]>,
+    fn: (prose: string) => string,
+): string => {
+    const out: string[] = [];
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+        if (cursor < start) out.push(fn(text.slice(cursor, start)));
+        out.push(text.slice(start, end));
+        cursor = end;
+    }
+    if (cursor < text.length) out.push(fn(text.slice(cursor)));
+    return out.join("");
 };
 
 /** Apply `fn` only to prose outside CommonMark backtick or tilde fenced code blocks. */
@@ -223,39 +399,10 @@ const mapOutsideCodeFences = (
     fn: (prose: string) => string,
 ): string => {
     if (!text.includes("```") && !text.includes("~~~")) return fn(text);
-    const out: string[] = [];
-    const state: FenceScanState = {
-        proseStart: 0,
-        fenceStart: -1,
-        fenceChar: "",
-        fenceLen: 0,
-        fenceQuoteDepth: 0,
-    };
-    let cursor = 0;
-
-    while (cursor < text.length) {
-        const { lineText, afterLine } = readLineSliceAt(text, cursor);
-        stepFenceScanLine(
-            state,
-            out,
-            text,
-            cursor,
-            afterLine,
-            scanStreamFenceLine(lineText),
-            fn,
-        );
-        cursor = afterLine;
-    }
-
-    flushRemainingFenceSegments(
-        out,
-        text,
-        state.proseStart,
-        state.fenceStart,
-        Boolean(state.fenceChar),
-        fn,
-    );
-    return out.join("");
+    const { ranges } = scanMarkdownCodeFences(text, 0);
+    return ranges.length === 0
+        ? fn(text)
+        : appendProseAndFenceRanges(text, ranges, fn);
 };
 
 type BacktickRunToken = {
@@ -496,98 +643,6 @@ const mapOutsideInlineCodeSpans = (
     }
     if (cursor < prose.length) parts.push(fn(prose.slice(cursor)));
     return parts.join("");
-};
-
-export type CodeFenceState = {
-    ranges: Array<readonly [number, number]>;
-    fenceStart: number;
-    fenceChar: string;
-    fenceLen: number;
-    fenceQuoteDepth: number;
-};
-
-/** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
-const closeCodeFenceRangeAt = (
-    state: CodeFenceState,
-    endOffset: number,
-): void => {
-    state.ranges.push([state.fenceStart, endOffset]);
-    state.fenceStart = -1;
-    state.fenceChar = "";
-    state.fenceLen = 0;
-    state.fenceQuoteDepth = 0;
-};
-
-/** Closes `CodeFenceState` at `cursor` when `quoteDepth` exits the blockquote containing the fence. */
-const maybeExitBlockquoteRange = (
-    state: CodeFenceState,
-    cursor: number,
-    quoteDepth: number,
-): void => {
-    if (state.fenceChar && quoteDepth < state.fenceQuoteDepth) {
-        closeCodeFenceRangeAt(state, cursor);
-    }
-};
-
-/** Advances `CodeFenceState` across one line `[cursor, afterLine)`. */
-const stepCodeFenceRangeLine = (
-    state: CodeFenceState,
-    cursor: number,
-    afterLine: number,
-    lineScan: LineFenceScan,
-): void => {
-    maybeExitBlockquoteRange(state, cursor, lineScan.quoteDepth);
-    if (!state.fenceChar) {
-        if (isOpeningStreamFence(lineScan.marker)) {
-            state.fenceStart = cursor;
-            state.fenceChar = lineScan.marker.char;
-            state.fenceLen = lineScan.marker.len;
-            state.fenceQuoteDepth = lineScan.quoteDepth;
-        }
-        return;
-    }
-    if (
-        isMatchingLineFenceClose(
-            lineScan,
-            state.fenceChar,
-            state.fenceLen,
-            state.fenceQuoteDepth,
-        )
-    ) {
-        closeCodeFenceRangeAt(state, afterLine);
-    }
-};
-
-/** Scans CommonMark fenced code blocks from `fromIndex`, returning `[start, end)` ranges plus any open tail. */
-export const scanMarkdownCodeFences = (
-    text: string,
-    fromIndex = 0,
-): CodeFenceState => {
-    const state: CodeFenceState = {
-        ranges: [],
-        fenceStart: -1,
-        fenceChar: "",
-        fenceLen: 0,
-        fenceQuoteDepth: 0,
-    };
-    if (!text.includes("```", fromIndex) && !text.includes("~~~", fromIndex)) {
-        return state;
-    }
-    let cursor = fromIndex;
-    while (cursor < text.length) {
-        const { lineText, afterLine } = readLineSliceAt(text, cursor);
-        stepCodeFenceRangeLine(
-            state,
-            cursor,
-            afterLine,
-            scanStreamFenceLine(lineText),
-        );
-        cursor = afterLine;
-    }
-    if (state.fenceChar) {
-        state.ranges.push([state.fenceStart, text.length]);
-    }
-    return state;
 };
 
 /** Close an unclosed fenced code block so streaming markdown does not swallow the rest as mono code. */

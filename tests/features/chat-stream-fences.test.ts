@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { appendStreamAnsiChunk } from "@/features/chat/ui/blocks/terminal-live";
+import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, stripLeakedToolCode } from "@/features/chat/ui/md/stream";
 
 const stream = (t: string) => preprocessChatMarkdown(t, { streaming: true });
@@ -65,3 +67,46 @@ describe("tool-dump fast path", () => {
         expect(stripLeakedToolCode("a\n\n\n\nb")).toBe("a\n\nb");
     });
 });
+
+describe("list-indented fences and surrogate-safe terminal cap", () => {
+    it("protects <edit> inside 4-space fenced blocks in ordered and nested lists", () => {
+        const ordered = [
+            "1. Update the file:",
+            "    ```xml",
+            '    <edit file="src/app.tsx"><original>a</original><replacement>b</replacement></edit>',
+            "    ```",
+            "Done.",
+        ].join("\n");
+        expect(parseMessageContent(ordered).some((c) => c.type === "edit_pending")).toBe(false);
+
+        const nested = [
+            "- Outer",
+            "  - Inner",
+            "    ```xml",
+            '    <edit file="src/app.tsx"><original>a</original><replacement>b</replacement></edit>',
+            "    ```",
+        ].join("\n");
+        expect(parseMessageContent(nested).some((c) => c.type === "edit_pending")).toBe(false);
+    });
+
+    it("closes an unclosed list fence when prose dedents out of the list item", () => {
+        const dedented = [
+            "1. Example:",
+            "    ```xml",
+            '    <edit file="src/sample.tsx"><original>a</original><replacement>b</replacement></edit>',
+            '<edit_pending id="e-real" file="src/real.tsx" status="pending"><original>x</original><replacement>y</replacement></edit_pending>',
+        ].join("\n");
+        const edits = parseMessageContent(dedented).filter((c) => c.type === "edit_pending");
+        expect(edits).toHaveLength(1);
+        expect(edits[0]?.file).toBe("src/real.tsx");
+    });
+
+    it("avoids splitting a UTF-16 surrogate pair when terminal output exceeds OUTPUT_CAP", () => {
+        const prefix = `x\u{1F680}${"a".repeat(15_999)}`;
+        const res = appendStreamAnsiChunk({ output: "", carry: "" }, prefix, true);
+        expect(res.output.length).toBe(15_999);
+        const firstCode = res.output.charCodeAt(0);
+        expect(firstCode < 0xdc00 || firstCode > 0xdfff).toBe(true);
+    });
+});
+
