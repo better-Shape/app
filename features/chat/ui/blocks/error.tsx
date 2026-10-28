@@ -224,7 +224,7 @@ const BASIC_TOKEN_CANDIDATE_RE =
     /\b(Basic[ \t]+)([A-Za-z0-9+/=_-]{4,})(?![A-Za-z0-9+/=_-])/giu;
 const URL_AUTHORITY_RE = /\b(https?:\/\/)([^\s/?#"']+)/giu;
 const QUERY_SECRET_RE =
-    /([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/giu;
+    /([?&](?:api[_-]?key|key|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|sig|signature)=)[^&\s"']+/giu;
 const KNOWN_KEY_PREFIX_RE =
     /\b(?:(?:sk|xai|pplx|csk|nvapi|tvly)-[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{16,}|dapi[0-9a-f]{16,}|BSA[0-9A-Za-z_-]{16,}|(?:tgp_v1|doo_v1|oc_sk|VENICE_INFERENCE_KEY|llmgtwy|kilo|vck|sk|rk|pk|gsk|csk|nvapi|hf|r8|fw)_[A-Za-z0-9_-]{8,})\b/gu;
 

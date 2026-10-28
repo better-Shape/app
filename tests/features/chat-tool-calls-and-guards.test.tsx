@@ -63,6 +63,7 @@ import {
     embeddingsTarget,
     keyFormatWarning,
     mergeProviderConnections,
+    resolveActiveDefaultModelId,
     normalizeProvidersSettings,
     providerHeaders,
     providersForModelNames,
@@ -1221,6 +1222,29 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         };
         expect(describeProviderSetupGap(disabledKeylessPinned)).toBe(
             "Enable a provider in Settings -> Providers",
+        );
+
+        const autoHiddenFirst = defaultProvidersSettings();
+        autoHiddenFirst.chatMode = "auto";
+        autoHiddenFirst.connections.openai = {
+            ...autoHiddenFirst.connections.openai,
+            enabled: true,
+            apiKey: "saved-test-credential",
+            hiddenModels: [chatModelIdsFor("openai", autoHiddenFirst.connections)[0]],
+        };
+        expect(toRustAiConfig(autoHiddenFirst).defaultModel).toBe(
+            resolveActiveDefaultModelId(autoHiddenFirst),
+        );
+        expect(toRustAiConfig(autoHiddenFirst).defaultModel).not.toBe(
+            autoHiddenFirst.connections.openai.hiddenModels[0],
+        );
+
+        expect(
+            redactErrorSecrets(
+                "Upstream failed: https://api.example.com/v1/chat?password=mySecretPw!&client_secret=cs123&mode=stream",
+            ),
+        ).toBe(
+            "Upstream failed: https://api.example.com/v1/chat?password=[REDACTED]&client_secret=[REDACTED]&mode=stream",
         );
 
         const repeatedValid =

@@ -918,7 +918,7 @@ export const stripLeakedToolMarkup = (text: string): string => {
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
 const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\r\f\v]*\n/u;
-const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/u;
+const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/gu;
 
 /** Trims a single trailing `\r?\n` from `rangeEnd` so stripped closed fences preserve outer line breaks. */
 const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
@@ -993,13 +993,29 @@ const stripLeakedFencedToolBlocks = (text: string): string => {
     return out + text.slice(cursor);
 };
 
+/** Checks whether `offset` falls inside any `[start, end)` span in `ranges`. */
+const isOffsetInsideFenceRanges = (
+    offset: number,
+    ranges: ReadonlyArray<readonly [number, number]>,
+): boolean => ranges.some(([start, end]) => offset >= start && offset < end);
+
+/** Finds the first bare `{ "tool_code":` offset outside Markdown code fences, or `-1`. */
+const findFirstUnfencedBareToolCode = (text: string): number => {
+    const { ranges } = scanMarkdownCodeFences(text, 0);
+    for (const match of text.matchAll(BARE_TOOL_CODE_OPEN_RE)) {
+        if (!isOffsetInsideFenceRanges(match.index, ranges)) {
+            return match.index;
+        }
+    }
+    return -1;
+};
+
 /** Strips a bare `{ "tool_code": ... }` tail when its body contains a leaked tool trigger. */
 const stripBareToolCodeTail = (text: string): string => {
-    const match = BARE_TOOL_CODE_OPEN_RE.exec(text);
-    if (!match) return text;
-    const tail = text.slice(match.index);
-    return BARE_TOOL_CODE_TRIGGER_RE.test(tail)
-        ? text.slice(0, match.index)
+    const at = findFirstUnfencedBareToolCode(text);
+    if (at === -1) return text;
+    return BARE_TOOL_CODE_TRIGGER_RE.test(text.slice(at))
+        ? text.slice(0, at)
         : text;
 };
 

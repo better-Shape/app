@@ -2037,30 +2037,9 @@ export const embeddingModelOptions = (
 export const embeddingsAvailable = (settings: ProvidersSettings): boolean =>
   embeddingsTarget(settings) !== null;
 
-/** Checks whether `wanted` is a concrete model id present in `usableIds`. */
-const isUsableConcreteModel = (
-  wanted: string,
-  usableIds: Set<string>,
-): boolean => Boolean(wanted) && wanted !== "auto" && usableIds.has(wanted);
-
-/** Canonicalizes a non-`auto` chatMode string via `translateModelId`. */
-const canonicalNonAutoMode = (mode: ChatMode): string => {
-  const rawWanted = mode === "auto" ? "" : mode.trim();
-  return rawWanted ? translateModelId(rawWanted) : "";
-};
-
-/** Resolve the concrete chat model for the Rust side. */
-const resolveDefaultModel = (
-  settings: ProvidersSettings,
-  providers: RustAiProviderEntry[],
-): string => {
-  if (settings.chatMode === "ask") return "";
-  const wanted = canonicalNonAutoMode(settings.chatMode);
-  const usableIds = new Set(providers.flatMap((provider) => provider.models));
-  if (isUsableConcreteModel(wanted, usableIds)) return wanted;
-  const pinned = providers.find((provider) => provider.models.length > 0);
-  return pinned?.models[0] ?? "";
-};
+/** Resolve the concrete chat model for the Rust side, matching the UI Auto target. */
+const resolveDefaultModel = (settings: ProvidersSettings): string =>
+  resolveActiveDefaultModelId(settings) ?? "";
 
 /** Builds a single `RustAiProviderEntry` for a usable provider connection. */
 const buildRustProviderEntry = (
@@ -2112,7 +2091,7 @@ export const toRustAiConfig = (settings: ProvidersSettings): RustAiConfig => {
 
   return {
     providers,
-    defaultModel: resolveDefaultModel(settings, providers),
+    defaultModel: resolveDefaultModel(settings),
     embeddingModel: embeddingTarget?.model ?? "",
     embeddingProvider: embeddingTarget?.id ?? "",
     search: {

@@ -1344,7 +1344,7 @@ const useComposerTextController = ({
     (token: string) => {
       const caret = textareaRef.current?.selectionStart ?? inputValue.length;
       const { next, pos } = insertSpacedTokenAtCaret(inputValue, caret, token);
-      applyProgrammaticInputValue(next);
+      applyProgrammaticInputValue(next, pos);
       scheduleFocusAtPosition(textareaRef, pos);
     },
     [applyProgrammaticInputValue, inputValue, textareaRef],

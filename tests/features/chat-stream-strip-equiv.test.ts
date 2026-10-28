@@ -192,12 +192,26 @@ const stripReferenceFences = (inputText: string): string =>
 const REFERENCE_TOOL_FN =
     /(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input)/u;
 
+/** Truncates from the earliest unfenced `{ "tool_code":` whose remaining tail triggers bare tool stripping. */
+const stripReferenceBareToolCode = (source: string): string => {
+    const fencedSpans = scanMarkdownCodeFences(source, 0).ranges;
+    const candidates = Array.from(source.matchAll(/\{\s*"tool_code"\s*:/gu))
+        .map((hit) => hit.index)
+        .filter((pos) =>
+            fencedSpans.every(([from, until]) => pos < from || pos >= until),
+        );
+    const firstPos = candidates[0];
+    if (firstPos === undefined) return source;
+    return /print\s*\(|render_design_previews|concepts\s*=/u.test(
+        source.slice(firstPos),
+    )
+        ? source.slice(0, firstPos)
+        : source;
+};
+
 /** Behavioural reference for `stripLeakedToolCode`. */
 const referenceCode = (inputText: string): string => {
-    let working = stripReferenceFences(inputText);
-    working = working.replace(/\{\s*"tool_code"\s*:[\s\S]*$/gu, (match) =>
-        /print\s*\(|render_design_previews|concepts\s*=/u.test(match) ? "" : match,
-    );
+    let working = stripReferenceBareToolCode(stripReferenceFences(inputText));
     working = mapOutsideReferenceFences(working, (prose) => {
         const src = REFERENCE_TOOL_FN.source;
         const printLine = new RegExp(
@@ -231,6 +245,7 @@ const cases: string[] = [
     "prose with a < in a comparison: a < b and c > d",
     "prose with ```code fence``` inline",
     "```ts\nconst a = 1;\n```",
+    "```json\n{ \"tool_code\": \"sample\" }\n```\nLater prose calls print(x).",
     "```json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n```",
     "````json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n````",
     "~~~~json\n{ \"tool_code\": \"print(render_design_previews(x))\" }\n~~~~",
