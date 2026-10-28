@@ -477,10 +477,10 @@ const parsePlanSavedBlock = (
 });
 
 /** Parses a `<plan>` step-list tag into a plan chunk. */
-const parsePlanBlock = (block: string): Chunk => ({
+const parsePlanBlock = (tagHeader: string, block: string): Chunk => ({
     type: "plan",
     content: block,
-    file: block.match(/<plan\s+title="([^"]*)"/)?.[1] ?? "Plan",
+    file: decodeOptionalAttr(tagHeader, "title") ?? "Plan",
 });
 
 /** Checks whether `code` is an ASCII single or double quote (`"` or `'`). */
@@ -1093,7 +1093,7 @@ const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
             ctx.fullBlock,
             Boolean(ctx.isGenerating),
         ),
-    plan: (ctx) => parsePlanBlock(ctx.fullBlock),
+    plan: (ctx) => parsePlanBlock(ctx.tagHeader, ctx.fullBlock),
     plan_saved: (ctx) =>
         parsePlanSavedBlock(ctx.tagHeader, ctx.fullBlock, ctx.content),
     todos: (ctx) => parseTodosBlock(ctx.fullBlock),

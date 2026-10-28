@@ -362,6 +362,18 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
                 }).activeRange?.toString(),
             ).toBe("TokenStore");
 
+            // Even when earlier DOM matches (e.g. ActionLine labels) exhaust `maxRanges`,
+            // `targetMessageIndex` still resolves its active range.
+            const cappedTarget = syncChatDomHighlights(container, "TokenStore", {
+                caseSensitive: true,
+                maxRanges: 2,
+                targetMessageIndex: 3,
+                targetOccurrenceInMessage: 1,
+                targetMessageSearchText: formattedSearchable,
+            });
+            expect(cappedTarget.ranges).toHaveLength(2);
+            expect(cappedTarget.activeRange?.toString()).toBe("TokenStore");
+
             clearChatDomHighlights();
             expect(deleteSpy).toHaveBeenCalledWith("chat-find");
             expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");

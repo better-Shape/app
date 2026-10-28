@@ -471,6 +471,8 @@ const scanParagraphBacktickRuns = (
         if (tick === -1 || tick >= pEnd) break;
         const fullLen = countBoundedBacktickRun(text, tick, pEnd);
         const escapedFirst = isBackslashEscapedAt(text, pStart, tick);
+        // Per CommonMark §6.1, backslash escapes are not processed inside code spans,
+        // so any maximal backtick run of matching length closes an open span even after `\`.
         pushCloserBucketEntry(buckets, fullLen, runs.length);
         runs.push({ tick, fullLen, escapedFirst });
         pos = tick + fullLen;

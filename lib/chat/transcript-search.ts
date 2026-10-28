@@ -37,12 +37,43 @@ const HIDDEN_AGENT_TAG_NAMES = [
     "tools",
     "new_path",
     "file_content",
-    "sent_file",
 ] as const;
 
 const INLINE_SYSTEM_MARKER_RE = /<(?:chat_renamed|forked_from)(?:[ \t][^<>]*)?\/>/giu;
+const SENT_FILE_TITLE_ATTR_RE = /\btitle=(["'])([^"']*)\1/i;
+const SENT_FILE_NAME_ATTR_RE = /\bname=(["'])([^"']*)\1/i;
 
 const TAG_BOUNDARY_CHARS = new Set([">", " ", "\t", "\n", "\r", "/"]);
+
+/** Decodes basic XML entities inside an extracted tag attribute value. */
+const decodeBasicXmlEntities = (raw: string): string =>
+    raw
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
+
+/** Reads and XML-decodes an attribute matched by `attrRe` from `openTag`. */
+const readDecodedTagAttr = (openTag: string, attrRe: RegExp): string => {
+    const match = openTag.match(attrRe);
+    return match ? decodeBasicXmlEntities(match[2]).trim() : "";
+};
+
+/** Joins `a` and `b` with a space, deduplicating empty or identical values. */
+const joinDistinctLabels = (a: string, b: string): string => {
+    if (!a) return b;
+    return !b || a === b ? a : `${a} ${b}`;
+};
+
+/** Formats the visible heading and filename rendered by `<SentFileCard>` for search indexing. */
+const formatSentFileSearchLabel = (openTag: string): string => {
+    const label = joinDistinctLabels(
+        readDecodedTagAttr(openTag, SENT_FILE_TITLE_ATTR_RE),
+        readDecodedTagAttr(openTag, SENT_FILE_NAME_ATTR_RE),
+    );
+    return label ? ` ${label} ` : " ";
+};
 
 /** Finds the next valid `<tag` opener with a tag-boundary delimiter at or after `from`. */
 const findNextOpenTagAt = (
@@ -59,18 +90,19 @@ const findNextOpenTagAt = (
     return -1;
 };
 
-/** Finds the matching `</tag>` start index after `<tag ...>`, or `-1` when unclosed. */
-const findPairedTagCloseAt = (
+/** Finds the matching `</tag>` start index after opening `>` at `gtIdx`, or `-1`. */
+const findPairedTagCloseFromGt = (
     lower: string,
-    afterPrefix: number,
+    gtIdx: number,
     closeToken: string,
-): number => {
-    const gtIdx = lower.indexOf(">", afterPrefix);
-    return gtIdx === -1 ? -1 : lower.indexOf(closeToken, gtIdx + 1);
-};
+): number => (gtIdx === -1 ? -1 : lower.indexOf(closeToken, gtIdx + 1));
 
-/** Strips paired `<tag ...>...</tag>` blocks for a single lowercase `tag` in linear time. */
-const stripSinglePairedTag = (text: string, tag: string): string => {
+/** Replaces paired `<tag ...>...</tag>` blocks for a single lowercase `tag` in linear time. */
+const replaceSinglePairedTag = (
+    text: string,
+    tag: string,
+    renderOpenTag: (openTag: string) => string,
+): string => {
     const lower = text.toLowerCase();
     const openPrefix = `<${tag}`;
     let openIdx = findNextOpenTagAt(lower, openPrefix, 0);
@@ -79,13 +111,13 @@ const stripSinglePairedTag = (text: string, tag: string): string => {
     const parts: string[] = [];
     let cursor = 0;
     while (openIdx !== -1) {
-        const closeIdx = findPairedTagCloseAt(
-            lower,
-            openIdx + openPrefix.length,
-            closeToken,
-        );
+        const gtIdx = lower.indexOf(">", openIdx + openPrefix.length);
+        const closeIdx = findPairedTagCloseFromGt(lower, gtIdx, closeToken);
         if (closeIdx === -1) break;
-        parts.push(text.slice(cursor, openIdx), " ");
+        parts.push(
+            text.slice(cursor, openIdx),
+            renderOpenTag(text.slice(openIdx, gtIdx + 1)),
+        );
         cursor = closeIdx + closeToken.length;
         openIdx = findNextOpenTagAt(lower, openPrefix, cursor);
     }
@@ -96,9 +128,13 @@ const stripSinglePairedTag = (text: string, tag: string): string => {
 /** Strips all hidden backend tool/payload XML blocks from `segment` without regex backtracking. */
 const stripHiddenPayloadTags = (segment: string): string => {
     if (!segment.includes("<")) return segment;
-    let out = segment;
+    let out = replaceSinglePairedTag(
+        segment,
+        "sent_file",
+        formatSentFileSearchLabel,
+    );
     for (const tag of HIDDEN_AGENT_TAG_NAMES) {
-        out = stripSinglePairedTag(out, tag);
+        out = replaceSinglePairedTag(out, tag, () => " ");
     }
     return out;
 };

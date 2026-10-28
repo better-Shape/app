@@ -4,6 +4,7 @@ import { unified } from "unified";
 import { appendStreamAnsiChunk } from "@/features/chat/ui/blocks/terminal-live";
 import { parseMessageContent, resolveLiveStatusLabel } from "@/features/chat/ui/md/renderer";
 import {
+    appendInlineCodeSpansInRange,
     preprocessChatMarkdown,
     scanMarkdownCodeFences,
     stripLeakedToolCode,
@@ -183,6 +184,26 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
         const settled = preprocessChatMarkdown(largeStripped, { streaming: false });
         expect(settled.length).toBeLessThan(40_000);
         expect(settled).toContain("\n```\n\n... (response truncated for display)");
+
+        const planChunks = parseMessageContent(
+            '<plan id="p-1" title="Auth &amp; Rollout"><step status="pending">Ship</step></plan>',
+        );
+        expect(planChunks.find((c) => c.type === "plan")?.file).toBe("Auth & Rollout");
+
+        const inlineSample = "Use `foo <edit> \\` end";
+        const spans: Array<[number, number]> = [];
+        appendInlineCodeSpansInRange(inlineSample, 0, inlineSample.length, spans);
+        const para = unified().use(remarkParse).parse(inlineSample).children[0];
+        const codeNode =
+            para && "children" in para
+                ? para.children.find((n) => n.type === "inlineCode")
+                : undefined;
+        expect(spans).toEqual([
+            [
+                codeNode?.position?.start.offset ?? -1,
+                codeNode?.position?.end.offset ?? -1,
+            ],
+        ]);
     });
 });
 
