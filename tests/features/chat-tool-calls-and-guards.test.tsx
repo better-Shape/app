@@ -311,6 +311,32 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
             expect(setSpy).toHaveBeenCalledWith("chat-find", expect.any(FakeHighlight));
             expect(setSpy).toHaveBeenCalledWith("chat-find-active", expect.any(FakeHighlight));
 
+            const headTokens = Array.from({ length: 32 }, (_, idx) => `item_${idx} TokenStore`).join(" ");
+            const tailTokens = Array.from({ length: 32 }, (_, idx) => `tail_${idx} TokenStore`).join(" ");
+            const bulkRow = document.createElement("div");
+            bulkRow.dataset.chatMessageIndex = "2";
+            bulkRow.textContent = `${headTokens} Edited 1 file ${tailTokens}`;
+            container.appendChild(bulkRow);
+            const bulkSearchable = extractSearchableMessageText(
+                `${headTokens} <cat path="src/TokenStore.ts"></cat> ${tailTokens}`,
+            );
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 2,
+                    targetOccurrenceInMessage: 32,
+                    targetMessageSearchText: bulkSearchable,
+                }).activeRange,
+            ).toBeNull();
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 2,
+                    targetOccurrenceInMessage: 64,
+                    targetMessageSearchText: bulkSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
+
             clearChatDomHighlights();
             expect(deleteSpy).toHaveBeenCalledWith("chat-find");
             expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");

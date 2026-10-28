@@ -66,6 +66,14 @@ type SyncChatHighlightOptions = {
 
 let ownedMatchesHighlight: unknown = null;
 let ownedActiveHighlight: unknown = null;
+let cachedOccurrenceAlignment: {
+    messageIndex: number;
+    matcherKey: string;
+    runText: string;
+    sourceText: string;
+    domCount: number;
+    srcToDom: Int32Array;
+} | null = null;
 
 /** Injects the `::highlight(...)` stylesheet into `document.head` once per document. */
 const ensureHighlightStylesheet = (): void => {
@@ -120,6 +128,7 @@ const deleteOwnedHighlight = (
 
 /** Removes owned chat transcript highlight entries without disturbing other highlights. */
 export const clearChatDomHighlights = (): void => {
+    cachedOccurrenceAlignment = null;
     const api = getHighlightApi();
     if (api) {
         deleteOwnedHighlight(
@@ -570,43 +579,231 @@ const isInsideAlignmentBounds = (
     s: number,
 ): boolean => d < table.rows - 1 && s < table.cols - 1;
 
-/** Traces `table` to find the DOM hit index aligned to `targetSrcIdx`, or `-1`. */
-const traceAlignedDomIndex = (
-    table: AlignmentTable,
-    targetSrcIdx: number,
+const MAX_EXACT_ALIGNMENT_SPAN = 48;
+const GREEDY_ALIGNMENT_LOOKAHEAD = 16;
+
+/** Checks whether `src` and `dom` share identical non-trivial surrounding context. */
+const hasExactNonTrivialContext = (src: SpanContext, dom: SpanContext): boolean =>
+    src.before.length + src.after.length >= 8 &&
+    src.before === dom.before &&
+    src.after === dom.after;
+
+/** Peels matching occurrences from the front of `domCtxs` and `srcCtxs` in linear time. */
+const peelPrefixMatches = (
+    domCtxs: readonly SpanContext[],
+    srcCtxs: readonly SpanContext[],
+    srcToDom: Int32Array,
 ): number => {
+    const limit = Math.min(domCtxs.length, srcCtxs.length);
+    let k = 0;
+    while (k < limit && hasExactNonTrivialContext(srcCtxs[k], domCtxs[k])) {
+        srcToDom[k] = k;
+        k += 1;
+    }
+    return k;
+};
+
+/** Peels matching occurrences from the back of `domCtxs` and `srcCtxs` in linear time. */
+const peelSuffixMatches = (
+    domCtxs: readonly SpanContext[],
+    srcCtxs: readonly SpanContext[],
+    prefixLen: number,
+    srcToDom: Int32Array,
+): number => {
+    const maxSuffix = Math.min(domCtxs.length, srcCtxs.length) - prefixLen;
+    let k = 0;
+    while (
+        k < maxSuffix &&
+        hasExactNonTrivialContext(
+            srcCtxs[srcCtxs.length - 1 - k],
+            domCtxs[domCtxs.length - 1 - k],
+        )
+    ) {
+        srcToDom[srcCtxs.length - 1 - k] = domCtxs.length - 1 - k;
+        k += 1;
+    }
+    return k;
+};
+
+/** Writes every paired `(s, d)` along the optimal path of `table` into `srcToDom`. */
+const populateAlignedPairsFromTable = (
+    table: AlignmentTable,
+    dOffset: number,
+    sOffset: number,
+    srcToDom: Int32Array,
+): void => {
     let d = 0;
     let s = 0;
     while (isInsideAlignmentBounds(table, d, s)) {
         const action = table.actions[d * table.cols + s];
-        if (action === 2 && s === targetSrcIdx) return d;
+        if (action === 2) srcToDom[sOffset + s] = dOffset + d;
         [d, s] = advanceAlignmentCursor(d, s, action);
     }
-    return -1;
 };
 
-/** Resolves the DOM `Range` matching `targetOcc` via monotonic source-context alignment. */
-const lookupAlignedOccurrenceRange = (
+/** Finds the highest-scoring source match within `[sFrom, sTo)` for `domCtx`, or `-1`. */
+const findBestWindowedSourceMatch = (
+    domCtx: SpanContext,
+    srcCtxs: readonly SpanContext[],
+    sFrom: number,
+    sTo: number,
+): number => {
+    let bestIdx = -1;
+    let bestScore = 0;
+    for (let s = sFrom; s < sTo; s += 1) {
+        const score = scoreContextAlignment(srcCtxs[s], domCtx);
+        if (score > bestScore) {
+            bestScore = score;
+            bestIdx = s;
+        }
+    }
+    return bestIdx;
+};
+
+/** Aligns large residual slices monotonically using a bounded lookahead window. */
+const populateWindowedGreedyAlignment = (
+    domCtxs: readonly SpanContext[],
+    srcCtxs: readonly SpanContext[],
+    dOffset: number,
+    sOffset: number,
+    srcToDom: Int32Array,
+): void => {
+    let sCursor = 0;
+    for (let d = 0; d < domCtxs.length && sCursor < srcCtxs.length; d += 1) {
+        const sEnd = Math.min(srcCtxs.length, sCursor + GREEDY_ALIGNMENT_LOOKAHEAD);
+        const matchedS = findBestWindowedSourceMatch(domCtxs[d], srcCtxs, sCursor, sEnd);
+        if (matchedS !== -1) {
+            srcToDom[sOffset + matchedS] = dOffset + d;
+            sCursor = matchedS + 1;
+        }
+    }
+};
+
+/** Checks whether both slices fit inside the exact DP budget (`48 × 48`). */
+const fitsExactAlignmentBudget = (
+    domLen: number,
+    srcLen: number,
+): boolean =>
+    domLen <= MAX_EXACT_ALIGNMENT_SPAN && srcLen <= MAX_EXACT_ALIGNMENT_SPAN;
+
+/** Aligns the unpeeled interior slice via small exact DP or bounded greedy lookahead. */
+const alignResidualContextSlice = (
+    domMid: readonly SpanContext[],
+    srcMid: readonly SpanContext[],
+    offset: number,
+    srcToDom: Int32Array,
+): void => {
+    if (domMid.length * srcMid.length === 0) return;
+    if (fitsExactAlignmentBudget(domMid.length, srcMid.length)) {
+        const table = buildAlignmentTable(domMid, srcMid);
+        populateAlignedPairsFromTable(table, offset, offset, srcToDom);
+        return;
+    }
+    populateWindowedGreedyAlignment(domMid, srcMid, offset, offset, srcToDom);
+};
+
+/** Builds a source-occurrence-to-DOM-index lookup table in bounded linear/windowed time. */
+const computeSourceToDomMap = (
+    runText: string,
+    runHits: readonly RunRangeHit[],
+    sourceText: string,
+    srcSpans: readonly TextSpan[],
+): Int32Array => {
+    const srcToDom = new Int32Array(srcSpans.length).fill(-1);
+    const domCtxs = runHits.map((hit) => extractSpanContext(runText, hit));
+    const srcCtxs = srcSpans.map((sp) => extractSpanContext(sourceText, sp));
+    const prefix = peelPrefixMatches(domCtxs, srcCtxs, srcToDom);
+    const suffix = peelSuffixMatches(domCtxs, srcCtxs, prefix, srcToDom);
+    alignResidualContextSlice(
+        domCtxs.slice(prefix, domCtxs.length - suffix),
+        srcCtxs.slice(prefix, srcCtxs.length - suffix),
+        prefix,
+        srcToDom,
+    );
+    return srcToDom;
+};
+
+/** Builds an identity `0..count-1` lookup table when rendered and source counts match. */
+const buildIdentityOccurrenceMap = (count: number): Int32Array => {
+    const map = new Int32Array(count);
+    for (let i = 0; i < count; i += 1) map[i] = i;
+    return map;
+};
+
+/** Checks whether cached text inputs match `runText`, `sourceText`, and `domCount`. */
+const hasMatchingCachedTexts = (
+    cache: NonNullable<typeof cachedOccurrenceAlignment>,
+    runText: string,
+    sourceText: string,
+    domCount: number,
+): boolean =>
+    cache.domCount === domCount &&
+    cache.runText === runText &&
+    cache.sourceText === sourceText;
+
+/** Checks whether `cachedOccurrenceAlignment` can be reused for this navigation frame. */
+const canReuseAlignmentCache = (
+    messageIndex: number,
+    matcherKey: string,
+    runText: string,
+    sourceText: string,
+    domCount: number,
+): boolean =>
+    cachedOccurrenceAlignment !== null &&
+    cachedOccurrenceAlignment.messageIndex === messageIndex &&
+    cachedOccurrenceAlignment.matcherKey === matcherKey &&
+    hasMatchingCachedTexts(cachedOccurrenceAlignment, runText, sourceText, domCount);
+
+/** Returns a memoized `srcToDom` occurrence lookup table for `(messageIndex, matcher)`. */
+const resolveSourceToDomMap = (
+    messageIndex: number,
     runText: string,
     runHits: readonly RunRangeHit[],
     sourceText: string,
     matcher: RegExp,
-): ((targetOcc: number) => Range | null) => {
-    const srcSpans = collectNonEmptyMatchSpans(sourceText, matcher, 500);
-    if (runHits.length === srcSpans.length) {
-        return (targetOcc) => getHitRangeAtIndex(runHits, targetOcc);
+): Int32Array => {
+    const matcherKey = `${matcher.flags}:${matcher.source}`;
+    if (
+        cachedOccurrenceAlignment &&
+        canReuseAlignmentCache(
+            messageIndex,
+            matcherKey,
+            runText,
+            sourceText,
+            runHits.length,
+        )
+    ) {
+        return cachedOccurrenceAlignment.srcToDom;
     }
-    const domCtxs = runHits.map((hit) => extractSpanContext(runText, hit));
-    const srcCtxs = srcSpans.map((sp) => extractSpanContext(sourceText, sp));
-    const table = buildAlignmentTable(domCtxs, srcCtxs);
-    return (targetOcc) => {
-        if (targetOcc < 0 || targetOcc >= srcSpans.length) return null;
-        return getHitRangeAtIndex(
-            runHits,
-            traceAlignedDomIndex(table, targetOcc),
-        );
+    const srcSpans = collectNonEmptyMatchSpans(sourceText, matcher, 500);
+    const srcToDom =
+        runHits.length === srcSpans.length
+            ? buildIdentityOccurrenceMap(srcSpans.length)
+            : computeSourceToDomMap(runText, runHits, sourceText, srcSpans);
+    cachedOccurrenceAlignment = {
+        messageIndex,
+        matcherKey,
+        runText,
+        sourceText,
+        domCount: runHits.length,
+        srcToDom,
     };
+    return srcToDom;
 };
+
+/** Reads `srcToDom[targetOcc]`, returning `-1` when `targetOcc` is out of bounds. */
+const readMappedDomIndex = (srcToDom: Int32Array, targetOcc: number): number =>
+    targetOcc >= 0 && targetOcc < srcToDom.length ? srcToDom[targetOcc] : -1;
+
+/** Resolves the target occurrence index when `run` is the targeted message, else `-1`. */
+const extractRunTargetOccurrence = (
+    runMessageIndex: number,
+    options: SyncChatHighlightOptions,
+): number =>
+    options.targetMessageIndex === runMessageIndex &&
+    typeof options.targetOccurrenceInMessage === "number"
+        ? options.targetOccurrenceInMessage
+        : -1;
 
 /** Resolves the active `Range` inside `run` when `run.messageIndex` matches `options`. */
 const resolveTargetRangeInRun = (
@@ -615,18 +812,19 @@ const resolveTargetRangeInRun = (
     matcher: RegExp,
     options: SyncChatHighlightOptions,
 ): Range | null => {
-    if (options.targetMessageIndex !== run.messageIndex) return null;
-    const targetOcc = options.targetOccurrenceInMessage;
-    if (typeof targetOcc !== "number") return null;
+    const targetOcc = extractRunTargetOccurrence(run.messageIndex, options);
+    if (targetOcc < 0) return null;
     if (typeof options.targetMessageSearchText !== "string") {
         return getHitRangeAtIndex(runHits, targetOcc);
     }
-    return lookupAlignedOccurrenceRange(
+    const srcToDom = resolveSourceToDomMap(
+        run.messageIndex,
         run.text,
         runHits,
         options.targetMessageSearchText,
         matcher,
-    )(targetOcc);
+    );
+    return getHitRangeAtIndex(runHits, readMappedDomIndex(srcToDom, targetOcc));
 };
 
 /** Collects up to `maxRanges` regex matches inside a single `MessageTextRun`. */

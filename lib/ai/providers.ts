@@ -1981,6 +1981,35 @@ const resolveChosenEmbeddingTarget = (
   return owner ? { id: owner, model: embeddingSlugFor(owner, chosen) } : null;
 };
 
+/** Resolves the first preset or discovered embedding model slug for `id`, or `""`. */
+const defaultEmbeddingModelForProvider = (
+  settings: ProvidersSettings,
+  id: ProviderId,
+): string => {
+  const presetFirst = providerPreset(id).embeddingModels?.[0];
+  if (presetFirst) return embeddingSlugFor(id, presetFirst);
+  const discovered = collectDiscoveredEmbeddingIds(settings.connections[id]);
+  return discovered.length > 0 ? embeddingSlugFor(id, discovered[0]) : "";
+};
+
+/** Resolves the preferred default embedding provider and model when none is explicitly chosen. */
+const resolveFallbackEmbeddingTarget = (
+  settings: ProvidersSettings,
+  wireIds: ProviderId[],
+): { id: ProviderId; model: string } | null => {
+  const candidates = wireIds.filter(
+    (id) =>
+      providerPreset(id).embeddings === true &&
+      Boolean(defaultEmbeddingModelForProvider(settings, id)),
+  );
+  const preferred = selectPreferredEmbeddingProvider(candidates);
+  if (!preferred) return null;
+  return {
+    id: preferred,
+    model: defaultEmbeddingModelForProvider(settings, preferred),
+  };
+};
+
 /** Provider that will serve the semantic index, plus the model id to send. */
 export const embeddingsTarget = (
   settings: ProvidersSettings,
@@ -1994,11 +2023,7 @@ export const embeddingsTarget = (
   if (chosen) {
     return resolveChosenEmbeddingTarget(settings, wireIds, chosen);
   }
-  const known = wireIds.filter((id) => providerPreset(id).embeddings === true);
-  const preferred = selectPreferredEmbeddingProvider(known);
-  if (!preferred) return null;
-  const fallback = providerPreset(preferred).embeddingModels?.[0] ?? "";
-  return fallback ? { id: preferred, model: fallback } : null;
+  return resolveFallbackEmbeddingTarget(settings, wireIds);
 };
 
 /** Prepends the normalized wire slug for `chosen` onto `presets` when absent. */

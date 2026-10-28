@@ -155,6 +155,22 @@ describe("embeddings routing", () => {
         expect(embeddingsTarget(custom)).toBeNull();
         expect(embeddingsAvailable(custom)).toBe(false);
 
+        const customWithDiscovered = withKey("custom", "", {
+            baseUrl: "http://127.0.0.1:11434/v1",
+        });
+        customWithDiscovered.connections.custom.enabled = true;
+        customWithDiscovered.connections.custom.discoveredModels = [
+            { id: "qwen2.5-coder:7b", nonChat: false },
+            { id: "custom/nomic-embed-text", nonChat: true },
+        ];
+        expect(embeddingModelOptions(customWithDiscovered)).toEqual(["nomic-embed-text"]);
+        expect(embeddingsTarget(customWithDiscovered)).toEqual({
+            id: "custom",
+            model: "nomic-embed-text",
+        });
+        expect(embeddingsAvailable(customWithDiscovered)).toBe(true);
+        expect(toRustAiConfig(customWithDiscovered).embeddingModel).toBe("nomic-embed-text");
+
         custom = withFeatureModel(custom, "embeddings", "nomic-embed-text");
         expect(embeddingsTarget(custom)).toEqual({ id: "custom", model: "nomic-embed-text" });
         expect(embeddingsAvailable(custom)).toBe(true);
