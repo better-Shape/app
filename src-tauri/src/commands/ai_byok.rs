@@ -30,6 +30,10 @@ const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const MAX_DISCOVERED_MODELS: usize = 300;
 /// Prompt for the live completion check. Short enough to cost nothing.
 const CHECK_PROMPT: &str = "Reply with the single word: pong";
+/// Public OpenRouter catalog feed providing `{ data: [...] }` metadata.
+const PUBLIC_MODEL_CATALOG_URL: &str = "https://openrouter.ai/api/v1/models";
+/// Upper bound on downloaded public catalog bytes so untrusted payloads stay bounded.
+const MAX_MODEL_CATALOG_BYTES: usize = 8 * 1024 * 1024;
 
 /// Result of probing one provider connection.
 #[derive(Debug, Clone, Serialize)]
@@ -495,6 +499,71 @@ pub async fn ai_check_provider(
     })
 }
 
+/// Parses and validates a bounded JSON model-catalog envelope (`{ "data": [...] }`).
+fn parse_model_catalog_body(bytes: &[u8]) -> Result<serde_json::Value, AppError> {
+    if bytes.len() > MAX_MODEL_CATALOG_BYTES {
+        return Err(AppError::Message(
+            "Model catalog payload exceeded the maximum allowed size.".to_string(),
+        ));
+    }
+    let body: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|err| AppError::Message(format!("Invalid model catalog JSON: {err}")))?;
+    if body
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .is_none()
+    {
+        return Err(AppError::Message(
+            "Model catalog response did not contain a data array.".to_string(),
+        ));
+    }
+    Ok(body)
+}
+
+/// Fetch the public OpenRouter model catalog from the Rust backend so the
+/// renderer never calls an external origin directly.
+#[tauri::command]
+pub async fn ai_fetch_model_catalog() -> Result<serde_json::Value, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(TEST_TIMEOUT)
+        .build()
+        .map_err(AppError::Network)?;
+
+    let mut response = client
+        .get(PUBLIC_MODEL_CATALOG_URL)
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(AppError::Message(format!(
+            "Model catalog endpoint answered with HTTP {}.",
+            status.as_u16()
+        )));
+    }
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_MODEL_CATALOG_BYTES as u64)
+    {
+        return Err(AppError::Message(
+            "Model catalog payload exceeded the maximum allowed size.".to_string(),
+        ));
+    }
+
+    let mut buffer = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if buffer.len().saturating_add(chunk.len()) > MAX_MODEL_CATALOG_BYTES {
+            return Err(AppError::Message(
+                "Model catalog payload exceeded the maximum allowed size.".to_string(),
+            ));
+        }
+        buffer.extend_from_slice(&chunk);
+    }
+
+    parse_model_catalog_body(&buffer)
+}
+
 /// True when the OS keychain can actually hold secrets on this machine.
 ///
 /// A missing entry is the healthy answer: it proves the backend was reachable.
@@ -775,5 +844,22 @@ mod tests {
         assert_eq!(target.auth_style, "none");
         let custom = target.headers.get("X-Custom").map(String::as_str);
         assert_eq!(custom, Some("ok"));
+    }
+
+    #[test]
+    fn model_catalog_body_validation_bounds_and_checks_data_envelope() {
+        let valid = parse_model_catalog_body(br#"{"data":[{"id":"openai/gpt-4o-mini"}]}"#)
+            .expect("valid catalog envelope");
+        assert_eq!(
+            valid
+                .get("data")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert!(parse_model_catalog_body(br#"{"models":[]}"#).is_err());
+        assert!(parse_model_catalog_body(b"not-json").is_err());
+        let oversized = vec![b' '; MAX_MODEL_CATALOG_BYTES + 1];
+        assert!(parse_model_catalog_body(&oversized).is_err());
     }
 }

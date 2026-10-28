@@ -936,6 +936,9 @@ export const commands = {
             headers: opts?.headers ?? null,
             authStyle: opts?.authStyle ?? null,
         }),
+    /** Fetch the public model catalog envelope via the Rust backend. */
+    aiFetchModelCatalog: () =>
+        invokeCommand<{ data?: unknown[] }>("ai_fetch_model_catalog"),
     /** True when this machine has a usable OS keychain for provider keys. */
     aiVaultSupported: () => invokeCommand<boolean>("ai_vault_supported"),
     /** Store (or clear, with an empty key) one provider secret in the keychain. */

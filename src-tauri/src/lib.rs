@@ -218,6 +218,7 @@ pub fn run() {
             // BYOK diagnostics + OS-keychain credential storage
             commands::ai_byok::ai_test_provider,
             commands::ai_byok::ai_check_provider,
+            commands::ai_byok::ai_fetch_model_catalog,
             commands::ai_byok::ai_vault_supported,
             commands::ai_byok::ai_store_key,
             commands::ai_byok::ai_load_keys,

@@ -116,7 +116,8 @@ jobs:
               for vol in /Volumes/BetterShape* /Volumes/dmg.*; do
                 [ -e "$vol" ] && hdiutil detach -force "$vol" >/dev/null 2>&1 || true
               done
-              rm -rf "src-tauri/target/${MATRIX_TARGET}/release/bundle/dmg/"*.dmg
+              BUNDLE_DIR="src-tauri/target/${MATRIX_TARGET:+$MATRIX_TARGET/}release/bundle"
+              rm -rf "$BUNDLE_DIR/dmg/"*.dmg "$BUNDLE_DIR/macos/"*.dmg
               npm run tauri -- "${ARGS[@]}" 2>&1 | tee -a "$RUNNER_TEMP/tauri-build.log"
             else
               exit 1

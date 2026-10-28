@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { commands } from "@/lib/backend/commands";
 import {
     catalogSize,
     enrichDiscoveredModels,
@@ -68,9 +69,9 @@ describe("model catalog", () => {
         expect(typeof result.fromNetwork).toBe("boolean");
     });
 
-    it("primeModelCatalog warms the bundled snapshot without network fetches in Browser Preview", () => {
+    it("primeModelCatalog warms the bundled snapshot without backend calls in Browser Preview", () => {
         vi.useFakeTimers();
-        const fetchSpy = vi.spyOn(globalThis, "fetch");
+        const catalogSpy = vi.spyOn(commands, "aiFetchModelCatalog");
         const previous = window.__BETTERSHAPE_PREVIEW__;
         window.__BETTERSHAPE_PREVIEW__ = {
             seed: "welcome",
@@ -82,19 +83,19 @@ describe("model catalog", () => {
             primeModelCatalog();
             vi.advanceTimersByTime(15_000);
             expect(catalogSize()).toBeGreaterThan(200);
-            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(catalogSpy).not.toHaveBeenCalled();
         } finally {
             if (previous === undefined) {
                 delete window.__BETTERSHAPE_PREVIEW__;
             } else {
                 window.__BETTERSHAPE_PREVIEW__ = previous;
             }
-            fetchSpy.mockRestore();
+            catalogSpy.mockRestore();
             vi.useRealTimers();
         }
     });
 
-    it("snaps binary power-of-two context windows to clean tier labels and fetches OpenRouter catalog envelope", async () => {
+    it("snaps binary context windows, fetches catalog via Tauri command, and rejects negative price sentinels", async () => {
         expect(formatContextWindow(131_072)).toBe("128K");
         expect(formatContextWindow(262_144)).toBe("256K");
         expect(formatContextWindow(524_288)).toBe("512K");
@@ -104,32 +105,39 @@ describe("model catalog", () => {
             id: `openai/gpt-test-${idx}`,
             name: `OpenAI: GPT Test ${idx}`,
             context_length: 131_072,
+            pricing:
+                idx === 0
+                    ? { prompt: "-1", completion: "-1" }
+                    : { prompt: "0.000002", completion: "0.000008" },
         }));
-        const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-            new Response(JSON.stringify({ data: sampleData }), {
-                status: 200,
-                headers: { "Content-Type": "application/json" },
-            }),
-        );
+        const catalogSpy = vi
+            .spyOn(commands, "aiFetchModelCatalog")
+            .mockResolvedValue({ data: sampleData });
         try {
             const refreshed = await refreshModelCatalog(true);
-            expect(fetchSpy).toHaveBeenCalledWith(
-                "https://openrouter.ai/api/v1/models",
-                expect.objectContaining({ cache: "no-cache" }),
-            );
+            expect(catalogSpy).toHaveBeenCalledTimes(1);
             expect(refreshed.fromNetwork).toBe(true);
             expect(refreshed.models.length).toBeGreaterThanOrEqual(210);
 
+            const sentinelMeta = getModelMetadata("openai/gpt-test-0");
+            expect(sentinelMeta.inputCostPerM).toBeNull();
+            expect(sentinelMeta.outputCostPerM).toBeNull();
+            expect(formatModelPricing(sentinelMeta)).toBe("");
+
+            const pricedMeta = getModelMetadata("openai/gpt-test-1");
+            expect(pricedMeta.inputCostPerM).toBe(2);
+            expect(pricedMeta.outputCostPerM).toBe(8);
+
             const cached = await refreshModelCatalog();
             expect(cached.fromNetwork).toBe(false);
-            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(catalogSpy).toHaveBeenCalledTimes(1);
         } finally {
             if (typeof window !== "undefined") {
                 window.localStorage.removeItem("bettershape.model-catalog.v2");
             }
-            fetchSpy.mockRejectedValueOnce(new Error("offline"));
+            catalogSpy.mockRejectedValueOnce(new Error("offline"));
             await refreshModelCatalog(true);
-            fetchSpy.mockRestore();
+            catalogSpy.mockRestore();
         }
     });
 });

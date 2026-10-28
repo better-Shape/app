@@ -112,9 +112,16 @@ export const getFileExtension = (name: string): string => {
   return (parts.pop() ?? "").toLowerCase();
 };
 
-/** Checks whether `file` has a supported code/text extension. */
+/** Extracts the lowercase basename from a file name or relative path. */
+const getLowerFileBaseName = (name: string): string => {
+  const slashIdx = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  return (slashIdx >= 0 ? name.slice(slashIdx + 1) : name).toLowerCase();
+};
+
+/** Checks whether `file` has a supported code/text extension or basename. */
 export const isCodeFile = (file: File): boolean =>
-  CODE_EXTENSIONS.has(getFileExtension(file.name));
+  CODE_EXTENSIONS.has(getFileExtension(file.name)) ||
+  CODE_EXTENSIONS.has(getLowerFileBaseName(file.name));
 
 /** Checks whether `file` is a supported binary project asset. */
 export const isAssetFile = (file: File): boolean =>
@@ -708,6 +715,29 @@ const observeNonNullTargets = (
   }
 };
 
+/** Updates all observed geometry refs for a `ResizeObserver` batch without short-circuiting. */
+const applyObservedGeometryEntries = (
+  entries: readonly ResizeObserverEntry[],
+  targets: {
+    stageEl: HTMLElement | null;
+    box: HTMLDivElement;
+    ta: HTMLTextAreaElement | null;
+  },
+  refs: {
+    stageHeightRef: { current: number };
+    composerBoxWidthRef: { current: number };
+    textareaClientWidthRef: { current: number };
+  },
+): boolean => {
+  let anyChanged = false;
+  for (const entry of entries) {
+    if (updateObservedDimension(entry, targets, refs)) {
+      anyChanged = true;
+    }
+  }
+  return anyChanged;
+};
+
 /** Attaches a `ResizeObserver` to the composer box, textarea, and stage container. */
 export const observeComposerGeometry = (
   box: HTMLDivElement | null,
@@ -723,10 +753,9 @@ export const observeComposerGeometry = (
   const stageEl = box.closest<HTMLElement>("[data-chat-stage]");
   seedComposerGeometryRefs(stageEl, box, ta, refs);
   const observer = new ResizeObserver((entries) => {
-    const anyChanged = entries.some((entry) =>
-      updateObservedDimension(entry, { stageEl, box, ta }, refs),
-    );
-    if (anyChanged) onGeometryChanged();
+    if (applyObservedGeometryEntries(entries, { stageEl, box, ta }, refs)) {
+      onGeometryChanged();
+    }
   });
   observeNonNullTargets(observer, [box, ta, stageEl]);
   return () => observer.disconnect();

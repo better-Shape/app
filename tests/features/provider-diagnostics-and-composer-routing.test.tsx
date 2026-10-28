@@ -175,6 +175,74 @@ describe("Settings -> Providers Check chat and Test connection diagnostics guard
         }
     });
 
+    it("preserves concurrent provider and chatMode edits made while an async Test probe is in flight", async () => {
+        const initial = defaultProvidersSettings();
+        initial.connections.openai = {
+            ...initial.connections.openai,
+            enabled: true,
+            apiKey: "sk-live-openai",
+        };
+        updateSettingSection("ai", { providers: initial });
+
+        let resolveProbe: ((value: unknown) => void) | null = null;
+        ipcMocks.aiTestProvider.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveProbe = resolve;
+                }),
+        );
+
+        const { host, root } = mount(<ProvidersSettingsView />);
+        try {
+            const testBtn = Array.from(host.querySelectorAll("button")).find(
+                (b) => b.textContent?.trim() === "Test connection",
+            );
+            if (!testBtn) throw new Error("expected Test connection button");
+
+            act(() => {
+                testBtn.click();
+            });
+
+            // Concurrent edit happens before `aiTestProvider` resolves:
+            const concurrent = getSettings().ai.providers;
+            act(() => {
+                updateSettingSection("ai", {
+                    providers: {
+                        ...concurrent,
+                        chatMode: "anthropic/claude-sonnet-4",
+                        connections: {
+                            ...concurrent.connections,
+                            anthropic: {
+                                ...concurrent.connections.anthropic,
+                                enabled: true,
+                                apiKey: "sk-ant-concurrent",
+                            },
+                        },
+                    },
+                });
+            });
+
+            await act(async () => {
+                resolveProbe?.({
+                    ok: true,
+                    status: 200,
+                    message: "OpenAI reachable",
+                    models: ["gpt-4o-mini"],
+                    latencyMs: 42,
+                });
+            });
+
+            const settled = getSettings().ai.providers;
+            expect(settled.chatMode).toBe("anthropic/claude-sonnet-4");
+            expect(settled.connections.anthropic.apiKey).toBe("sk-ant-concurrent");
+            expect(
+                settled.connections.openai.discoveredModels.map((entry) => entry.id),
+            ).toEqual(["openai/gpt-4o-mini"]);
+        } finally {
+            unmount(root, host);
+        }
+    });
+
     it("models ai_check_provider and ai_test_provider in tauri-mock with structured reports", () => {
         const { handle } = createPreviewInvokeHandler("project");
 
