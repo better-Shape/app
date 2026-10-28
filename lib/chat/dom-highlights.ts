@@ -580,7 +580,8 @@ const isInsideAlignmentBounds = (
 ): boolean => d < table.rows - 1 && s < table.cols - 1;
 
 const MAX_EXACT_ALIGNMENT_SPAN = 48;
-const GREEDY_ALIGNMENT_LOOKAHEAD = 16;
+const GREEDY_ALIGNMENT_LOOKAHEAD = 64;
+const MAX_GREEDY_SCORE_BUDGET = 4_096;
 
 /** Checks whether `src` and `dom` share identical non-trivial surrounding context. */
 const hasExactNonTrivialContext = (src: SpanContext, dom: SpanContext): boolean =>
@@ -660,7 +661,58 @@ const findBestWindowedSourceMatch = (
     return bestIdx;
 };
 
-/** Aligns large residual slices monotonically using a bounded lookahead window. */
+/** Finds the earliest `s >= sFrom` sharing identical non-trivial context with `domCtx`, or `-1`. */
+const findExactContextSourceIndex = (
+    domCtx: SpanContext,
+    srcCtxs: readonly SpanContext[],
+    sFrom: number,
+): number => {
+    for (let s = sFrom; s < srcCtxs.length; s += 1) {
+        if (hasExactNonTrivialContext(srcCtxs[s], domCtx)) return s;
+    }
+    return -1;
+};
+
+/** Computes the exclusive upper source index for scoring `domCtxs[d]` within `budget`. */
+const computeGreedyWindowEnd = (
+    d: number,
+    domLen: number,
+    sCursor: number,
+    srcLen: number,
+    budget: number,
+): number => {
+    const slack = Math.max(
+        GREEDY_ALIGNMENT_LOOKAHEAD,
+        srcLen - sCursor - (domLen - d) + 2,
+    );
+    const span = Math.min(slack, Math.max(1, budget));
+    return Math.min(srcLen, sCursor + span);
+};
+
+/** Resolves the source match index for `domCtxs[d]` via exact context or budgeted window search. */
+const matchGreedyDomOccurrence = (
+    d: number,
+    domCtxs: readonly SpanContext[],
+    srcCtxs: readonly SpanContext[],
+    sCursor: number,
+    budget: number,
+): { matchedS: number; nextBudget: number } => {
+    const exactS = findExactContextSourceIndex(domCtxs[d], srcCtxs, sCursor);
+    if (exactS !== -1) return { matchedS: exactS, nextBudget: budget };
+    const sEnd = computeGreedyWindowEnd(
+        d,
+        domCtxs.length,
+        sCursor,
+        srcCtxs.length,
+        budget,
+    );
+    return {
+        matchedS: findBestWindowedSourceMatch(domCtxs[d], srcCtxs, sCursor, sEnd),
+        nextBudget: budget - (sEnd - sCursor),
+    };
+};
+
+/** Aligns large residual slices monotonically within a bounded scoring budget. */
 const populateWindowedGreedyAlignment = (
     domCtxs: readonly SpanContext[],
     srcCtxs: readonly SpanContext[],
@@ -669,12 +721,19 @@ const populateWindowedGreedyAlignment = (
     srcToDom: Int32Array,
 ): void => {
     let sCursor = 0;
+    let budget = MAX_GREEDY_SCORE_BUDGET;
     for (let d = 0; d < domCtxs.length && sCursor < srcCtxs.length; d += 1) {
-        const sEnd = Math.min(srcCtxs.length, sCursor + GREEDY_ALIGNMENT_LOOKAHEAD);
-        const matchedS = findBestWindowedSourceMatch(domCtxs[d], srcCtxs, sCursor, sEnd);
-        if (matchedS !== -1) {
-            srcToDom[sOffset + matchedS] = dOffset + d;
-            sCursor = matchedS + 1;
+        const step = matchGreedyDomOccurrence(
+            d,
+            domCtxs,
+            srcCtxs,
+            sCursor,
+            budget,
+        );
+        budget = step.nextBudget;
+        if (step.matchedS !== -1) {
+            srcToDom[sOffset + step.matchedS] = dOffset + d;
+            sCursor = step.matchedS + 1;
         }
     }
 };

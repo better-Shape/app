@@ -12,6 +12,7 @@ import {
     keyOwnerHint,
     maskApiKey,
     mergeProviderConnections,
+    modelForFeature,
     modelIdsFor,
     modelsWithProviderPrefix,
     providerSecrets,
@@ -170,6 +171,10 @@ describe("embeddings routing", () => {
         });
         expect(embeddingsAvailable(customWithDiscovered)).toBe(true);
         expect(toRustAiConfig(customWithDiscovered).embeddingModel).toBe("nomic-embed-text");
+
+        const assignedChat = withFeatureModel(customWithDiscovered, "chat", "openai/gpt-4o");
+        expect(modelForFeature(assignedChat, "chat")).toBe("openai/gpt-4o");
+        expect(modelForFeature(withFeatureModel(assignedChat, "chat", ""), "chat")).toBe("auto");
 
         custom = withFeatureModel(custom, "embeddings", "nomic-embed-text");
         expect(embeddingsTarget(custom)).toEqual({ id: "custom", model: "nomic-embed-text" });

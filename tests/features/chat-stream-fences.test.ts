@@ -133,6 +133,9 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
     it("preserves 4-space indented --- code lines and decodes XML-escaped web_visit URLs", () => {
         const md = "Example:\n\n    const a = 1;\n    ---\n    const b = 2;";
         expect(preprocessChatMarkdown(md)).toContain("    ---");
+        expect(preprocessChatMarkdown("Alpha\n- - -\nBeta\n* * *\nGamma\n_ _ _\n- item")).toBe(
+            "Alpha\n\nBeta\n\nGamma\n\n- item",
+        );
 
         const visit = parseMessageContent(
             '<web_visit url="https://example.com/search?a=1&amp;b=2" title="Docs &amp; Guide"></web_visit>',
