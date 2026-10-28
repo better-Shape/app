@@ -6,6 +6,7 @@ import {
   pastedTextFile,
   terminalAttachmentFile,
 } from "@/features/chat/lib/bettershape-clip";
+import { isSupportedTextFileName } from "@/features/chat/lib/send-attachments";
 import { isAudioFile, isImageFile } from "./attachments";
 import {
   buildComposerScrollMaskImage,
@@ -112,16 +113,9 @@ export const getFileExtension = (name: string): string => {
   return (parts.pop() ?? "").toLowerCase();
 };
 
-/** Extracts the lowercase basename from a file name or relative path. */
-const getLowerFileBaseName = (name: string): string => {
-  const slashIdx = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
-  return (slashIdx >= 0 ? name.slice(slashIdx + 1) : name).toLowerCase();
-};
-
 /** Checks whether `file` has a supported code/text extension or basename. */
 export const isCodeFile = (file: File): boolean =>
-  CODE_EXTENSIONS.has(getFileExtension(file.name)) ||
-  CODE_EXTENSIONS.has(getLowerFileBaseName(file.name));
+  isSupportedTextFileName(file.name);
 
 /** Checks whether `file` is a supported binary project asset. */
 export const isAssetFile = (file: File): boolean =>

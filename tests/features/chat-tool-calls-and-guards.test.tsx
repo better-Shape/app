@@ -337,6 +337,31 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
                 }).activeRange?.toString(),
             ).toBe("TokenStore");
 
+            // Bold / inline-code delimiters around a lone visible match still align after a hidden `<cat>` match.
+            const formattedRow = document.createElement("div");
+            formattedRow.dataset.chatMessageIndex = "3";
+            formattedRow.textContent = "TokenStore";
+            container.appendChild(formattedRow);
+            const formattedSearchable = extractSearchableMessageText(
+                '<cat path="src/TokenStore.ts"></cat>**`TokenStore`**',
+            );
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 3,
+                    targetOccurrenceInMessage: 0,
+                    targetMessageSearchText: formattedSearchable,
+                }).activeRange,
+            ).toBeNull();
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 3,
+                    targetOccurrenceInMessage: 1,
+                    targetMessageSearchText: formattedSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
+
             clearChatDomHighlights();
             expect(deleteSpy).toHaveBeenCalledWith("chat-find");
             expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");

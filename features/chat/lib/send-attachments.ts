@@ -14,8 +14,8 @@ const CODE_EXTENSIONS = new Set([
     "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
     "css", "scss", "less", "html", "xml", "svg", "json", "toml", "yaml", "yml",
     "md", "mdx", "sh", "bat", "ps1", "rb", "php", "swift", "kt", "kts", "dart",
-    "lua", "r", "sql", "graphql", "gql", "proto", "txt", "log", "csv", "lock",
-    "env", "ini", "cfg", "conf",
+    "lua", "r", "sql", "graphql", "gql", "proto", "dockerfile", "makefile",
+    "gitignore", "txt", "log", "csv", "lock", "env", "ini", "cfg", "conf",
 ]);
 const BINARY_EXTENSIONS = new Set(["ttf", "otf", "woff", "woff2", "eot", "ico", "icns", "pdf"]);
 
@@ -159,16 +159,38 @@ async function binaryBlock(file: ComposerAttachment, signal: AbortSignal): Promi
         `${dataUrl}\n</attached_asset>`;
 }
 
-/** Accept either a MIME prefix or a known extension for files with incomplete metadata. */
-function hasFileType(file: ComposerAttachment, prefix: string, extensions: ReadonlySet<string>): boolean {
-    const extension = file.name.split(".").pop()?.toLowerCase() || "";
-    return file.mimeType.startsWith(prefix) || extensions.has(extension);
+/** Extracts the lowercase basename from a filename or relative path. */
+function getLowerBaseName(name: string): string {
+    const slashIdx = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+    return (slashIdx >= 0 ? name.slice(slashIdx + 1) : name).toLowerCase();
+}
+
+/** Extracts the lowercase dot-extension from `name`, or `""` when extensionless. */
+function getDotExtension(name: string): string {
+    const base = getLowerBaseName(name);
+    const dotIdx = base.lastIndexOf(".");
+    return dotIdx >= 0 ? base.slice(dotIdx + 1) : "";
+}
+
+/** Returns true when `name` matches a supported text/code extension or basename (such as `Dockerfile` or `Makefile`). */
+export function isSupportedTextFileName(name: string): boolean {
+    return CODE_EXTENSIONS.has(getDotExtension(name)) || CODE_EXTENSIONS.has(getLowerBaseName(name));
+}
+
+/** Accept either a `text/` MIME prefix or a supported text/code extension or basename. */
+function isSupportedTextAttachment(file: ComposerAttachment): boolean {
+    return file.mimeType.startsWith("text/") || isSupportedTextFileName(file.name);
+}
+
+/** Accept either a `font/` MIME prefix or a known binary asset extension. */
+function isSupportedBinaryAttachment(file: ComposerAttachment): boolean {
+    return file.mimeType.startsWith("font/") || BINARY_EXTENSIONS.has(getDotExtension(file.name));
 }
 
 /** Serialize supported text/binary files and fail unsupported formats explicitly. */
 function fileBlock(file: ComposerAttachment, signal: AbortSignal): Promise<string> {
-    if (hasFileType(file, "text/", CODE_EXTENSIONS)) return textBlock(file, signal);
-    if (hasFileType(file, "font/", BINARY_EXTENSIONS)) return binaryBlock(file, signal);
+    if (isSupportedTextAttachment(file)) return textBlock(file, signal);
+    if (isSupportedBinaryAttachment(file)) return binaryBlock(file, signal);
     throw new Error(`Attachment "${file.name}" cannot be included in this message. Use a supported file type or remove it before sending.`);
 }
 
