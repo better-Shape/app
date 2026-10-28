@@ -1192,14 +1192,19 @@ export const modelForFeature = (
   return feature === "embeddings" ? "" : resolveChatFeatureModel(settings);
 };
 
-/** Update one feature's assigned model id. */
+/** Update one feature's assigned model id (syncing `chatMode` when `feature === "chat"`). */
 export const withFeatureModel = (
   settings: ProvidersSettings,
   feature: FeatureModel,
   modelId: string,
 ): ProvidersSettings => {
   const others = settings.featureModels.filter((a) => a.feature !== feature);
-  return { ...settings, featureModels: [...others, { feature, modelId }] };
+  const next: ProvidersSettings = {
+    ...settings,
+    featureModels: [...others, { feature, modelId }],
+  };
+  if (feature !== "chat") return next;
+  return { ...next, chatMode: (modelId.trim() || "auto") as ChatMode };
 };
 
 /** Update the active chat mode selector (`"auto"`, `"ask"`, or a concrete model id). */

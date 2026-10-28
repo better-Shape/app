@@ -374,6 +374,32 @@ describe("Sub-node CSS.highlights search and case sensitivity", () => {
             expect(cappedTarget.ranges).toHaveLength(2);
             expect(cappedTarget.activeRange?.toString()).toBe("TokenStore");
 
+            // Large residual slice (> 48) with 25 unmatched hidden source matches still aligns later visible matches.
+            const hiddenCats = Array.from(
+                { length: 25 },
+                (_, idx) => `<cat path="src/h_${idx}/TokenStore.ts"></cat>`,
+            ).join(" ");
+            const visibleTail = Array.from(
+                { length: 52 },
+                (_, idx) => `**v_${idx} TokenStore**`,
+            ).join(" ");
+            const gapRow = document.createElement("div");
+            gapRow.dataset.chatMessageIndex = "4";
+            gapRow.textContent = Array.from(
+                { length: 52 },
+                (_, idx) => `v_${idx} TokenStore`,
+            ).join(" ");
+            container.appendChild(gapRow);
+            const gapSearchable = extractSearchableMessageText(`${hiddenCats} ${visibleTail}`);
+            expect(
+                syncChatDomHighlights(container, "TokenStore", {
+                    caseSensitive: true,
+                    targetMessageIndex: 4,
+                    targetOccurrenceInMessage: 25,
+                    targetMessageSearchText: gapSearchable,
+                }).activeRange?.toString(),
+            ).toBe("TokenStore");
+
             clearChatDomHighlights();
             expect(deleteSpy).toHaveBeenCalledWith("chat-find");
             expect(deleteSpy).toHaveBeenCalledWith("chat-find-active");
@@ -1474,6 +1500,24 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 (btn) => btn.textContent === "Try again",
             ),
         ).toBe(false);
+
+        mount(
+            <ChatErrorDialog
+                message="API key is required"
+                onDismiss={vi.fn()}
+                onRetry={onRetry}
+            />,
+        );
+        expect(
+            Array.from(document.body.querySelectorAll("button")).some(
+                (btn) => btn.textContent === "Try again",
+            ),
+        ).toBe(false);
+        expect(
+            redactErrorSecrets(
+                "Gateway rejected header Authorization: Token dg_secret_token_987654",
+            ),
+        ).toBe("Gateway rejected header Authorization: [REDACTED]");
 
         const blankLineSanitized = stripLeakedToolMarkup(
             "First `unclosed\n   \nsecond` <tool_call>leaked_payload</tool_call>",

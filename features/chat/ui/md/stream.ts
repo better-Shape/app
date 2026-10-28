@@ -1792,13 +1792,21 @@ const finalizeStreamOrStaticMarkdown = (
 };
 
 const UNICODE_BULLET_SET = new Set(["•", "●", "▪", "◦"]);
+const THEMATIC_BREAK_MARKERS = new Set(["-", "*", "_"]);
 
-/** Checks whether `trimmed` is a standalone horizontal rule of 3+ `-`, `*`, or `_` chars. */
+/** Counts `marker` occurrences when `trimmed` contains only `marker`, spaces, or tabs; else `-1`. */
+const countThematicBreakMarkers = (trimmed: string, marker: string): number => {
+    const compact = trimmed.replace(/[ \t]+/gu, "");
+    return countRepeatedChar(compact, 0, marker) === compact.length
+        ? compact.length
+        : -1;
+};
+
+/** Checks whether `trimmed` is a CommonMark thematic break of 3+ `-`, `*`, or `_` markers. */
 const isStandaloneHorizontalRule = (trimmed: string): boolean => {
-    if (trimmed.length < 3) return false;
-    const ch = trimmed.charAt(0);
-    if (ch !== "-" && ch !== "*" && ch !== "_") return false;
-    return countRepeatedChar(trimmed, 0, ch) === trimmed.length;
+    const marker = trimmed.charAt(0);
+    if (!THEMATIC_BREAK_MARKERS.has(marker)) return false;
+    return countThematicBreakMarkers(trimmed, marker) >= 3;
 };
 
 /** Advances past ASCII spaces and tabs starting at `start`. */

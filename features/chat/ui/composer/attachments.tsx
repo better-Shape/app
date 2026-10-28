@@ -34,7 +34,7 @@ import { cn, createOccurrenceKeyer, randomSuffix } from "@/lib/utils";
 
 /** Checks whether `att` is ready and within the 256 KB inline text preview cap. */
 const isWithinTextPreviewBudget = (att: ComposerAttachment): boolean =>
-    att.status === "ready" && att.size > 0 && att.size <= 256_000;
+    att.status === "ready" && att.size >= 0 && att.size <= 256_000;
 
 /** Checks whether a `"file"` attachment carries a previewable text MIME type or filename. */
 const hasPreviewableFileMimeOrName = (att: ComposerAttachment): boolean =>
