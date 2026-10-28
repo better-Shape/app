@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appendStreamAnsiChunk } from "@/features/chat/ui/blocks/terminal-live";
-import { parseMessageContent } from "@/features/chat/ui/md/renderer";
+import { parseMessageContent, resolveLiveStatusLabel } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, stripLeakedToolCode } from "@/features/chat/ui/md/stream";
 
 const stream = (t: string) => preprocessChatMarkdown(t, { streaming: true });
@@ -118,6 +118,32 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
         ).find((c) => c.type === "web_visit");
         expect(visit?.visitUrl).toBe("https://example.com/search?a=1&b=2");
         expect(visit?.visitTitle).toBe("Docs & Guide");
+    });
+
+    it("clears stale Editing activity labels once the trailing edit block has closed", () => {
+        const closedEdit = parseMessageContent(
+            '<edit file="src/done.ts"><original>a</original><replacement>b</replacement></edit>',
+        );
+        expect(
+            resolveLiveStatusLabel(
+                undefined,
+                [{ kind: "workflow", blocks: closedEdit }],
+                "Editing file",
+                true,
+            ),
+        ).toBe("Working");
+
+        const openEdit = parseMessageContent(
+            '<edit file="src/live.ts"><original>a</original>',
+        );
+        expect(
+            resolveLiveStatusLabel(
+                undefined,
+                [{ kind: "workflow", blocks: openEdit }],
+                "Editing file",
+                true,
+            ),
+        ).toBe("Editing live.ts");
     });
 });
 

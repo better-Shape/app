@@ -1734,12 +1734,11 @@ const isActivelyThinkingBlock = (
 
 /** Resolves the fallback live status label when no approval or file-edit state applies. */
 const resolveGeneralActivityLabel = (
-    activityLabel: string | null | undefined,
+    effectiveLabel: string | undefined,
     isThinking: boolean,
     hasWorkflows: boolean,
 ): string | undefined => {
-    const trimmed = activityLabel?.trim();
-    if (trimmed) return trimmed;
+    if (effectiveLabel) return effectiveLabel;
     if (isThinking) return "Thinking";
     return hasWorkflows ? "Working" : undefined;
 };
@@ -1753,13 +1752,38 @@ const isActivelyEditingBlock = (
     return isEditChunk(lastBlock);
 };
 
+/** Checks whether `lastBlock` is a closed edit chunk (`!isGenerating`). */
+const isFinishedEditBlock = (lastBlock: Chunk | undefined): boolean =>
+    Boolean(lastBlock && !lastBlock.isGenerating && isEditChunk(lastBlock));
+
+/** Trims an optional activity label to a non-empty string or `undefined`. */
+const trimOptionalLabel = (
+    label: string | null | undefined,
+): string | undefined => {
+    if (!label) return undefined;
+    const trimmed = label.trim();
+    return trimmed ? trimmed : undefined;
+};
+
+/** Clears stale `"Editing..."` `activityLabel` values once the trailing edit block has closed. */
+const sanitizePostEditActivityLabel = (
+    activityLabel: string | null | undefined,
+    lastBlock: Chunk | undefined,
+): string | undefined => {
+    const trimmed = trimOptionalLabel(activityLabel);
+    if (trimmed && isFinishedEditBlock(lastBlock) && /\bedit/i.test(trimmed)) {
+        return undefined;
+    }
+    return trimmed;
+};
+
 /** Checks whether live status should report an active file-editing label. */
 const shouldShowEditingStatus = (
     lastBlock: Chunk | undefined,
-    activityLabel: string | null | undefined,
+    effectiveLabel: string | undefined,
     isGenerating?: boolean,
 ): boolean => {
-    if (activityLabel && /\bedit/i.test(activityLabel)) return true;
+    if (effectiveLabel && /\bedit/i.test(effectiveLabel)) return true;
     return isActivelyEditingBlock(lastBlock, isGenerating);
 };
 
@@ -1771,8 +1795,18 @@ const readTrailingWorkflowBlocks = (
     return lastSegment ? lastSegment.blocks : undefined;
 };
 
+/** Sanitizes `activityLabel` against the trailing workflow block so finished edits do not linger. */
+const resolveEffectiveActivityLabel = (
+    workflowSegments: WorkflowSegment[],
+    activityLabel: string | null | undefined,
+): string | undefined =>
+    sanitizePostEditActivityLabel(
+        activityLabel,
+        readTrailingWorkflowBlocks(workflowSegments)?.at(-1),
+    );
+
 /** Computes the live `GeneratingIndicator` status label for the current message state. */
-const resolveLiveStatusLabel = (
+export const resolveLiveStatusLabel = (
     pendingLabel: string | undefined,
     workflowSegments: WorkflowSegment[],
     activityLabel: string | null | undefined,
@@ -1781,11 +1815,15 @@ const resolveLiveStatusLabel = (
     if (pendingLabel) return pendingLabel;
     const trailingBlocks = readTrailingWorkflowBlocks(workflowSegments);
     const lastWorkflowBlock = trailingBlocks?.at(-1);
-    if (shouldShowEditingStatus(lastWorkflowBlock, activityLabel, isGenerating)) {
+    const effectiveLabel = sanitizePostEditActivityLabel(
+        activityLabel,
+        lastWorkflowBlock,
+    );
+    if (shouldShowEditingStatus(lastWorkflowBlock, effectiveLabel, isGenerating)) {
         return `Editing ${findLatestEditedBasename(trailingBlocks)}`;
     }
     return resolveGeneralActivityLabel(
-        activityLabel,
+        effectiveLabel,
         isActivelyThinkingBlock(lastWorkflowBlock, isGenerating),
         workflowSegments.length > 0,
     );
@@ -2137,10 +2175,14 @@ export const MessageRenderer = ({
         workflowSegments,
         contentChunks,
     );
+    const effectiveActivityLabel = resolveEffectiveActivityLabel(
+        workflowSegments,
+        activityLabel,
+    );
     const statusLabel = resolveLiveStatusLabel(
         pendingLabel,
         workflowSegments,
-        activityLabel,
+        effectiveActivityLabel,
         isGenerating,
     );
     const showStatusLine =
@@ -2163,7 +2205,7 @@ export const MessageRenderer = ({
                     lastBrowseIndex={lastBrowseIndex}
                     isGenerating={isGenerating}
                     durationMs={durationMs}
-                    activityLabel={activityLabel}
+                    activityLabel={effectiveActivityLabel}
                 />
             ))}
             {showStatusLine ? <GeneratingIndicator label={statusLabel} /> : null}
