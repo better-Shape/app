@@ -69,25 +69,18 @@ describe("model catalog", () => {
         expect(typeof result.fromNetwork).toBe("boolean");
     });
 
-    it("primeModelCatalog warms the bundled snapshot without backend calls in Browser Preview", () => {
+    it("primeModelCatalog warms the bundled snapshot without unsolicited startup backend calls", () => {
         vi.useFakeTimers();
         const catalogSpy = vi.spyOn(commands, "aiFetchModelCatalog");
         const previous = window.__BETTERSHAPE_PREVIEW__;
-        window.__BETTERSHAPE_PREVIEW__ = {
-            seed: "welcome",
-            invokes: [],
-            unknownCommands: () => [],
-            clearInvokes: () => undefined,
-        };
+        delete window.__BETTERSHAPE_PREVIEW__;
         try {
             primeModelCatalog();
             vi.advanceTimersByTime(15_000);
             expect(catalogSize()).toBeGreaterThan(200);
             expect(catalogSpy).not.toHaveBeenCalled();
         } finally {
-            if (previous === undefined) {
-                delete window.__BETTERSHAPE_PREVIEW__;
-            } else {
+            if (previous !== undefined) {
                 window.__BETTERSHAPE_PREVIEW__ = previous;
             }
             catalogSpy.mockRestore();

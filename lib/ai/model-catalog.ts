@@ -6,10 +6,12 @@
  * OpenRouter `/api/v1/models` format. The snapshot is loaded on demand (not at
  * module import) to keep the renderer bundle small.
  *
- * At runtime the renderer refreshes the public catalog from OpenRouter's
- * `/api/v1/models` endpoint through the `ai_fetch_model_catalog` Tauri command
- * and caches the freshest copy in `localStorage` so new models appear without
- * an app update. For a user's own API keys, the Rust side hits the provider's
+ * At startup BetterShape warms the index strictly from cached `localStorage` or
+ * the bundled snapshot without unsolicited network requests. When the user
+ * explicitly refreshes models in Settings, `refreshModelCatalog()` fetches the
+ * public catalog from OpenRouter's `/api/v1/models` endpoint through the
+ * `ai_fetch_model_catalog` Tauri command and caches the freshest copy in
+ * `localStorage`. For a user's own API keys, the Rust side hits the provider's
  * live `/models` endpoint during Test/Refresh and returns native slugs; that
  * list is merged with catalog metadata here so users never have to type model
  * ids or look up context windows by hand.
@@ -725,11 +727,6 @@ const invalidateInMemoryCatalog = (): void => {
     cachedSource = null;
 };
 
-/** Detects the self-contained mocked Browser Preview runtime (`tauri-mock.ts`). */
-const isBrowserPreviewRuntime = (): boolean =>
-    process.env.NEXT_PUBLIC_BROWSER_PREVIEW === "1" ||
-    (typeof window !== "undefined" && "__BETTERSHAPE_PREVIEW__" in window);
-
 /** Checks whether `catalogPrefix/nativeSlug` wraps a nested `vendor/model` id. */
 const hasNestedVendorSlug = (catalogPrefix: string, nativeSlug: string): boolean =>
     isKnownProviderId(catalogPrefix) && nativeSlug.includes("/");
@@ -885,28 +882,15 @@ export const refreshModelCatalog = (
 };
 
 /**
- * Kick off a background refresh once per page load.
+ * Warms the in-memory model catalog synchronously from cached `localStorage`
+ * or the bundled offline snapshot (`catalog-snapshot.json`) without initiating
+ * any startup network requests.
  *
- * Uses the snapshot/cache synchronously on first render, then upgrades to
- * fresh network data once available. Skips unmocked background network calls
- * inside the self-contained Browser Preview environment (`tauri-mock.ts`).
+ * Live catalog refreshes run only on explicit user action via `refreshModelCatalog()`.
  */
 export const primeModelCatalog = (): void => {
     if (typeof window === "undefined") return;
     ensureIndexSync();
-    if (isBrowserPreviewRuntime()) return;
-    /** Triggers a background catalog refresh without unhandled rejections. */
-    const schedule = (): void => {
-        refreshModelCatalog().catch(() => undefined);
-    };
-    const idleWindow = window as Window & {
-        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    };
-    if (typeof idleWindow.requestIdleCallback === "function") {
-        idleWindow.requestIdleCallback(schedule, { timeout: 10_000 });
-        return;
-    }
-    window.setTimeout(schedule, 3000);
 };
 
 /** Timestamp (ms) the in-memory index was fetched at, or `0` if it's the snapshot. */

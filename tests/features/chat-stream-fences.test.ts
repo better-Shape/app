@@ -165,5 +165,24 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
             ),
         ).toBe("Editing live.ts");
     });
+
+    it("measures tab stops from list marker columns and retains truncation notices after stripping 96k+ markup", () => {
+        type MdastLike = { type?: string; value?: string; children?: MdastLike[] };
+        const findCodeValues = (node: MdastLike): string[] => [
+            ...(node.type === "code" && typeof node.value === "string" ? [node.value] : []),
+            ...(node.children ?? []).flatMap(findCodeValues),
+        ];
+
+        const nestedTabList = "1.\t1.\t```ts\n        const x = 1;";
+        const closedNested = stream(nestedTabList);
+        expect(closedNested).toBe("1.\t1.\t```ts\n        const x = 1;\n        ```");
+        const ast = unified().use(remarkParse).parse(closedNested);
+        expect(findCodeValues(ast as unknown as MdastLike)).toEqual(["const x = 1;"]);
+
+        const largeStripped = `<tool_result>${"x".repeat(60_000)}</tool_result>\n\`\`\`ts\n${"a".repeat(38_000)}`;
+        const settled = preprocessChatMarkdown(largeStripped, { streaming: false });
+        expect(settled.length).toBeLessThan(40_000);
+        expect(settled).toContain("\n```\n\n... (response truncated for display)");
+    });
 });
 

@@ -60,6 +60,7 @@ type SyncChatHighlightOptions = {
     activeIndex?: number;
     targetMessageIndex?: number | null;
     targetOccurrenceInMessage?: number | null;
+    targetMessageSearchText?: string | null;
     maxRanges?: number;
 };
 
@@ -385,52 +386,247 @@ const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
     return new RegExp(pattern, caseSensitive ? "g" : "gi");
 };
 
-/** Checks whether `(messageIndex, occurrence)` matches the explicit target occurrence in `options`. */
-const isTargetedMessageOccurrence = (
-    options: SyncChatHighlightOptions,
-    messageIndex: number,
-    occurrence: number,
-): boolean =>
-    options.targetMessageIndex === messageIndex &&
-    options.targetOccurrenceInMessage === occurrence;
+const CONTEXT_WINDOW_CHARS = 32;
 
-/** Records a resolved `Range` hit into `collected` and returns it when matching target options. */
-const recordRunMatchHit = (
-    range: Range,
-    messageIndex: number,
-    options: SyncChatHighlightOptions,
-    collected: DomMatchRange[],
-    perMessageCounter: Map<number, number>,
-): Range | null => {
-    collected.push({ range, messageIndex });
-    const occ = perMessageCounter.get(messageIndex) ?? 0;
-    perMessageCounter.set(messageIndex, occ + 1);
-    return isTargetedMessageOccurrence(options, messageIndex, occ)
-        ? range
-        : null;
+type TextSpan = { start: number; end: number };
+type RunRangeHit = { range: Range; start: number; end: number };
+type SpanContext = { before: string; after: string };
+type AlignmentTable = {
+    dp: Int32Array;
+    actions: Uint8Array;
+    rows: number;
+    cols: number;
 };
 
-/** Evaluates one non-empty regex match inside `run` and records any resulting DOM `Range`. */
-const processNonEmptyRegexMatch = (
+/** Collects up to `limit` non-empty regex match spans inside `text`. */
+const collectNonEmptyMatchSpans = (
+    text: string,
+    matcher: RegExp,
+    limit: number,
+): TextSpan[] => {
+    const spans: TextSpan[] = [];
+    for (const match of text.matchAll(matcher)) {
+        if (spans.length >= limit) break;
+        const len = match[0].length;
+        if (len > 0) {
+            spans.push({ start: match.index, end: match.index + len });
+        }
+    }
+    return spans;
+};
+
+/** Maps non-empty regex matches inside `run` into live DOM `Range` hits. */
+const collectRunRangeHits = (
     run: MessageTextRun,
-    match: RegExpExecArray,
+    matcher: RegExp,
+    remaining: number,
+): RunRangeHit[] => {
+    const hits: RunRangeHit[] = [];
+    for (const span of collectNonEmptyMatchSpans(run.text, matcher, remaining)) {
+        const range = createRunMatchRange(run.segments, span.start, span.end);
+        if (range) {
+            hits.push({ range, start: span.start, end: span.end });
+        }
+    }
+    return hits;
+};
+
+/** Safely reads `hits[index].range` when `index` is in bounds, or `null`. */
+const getHitRangeAtIndex = (
+    hits: readonly RunRangeHit[],
+    index: number,
+): Range | null =>
+    index >= 0 && index < hits.length ? hits[index].range : null;
+
+/** Collapses runs of whitespace into single spaces for context alignment. */
+const collapseContextSpaces = (value: string): string =>
+    value.replace(/\s+/gu, " ");
+
+/** Extracts normalized `(before, after)` windows around `span` in `text`. */
+const extractSpanContext = (text: string, span: TextSpan): SpanContext => ({
+    before: collapseContextSpaces(
+        text.slice(Math.max(0, span.start - CONTEXT_WINDOW_CHARS), span.start),
+    ),
+    after: collapseContextSpaces(
+        text.slice(
+            span.end,
+            Math.min(text.length, span.end + CONTEXT_WINDOW_CHARS),
+        ),
+    ),
+});
+
+/** Counts matching trailing characters shared by `a` and `b`. */
+const commonSuffixLength = (a: string, b: string): number => {
+    const limit = Math.min(a.length, b.length);
+    let len = 0;
+    while (
+        len < limit &&
+        a.charCodeAt(a.length - 1 - len) === b.charCodeAt(b.length - 1 - len)
+    ) {
+        len += 1;
+    }
+    return len;
+};
+
+/** Counts matching leading characters shared by `a` and `b`. */
+const commonPrefixLength = (a: string, b: string): number => {
+    const limit = Math.min(a.length, b.length);
+    let len = 0;
+    while (len < limit && a.charCodeAt(len) === b.charCodeAt(len)) {
+        len += 1;
+    }
+    return len;
+};
+
+/** Returns `weight` when both `a` and `b` are empty strings, otherwise `0`. */
+const bothEmptyWeight = (a: string, b: string, weight: number): number =>
+    a.length === 0 && b.length === 0 ? weight : 0;
+
+/** Scores end-of-message / start-of-message boundary agreement when context is empty. */
+const scoreBoundaryTieBreak = (src: SpanContext, dom: SpanContext): number =>
+    bothEmptyWeight(src.after, dom.after, 3) +
+    bothEmptyWeight(src.before, dom.before, 1);
+
+/** Scores surrounding text similarity between a source match and a rendered DOM match. */
+const scoreContextAlignment = (src: SpanContext, dom: SpanContext): number => {
+    const charOverlap =
+        commonSuffixLength(src.before, dom.before) +
+        commonPrefixLength(src.after, dom.after);
+    return charOverlap * 4 + scoreBoundaryTieBreak(src, dom);
+};
+
+/** Computes alignment gain for pairing `src` with `dom` (`-1` when incompatible). */
+const computePairMatchGain = (src: SpanContext, dom: SpanContext): number => {
+    const score = scoreContextAlignment(src, dom);
+    return score > 0 ? 1000 + score : -1;
+};
+
+/** Selects the highest-scoring monotonic alignment transition (`0=skipS, 1=skipD, 2=pair`). */
+const pickBestAlignmentStep = (
+    skipS: number,
+    skipD: number,
+    takeDS: number,
+): { best: number; action: number } => {
+    if (takeDS >= skipS && takeDS >= skipD) {
+        return { best: takeDS, action: 2 };
+    }
+    return skipS >= skipD
+        ? { best: skipS, action: 0 }
+        : { best: skipD, action: 1 };
+};
+
+/** Evaluates and stores the optimal transition at `(d, s)` inside `table`. */
+const updateAlignmentCell = (
+    table: AlignmentTable,
+    d: number,
+    s: number,
+    gain: number,
+): void => {
+    const idx = d * table.cols + s;
+    const skipS = table.dp[idx + 1];
+    const skipD = table.dp[idx + table.cols];
+    const takeDS = gain >= 0 ? gain + table.dp[idx + table.cols + 1] : -1;
+    const step = pickBestAlignmentStep(skipS, skipD, takeDS);
+    table.dp[idx] = step.best;
+    table.actions[idx] = step.action;
+};
+
+/** Builds the monotonic alignment DP table between `domCtxs` and `srcCtxs`. */
+const buildAlignmentTable = (
+    domCtxs: readonly SpanContext[],
+    srcCtxs: readonly SpanContext[],
+): AlignmentTable => {
+    const rows = domCtxs.length + 1;
+    const cols = srcCtxs.length + 1;
+    const table: AlignmentTable = {
+        dp: new Int32Array(rows * cols),
+        actions: new Uint8Array(rows * cols),
+        rows,
+        cols,
+    };
+    for (let d = domCtxs.length - 1; d >= 0; d -= 1) {
+        for (let s = srcCtxs.length - 1; s >= 0; s -= 1) {
+            const gain = computePairMatchGain(srcCtxs[s], domCtxs[d]);
+            updateAlignmentCell(table, d, s, gain);
+        }
+    }
+    return table;
+};
+
+/** Advances `(d, s)` by one transition action (`0=skipS, 1=skipD, 2=pair`). */
+const advanceAlignmentCursor = (
+    d: number,
+    s: number,
+    action: number,
+): [number, number] => {
+    if (action === 2) return [d + 1, s + 1];
+    return action === 0 ? [d, s + 1] : [d + 1, s];
+};
+
+/** Checks whether `(d, s)` remains inside the non-terminal region of `table`. */
+const isInsideAlignmentBounds = (
+    table: AlignmentTable,
+    d: number,
+    s: number,
+): boolean => d < table.rows - 1 && s < table.cols - 1;
+
+/** Traces `table` to find the DOM hit index aligned to `targetSrcIdx`, or `-1`. */
+const traceAlignedDomIndex = (
+    table: AlignmentTable,
+    targetSrcIdx: number,
+): number => {
+    let d = 0;
+    let s = 0;
+    while (isInsideAlignmentBounds(table, d, s)) {
+        const action = table.actions[d * table.cols + s];
+        if (action === 2 && s === targetSrcIdx) return d;
+        [d, s] = advanceAlignmentCursor(d, s, action);
+    }
+    return -1;
+};
+
+/** Resolves the DOM `Range` matching `targetOcc` via monotonic source-context alignment. */
+const lookupAlignedOccurrenceRange = (
+    runText: string,
+    runHits: readonly RunRangeHit[],
+    sourceText: string,
+    matcher: RegExp,
+): ((targetOcc: number) => Range | null) => {
+    const srcSpans = collectNonEmptyMatchSpans(sourceText, matcher, 500);
+    if (runHits.length === srcSpans.length) {
+        return (targetOcc) => getHitRangeAtIndex(runHits, targetOcc);
+    }
+    const domCtxs = runHits.map((hit) => extractSpanContext(runText, hit));
+    const srcCtxs = srcSpans.map((sp) => extractSpanContext(sourceText, sp));
+    const table = buildAlignmentTable(domCtxs, srcCtxs);
+    return (targetOcc) => {
+        if (targetOcc < 0 || targetOcc >= srcSpans.length) return null;
+        return getHitRangeAtIndex(
+            runHits,
+            traceAlignedDomIndex(table, targetOcc),
+        );
+    };
+};
+
+/** Resolves the active `Range` inside `run` when `run.messageIndex` matches `options`. */
+const resolveTargetRangeInRun = (
+    run: MessageTextRun,
+    runHits: readonly RunRangeHit[],
+    matcher: RegExp,
     options: SyncChatHighlightOptions,
-    collected: DomMatchRange[],
-    perMessageCounter: Map<number, number>,
 ): Range | null => {
-    const range = createRunMatchRange(
-        run.segments,
-        match.index,
-        match.index + match[0].length,
-    );
-    if (!range) return null;
-    return recordRunMatchHit(
-        range,
-        run.messageIndex,
-        options,
-        collected,
-        perMessageCounter,
-    );
+    if (options.targetMessageIndex !== run.messageIndex) return null;
+    const targetOcc = options.targetOccurrenceInMessage;
+    if (typeof targetOcc !== "number") return null;
+    if (typeof options.targetMessageSearchText !== "string") {
+        return getHitRangeAtIndex(runHits, targetOcc);
+    }
+    return lookupAlignedOccurrenceRange(
+        run.text,
+        runHits,
+        options.targetMessageSearchText,
+        matcher,
+    )(targetOcc);
 };
 
 /** Collects up to `maxRanges` regex matches inside a single `MessageTextRun`. */
@@ -440,27 +636,14 @@ const collectMatchesInSingleRun = (
     maxRanges: number,
     options: SyncChatHighlightOptions,
     collected: DomMatchRange[],
-    perMessageCounter: Map<number, number>,
 ): Range | null => {
-    let targetMatch: Range | null = null;
-    matcher.lastIndex = 0;
-    while (collected.length < maxRanges) {
-        const match = matcher.exec(run.text);
-        if (!match) break;
-        if (match[0].length === 0) {
-            matcher.lastIndex += 1;
-        } else {
-            const hit = processNonEmptyRegexMatch(
-                run,
-                match,
-                options,
-                collected,
-                perMessageCounter,
-            );
-            targetMatch = targetMatch ?? hit;
-        }
+    const remaining = maxRanges - collected.length;
+    if (remaining <= 0) return null;
+    const runHits = collectRunRangeHits(run, matcher, remaining);
+    for (const hit of runHits) {
+        collected.push({ range: hit.range, messageIndex: run.messageIndex });
     }
-    return targetMatch;
+    return resolveTargetRangeInRun(run, runHits, matcher, options);
 };
 
 /** Collects match ranges across all `runs` up to `maxRanges`. */
@@ -471,7 +654,6 @@ const collectAllDomMatchRanges = (
     options: SyncChatHighlightOptions,
 ): { collected: DomMatchRange[]; matchedTargetRange: Range | null } => {
     const collected: DomMatchRange[] = [];
-    const perMessageCounter = new Map<number, number>();
     let matchedTargetRange: Range | null = null;
     for (const run of runs) {
         if (collected.length >= maxRanges) break;
@@ -481,7 +663,6 @@ const collectAllDomMatchRanges = (
             maxRanges,
             options,
             collected,
-            perMessageCounter,
         );
         if (!matchedTargetRange && hit) {
             matchedTargetRange = hit;

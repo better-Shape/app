@@ -1200,6 +1200,21 @@ const notifyDroppedFiles = (files: File[]): void => {
   notify.info(title, body);
 };
 
+/** Filters picker-selected `File` items through `isAllowedFile` and warns when unsupported files were skipped. */
+export const processSelectedPickerFiles = (
+  rawFiles: File[],
+  addUploadedFiles: (files: File[]) => void,
+): void => {
+  const allowed = rawFiles.filter(isAllowedFile);
+  if (allowed.length > 0) addUploadedFiles(allowed);
+  if (allowed.length < rawFiles.length) {
+    notify.warning(
+      "Unsupported file format",
+      "Unsupported or video files cannot be attached here.",
+    );
+  }
+};
+
 /** Handles drag-and-drop payloads onto the composer surface. */
 export const processComposerDropTransfer = (opts: {
   dataTransfer: DataTransfer;
