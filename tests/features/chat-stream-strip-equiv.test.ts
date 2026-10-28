@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+    appendInlineCodeSpansInRange,
+    scanMarkdownCodeFences,
     stripLeakedToolCode,
     stripLeakedToolMarkup,
     looksLikeLeakedToolCode,
@@ -13,161 +15,43 @@ const STRIP_ACROSS_FENCES = [
     "list_terminals",
 ] as const;
 
-type ReferenceFenceMarker = {
-    char: string;
-    len: number;
-    suffix: string;
-};
-
-type ReferenceFenceTracker = {
-    proseStart: number;
-    fenceStart: number;
-    fenceChar: string;
-    fenceLen: number;
-};
-
-const countLeadingIndent = (line: string): number => {
-    let spaces = 0;
-    while (spaces < 3 && line.charCodeAt(spaces) === 32) spaces += 1;
-    return spaces;
-};
-
-const countRunOfChar = (line: string, from: number, ch: string): number => {
-    let end = from;
-    while (end < line.length && line.charAt(end) === ch) end += 1;
-    return end - from;
-};
-
-const parseReferenceFenceMarker = (
-    rawLine: string,
-): ReferenceFenceMarker | null => {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    const indent = countLeadingIndent(line);
-    const ch = line.charAt(indent);
-    if (ch !== "`" && ch !== "~") return null;
-    const len = countRunOfChar(line, indent, ch);
-    return len >= 3 ? { char: ch, len, suffix: line.slice(indent + len) } : null;
-};
-
-const isReferenceFenceOpen = (
-    marker: ReferenceFenceMarker | null,
-): marker is ReferenceFenceMarker =>
-    Boolean(marker && (marker.char !== "`" || !marker.suffix.includes("`")));
-
-const isReferenceFenceClose = (
-    marker: ReferenceFenceMarker | null,
-    tracker: ReferenceFenceTracker,
-): boolean =>
-    Boolean(
-        marker &&
-            tracker.fenceChar &&
-            marker.char === tracker.fenceChar &&
-            marker.len >= tracker.fenceLen &&
-            /^[ \t]*$/u.test(marker.suffix),
-    );
-
-const sliceReferenceLineWithoutLf = (
-    source: string,
-    lineStart: number,
-    afterLine: number,
-): string => {
-    const end = source.charCodeAt(afterLine - 1) === 10 ? afterLine - 1 : afterLine;
-    return source.slice(lineStart, end);
-};
-
-const openReferenceFence = (
-    tracker: ReferenceFenceTracker,
-    segments: string[],
-    source: string,
-    lineStart: number,
-    parsed: ReferenceFenceMarker,
-    transformProse: (prose: string) => string,
-): void => {
-    if (lineStart > tracker.proseStart) {
-        segments.push(transformProse(source.slice(tracker.proseStart, lineStart)));
-    }
-    tracker.fenceStart = lineStart;
-    tracker.fenceChar = parsed.char;
-    tracker.fenceLen = parsed.len;
-};
-
-const advanceReferenceFenceLine = (
-    tracker: ReferenceFenceTracker,
-    segments: string[],
-    source: string,
-    lineStart: number,
-    afterLine: number,
-    callbacks: {
-        onProse: (prose: string) => string;
-        onFence: (fenceSlice: string, isClosed: boolean) => string;
-    },
-): void => {
-    const parsed = parseReferenceFenceMarker(
-        sliceReferenceLineWithoutLf(source, lineStart, afterLine),
-    );
-    if (!tracker.fenceChar) {
-        if (isReferenceFenceOpen(parsed)) {
-            openReferenceFence(
-                tracker,
-                segments,
-                source,
-                lineStart,
-                parsed,
-                callbacks.onProse,
-            );
-        }
-        return;
-    }
-    if (isReferenceFenceClose(parsed, tracker)) {
-        segments.push(
-            callbacks.onFence(source.slice(tracker.fenceStart, afterLine), true),
-        );
-        tracker.proseStart = afterLine;
-        tracker.fenceStart = -1;
-        tracker.fenceChar = "";
-        tracker.fenceLen = 0;
-    }
-};
-
 /**
- * CommonMark fence tracking oracle. Tracks closed vs open fences so prose transforms
- * and leaked-fence filtering agree with CommonMark line-start rules.
+ * CommonMark fence tracking wrapper for reference stripping transforms.
+ * Routes prose outside CommonMark fences through `onProse` and fenced slices through `onFence`.
  */
 const scanReferenceFences = (
     source: string,
     onProse: (prose: string) => string,
     onFence: (fenceSlice: string, isClosed: boolean) => string,
 ): string => {
-    const segments: string[] = [];
-    const tracker: ReferenceFenceTracker = {
-        proseStart: 0,
-        fenceStart: -1,
-        fenceChar: "",
-        fenceLen: 0,
-    };
-    const callbacks = { onProse, onFence };
-    let offset = 0;
-    while (offset < source.length) {
-        const nlIdx = source.indexOf("\n", offset);
-        const nextOffset = nlIdx === -1 ? source.length : nlIdx + 1;
-        advanceReferenceFenceLine(
-            tracker,
-            segments,
-            source,
-            offset,
-            nextOffset,
-            callbacks,
-        );
-        offset = nextOffset;
-    }
-    if (tracker.fenceChar) {
-        segments.push(onFence(source.slice(tracker.fenceStart), false));
-    } else if (tracker.proseStart < source.length) {
-        segments.push(onProse(source.slice(tracker.proseStart)));
-    }
-    return segments.join("");
+    const fenceState = scanMarkdownCodeFences(source, 0);
+    if (fenceState.ranges.length === 0) return onProse(source);
+    const { output, endOffset } = fenceState.ranges.reduce(
+        (acc, [rangeStart, rangeEnd], index) => {
+            const isOpenTail =
+                Boolean(fenceState.fenceChar) &&
+                index === fenceState.ranges.length - 1;
+            const before =
+                rangeStart > acc.endOffset
+                    ? onProse(source.slice(acc.endOffset, rangeStart))
+                    : "";
+            const fenced = onFence(
+                source.slice(rangeStart, rangeEnd),
+                !isOpenTail,
+            );
+            return {
+                output: `${acc.output}${before}${fenced}`,
+                endOffset: rangeEnd,
+            };
+        },
+        { output: "", endOffset: 0 },
+    );
+    const trailing =
+        endOffset < source.length ? onProse(source.slice(endOffset)) : "";
+    return `${output}${trailing}`;
 };
 
+/** Maps `transformProse` across non-fenced regions of `source`. */
 const mapOutsideReferenceFences = (
     source: string,
     transformProse: (prose: string) => string,
@@ -223,6 +107,32 @@ const stripReferenceSentinelsInProse = (prose: string): string => {
     return cleaned;
 };
 
+/** Maps `transformSlice` across prose regions outside CommonMark inline code spans. */
+const mapOutsideReferenceInlineCode = (
+    prose: string,
+    transformSlice: (slice: string) => string,
+): string => {
+    const spans: Array<[number, number]> = [];
+    appendInlineCodeSpansInRange(prose, 0, prose.length, spans);
+    if (spans.length === 0) return transformSlice(prose);
+    const { textAcc, cursorPos } = spans.reduce(
+        (acc, [spanStart, spanEnd]) => {
+            const leading =
+                spanStart > acc.cursorPos
+                    ? transformSlice(prose.slice(acc.cursorPos, spanStart))
+                    : "";
+            return {
+                textAcc: `${acc.textAcc}${leading}${prose.slice(spanStart, spanEnd)}`,
+                cursorPos: spanEnd,
+            };
+        },
+        { textAcc: "", cursorPos: 0 },
+    );
+    const tail =
+        cursorPos < prose.length ? transformSlice(prose.slice(cursorPos)) : "";
+    return `${textAcc}${tail}`;
+};
+
 /** Behavioural reference for `stripLeakedToolMarkup`. */
 const referenceMarkup = (inputText: string): string => {
     let working = inputText;
@@ -233,7 +143,9 @@ const referenceMarkup = (inputText: string): string => {
             "",
         );
     }
-    working = mapOutsideReferenceFences(working, stripReferenceSentinelsInProse);
+    working = mapOutsideReferenceFences(working, (prose) =>
+        mapOutsideReferenceInlineCode(prose, stripReferenceSentinelsInProse),
+    );
     return working.replace(/\n{3,}/gu, "\n\n");
 };
 
@@ -349,6 +261,28 @@ const cases: string[] = [
     "<invoke name=\"a\"></invoke>done",
     "text with print( but no call",
     "some { \"tool_code\": \"render_design_previews(...)\" }",
+    // Adversarial shapes for the index-based tag scanner that replaced the
+    // per-tag RegExp passes: bare `<`, closers inside attributes, casing, word
+    // boundaries, nesting, crossed pairs, missing `>` and extra brackets.
+    "a < b </tool_call>",
+    "<tool_call a=\"</tool_call>\">x",
+    "<TOOL_CALL>x</TOOL_CALL>",
+    "</tool_call >kept",
+    "<tool_call",
+    "<tool_calls>x</tool_calls>",
+    "<tool_call><tool_call>x</tool_call></tool_call>",
+    "<invoke><tool_code>x</invoke></tool_code>",
+    "<tool_call x='1'>a</tool_call>tail",
+    "<tool_call/>",
+    "<tool_call />",
+    "<minimax:tool_call>z</minimax:tool_call>",
+    "<tool_call\u00e9>x</tool_call\u00e9>",
+    "text < tool_call>x</tool_call>",
+    "```\n<tool_result>x</tool_result>\n```",
+    "<analysis>a</analysis><tool_call>b</tool_call>",
+    "<tool_call>unclosed opener only",
+    "<<tool_call>>x</tool_call>",
+    "<list_terminals>x</list_terminals><tool_code>y</tool_code>",
 ];
 
 describe("strip equivalence", () => {
@@ -386,6 +320,30 @@ describe("strip equivalence", () => {
         expect(stripLeakedToolCode(midLineEcho)).toBe(midLineEcho);
         for (const sample of cases) {
             expect(stripLeakedToolCode(sample), sample).toBe(referenceCode(sample));
+        }
+    });
+
+    it("matches reference on tag-heavy random input", () => {
+        let seed = 7;
+        const nextRand = (): number => {
+            seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+            return seed / 0x100000000;
+        };
+        const fragments = [
+            "<", ">", "/", " ", "\n", "x", "a", "```",
+            "<tool_call>", "</tool_call>", "<tool_call ", "<tool_calls>", "</tool_calls>",
+            "<invoke>", "</invoke>", "<tool_code>", "</tool_code>", "<analysis>", "</analysis>",
+            "<parameter name=\"p\">", "</parameter>", "<function_calls>", "</function_calls>",
+            "<tool_result>", "</tool_result>", "<|tool_call_begin|>", "[TOOL_CALLS]", "print(foo(",
+        ];
+        const sampleFragments = (count: number): string =>
+            Array.from(
+                { length: count },
+                () => fragments[Math.floor(nextRand() * fragments.length)] ?? "",
+            ).join("");
+        for (let iter = 0; iter < 2000; iter += 1) {
+            const text = sampleFragments(1 + Math.floor(nextRand() * 12));
+            expect(stripLeakedToolMarkup(text), text).toBe(referenceMarkup(text));
         }
     });
 

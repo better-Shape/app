@@ -787,17 +787,29 @@ export const LEAKED_TOOL_XML_TAGS = [
 ] as const;
 
 /** BetterShape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
-const STRIP_ACROSS_FENCES_RE =
-    /<(tool_result|terminal_read|terminal_input|list_terminals)\b[^>]*>[\s\S]*?<\/\1>/gi;
+const STRIP_ACROSS_FENCES = [
+    "tool_result",
+    "terminal_read",
+    "terminal_input",
+    "list_terminals",
+] as const;
 
-const LEAKED_TAG_PAIRED_RE =
-    /<(list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*?<\/\1>/gi;
-const LEAKED_TAG_SELF_CLOSING_RE =
-    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*\/?>/gi;
-const LEAKED_TAG_OPEN_TAIL_RE =
-    /<(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)\b[^>]*>[\s\S]*$/gi;
-const LEAKED_TAG_STRAY_CLOSER_RE =
-    /<\/(?:list_terminals|terminal_input|terminal_read|tool_result|tool_code|new_path|file_content|analysis|tool_calls|tool_call|function_calls|function_call|function_response|tool_response|minimax:tool_call|invoke|parameter|arg_key|arg_value|tools|pre_dispatch_explanation)>/gi;
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/gu;
+
+const STRIP_ACROSS_FENCES_PATTERNS = STRIP_ACROSS_FENCES.map((tag) => {
+    const esc = tag.replace(ESCAPE_RE, "\\$&");
+    return new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu");
+});
+
+const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
+    const esc = tag.replace(ESCAPE_RE, "\\$&");
+    return {
+        paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
+        selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "giu"),
+        openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "giu"),
+        strayCloser: new RegExp(`<\\/${esc}>`, "giu"),
+    };
+});
 
 const FW_BAR = "\uFF5C";
 const DSML_PAIRED_RE =
@@ -816,13 +828,29 @@ const hasAnyToolMarkupSentinel = (text: string): boolean =>
     text.includes("[TOOL_CALLS]") ||
     hasExecuteDump(text);
 
-/** Strips XML leaked tool tags from a prose slice. */
-const stripLeakedXmlTagsInProse = (prose: string): string =>
-    prose
-        .replace(LEAKED_TAG_PAIRED_RE, "")
-        .replace(LEAKED_TAG_SELF_CLOSING_RE, "")
-        .replace(LEAKED_TAG_OPEN_TAIL_RE, "")
-        .replace(LEAKED_TAG_STRAY_CLOSER_RE, "");
+/** Strips BetterShape cross-fence UI wrapper tags in declaration order. */
+const stripAcrossFenceWrappers = (text: string): string => {
+    let out = text;
+    for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
+        if (!out.includes("<")) break;
+        out = out.replace(pattern, "");
+    }
+    return out;
+};
+
+/** Strips XML leaked tool tags from a prose slice in `LEAKED_TOOL_XML_TAGS` order. */
+const stripLeakedXmlTagsInProse = (prose: string): string => {
+    let out = prose;
+    for (const rule of LEAKED_TAG_PATTERNS) {
+        if (!out.includes("<")) break;
+        out = out
+            .replace(rule.paired, "")
+            .replace(rule.selfClosing, "")
+            .replace(rule.openTail, "")
+            .replace(rule.strayCloser, "");
+    }
+    return out;
+};
 
 /** Strips DSML and pipe-delimited model tool sentinels from a prose slice. */
 const stripDsmlAndPipeSentinels = (prose: string): string =>
@@ -880,9 +908,7 @@ export const stripLeakedToolMarkup = (text: string): string => {
     if (!hasAnyToolMarkupSentinel(text)) {
         return collapseExcessNewlines(text);
     }
-    let out = text.includes("<")
-        ? text.replace(STRIP_ACROSS_FENCES_RE, "")
-        : text;
+    let out = text.includes("<") ? stripAcrossFenceWrappers(text) : text;
     out = mapOutsideCodeFences(out, (prose) =>
         mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
     );
@@ -1083,9 +1109,9 @@ const collapseOpeningPrefixReplay = (text: string): string | null => {
     const prefix20 = text.slice(0, 20);
     const maxStart = text.length - 20;
     let searchFrom = 20;
-    while (searchFrom <= maxStart) {
+    while (searchFrom < maxStart) {
         const start = text.indexOf(prefix20, searchFrom);
-        if (start === -1 || start > maxStart) break;
+        if (start === -1 || start >= maxStart) break;
         const matched = measurePrefixReplayLength(text, start, 20);
         if (isPrefixGlitchReplay(text, start, matched)) {
             return text.slice(0, start) + text.slice(start + matched);
@@ -1112,14 +1138,19 @@ const collapseGluedTailReplay = (text: string): string | null => {
     return null;
 };
 
-/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export const repairStreamGlitches = (text: string): string => {
-    if (text.length < 40) return text;
+/** Repairs adjacent or opening-prefix stream replays on strings of at least 40 characters. */
+const repairLongStreamGlitches = (text: string): string => {
     const adjacent = collapseAdjacentDuplicateSpan(text);
     if (adjacent !== null) return adjacent;
-    const replay = collapseOpeningPrefixReplay(text);
-    if (replay !== null) return replay;
-    return collapseGluedTailReplay(text) ?? text;
+    return collapseOpeningPrefixReplay(text) ?? text;
+};
+
+/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
+export const repairStreamGlitches = (text: string): string => {
+    const glued = collapseGluedTailReplay(text);
+    if (glued !== null) return glued;
+    if (text.length < 40) return text;
+    return repairLongStreamGlitches(text);
 };
 
 /** Normalize assistant markdown before ReactMarkdown. */

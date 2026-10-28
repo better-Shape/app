@@ -738,7 +738,7 @@ const TerminalCommandMenu = ({ command }: { command: string }) => {
                 <DropdownMenuItem
                     onClick={() => {
                         navigator.clipboard
-                            .writeText(command)
+                            ?.writeText(command)
                             .catch(() => undefined);
                     }}
                 >

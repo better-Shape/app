@@ -15,6 +15,7 @@ import {
  */
 const messageChunkCache = new WeakMap<ChatMessage, { content: string; chunks: Chunk[] }>();
 
+/** Parsed chunks for a message, re-parsed only when its content changes. */
 export function chunksForMessage(message: ChatMessage): Chunk[] {
     const cached = messageChunkCache.get(message);
     if (cached && cached.content === message.content) return cached.chunks;
@@ -23,6 +24,7 @@ export function chunksForMessage(message: ChatMessage): Chunk[] {
     return chunks;
 }
 
+/** Absolutises a project-relative path, leaving absolute and Windows paths as-is. */
 export function resolveChatFilePath(filePath: string, projectPath: string | null): string {
     if (/^[a-zA-Z]:[\\\/]/.test(filePath) || filePath.startsWith("/")) return filePath;
     if (!projectPath) return filePath;
@@ -98,17 +100,19 @@ export type ChatMessageGroup = { msg: ChatMessage; msgIdx: number }[];
 let lastGroupInput: ChatMessage[] | null = null;
 let lastGroups: ChatMessageGroup[] = [];
 
+/** Groups consecutive assistant messages under the user turn that started them. */
 export function groupChatMessages(messages: ChatMessage[]): ChatMessageGroup[] {
     if (messages === lastGroupInput) return lastGroups;
 
     const groups: ChatMessageGroup[] = [];
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
-        const msg = messages[msgIdx]!;
-        if (msg.hidden) continue;
-        if (msg.role === "user" || groups.length === 0) {
+        const msg = messages[msgIdx];
+        if (!msg || msg.hidden) continue;
+        const current = groups[groups.length - 1];
+        if (msg.role === "user" || !current) {
             groups.push([{ msg, msgIdx }]);
         } else {
-            groups[groups.length - 1]!.push({ msg, msgIdx });
+            current.push({ msg, msgIdx });
         }
     }
 
@@ -116,14 +120,13 @@ export function groupChatMessages(messages: ChatMessage[]): ChatMessageGroup[] {
     // stable props for it.
     for (let i = 0; i < groups.length; i++) {
         const previous = lastGroups[i];
-        const next = groups[i]!;
-        if (
-            previous
-            && previous.length === next.length
-            && previous.every((entry, k) => entry.msg === next[k]!.msg && entry.msgIdx === next[k]!.msgIdx)
-        ) {
-            groups[i] = previous;
-        }
+        const next = groups[i];
+        if (!previous || !next || previous.length !== next.length) continue;
+        const unchanged = previous.every((entry, k) => {
+            const other = next[k];
+            return other !== undefined && entry.msg === other.msg && entry.msgIdx === other.msgIdx;
+        });
+        if (unchanged) groups[i] = previous;
     }
 
     lastGroupInput = messages;

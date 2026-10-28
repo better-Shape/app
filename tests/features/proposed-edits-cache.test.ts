@@ -27,6 +27,22 @@ describe("resolved-file memo", () => {
         parse.mockRestore();
     });
 
+    it("recovers from a corrupt store instead of serving the previous one", async () => {
+        const mod = await freshModule();
+        mod.markFileResolved("conv", "src/a.ts", "applied");
+        expect(mod.isFileResolved("conv", "src/a.ts")).toBe(true);
+
+        // Another window (or a half-finished write) left junk under the key.
+        localStorage.setItem(KEY, "{not json");
+        expect(mod.isFileResolved("conv", "src/a.ts")).toBe(false);
+
+        // The empty result is memoised, so the bad text is not re-parsed.
+        const parse = vi.spyOn(JSON, "parse");
+        expect(mod.isFileResolved("conv", "src/a.ts")).toBe(false);
+        expect(parse).not.toHaveBeenCalled();
+        parse.mockRestore();
+    });
+
     it("serves the update after a successful write", async () => {
         const mod = await freshModule();
         mod.markFileResolved("conv", "src/a.ts", "applied");

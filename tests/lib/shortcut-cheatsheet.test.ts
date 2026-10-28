@@ -37,6 +37,16 @@ describe("shortcut cheatsheet grouping", () => {
         ]);
     });
 
+    it("counts only bound rows inside a filtered group", () => {
+        // The header reads "N of M bound" while filtering, so an unassigned
+        // command that matches the query must not raise N.
+        const groups = groupShortcuts(bindings, "split terminal");
+        expect(groups).toHaveLength(1);
+        expect(groups[0]!.list.map((entry) => entry.label)).toEqual(["Split Terminal"]);
+        expect(groups[0]!.list.reduce((total, entry) => total + countBoundShortcuts([entry]), 0)).toBe(0);
+        expect(countBoundShortcuts(bindings)).toBe(3);
+    });
+
     it("returns no groups for an unmatched query", () => {
         expect(groupShortcuts(bindings, "does-not-exist")).toEqual([]);
     });

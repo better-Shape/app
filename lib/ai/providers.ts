@@ -1758,6 +1758,12 @@ const findMissingBaseUrlSetupGap = (
   return null;
 };
 
+/** Checks whether a keyless connection holds user-saved or discovered model entries. */
+const hasSavedKeylessModels = (conn: ProviderConnection): boolean =>
+  [conn.models, conn.extraModels, conn.discoveredModels].some(
+    (list) => (list?.length ?? 0) > 0,
+  );
+
 /** Checks whether a keyless connection holds user-saved endpoint or model configuration. */
 const hasSavedKeylessProviderConfig = (
   preset: ProviderPreset,
@@ -1766,7 +1772,7 @@ const hasSavedKeylessProviderConfig = (
   if (!connectionAllowsKeylessAuth(preset.id, preset, conn)) return false;
   return preset.needsBaseUrl
     ? Boolean(conn.baseUrl.trim())
-    : conn.extraModels.length > 0 || conn.discoveredModels.length > 0;
+    : hasSavedKeylessModels(conn);
 };
 
 /** Checks whether a disabled connection already holds a saved API key or user-configured keyless setup. */

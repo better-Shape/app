@@ -155,6 +155,7 @@ export const prefetchChatConversation = (id: string | null | undefined): void =>
     window.dispatchEvent(new CustomEvent(PREFETCH_EVENT, { detail: { id } }));
 };
 
+/** Appends a streamed delta to the last assistant message, or starts a new one. */
 function appendAssistantChunk(prev: ChatMessage[], chunk: string): ChatMessage[] {
     const latest = prev[prev.length - 1];
     if (latest && latest.role === "assistant") {

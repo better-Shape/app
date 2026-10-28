@@ -213,10 +213,14 @@ class PerfHudStore {
         for (const sample of samples) {
             if (sample.ms > slowest.ms) slowest = sample;
         }
+        // Nearest-rank p95: the smallest sample at or above the 95th percentile.
+        // `floor(n * 0.95)` lands on the last index for 20 samples, which reports
+        // the maximum instead of the 95th percentile.
+        const p95Index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
         return {
             count: samples.length,
             avgMs: Number((total / samples.length).toFixed(1)),
-            p95Ms: Number((sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1]!).toFixed(1)),
+            p95Ms: Number((sorted[p95Index] ?? sorted[sorted.length - 1]).toFixed(1)),
             slowest: { command: slowest.command, ms: Number(slowest.ms.toFixed(1)) },
         };
     }

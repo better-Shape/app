@@ -66,17 +66,34 @@ type ResolvedStore = Record<string, Record<string, ResolvedEntry | "applied" | "
 let resolvedStoreRaw: string | null | undefined;
 let resolvedStore: ResolvedStore = {};
 
+/** Reads the resolved-edit map, reusing the last parse when storage is unchanged. */
 function loadResolvedFilesStore(): ResolvedStore {
+    let stored: string | null;
     try {
-        const stored = localStorage.getItem(RESOLVED_FILES_KEY);
-        if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) return resolvedStore;
+        stored = localStorage.getItem(RESOLVED_FILES_KEY);
+    } catch {
+        // Blocked storage: no memo, so a later read can still succeed.
+        return {};
+    }
+
+    if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) return resolvedStore;
+
+    try {
+        const parsed: ResolvedStore = stored ? (JSON.parse(stored) as ResolvedStore) : {};
+        // Commit the memo only after a successful parse, so a corrupt value
+        // never leaves the previous store being served under the new text.
         resolvedStoreRaw = stored;
-        resolvedStore = stored ? (JSON.parse(stored) as ResolvedStore) : {};
-        return resolvedStore;
-    } catch { /* ignore */ }
-    return {};
+        resolvedStore = parsed;
+    } catch {
+        // Corrupt JSON: remember the empty result, or every edit card holding
+        // this text would throw through `JSON.parse` again on each render.
+        resolvedStoreRaw = stored;
+        resolvedStore = {};
+    }
+    return resolvedStore;
 }
 
+/** Persists the resolved-edit map and refreshes the in-memory copy. */
 function saveResolvedFilesStore(store: ResolvedStore) {
     try {
         const raw = JSON.stringify(store);
@@ -91,6 +108,7 @@ function saveResolvedFilesStore(store: ResolvedStore) {
     }
 }
 
+/** Reads a stored entry from any older format, or `null` when it is not a decision. */
 function normalizeEntry(
     raw: ResolvedEntry | "applied" | "rejected" | undefined,
 ): ResolvedEntry | null {

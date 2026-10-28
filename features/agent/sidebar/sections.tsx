@@ -101,6 +101,7 @@ export const SORT_OPTIONS: { value: ChatSort; label: string }[] = [
 /** One collator for every title comparison; `localeCompare` built a new one per call. */
 const titleCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 
+/** Orders a shelf of conversations for the given sort mode (pure, stable). */
 export function sortShelf(chats: readonly Conversation[], sort: ChatSort): Conversation[] {
     const sorted = [...chats];
     sorted.sort((a, b) => {

@@ -39,6 +39,7 @@ import {
     importKeybindingOverrides,
     listKeybindingPresets,
     loadKeybindings,
+    onKeybindingsChanged,
     resetKeybindingOverrides,
     setKeybindingOverride,
 } from "@/lib/ui/shortcuts";
@@ -226,11 +227,7 @@ export function KeyboardShortcutsView() {
         setBindings(loadKeybindings());
     }, []);
 
-    useEffect(() => {
-        const onChange = () => reload();
-        window.addEventListener("bettershape-keybindings-changed", onChange);
-        return () => window.removeEventListener("bettershape-keybindings-changed", onChange);
-    }, [reload]);
+    useEffect(() => onKeybindingsChanged(reload), [reload]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();

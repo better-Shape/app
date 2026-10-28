@@ -1213,6 +1213,15 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
         expect(resolveComposerSetupGap(true, 0, disabledSaved)).toBe(
             "Enable a provider in Settings → Providers",
         );
+        const disabledKeylessPinned = defaultProvidersSettings();
+        disabledKeylessPinned.connections.ollama = {
+            ...disabledKeylessPinned.connections.ollama,
+            enabled: false,
+            models: ["ollama/llama3.2:latest"],
+        };
+        expect(describeProviderSetupGap(disabledKeylessPinned)).toBe(
+            "Enable a provider in Settings -> Providers",
+        );
 
         const repeatedValid =
             "In summary, validate the config first.\n\nDetails in section two.\n\nIn summary, validate the output.";

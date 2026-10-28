@@ -12,7 +12,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
-import { loadKeybindings, splitKeyChord, type KeyBinding } from "@/lib/ui/shortcuts";
+import { loadKeybindings, onKeybindingsChanged, splitKeyChord, type KeyBinding } from "@/lib/ui/shortcuts";
 import { countBoundShortcuts, groupShortcuts } from "@/features/shortcuts/lib/group-shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -34,15 +34,21 @@ export function KeyboardShortcutsCheatsheet() {
     useEffect(() => {
         const onChange = () => setBindings(loadKeybindings());
         window.addEventListener("bettershape-open-shortcuts", openSheet);
-        window.addEventListener("bettershape-keybindings-changed", onChange);
+        // Also follows edits made in the Settings window, not just this one.
+        const off = onKeybindingsChanged(onChange);
         return () => {
             window.removeEventListener("bettershape-open-shortcuts", openSheet);
-            window.removeEventListener("bettershape-keybindings-changed", onChange);
+            off();
         };
     }, [openSheet]);
 
     const groups = useMemo(() => groupShortcuts(bindings, query), [bindings, query]);
     const total = countBoundShortcuts(bindings);
+    // Count only rows that actually carry a chord: an unassigned command can
+    // match a filter, and "1 of 40 bound" over a row that says "Unassigned"
+    // would be wrong.
+    const visible = groups.reduce((count, group) => count + countBoundShortcuts(group.list), 0);
+    const filtered = query.trim().length > 0;
 
     return (
         <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -60,7 +66,11 @@ export function KeyboardShortcutsCheatsheet() {
                             Keyboard Shortcuts
                         </Dialog.Title>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-text-muted">{total} bound</span>
+                            {/* While filtering, the count has to describe what is on screen,
+                                otherwise a 6-row result reads "40 bound" and looks wrong. */}
+                            <span className="text-xs text-text-muted">
+                                {filtered ? `${visible} of ${total}` : total} bound
+                            </span>
                             <Dialog.Close asChild>
                                 <Button
                                     variant="ghost"
@@ -140,10 +150,10 @@ function KeyChord({ chord, source }: { chord: string; source: KeyBinding["source
     // "Ctrl+K Ctrl+S" is two chords: render each group, separated by a gap.
     const chords = chord.trim().split(/\s+/).map(splitKeyChord);
     return (
-        <span
-            className={cn("flex shrink-0 items-center gap-1", source === "user" && "text-accent")}
-            title={source === "user" ? "Custom shortcut" : undefined}
-        >
+        <span className={cn("flex shrink-0 items-center gap-1", source === "user" && "text-accent")}>
+            {/* The accent tint alone is colour-only information; say it in text for
+                assistive tech. A `title` would not survive SuppressNativeTooltips. */}
+            {source === "user" ? <span className="sr-only">Custom shortcut: </span> : null}
             {chords.map((tokens, groupIndex) => (
                 <React.Fragment key={`${tokens.join("+")}-${groupIndex}`}>
                     {groupIndex > 0 ? <span className="w-1" aria-hidden /> : null}

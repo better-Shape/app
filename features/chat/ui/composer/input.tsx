@@ -328,7 +328,7 @@ const insertSpacedTokenAtCaret = (
 const appendAttachedPromptLine = (cur: string, prompt: string): string =>
   cur.trim() ? `${cur.trimEnd()}\n${prompt}` : prompt;
 
-const NO_LEADING_SPACE_AFTER_DICTATION_RE = /^[\s.,!?;:)\]}]/u;
+const NO_LEADING_SPACE_AFTER_DICTATION_RE = /^(?:[\s.,!?;:)}]|\])/u;
 
 /** Collapses leading horizontal spaces on `after` and prefixes a single space unless `after` starts with whitespace or punctuation. */
 const formatDictatedSuffix = (text: string, after: string): string => {

@@ -129,14 +129,19 @@ export function mountPerfHud(): () => void {
 
     const render = () => {
         const frames = perfHud.frames();
+        // The collapsed header is the whole panel, so it carries the live FPS
+        // rather than the static label the expanded header shows.
+        title.textContent = collapsed ? `${frames.fps} fps` : "perf";
         const longTasks = perfHud.longTaskStats();
         const invokes = perfHud.invokeStats();
         const report = perfHud.renderReport();
 
-        fps.value.textContent = `${frames.fps} fps · avg ${frames.avgMs}ms · worst ${frames.worstMs}ms`;
+        // The row label already says "fps", so the unit is not repeated inline;
+        // dropping it keeps "worst" from being clipped at the default width.
+        fps.value.textContent = `${frames.fps} · avg ${frames.avgMs}ms · worst ${frames.worstMs}ms`;
         long.value.textContent = `${longTasks.count} ≥50ms · ${longTasks.totalMs}ms`;
         ipc.value.textContent = invokes.count
-            ? `${invokes.count}× · avg ${invokes.avgMs} · p95 ${invokes.p95Ms}ms`
+            ? `${invokes.count}× · avg ${invokes.avgMs}ms · p95 ${invokes.p95Ms}ms`
             : "idle";
         slowest.value.textContent = invokes.slowest
             ? `max ${invokes.slowest.command} ${invokes.slowest.ms}ms`
@@ -166,11 +171,7 @@ export function mountPerfHud(): () => void {
         root.style.width = collapsed ? "auto" : "264px";
         collapseButton.textContent = collapsed ? "+" : "–";
         collapseButton.setAttribute("aria-label", collapsed ? "Expand performance HUD" : "Collapse performance HUD");
-        if (collapsed) {
-            title.textContent = `${perfHud.frames().fps} fps`;
-        } else {
-            title.textContent = "perf";
-        }
+        render();
     };
 
     resetButton.addEventListener("click", () => {
@@ -179,7 +180,6 @@ export function mountPerfHud(): () => void {
     });
     collapseButton.addEventListener("click", () => {
         setCollapsed(!collapsed);
-        render();
     });
 
     const unsubscribe = perfHud.subscribe(render);

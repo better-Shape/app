@@ -28,6 +28,16 @@ describe("perf hud store", () => {
         expect(stats.p95Ms).toBe(30);
     });
 
+    it("reports the nearest-rank p95 rather than the maximum", () => {
+        // 20 samples is the size where `floor(n * 0.95)` lands on the last index.
+        for (let i = 1; i <= 20; i++) perfHud.recordInvoke("cmd", i);
+        const stats = perfHud.invokeStats();
+        expect(stats.count).toBe(20);
+        // ceil(20 * 0.95) - 1 = 18 → the 19th smallest of 1..20.
+        expect(stats.p95Ms).toBe(19);
+        expect(stats.p95Ms).not.toBe(20);
+    });
+
     it("caps the invoke window so memory stays flat", () => {
         for (let i = 0; i < 250; i++) perfHud.recordInvoke("cmd", 1);
         expect(perfHud.invokeStats().count).toBe(200);
@@ -89,6 +99,33 @@ describe("perf hud store", () => {
         second();
         expect(stop).toHaveBeenCalledTimes(1);
         stop.mockRestore();
+    });
+
+    it("keeps the collapsed header showing live frames", async () => {
+        vi.useFakeTimers();
+        window.history.replaceState({}, "", "/?perfhud=1");
+        resetPerfHudEnabledCache();
+        const frames = vi.spyOn(perfHud, "frames").mockReturnValue({ fps: 61, avgMs: 16.4, worstMs: 40 });
+        const unmount = mountPerfHud();
+        const root = document.querySelector("[data-perf-hud]");
+        expect(root).not.toBeNull();
+        const collapse = Array.from(root!.querySelectorAll("button"))
+            .find((button) => button.getAttribute("aria-label") === "Collapse performance HUD");
+        expect(collapse).toBeDefined();
+        collapse!.click();
+        expect(root!.textContent).toContain("61 fps");
+
+        // A later commit must refresh the label, not leave the first value frozen.
+        frames.mockReturnValue({ fps: 44, avgMs: 22.7, worstMs: 90 });
+        perfHud.recordRender("chat.list");
+        await vi.advanceTimersByTimeAsync(300);
+        expect(root!.textContent).toContain("44 fps");
+
+        unmount();
+        frames.mockRestore();
+        vi.useRealTimers();
+        window.history.replaceState({}, "", "/");
+        resetPerfHudEnabledCache();
     });
 
     it("does not mount the overlay while disabled", () => {
