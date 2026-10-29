@@ -1074,12 +1074,12 @@ export const providerPreset = (id: ProviderId): ProviderPreset =>
 
 /** Provider a model id's prefix really means, or null when it names nothing. */
 export const canonicalProviderId = (prefix: string): ProviderId | null => {
-  const trimmed = prefix.trim();
-  if (!trimmed) return null;
-  if (PROVIDER_PRESETS.some((preset) => preset.id === trimmed)) {
-    return trimmed as ProviderId;
+  const lower = prefix.trim().toLowerCase();
+  if (!lower) return null;
+  if (PROVIDER_PRESETS.some((preset) => preset.id === lower)) {
+    return lower as ProviderId;
   }
-  return PROVIDER_ALIASES[trimmed.toLowerCase()] ?? null;
+  return PROVIDER_ALIASES[lower] ?? null;
 };
 
 /** Model id rewritten onto the canonical provider prefix this app stores. */

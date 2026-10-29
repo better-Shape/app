@@ -187,13 +187,15 @@ describe("model ids from other clients", () => {
         expect(canonicalProviderId("kimi")).toBe("moonshot");
         expect(canonicalProviderId("lm-studio")).toBe("lmstudio");
         expect(canonicalProviderId("nope")).toBeNull();
-        // Real ids are returned unchanged.
+        // Real ids (including mixed/upper case) resolve to canonical lowercase ids.
         expect(canonicalProviderId("zen")).toBe("zen");
+        expect(canonicalProviderId("OPENAI")).toBe("openai");
     });
 
     it("rewrites a foreign model id onto ours", () => {
         expect(translateModelId("gemini/gemini-2.5-pro")).toBe("google/gemini-2.5-pro");
         expect(translateModelId("openai/gpt-5")).toBe("openai/gpt-5");
+        expect(translateModelId("OPENAI/gpt-5")).toBe("openai/gpt-5");
         expect(translateModelId("qwen3-coder")).toBe("qwen3-coder");
     });
 

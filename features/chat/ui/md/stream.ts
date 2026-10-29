@@ -833,12 +833,59 @@ const hasAnyToolMarkupSentinel = (text: string): boolean =>
     text.includes("[TOOL_CALLS]") ||
     hasExecuteDump(text);
 
-/** Strips BetterShape cross-fence UI wrapper tags in declaration order. */
+/** Appends CommonMark inline code spans across prose gaps outside `fenceRanges`. */
+const collectInlineSpansOutsideFenceRanges = (
+    text: string,
+    fenceRanges: ReadonlyArray<readonly [number, number]>,
+): Array<[number, number]> => {
+    const spans: Array<[number, number]> = [];
+    let cursor = 0;
+    for (const [start, end] of fenceRanges) {
+        if (cursor < start) {
+            appendInlineCodeSpansInRange(text, cursor, start, spans);
+        }
+        cursor = end;
+    }
+    if (cursor < text.length) {
+        appendInlineCodeSpansInRange(text, cursor, text.length, spans);
+    }
+    return spans;
+};
+
+/** Collects CommonMark inline code span ranges `[start, end)` across non-fenced prose slices. */
+const collectProseInlineCodeSpans = (text: string): Array<[number, number]> => {
+    if (!text.includes("`")) return [];
+    const fenceRanges =
+        text.includes("```") || text.includes("~~~")
+            ? scanMarkdownCodeFences(text, 0).ranges
+            : [];
+    return collectInlineSpansOutsideFenceRanges(text, fenceRanges);
+};
+
+/** Checks whether `offset` falls inside any `[start, end)` range in `spans`. */
+const isOffsetInsideSpans = (
+    spans: ReadonlyArray<readonly [number, number]>,
+    offset: number,
+): boolean => spans.some(([start, end]) => offset >= start && offset < end);
+
+/** Replaces `pattern` matches whose opening `<` lies outside non-fenced inline code spans. */
+const stripAcrossFencePatternOutsideInlineCode = (
+    text: string,
+    pattern: RegExp,
+): string => {
+    const spans = collectProseInlineCodeSpans(text);
+    if (spans.length === 0) return text.replace(pattern, "");
+    return text.replace(pattern, (match, offset: number) =>
+        isOffsetInsideSpans(spans, offset) ? match : "",
+    );
+};
+
+/** Strips BetterShape cross-fence UI wrapper tags in declaration order while preserving inline code examples. */
 const stripAcrossFenceWrappers = (text: string): string => {
     let out = text;
     for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
         if (!out.includes("<")) break;
-        out = out.replace(pattern, "");
+        out = stripAcrossFencePatternOutsideInlineCode(out, pattern);
     }
     return out;
 };

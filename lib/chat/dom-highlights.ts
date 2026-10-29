@@ -156,7 +156,6 @@ const SEARCHABLE_BUTTON_CLASSES = [
 /** Checks whether a `<button>` carries searchable transcript prose, path links, or action labels. */
 const isSearchableTranscriptButton = (el: HTMLElement): boolean =>
     el.hasAttribute("data-chat-find-text") ||
-    el.hasAttribute("aria-expanded") ||
     SEARCHABLE_BUTTON_CLASSES.some((cls) => el.classList.contains(cls));
 
 /** Checks whether an ancestor element represents non-searchable chrome or hidden text. */

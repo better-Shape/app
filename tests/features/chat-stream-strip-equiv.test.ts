@@ -133,14 +133,28 @@ const mapOutsideReferenceInlineCode = (
     return `${textAcc}${tail}`;
 };
 
+const collectReferenceProseInlineSpans = (text: string): Array<[number, number]> => {
+    const spans: Array<[number, number]> = [];
+    const { ranges } = scanMarkdownCodeFences(text, 0);
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+        if (cursor < start) appendInlineCodeSpansInRange(text, cursor, start, spans);
+        cursor = end;
+    }
+    if (cursor < text.length) appendInlineCodeSpansInRange(text, cursor, text.length, spans);
+    return spans;
+};
+
 /** Behavioural reference for `stripLeakedToolMarkup`. */
 const referenceMarkup = (inputText: string): string => {
     let working = inputText;
     for (const tag of STRIP_ACROSS_FENCES) {
         const esc = escapeRegexLiteral(tag);
+        const spans = collectReferenceProseInlineSpans(working);
         working = working.replace(
             new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
-            "",
+            (match, offset: number) =>
+                spans.some(([s, e]) => offset >= s && offset < e) ? match : "",
         );
     }
     working = mapOutsideReferenceFences(working, (prose) =>
@@ -259,6 +273,7 @@ const cases: string[] = [
     "[TOOL_CALLS]name\n[ARGS]{}\nrest",
     "\n_execute\ntool_name: read\narg: 1\nkept",
     "<terminal_read>secret output</terminal_read>visible",
+    "Documented `<terminal_read>example output</terminal_read>` stays intact",
     "<tool_result>\n```\ncode inside\n```\n</tool_result>\nafter",
     "<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name=\"x\">body</｜｜DSML｜｜invoke>",
     "< | DSML | tool_calls>body</ | DSML | tool_calls>rest",
