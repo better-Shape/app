@@ -552,8 +552,6 @@ pub async fn send_chat_message(
     if super::caption::should_caption(&model_concrete, has_images) {
         streaming::emit_chat_status(
             &app_handle,
-            Some(turn_id.as_str()),
-            conversation_id.as_deref(),
             json!({ "conversationId": conversation_id, "turnId": turn_id, "phase": "tool", "label": "Looking at image…" }),
         );
         let _ = super::caption::caption_history_images(

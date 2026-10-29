@@ -303,12 +303,13 @@ const decodeXml = decodeBasicXmlEntities;
 const isAttrNameStartAt = (tagText: string, pos: number): boolean =>
     pos === 0 || !/[A-Za-z0-9_]/u.test(tagText[pos - 1]);
 
-/** Reads a double-quoted XML attribute value (`name="..."`) from an opening tag string. */
+/** Reads a double-quoted XML attribute value (`name="..."`) case-insensitively from an opening tag string. */
 const readAttr = (tagText: string, name: string): string => {
-    const prefix = `${name}="`;
+    const lowerTag = tagText.toLowerCase();
+    const prefix = `${name.toLowerCase()}="`;
     let from = 0;
-    while (from < tagText.length) {
-        const hit = tagText.indexOf(prefix, from);
+    while (from < lowerTag.length) {
+        const hit = lowerTag.indexOf(prefix, from);
         if (hit === -1) return "";
         if (isAttrNameStartAt(tagText, hit)) {
             const valStart = hit + prefix.length;
@@ -433,12 +434,14 @@ export const dedupeTerminalChunks = (chunks: Chunk[]): Chunk[] => {
     return chunks.filter((_, index) => !skip.has(index));
 };
 
-/** Extracts inner tag content `<tag>...</tag>` from a serialized block string. */
+/** Extracts inner tag content `<tag>...</tag>` case-insensitively from a serialized block string. */
 const getInnerTagContent = (block: string, tag: string): string | undefined => {
-    const startTag = `<${tag}>`;
-    const start = block.indexOf(startTag);
+    const lowerBlock = block.toLowerCase();
+    const lowerTag = tag.toLowerCase();
+    const startTag = `<${lowerTag}>`;
+    const start = lowerBlock.indexOf(startTag);
     if (start === -1) return undefined;
-    const end = block.indexOf(`</${tag}>`, start);
+    const end = lowerBlock.indexOf(`</${lowerTag}>`, start + startTag.length);
     const slice =
         end === -1
             ? block.slice(start + startTag.length)
@@ -1180,9 +1183,12 @@ const buildChunkFromSlice = (ctx: TagSliceContext): Chunk => {
 const isOpenTagNameDelimiter = (ch: string | undefined): boolean =>
     ch === undefined || ch === ">" || ch === "/" || ch === "=" || /\s/u.test(ch);
 
-/** Checks whether UTF-16 code unit `code` can appear in a structured tag identifier (`a-z`, `_`, `:`). */
+/** Checks whether UTF-16 code unit `code` can appear in a structured tag identifier (`A-Z`, `a-z`, `_`, `:`). */
 const isStructuredTagNameChar = (code: number): boolean =>
-    (code >= 97 && code <= 122) || code === 95 || code === 58;
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    code === 95 ||
+    code === 58;
 
 /** Scans contiguous structured-tag identifier characters starting at `start`. */
 const readStructuredTagEnd = (text: string, start: number): number => {
@@ -1196,7 +1202,7 @@ const readStructuredTagEnd = (text: string, start: number): number => {
     return cursor;
 };
 
-/** Attempts an $O(1)$ lookup for a structured open tag anchored at `<` (`ltIndex`). */
+/** Attempts an $O(1)$ case-insensitive lookup for a structured open tag anchored at `<` (`ltIndex`). */
 const matchStructuredTagAt = (
     text: string,
     ltIndex: number,
@@ -1205,7 +1211,9 @@ const matchStructuredTagAt = (
     if (nameEnd === ltIndex + 1 || !isOpenTagNameDelimiter(text[nameEnd])) {
         return null;
     }
-    const spec = SEARCH_TAG_BY_PREFIX.get(text.slice(ltIndex, nameEnd));
+    const spec = SEARCH_TAG_BY_PREFIX.get(
+        text.slice(ltIndex, nameEnd).toLowerCase(),
+    );
     if (!spec) return null;
     return {
         type: spec.type,
@@ -1356,7 +1364,9 @@ const consumeMatchedTagAt = (
     }
     const contentStart = gtIndex + 1;
     const tagHeader = text.slice(match.index, contentStart);
-    const endIndex = text.indexOf(match.endTag, contentStart);
+    const endIndex = text
+        .toLowerCase()
+        .indexOf(match.endTag.toLowerCase(), contentStart);
     if (endIndex === -1) {
         return {
             slice: {
@@ -1427,6 +1437,11 @@ type OpenUIFenceScannerState = {
 const MESSAGE_BLOCK_TAG_NAMES: ReadonlySet<string> = new Set(
     SEARCH_TAGS.map((spec) => spec.start.slice(1)),
 );
+const MESSAGE_BLOCK_TAG_NAME_PREFIXES: ReadonlySet<string> = new Set(
+    Array.from(MESSAGE_BLOCK_TAG_NAMES).flatMap((name) =>
+        Array.from({ length: name.length }, (_, idx) => name.slice(0, idx + 1)),
+    ),
+);
 
 /** Constrains the incremental tag scanner to XML-like name characters. */
 const isTagNameCharacter = (ch: string): boolean =>
@@ -1459,19 +1474,29 @@ const applyCompletedTag = (
     completed: PendingTag,
     activeTags: Map<string, number>,
 ): void => {
-    if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
+    const name = completed.name.toLowerCase();
+    if (!MESSAGE_BLOCK_TAG_NAMES.has(name)) return;
     if (completed.closing) {
-        decrementActiveTagDepth(completed.name, activeTags);
+        decrementActiveTagDepth(name, activeTags);
     } else if (completed.lastNonWhitespace !== "/") {
-        incrementActiveTagDepth(completed.name, activeTags);
+        incrementActiveTagDepth(name, activeTags);
     }
 };
 
-/** Appends `ch` to `tag.name` while keeping oversized tag names inert (`"\0"`). */
-const appendBoundedTagNameChar = (tag: PendingTag, ch: string): void => {
-    if (tag.name === "\u0000") return;
-    tag.name =
-        tag.name.length < MAX_TAG_NAME_LENGTH ? tag.name + ch : "\u0000";
+/** Appends `ch` to `tag.name` when it stays a valid known structural-tag prefix. */
+const tryExtendPendingTagName = (
+    tag: PendingTag,
+    ch: string,
+): PendingTagStep => {
+    if (tag.name.length >= MAX_TAG_NAME_LENGTH) {
+        return { tag: null, consumed: true };
+    }
+    const candidateName = (tag.name + ch).toLowerCase();
+    if (!MESSAGE_BLOCK_TAG_NAME_PREFIXES.has(candidateName)) {
+        return { tag: null, consumed: true };
+    }
+    tag.name = candidateName;
+    return { tag, consumed: true };
 };
 
 /** Advances `tag` while reading its XML tag name, returning `null` once name reading finishes. */
@@ -1480,10 +1505,11 @@ const stepPendingTagName = (
     tag: PendingTag,
 ): PendingTagStep | null => {
     if (isTagNameCharacter(ch)) {
-        appendBoundedTagNameChar(tag, ch);
-        return { tag, consumed: true };
+        return tryExtendPendingTagName(tag, ch);
     }
-    if (!tag.name) return { tag: null, consumed: false };
+    if (!tag.name || !MESSAGE_BLOCK_TAG_NAMES.has(tag.name)) {
+        return { tag: null, consumed: false };
+    }
     tag.readingName = false;
     return null;
 };
@@ -1824,24 +1850,97 @@ const findOpenUIFences = (text: string): OpenUIFenceScan => {
 const trimOptionalText = (value: string | undefined): string =>
     (value ?? "").trim();
 
-/** Extracts copyable text for a single prose or OpenUI chunk. */
+/** Formats one chart point as `label: value` when valid, or `[]` otherwise. */
+const formatChartCopyPoint = (point: unknown): string[] => {
+    if (!point || typeof point !== "object") return [];
+    const item = point as { label?: unknown; value?: unknown };
+    const label = String(item.label ?? "").trim();
+    const isScalar =
+        typeof item.value === "string" || typeof item.value === "number";
+    return label && isScalar ? [`${label}: ${item.value}`] : [];
+};
+
+/** Extracts `{ title, points }` from a parsed chart JSON payload. */
+const extractChartCopyParts = (
+    parsed: unknown,
+): { title: string; points: unknown[] } => {
+    if (Array.isArray(parsed)) return { title: "", points: parsed };
+    if (!parsed || typeof parsed !== "object") {
+        return { title: "", points: [] };
+    }
+    const record = parsed as { title?: unknown; points?: unknown };
+    return {
+        title: typeof record.title === "string" ? record.title.trim() : "",
+        points: Array.isArray(record.points) ? record.points : [],
+    };
+};
+
+/** Turns chart payloads into title and label/value rows when the rendered DOM is unavailable. */
+const chartCopyText = (raw: string | undefined): string => {
+    const { title, points } = extractChartCopyParts(parseCardJson<unknown>(raw));
+    const rows = points.flatMap(formatChartCopyPoint);
+    return [title, ...rows].filter(Boolean).join("\n");
+};
+
+/** Preserves readable prompts and selected answers when a question card has no DOM text. */
+const questionCopyText = (chunk: Chunk): string =>
+    (chunk.questions ?? [])
+        .map((question) => {
+            const options = question.options
+                .map(({ label }) => label)
+                .filter(Boolean)
+                .join(" / ");
+            const answer = chunk.answers?.[question.id];
+            const answerText = Array.isArray(answer)
+                ? answer.join(", ")
+                : answer;
+            return [
+                question.prompt,
+                options,
+                answerText ? `Answer: ${answerText}` : "",
+            ]
+                .filter(Boolean)
+                .join("\n");
+        })
+        .join("\n\n");
+
+/** Provides a textual fallback for structured chunks that have no rendered DOM. */
+const structuredChunkCopyText = (chunk: Chunk): string => {
+    if (chunk.type === "question" || chunk.type === "questions") {
+        return questionCopyText(chunk);
+    }
+    if (chunk.type === "chart") return chartCopyText(chunk.content);
+    return trimOptionalText(chunk.content);
+};
+
+/** Extracts copyable text for a single prose, OpenUI, or structured chunk. */
 const extractSingleChunkCopyText = (
     chunk: Chunk,
     openUIText: readonly string[],
     state: { visualIndex: number },
 ): string => {
     if (chunk.type === "text") return trimOptionalText(chunk.content);
-    if (chunk.type !== "openui") return "";
-    const visual = openUIText[state.visualIndex];
-    state.visualIndex += 1;
-    return trimOptionalText(visual);
+    if (chunk.type === "openui") {
+        const visual = openUIText[state.visualIndex];
+        state.visualIndex += 1;
+        return trimOptionalText(visual);
+    }
+    return structuredChunkCopyText(chunk);
 };
+
+/** Checks whether `chunks` contain non-prose, non-OpenUI blocks. */
+const hasStructuredCopyChunks = (chunks: readonly Chunk[]): boolean =>
+    chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui");
 
 /** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
 export const getMessageCopyText = (
     chunks: readonly Chunk[],
     openUIText: readonly string[] = [],
+    renderedText?: string,
 ): string => {
+    if (hasStructuredCopyChunks(chunks) && renderedText?.trim()) {
+        return renderedText;
+    }
     const state = { visualIndex: 0 };
     return chunks
         .map((chunk) => extractSingleChunkCopyText(chunk, openUIText, state))
@@ -2710,6 +2809,9 @@ const MessageSegmentView = ({
     });
 };
 
+/** Limit full-message streaming rescans to ten per second; completed text is parsed immediately. */
+const STREAMING_PARSE_INTERVAL_MS = 100;
+
 /** Renders the MessageRenderer UI component. */
 export const MessageRenderer = ({
     content,
@@ -2726,14 +2828,32 @@ export const MessageRenderer = ({
     durationMs?: number;
     skipSubagentSync?: boolean;
 }) => {
+    const [parsedContent, setParsedContent] = React.useState(content);
+    const latestContent = React.useRef(content);
+    useEffect(() => {
+        latestContent.current = content;
+    }, [content]);
+    useEffect(() => {
+        const updateParsedContent = () => setParsedContent(latestContent.current);
+        if (!isGenerating) {
+            const timeout = globalThis.setTimeout(updateParsedContent, 0);
+            return () => globalThis.clearTimeout(timeout);
+        }
+        const interval = globalThis.setInterval(
+            updateParsedContent,
+            STREAMING_PARSE_INTERVAL_MS,
+        );
+        return () => globalThis.clearInterval(interval);
+    }, [isGenerating]);
+    const contentToParse = isGenerating ? parsedContent : content;
     const chunks = useMemo(
         () =>
             finalizeParsedChunks(
-                parseMessageContent(content),
+                parseMessageContent(contentToParse),
                 isGenerating,
                 isFileEditResolved,
             ),
-        [content, isGenerating, isFileEditResolved],
+        [contentToParse, isGenerating, isFileEditResolved],
     );
 
     useEffect(() => {

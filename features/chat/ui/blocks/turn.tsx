@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { FileIcon } from "@/components/ui/file-icon";
 import { Icon } from "@/components/ui/icon";
+import { Button } from "@/components/ui/button";
 
 
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
@@ -494,36 +495,121 @@ const useBackendResolutionStatus = (
  * Approval card for a staged file edit (require-edit-approval mode):
  * header with filename and +/− counts, expandable diff preview, Skip / Accept.
  */
-const EditApprovalRow = ({ block }: { block: Chunk }) => {
+const resolvedEditStatus = (current: string | null, approved: boolean): string => {
+    if (current === "failed") return current;
+    return approved ? "approved" : "rejected";
+};
+
+/** Render an edit's pending, approved, failed, or terminal state with its approval controls. */
+function EditApprovalRow({ block }: { block: Chunk }) {
     const [localStatus, setLocalStatus] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [registeredCommandId, setRegisteredCommandId] = useState<string | null>(null);
+    const [failedListenerCommandId, setFailedListenerCommandId] = useState<string | null>(null);
+    const [listenerRetryCount, setListenerRetryCount] = useState(0);
+    const [retryingListenerCommandId, setRetryingListenerCommandId] = useState<string | null>(null);
     const [diffOpen, setDiffOpen] = useState(true);
     const diffId = React.useId();
     const { add, del } = editDelta(block);
     const file = block.file || "";
+    const listenersReady = Boolean(block.commandId && registeredCommandId === block.commandId);
+    const listenerSetupFailed = Boolean(block.commandId && failedListenerCommandId === block.commandId);
 
     const resolve = useCallback(
         (approved: boolean) => {
-            if (!block.commandId || isProcessing) return;
+            if (!block.commandId || !listenersReady || isProcessing) return;
             setIsProcessing(true);
             commands
                 .resolveEditApproval(block.commandId, approved)
-                .then(() => setLocalStatus(approved ? "applied" : "rejected"))
+                .then(() => setLocalStatus((current) => resolvedEditStatus(current, approved)))
                 .catch(() => { /* backend upsert corrects the card */ })
                 .finally(() => setIsProcessing(false)).catch(() => undefined);
         },
-        [block.commandId, isProcessing],
+        [block.commandId, isProcessing, listenersReady],
     );
 
-    useBackendResolutionStatus(
-        "agent-edit-resolved",
-        block.commandId,
-        Boolean(block.commandId),
-        "applied",
-        setLocalStatus,
-    );
+    // Do not allow resolution until both outcome listeners are installed.
+    useEffect(() => {
+        const commandId = block.commandId;
+        if (!commandId) return;
+        let disposed = false;
+        let registrationFailed = false;
+        const unlisteners: Array<() => void> = [];
+        const retainUnlistener = (promise: Promise<() => void>): Promise<void> =>
+            promise.then((unlisten) => {
+                if (disposed || registrationFailed) unlisten();
+                else unlisteners.push(unlisten);
+            });
+        const resolvedListenerPromise = retainUnlistener(listen<{ id?: string; approved?: boolean }>(
+            "agent-edit-resolved",
+            (event) => {
+                if (disposed || event.payload?.id !== commandId) return;
+                setLocalStatus((current) => resolvedEditStatus(current, event.payload?.approved === true));
+            },
+        ));
+        const failureListenerPromise = retainUnlistener(listen<{ id?: string }>(
+            "agent-edit-application-failed",
+            (event) => {
+                if (disposed || event.payload?.id !== commandId) return;
+                setLocalStatus("failed");
+            },
+        ));
+        void Promise.all([resolvedListenerPromise, failureListenerPromise])
+            .then(() => {
+                if (!disposed) {
+                    setRegisteredCommandId(commandId);
+                    setFailedListenerCommandId(null);
+                    setRetryingListenerCommandId(null);
+                }
+            })
+            .catch(() => {
+                registrationFailed = true;
+                unlisteners.splice(0).forEach((unlisten) => unlisten());
+                if (!disposed) {
+                    setFailedListenerCommandId(commandId);
+                    setRetryingListenerCommandId(null);
+                }
+            });
+        return () => {
+            disposed = true;
+            unlisteners.splice(0).forEach((unlisten) => unlisten());
+        };
+    }, [block.commandId, listenerRetryCount]);
 
-    const status = localStatus ?? block.commandStatus ?? "pending";
+    const terminalStatus = ["applied", "rejected", "cancelled"].includes(block.commandStatus ?? "")
+        ? block.commandStatus
+        : null;
+    const status = terminalStatus ?? localStatus ?? block.commandStatus ?? "pending";
+    if (status === "approved") {
+        return <ActionLine action="Approved" detail={`${fileName(file)} · Applying…`} />;
+    }
+    if (status === "failed") {
+        return <ActionLine action="Edit failed" detail={fileName(file)} />;
+    }
+    if (listenerSetupFailed) {
+        const isRetrying = retryingListenerCommandId === block.commandId;
+        return (
+            <ActionLine
+                action="Approval unavailable"
+                detail={isRetrying ? "Retrying approval setup..." : "Approval listeners could not be registered."}
+                extra={(
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        disabled={isRetrying}
+                        onClick={() => {
+                            if (!block.commandId) return;
+                            setRetryingListenerCommandId(block.commandId);
+                            setListenerRetryCount((count) => count + 1);
+                        }}
+                    >
+                        Retry
+                    </Button>
+                )}
+            />
+        );
+    }
     if (status !== "pending") {
         return (
             <ActionLine
@@ -562,6 +648,7 @@ const EditApprovalRow = ({ block }: { block: Chunk }) => {
                 </button>
             }
             isProcessing={isProcessing}
+            isDisabled={!listenersReady}
             onSkip={() => resolve(false)}
             onAccept={() => resolve(true)}
             skipLabel="Skip"

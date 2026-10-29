@@ -15,3 +15,5 @@ if (runtimeProcess && typeof runtimeProcess === "object") {
     }
 }
 Reflect.set(globalThis, Symbol.for("openui.devtools.autoMount"), true);
+
+export {};

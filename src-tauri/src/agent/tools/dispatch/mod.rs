@@ -87,12 +87,7 @@ impl<'a> ToolCtx<'a> {
             self.conversation_id.as_deref(),
             self.turn_id.as_deref(),
         );
-        crate::agent::commands::streaming::emit_chat_status(
-            self.app_handle,
-            self.turn_id.as_deref(),
-            self.conversation_id.as_deref(),
-            payload,
-        );
+        crate::agent::commands::streaming::emit_chat_status(self.app_handle, payload);
     }
 
     pub fn emit_ui_token(&self, chunk: impl Into<String>) {

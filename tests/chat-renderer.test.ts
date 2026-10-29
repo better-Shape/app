@@ -22,6 +22,33 @@ describe("parseMessageContent", () => {
         expect(chunks[0]?.content).toContain("Metric");
     });
 
+    it("does not let an incomplete unknown tag hide a later OpenUI fence", () => {
+        const message = [
+            "An unfinished tag appears here: <example",
+            "```openui-lang",
+            "root = Surface([label])",
+            'label = Text("Still rendered")',
+            "```",
+        ].join("\n");
+        const chunks = parseMessageContent(message);
+
+        expect(chunks.map((chunk) => chunk.type)).toContain("openui");
+        expect(chunks.find((chunk) => chunk.type === "openui")?.content).toContain("Still rendered");
+    });
+
+    it("matches hidden wrappers case-insensitively without treating tag prefixes as wrappers", () => {
+        const hidden = parseMessageContent(
+            "<TOOL_RESULT>\n```openui-lang\nroot = Surface([])\n```\n</TOOL_RESULT>\nVisible prose",
+        );
+        expect(hidden.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(hidden.map((chunk) => chunk.content ?? "").join("")).toContain("Visible prose");
+        expect(hidden.map((chunk) => chunk.content ?? "").join("")).not.toContain("root = Surface");
+
+        const prefixed = parseMessageContent("<editor>ordinary prose without an edit wrapper");
+        expect(prefixed.map((chunk) => chunk.type)).toEqual(["text"]);
+        expect(prefixed[0]?.content).toContain("<editor>");
+    });
+
     it("does not route ordinary or nested code fences through the OpenUI renderer", () => {
         const ordinary = parseMessageContent("```typescript\nconst answer = 42;\n```");
         const nested = parseMessageContent(
@@ -70,6 +97,22 @@ describe("parseMessageContent", () => {
         expect(getMessageCopyText(chunks, ["Visual summary\n42 tests passed"])).toBe(
             "Before\n\nVisual summary\n42 tests passed\n\nAfter",
         );
+    });
+
+    it("copies structured content with rendered text or a readable data fallback", () => {
+        const payload = JSON.stringify({ questions: [{ id: "q1", prompt: "Pick a layout", options: [{ id: "grid", label: "Grid view" }] }] });
+        const chunks = parseMessageContent(`<questions>${payload}</questions>`);
+        expect(getMessageCopyText(chunks, [], "Pick a layout")).toBe("Pick a layout");
+
+        const structured = parseMessageContent(
+            'Results:\n<chart>{"title":"Build status","points":[{"label":"Passed","value":42}]}</chart>\n<questions>' + payload + "</questions>",
+        );
+        const copied = getMessageCopyText(structured);
+        expect(copied).toContain("Results:");
+        expect(copied).toContain("Build status");
+        expect(copied).toContain("Passed: 42");
+        expect(copied).toContain("Pick a layout");
+        expect(copied).toContain("Grid view");
     });
 
     it("keeps OpenUI source out of the embedded-block parser and strips leaked tool output", () => {
@@ -229,6 +272,19 @@ describe("parseMessageContent", () => {
         expect(q?.questions?.[0]?.options[0]?.recommended).toBe(true);
     });
 
+    it("parses uppercase edit tags and attributes consistently", () => {
+        const [edit] = parseMessageContent(
+            '<EDIT FILE="src/a.ts"><ORIGINAL>before</ORIGINAL><REPLACEMENT>after</REPLACEMENT></EDIT>',
+        );
+
+        expect(edit).toMatchObject({
+            type: "edit",
+            file: "src/a.ts",
+            original: "before",
+            replacement: "after",
+        });
+    });
+
     it("dedupes edit_pending chunks for the same id, keeping applied over pending", () => {
         const text = [
             '<edit_pending id="e1" file="src/a.ts" status="pending"><original>a</original><replacement>b</replacement></edit_pending>',
@@ -310,7 +366,7 @@ describe("preprocessChatMarkdown", () => {
         expect(preprocessChatMarkdown(input)).toBe("## Title\n\nBody");
     });
 
-    it("strips leaked tool_code JSON fences from design-mode dumps", () => {
+    it("strips leaked tool markup while preserving prose around malformed tags", () => {
         const input = `Here are two concepts.
 
 \`\`\`json
@@ -322,24 +378,20 @@ describe("preprocessChatMarkdown", () => {
         expect(out).toContain("Here are two concepts");
         expect(out).not.toContain("tool_code");
         expect(out).not.toContain("render_design_previews");
-    });
 
-    it("preserves prose after a valid apostrophe-containing tag and truncates broken attributes", () => {
         const prose = stripLeakedToolCode("<analysis it's fine> following prose");
         const broken = stripLeakedToolCode('<analysis title="unfinished>hidden prose');
         expect(prose).toContain("following prose");
         expect(prose).not.toContain("<analysis");
         expect(broken).not.toContain("hidden prose");
-    });
 
-    it("removes the full contents of nested hidden tool-result wrappers", () => {
-        const sanitized = stripLeakedToolCode(
+        const nested = stripLeakedToolCode(
             "Before <tool_result>outer <tool_result>inner</tool_result> trailing hidden</tool_result> After",
         );
-        expect(sanitized).toContain("Before");
-        expect(sanitized).toContain("After");
-        expect(sanitized).not.toContain("inner");
-        expect(sanitized).not.toContain("trailing hidden");
+        expect(nested).toContain("Before");
+        expect(nested).toContain("After");
+        expect(nested).not.toContain("inner");
+        expect(nested).not.toContain("trailing hidden");
 
         const quotedCloseTag = stripLeakedToolCode(
             'Before <tool_result><div data-value="</tool_result>">hidden content</div></tool_result> After',
@@ -350,6 +402,13 @@ describe("preprocessChatMarkdown", () => {
 
         const unclosed = stripLeakedToolCode("Before <tool_result>hidden trailing");
         expect(unclosed.trim()).toBe("Before");
+
+        const strayAngle = stripLeakedToolCode(
+            "Before <value <tool_result>hidden payload</tool_result> After",
+        );
+        expect(strayAngle).toContain("Before <value");
+        expect(strayAngle).toContain("After");
+        expect(strayAngle).not.toContain("hidden payload");
     });
 
     it("hides Gemini function_calls / tool_code XML (Auto + Gemini)", () => {

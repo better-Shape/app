@@ -106,6 +106,22 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
     return <MessageAttachmentPill name={att.name} />;
 }
 
+/** Preserve attachment identity across reordering while disambiguating exact duplicates. */
+const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
+    const occurrences = new Map<string, number>();
+    return attachments.map((attachment) => {
+        const identity = JSON.stringify([
+            attachment.kind,
+            attachment.name,
+            attachment.mimeType,
+            attachment.size,
+        ]);
+        const occurrence = occurrences.get(identity) ?? 0;
+        occurrences.set(identity, occurrence + 1);
+        return { attachment, key: `${identity}:${occurrence}` };
+    });
+};
+
 /** Renders the MentionRichText UI component. */
 const MentionRichText = ({ text }: { text: string }) => {
     const workflows = useSettings().ai.workflows ?? [];
@@ -323,7 +339,52 @@ const extractPresentationMetadata = (content: string) => {
     return { content: rest, forked, renamed };
 };
 
-/** Renders the ChatMessageItemInner UI component. */
+/** Formats user text and attachment names for the message copy action. */
+const userMessageCopyText = (content: string): string => {
+    const parts = parseUserAttachments(content);
+    const names = parts.attachments.map((attachment) => attachment.name).join(", ");
+    if (names && parts.text) return `${parts.text}\n\n[${names}]`;
+    if (names) return `[${names}]`;
+    return parts.text || content;
+};
+
+/** Checks whether rich assistant metadata or non-OpenUI blocks prefer live rendered DOM copy text. */
+const shouldPreferRenderedAssistantCopy = (
+    metadata: ReturnType<typeof extractPresentationMetadata>,
+    chunks: ReturnType<typeof parseMessageContent>,
+): boolean =>
+    Boolean(metadata.forked || metadata.renamed) ||
+    chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui");
+
+/** Copies rendered text for rich assistant chunks when its visible DOM is available. */
+const assistantMessageCopyText = (
+    content: string,
+    body: HTMLDivElement | null,
+): string => {
+    const metadata = extractPresentationMetadata(content);
+    const chunks = parseMessageContent(metadata.content);
+    const renderedText = body?.innerText || body?.textContent || undefined;
+    if (shouldPreferRenderedAssistantCopy(metadata, chunks) && renderedText?.trim()) {
+        return renderedText;
+    }
+    const openUIText = Array.from(
+        body?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
+        (element) => element.innerText || element.textContent || "",
+    );
+    return getMessageCopyText(chunks, openUIText, renderedText);
+};
+
+/** Selects the role-specific text fallback used by clipboard and context-menu actions. */
+const messageCopyText = (
+    role: string,
+    content: string,
+    body: HTMLDivElement | null,
+): string =>
+    role === "user"
+        ? userMessageCopyText(content)
+        : assistantMessageCopyText(content, body);
+
+/** Render the user or assistant message body and its available actions. */
 const ChatMessageItemInner = ({
     role,
     content,
@@ -368,30 +429,8 @@ const ChatMessageItemInner = ({
 
     }
 
-    const getCopyText = () => {
-        if (role === "user") {
-            const parts = parseUserAttachments(content);
-            const names = parts.attachments.map((a) => a.name).join(", ");
-            if (names && parts.text) return `${parts.text}\n\n[${names}]`;
-            if (names) return `[${names}]`;
-            return parts.text || content;
-        }
-        const metadata = extractPresentationMetadata(content);
-        const chunks = parseMessageContent(metadata.content);
-        if (
-            metadata.forked ||
-            metadata.renamed ||
-            chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui")
-        ) {
-            const renderedText = bodyRef.current?.innerText || bodyRef.current?.textContent;
-            if (renderedText?.trim()) return renderedText;
-        }
-        const openUIText = Array.from(
-            bodyRef.current?.querySelectorAll<HTMLElement>("[data-openui-block]") ?? [],
-            (element) => element.innerText || element.textContent || "",
-        );
-        return getMessageCopyText(chunks, openUIText);
-    };
+    /** Resolve a role-aware clipboard fallback from the current rendered message. */
+    const getCopyText = () => messageCopyText(role, content, bodyRef.current);
 
     const markCopied = () => {
         setCopied(true);
@@ -429,6 +468,7 @@ const ChatMessageItemInner = ({
         if (full) dispatchChatQuote(full);
     };
 
+    /** Select only the text rendered in this message body. */
     const handleSelectAll = () => {
         selectNodeContents(bodyRef.current);
     };
@@ -457,6 +497,10 @@ const ChatMessageItemInner = ({
     const userParts = React.useMemo(
         () => (isUser ? parseUserAttachments(content) : null),
         [isUser, content],
+    );
+    const keyedAttachments = React.useMemo(
+        () => withStableAttachmentKeys(userParts?.attachments ?? []),
+        [userParts],
     );
 
     const continueAction = React.useMemo(
@@ -497,12 +541,9 @@ const ChatMessageItemInner = ({
                             >
                                 {userParts.attachments.length > 0 && (
                                     <div className="mb-2 flex flex-wrap items-end gap-1.5">
-                                        {(() => {
-                                            const attKey = createOccurrenceKeyer();
-                                            return userParts.attachments.map((att) => (
-                                                <SentAttachment key={attKey(att.name)} att={att} />
-                                            ));
-                                        })()}
+                                        {keyedAttachments.map(({ attachment, key }) => (
+                                            <SentAttachment key={key} att={attachment} />
+                                        ))}
                                     </div>
                                 )}
                                 {userQuotes.length > 0 ? (
@@ -721,8 +762,8 @@ const ChatMessageItemInner = ({
                         if (!open) {
                             setAdvanced(false);
                             setContextVeil(true);
-                            setMenuStats(undefined);
-                            setMenuModel(undefined);
+                            setMenuStats(() => undefined);
+                            setMenuModel(() => undefined);
                             return;
                         }
                         if (index < 0) return;

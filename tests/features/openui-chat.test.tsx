@@ -1,14 +1,32 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const eventSubscriptions = vi.hoisted(() => ({
+    pending: [] as Array<{
+        event: string;
+        resolve: (unlisten: () => void) => void;
+        reject: (error: Error) => void;
+    }>,
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+    listen: vi.fn((event: string) => new Promise<() => void>((resolve, reject) => {
+        eventSubscriptions.pending.push({ event, resolve, reject });
+    })),
+}));
+
 import { OpenUIBlock } from "@/features/chat/ui/blocks/openui";
+import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
 import { ChatMessageItem } from "@/features/chat/ui/message/item";
+import type { Chunk } from "@/features/chat/ui/md/renderer";
 
 let host: HTMLDivElement | null = null;
 let root: Root | null = null;
 let clipboardDescriptor: PropertyDescriptor | undefined;
 
 afterEach(() => {
+    eventSubscriptions.pending = [];
     if (root) act(() => root?.unmount());
     host?.remove();
     root = null;
@@ -41,6 +59,84 @@ const renderAssistantMessageForCopy = async (content: string) => {
 };
 
 describe("OpenUIBlock", () => {
+    it("keeps edit approval disabled until both outcome listeners are installed", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const edit: Chunk = {
+            type: "edit_pending",
+            commandId: "edit-1",
+            commandStatus: "pending",
+            file: "src/app.ts",
+            original: "before",
+            replacement: "after",
+        };
+
+        await act(async () => {
+            root?.render(<TurnWorkflowSummary blocks={[edit]} />);
+        });
+
+        const buttons = Array.from(host.querySelectorAll("button"));
+        const skip = buttons.find((button) => button.textContent?.includes("Skip"));
+        const accept = buttons.find((button) => button.textContent?.includes("Accept"));
+        expect(eventSubscriptions.pending.map(({ event }) => event)).toEqual([
+            "agent-edit-resolved",
+            "agent-edit-application-failed",
+        ]);
+        expect(skip?.getAttribute("aria-disabled")).toBe("true");
+        expect(accept?.getAttribute("aria-disabled")).toBe("true");
+
+        await act(async () => {
+            eventSubscriptions.pending.forEach(({ resolve }) => resolve(() => {}));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(skip?.getAttribute("aria-disabled")).toBeNull();
+        expect(accept?.getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("keeps edit approval unavailable if an outcome listener cannot register", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const edit: Chunk = {
+            type: "edit_pending",
+            commandId: "edit-2",
+            commandStatus: "pending",
+            file: "src/app.ts",
+            original: "before",
+            replacement: "after",
+        };
+
+        await act(async () => {
+            root?.render(<TurnWorkflowSummary blocks={[edit]} />);
+        });
+        await act(async () => {
+            eventSubscriptions.pending[0]?.reject(new Error("listener failed"));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(host.textContent).toContain("Approval unavailable");
+        expect(host.textContent).toContain("Approval listeners could not be registered.");
+
+        const retry = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Retry"));
+        expect(retry).toBeDefined();
+        await act(async () => {
+            retry?.click();
+        });
+        const retryListeners = eventSubscriptions.pending.slice(-2);
+        expect(retryListeners).toHaveLength(2);
+        await act(async () => {
+            retryListeners.forEach(({ resolve }) => resolve(() => {}));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+        const skip = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Skip"));
+        expect(skip?.getAttribute("aria-disabled")).toBeNull();
+    });
+
     it("copies rendered visual text through the assistant message action", async () => {
         const { writeText, copyMessage } = await renderAssistantMessageForCopy(
             '```openui-lang\nroot = Surface([label])\nlabel = Text("Visual summary")\n```',
@@ -95,9 +191,16 @@ describe("OpenUIBlock", () => {
         expect(copied).not.toContain("<questions");
     });
 
-    it("disables OpenUI runtime telemetry and the remote development inspector", () => {
+    it("disables OpenUI runtime telemetry and the remote development inspector", async () => {
+        delete process.env.OPENUI_TELEMETRY_DISABLED;
+        const autoMountKey = Symbol.for("openui.devtools.autoMount");
+        Reflect.set(globalThis, autoMountKey, false);
+        vi.resetModules();
+
+        await import("@/features/chat/ui/blocks/disable-openui-devtools");
+
         expect(process.env.OPENUI_TELEMETRY_DISABLED).toBe("1");
-        expect(Reflect.get(globalThis, Symbol.for("openui.devtools.autoMount"))).toBe(true);
+        expect(Reflect.get(globalThis, autoMountKey)).toBe(true);
     });
 
     it("renders registered components from a generated program", async () => {
@@ -191,7 +294,7 @@ describe("OpenUIBlock", () => {
         expect(bars[1]?.getAttribute("style")).toContain("width: 100%");
     });
 
-    it("caps pathological nested layouts with a readable fallback", async () => {
+    it("rejects definitions deeper than the expansion boundary before rendering", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);
         root = createRoot(host);
@@ -208,8 +311,22 @@ describe("OpenUIBlock", () => {
             root?.render(<OpenUIBlock response={response} />);
         });
 
-        expect(host.textContent).toContain("nested too deeply to display");
+        expect(host.textContent).toContain("too complex to display safely");
         expect(host.textContent).not.toContain("Deep content");
+    });
+
+    it("rejects cyclic references before the OpenUI runtime expands them", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = ["root = Surface([loop])", "loop = Stack([loop])"].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
     });
 
     it("does not count definition-like text inside a string as expanded work", async () => {
@@ -247,6 +364,77 @@ describe("OpenUIBlock", () => {
         expect(host.querySelector("section")).toBeNull();
     });
 
+    it("budgets inline component calls before the renderer expands them", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const inlineTables = Array(14).fill('DataTable(["Name"], [["Row"]])').join(", ");
+        const response = `root = Surface([${inlineTables}])`;
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
+    });
+
+    it("expands child-array aliases and charges their inline containers", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const tables = Array(14).fill("table").join(", ");
+        const response = [
+            "root = Surface([Stack(kids)])",
+            `kids = [${tables}]`,
+            'table = DataTable(["Name"], [["Row"]])',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
+    });
+
+    it("budgets large component fan-out as well as the number of OpenUI definitions", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = [
+            `root = Surface([${Array(14).fill("table").join(", ")}])`,
+            'table = DataTable(["Name"], [["Row"]])',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section")).toBeNull();
+    });
+
+    it("fails closed on data-dependent child expansion and unsupported container expressions", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const unsafeResponses = [
+            'root = Surface(@Each([1, 2], "item", Text("Item")))',
+            'kids = @Each([1, 2], "item", Text("Item"))\nroot = Surface(kids)',
+            'root = Surface([Stack(@Each([1, 2], "item", Text("Item"))]))',
+            'root = Surface(Stack("unsupported children expression"))',
+        ];
+
+        for (const response of unsafeResponses) {
+            await act(async () => {
+                root?.render(<OpenUIBlock response={response} />);
+            });
+            expect(host.textContent).toContain("too complex to display safely");
+            expect(host.querySelector("section")).toBeNull();
+        }
+    });
+
     it("shows a safe fallback when a generated program references an unknown component", async () => {
         host = document.createElement("div");
         document.body.appendChild(host);
@@ -256,7 +444,30 @@ describe("OpenUIBlock", () => {
             root?.render(<OpenUIBlock response={'root = Surface([missing])\nmissing = NotRegistered("ignored")'} />);
         });
 
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.querySelector("section, script, iframe, img")).toBeNull();
+    });
+
+    it("does not keep an earlier renderer error visible after valid content arrives", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const invalidResponse = [
+            "root = Surface([label])",
+            "label = Text(123)",
+        ].join("\n");
+        const validResponse = ["root = Surface([label])", 'label = Text("Recovered")'].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={invalidResponse} />);
+        });
         expect(host.textContent).toContain("This visual response could not be rendered.");
-        expect(host.querySelector("script, iframe, img")).toBeNull();
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={validResponse} />);
+        });
+
+        expect(host.textContent).toContain("Recovered");
+        expect(host.textContent).not.toContain("This visual response could not be rendered.");
     });
 });

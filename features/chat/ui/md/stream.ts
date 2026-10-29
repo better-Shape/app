@@ -932,13 +932,22 @@ const advanceTagQuoteState = (
 const nextPrevNonWhitespace = (prev: string, ch: string): string =>
     /\s/u.test(ch) ? prev : ch;
 
-/** Finds a tag's closing `>` without mistaking an `=`-prefixed quoted attribute for it. */
+/** Resolves unquoted tag-delimiter outcome (`-1` on `<`, `index` on `>`, or `null`). */
+const checkUnquotedTagBracket = (ch: string, index: number): number | null => {
+    if (ch === "<") return -1;
+    return ch === ">" ? index : null;
+};
+
+/** Finds a tag's closing `>` without swallowing a later tag after stray `<` prose. */
 const findTagEnd = (text: string, start: number): number => {
     let quote: "'" | '"' | null = null;
     let prevNonWs = "";
     for (let index = start; index < text.length; index += 1) {
         const ch = text.charAt(index);
-        if (!quote && ch === ">") return index;
+        if (!quote) {
+            const bracket = checkUnquotedTagBracket(ch, index);
+            if (bracket !== null) return bracket;
+        }
         quote = advanceTagQuoteState(quote, ch, prevNonWs);
         prevNonWs = nextPrevNonWhitespace(prevNonWs, ch);
     }
@@ -1098,7 +1107,7 @@ const processNestedTagCandidate = (
     applyNestedOpeningTag(state, text, start, end + 1, selfClosing);
 };
 
-/** Advances `NestedStripState` from `<` at `start`, returning next index or `-1` on unclosed tag. */
+/** Advances `NestedStripState` from `<` at `start`, retrying after a malformed `<` token. */
 const stepNestedTagAt = (
     state: NestedStripState,
     text: string,
@@ -1106,7 +1115,7 @@ const stepNestedTagAt = (
     matchingTag: RegExp,
 ): number => {
     const end = findTagEnd(text, start + 1);
-    if (end === -1) return -1;
+    if (end === -1) return start + 1;
     processNestedTagCandidate(state, text, start, end, matchingTag);
     return end + 1;
 };
@@ -1118,7 +1127,7 @@ const finalizeNestedStripState = (
 ): string =>
     state.depth > 0 ? state.output : state.output + text.slice(state.cursor);
 
-/** Removes complete nested wrapper payloads without mistaking quoted tag text for delimiters. */
+/** Removes complete nested wrapper payloads without mistaking quoted or malformed tag text for delimiters. */
 export const stripNestedTagBlocks = (
     text: string,
     tag: string,
@@ -1132,11 +1141,9 @@ export const stripNestedTagBlocks = (
     while (index < text.length) {
         const start = text.indexOf("<", index);
         if (start === -1) break;
-        const next = isOffsetInsideSortedSpans(protectedSpans, start, spanCursor)
+        index = isOffsetInsideSortedSpans(protectedSpans, start, spanCursor)
             ? start + 1
             : stepNestedTagAt(state, text, start, matchingTag);
-        if (next === -1) return finalizeNestedStripState(state, text);
-        index = next;
     }
     return finalizeNestedStripState(state, text);
 };

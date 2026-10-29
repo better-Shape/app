@@ -8,9 +8,12 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 const childrenSchema = z.array(z.any()).max(24);
 const MAX_OPENUI_NESTING = 16;
 const MAX_OPENUI_EXPANDED_NODES = 128;
+const MAX_OPENUI_RENDER_COST = 4096;
 const OPENUI_COMPONENTS = new Set([
     "Surface", "Stack", "Text", "Metric", "Callout", "Progress", "BarChart", "DataTable",
 ]);
+const OPENUI_COMPONENT_NAMES = Array.from(OPENUI_COMPONENTS).join("|");
+const OPENUI_COMPONENT_CALL_PATTERN = new RegExp(String.raw`^(${OPENUI_COMPONENT_NAMES})[ \t]*\(`);
 const OpenUINestingContext = createContext(0);
 
 /** Attach occurrence-suffixed stable keys so duplicate rendered values remain distinct. */
@@ -38,6 +41,17 @@ const maskLineComment = (source: string, start: number, masked: string[]): numbe
     return index;
 };
 
+/** Classify one character inside a quoted value without mutating scanner state. */
+const quotedCharacterAction = (
+    character: string,
+    quote: "\"" | "'",
+    escaped: boolean,
+): "continue" | "escape-next" | "close" => {
+    if (escaped) return "continue";
+    if (character === "\\") return "escape-next";
+    return character === quote ? "close" : "continue";
+};
+
 /** Blank a quoted value without changing line positions or escaped-quote state. */
 const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", masked: string[]): number => {
     let escaped = false;
@@ -45,9 +59,9 @@ const maskQuotedValue = (source: string, start: number, quote: "\"" | "'", maske
     while (index < source.length) {
         const character = source[index] ?? "";
         if (character !== "\n") masked[index] = " ";
-        if (escaped) escaped = false;
-        else if (character === "\\") escaped = true;
-        else if (character === quote) return index + 1;
+        const action = quotedCharacterAction(character, quote, escaped);
+        if (action === "close") return index + 1;
+        escaped = action === "escape-next";
         index += 1;
     }
     return index;
@@ -68,11 +82,9 @@ const maskTokenAt = (source: string, index: number, masked: string[]): number | 
 /** Mask literals/comments before counting references, so prose cannot inflate the render budget. */
 const maskOpenUIStringsAndComments = (source: string): string => {
     const masked = source.split("");
-    let maskedUntil = 0;
-    for (let index = 0; index < source.length; index += 1) {
-        if (index < maskedUntil) continue;
+    for (let index = 0; index < source.length;) {
         const tokenEnd = maskTokenAt(source, index, masked);
-        if (tokenEnd !== null) maskedUntil = tokenEnd;
+        index = tokenEnd ?? index + 1;
     }
     return masked.join("");
 };
@@ -90,46 +102,173 @@ const matchingArrayEnd = (source: string, openIndex: number): number => {
     return -1;
 };
 
-type OpenUIDefinitions = Map<string, string[]>;
+type OpenUIDefinition = { component?: string; children: string[]; inlineComponents: string[]; unsafe?: boolean };
+type OpenUIDefinitions = Map<string, OpenUIDefinition>;
 
-/** Extract referenced child names only for components that structurally own children. */
-const definitionChildren = (source: string, component: string, argsStart: number): string[] => {
-    if (component !== "Surface" && component !== "Stack") return [];
-    const firstArray = source.indexOf("[", argsStart);
-    const firstClose = source.indexOf(")", argsStart);
-    if (firstArray === -1 || (firstClose !== -1 && firstArray >= firstClose)) return [];
-    const arrayEnd = matchingArrayEnd(source, firstArray);
-    if (arrayEnd === -1) return [];
-    return source.slice(firstArray + 1, arrayEnd)
-        .match(/[A-Za-z_][\w-]*/g)
-        ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
+/** Find the first argument boundary without treating nested calls as separators. */
+const firstArgumentRange = (source: string, argsStart: number): [number, number] => {
+    let arrayDepth = 0;
+    let callDepth = 0;
+    for (let index = argsStart; index < source.length; index += 1) {
+        const character = source[index];
+        if (character === "[") arrayDepth += 1;
+        else if (character === "]") arrayDepth -= 1;
+        else if (character === "(") callDepth += 1;
+        else if (character === ")") {
+            if (callDepth === 0 && arrayDepth === 0) return [argsStart, index];
+            callDepth -= 1;
+        } else if (character === "," && arrayDepth === 0 && callDepth === 0) {
+            return [argsStart, index];
+        }
+    }
+    return [argsStart, source.length];
 };
 
-/** Parse named DSL definitions, stopping if their count alone exceeds the render budget. */
+/** Find a literal child array only when it is the component's first argument. */
+const firstChildArrayRange = (source: string, argsStart: number): [number, number] | null => {
+    const [argumentStart, argumentEnd] = firstArgumentRange(source, argsStart);
+    let arrayStart = argumentStart;
+    while (arrayStart < argumentEnd && /\s/.test(source[arrayStart] ?? "")) arrayStart += 1;
+    if (source[arrayStart] !== "[") return null;
+    const arrayEnd = matchingArrayEnd(source, arrayStart);
+    return arrayEnd === -1 || arrayEnd > argumentEnd ? null : [arrayStart, arrayEnd];
+};
+
+/** Extract non-component identifiers from a bounded child-array source range. */
+const childIdentifiersInRange = (source: string, start: number, end: number): string[] =>
+    source.slice(start + 1, end)
+        .match(/[A-Za-z_][\w-]*/g)
+        ?.filter((identifier) => !OPENUI_COMPONENTS.has(identifier)) ?? [];
+
+/** Count inline component calls as part of their containing definition's expansion cost. */
+const inlineComponentsInRange = (source: string, start: number, end: number): string[] => {
+    const calls = new RegExp(String.raw`\b(${OPENUI_COMPONENT_NAMES})\s*\(`, "g");
+    const components: string[] = [];
+    calls.lastIndex = start + 1;
+    let match: RegExpExecArray | null;
+    while ((match = calls.exec(source)) !== null && match.index < end) {
+        if (match[1]) components.push(match[1]);
+    }
+    return components;
+};
+
+/** Record child references and inline calls from a container's first child argument. */
+const definitionChildren = (
+    source: string,
+    component: string,
+    argsStart: number,
+): Pick<OpenUIDefinition, "children" | "inlineComponents"> | null => {
+    if (component !== "Surface" && component !== "Stack") {
+        return { children: [], inlineComponents: [] };
+    }
+    const range = firstChildArrayRange(source, argsStart);
+    if (range) {
+        return {
+            children: childIdentifiersInRange(source, ...range),
+            inlineComponents: inlineComponentsInRange(source, ...range),
+        };
+    }
+    const [argumentStart, argumentEnd] = firstArgumentRange(source, argsStart);
+    const childName = source.slice(argumentStart, argumentEnd).trim();
+    if (!childName) return { children: [], inlineComponents: [] };
+    const reference = /^[A-Za-z_][A-Za-z0-9_-]*$/.exec(childName)?.[0];
+    return reference ? { children: [reference], inlineComponents: [] } : null;
+};
+
+/** Parse component and child-array definitions within the bounded response. */
 const parseOpenUIDefinitions = (source: string): OpenUIDefinitions | null => {
+    if (/@Each\s*\(/i.test(source)) return null;
     const definitions: OpenUIDefinitions = new Map();
-    const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*(Surface|Stack|Text|Metric|Callout|Progress|BarChart|DataTable)[ \t]*\(/gm;
+    const assignment = /^[ \t]*([A-Za-z_][A-Za-z0-9_-]*)[ \t]*=[ \t]*/gm;
     let match: RegExpExecArray | null;
     while ((match = assignment.exec(source)) !== null) {
         const name = match[1];
-        const component = match[2];
-        if (!name || !component) continue;
-        definitions.set(name, definitionChildren(source, component, assignment.lastIndex));
+        if (!name) continue;
+        const valueStart = assignment.lastIndex;
+        const call = OPENUI_COMPONENT_CALL_PATTERN.exec(source.slice(valueStart));
+        if (call?.[1]) {
+            const component = call[1];
+            const argsStart = valueStart + call[0].length;
+            const children = definitionChildren(source, component, argsStart);
+            if (!children) return null;
+            definitions.set(name, { component, ...children });
+        } else if (source[valueStart] === "[") {
+            const arrayEnd = matchingArrayEnd(source, valueStart);
+            if (arrayEnd === -1) return null;
+            definitions.set(name, {
+                children: childIdentifiersInRange(source, valueStart, arrayEnd),
+                inlineComponents: inlineComponentsInRange(source, valueStart, arrayEnd),
+            });
+        } else {
+            const lineEnd = source.indexOf("\n", valueStart);
+            const expression = source.slice(valueStart, lineEnd === -1 ? source.length : lineEnd);
+            if (expression.includes("(")) {
+                definitions.set(name, { children: [], inlineComponents: [], unsafe: true });
+            }
+        }
         if (definitions.size > MAX_OPENUI_EXPANDED_NODES) return null;
     }
     return definitions;
 };
 
-/** Count a referenced subtree, returning early at either safety boundary. */
-const countDefinitionTree = (definitions: OpenUIDefinitions, name: string, depth: number): number => {
-    if (depth >= MAX_OPENUI_NESTING) return 1;
-    const children = definitions.get(name);
-    if (!children) return 1;
-    let total = 1;
-    for (const child of children) {
-        total += countDefinitionTree(definitions, child, depth + 1);
-        if (total > MAX_OPENUI_EXPANDED_NODES) return total;
+/** Estimate each allowlisted component's maximum bounded DOM fan-out. */
+const componentRenderCost = (component: string): number => {
+    if (component === "DataTable") return 300; // 30 rows × 8 cells, headings and table structure.
+    if (component === "BarChart") return 128; // 12 bars plus the accessible data table.
+    if (component === "Surface" || component === "Stack") return 2;
+    return 8;
+};
+
+type OpenUIWorkBudget = { nodes: number; renderCost: number };
+
+/** Return the rejection sentinel used for cycles, excessive depth, and either work limit. */
+const rejectedExpansionCount = (): number => MAX_OPENUI_EXPANDED_NODES + 1;
+
+/** Reserve one definition's own and inline component work against both limits. */
+const reserveDefinitionBudget = (
+    definition: OpenUIDefinition | undefined,
+    budget: OpenUIWorkBudget,
+): boolean => {
+    const nodes = definition
+        ? Number(Boolean(definition.component)) + definition.inlineComponents.length
+        : 1;
+    const renderCost = definition
+        ? (definition.component ? componentRenderCost(definition.component) : 0)
+            + definition.inlineComponents.reduce((total, component) => total + componentRenderCost(component), 0)
+        : 1;
+    if (budget.nodes < nodes || budget.renderCost < renderCost) return false;
+    budget.nodes -= nodes;
+    budget.renderCost -= renderCost;
+    return true;
+};
+
+/** Count a referenced definition while reserving component and estimated DOM work. */
+const countDefinitionTree = (
+    definitions: OpenUIDefinitions,
+    name: string,
+    depth: number,
+    budget: OpenUIWorkBudget,
+    ancestors: Set<string>,
+): number => {
+    if (ancestors.has(name)) return rejectedExpansionCount();
+    const definition = definitions.get(name);
+    if (definition?.unsafe || !reserveDefinitionBudget(definition, budget)) return rejectedExpansionCount();
+    if (!definition) return 1;
+
+    let total = Number(Boolean(definition.component)) + definition.inlineComponents.length;
+    if (definition.component && definition.children.length > 0 && depth >= MAX_OPENUI_NESTING) {
+        return rejectedExpansionCount();
     }
+    if (definition.children.length === 0) return total;
+
+    ancestors.add(name);
+    const childDepth = depth + Number(Boolean(definition.component));
+    for (const child of definition.children) {
+        const expandedChildCount = countDefinitionTree(definitions, child, childDepth, budget, ancestors);
+        if (expandedChildCount > MAX_OPENUI_EXPANDED_NODES) return expandedChildCount;
+        total += expandedChildCount;
+    }
+    ancestors.delete(name);
     return total;
 };
 
@@ -138,7 +277,13 @@ const countExpandedNodes = (response: string): number => {
     const definitions = parseOpenUIDefinitions(maskOpenUIStringsAndComments(response));
     if (!definitions) return MAX_OPENUI_EXPANDED_NODES + 1;
     if (!definitions.has("root")) return 0;
-    return countDefinitionTree(definitions, "root", 0);
+    return countDefinitionTree(
+        definitions,
+        "root",
+        0,
+        { nodes: MAX_OPENUI_EXPANDED_NODES, renderCost: MAX_OPENUI_RENDER_COST },
+        new Set(),
+    );
 };
 
 type BoundedChildrenProps = {
@@ -170,15 +315,13 @@ const SurfaceSubtitle = ({ title, subtitle }: { title?: string; subtitle?: strin
     : null;
 
 /** Render optional surface heading content without adding wrapper logic to the host component. */
-const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) => {
-    if (!title && !subtitle) return null;
-    return (
+const SurfaceHeader = ({ title, subtitle }: { title?: string; subtitle?: string }) =>
+    title || subtitle ? (
         <header className="min-w-0">
             <SurfaceTitle title={title} />
             <SurfaceSubtitle title={title} subtitle={subtitle} />
         </header>
-    );
-};
+    ) : null;
 
 const Surface = defineComponent({
     name: "Surface",
@@ -395,6 +538,23 @@ const BarChartLimitNotice = ({ chart }: { chart: BarChartData }) => chart.dataLi
     ? <p className="mt-2 text-xs text-text-secondary" role="status">Showing the first {chart.count} matching label-value pairs.</p>
     : null;
 
+type BarChartComponentProps = { labels: string[]; values: number[]; title?: string };
+
+/** Adapt OpenUI chart props to the bounded visual and accessible chart views. */
+const renderBarChart = ({ props }: { props: BarChartComponentProps }) => {
+    const chart = buildBarChartData(props.labels, props.values);
+    return (
+        <>
+            <figure className="min-w-0">
+                <BarChartTitle title={props.title} />
+                <BarChartContents chart={chart} />
+                <BarChartLimitNotice chart={chart} />
+            </figure>
+            <BarChartAccessibleTable title={props.title} points={chart.points} />
+        </>
+    );
+};
+
 const BarChart = defineComponent({
     name: "BarChart",
     description: "A simple bar chart for comparing a small number of labeled values.",
@@ -403,19 +563,7 @@ const BarChart = defineComponent({
         values: z.array(z.number()),
         title: z.string().optional(),
     }),
-    component: ({ props }) => {
-        const chart = buildBarChartData(props.labels, props.values);
-        return (
-            <>
-                <figure className="min-w-0">
-                    <BarChartTitle title={props.title} />
-                    <BarChartContents chart={chart} />
-                    <BarChartLimitNotice chart={chart} />
-                </figure>
-                <BarChartAccessibleTable title={props.title} points={chart.points} />
-            </>
-        );
-    },
+    component: renderBarChart,
 });
 
 type KeyedDataTableColumn = { item: string; key: string };
@@ -494,6 +642,25 @@ const DataTableCaption = ({ title }: { title?: string }) => (
 );
 
 /** Render the compact table component while delegating row details to focused helpers. */
+type DataTableComponentProps = { columns: string[]; rows: string[][]; title?: string };
+
+/** Adapt OpenUI table props to the bounded, accessible data-table view. */
+const renderDataTable = ({ props }: { props: DataTableComponentProps }) => {
+    const table = buildDataTableData(props.columns, props.rows);
+    return (
+        <div className="max-w-full overflow-x-auto">
+            <DataTableTitle title={props.title} />
+            <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
+                <DataTableCaption title={props.title} />
+                <DataTableHead columns={table.columns} />
+                <DataTableRows rows={table.rows} />
+            </table>
+            <DataTableEmptyState empty={table.empty} />
+            <DataTableLimitNotice table={table} />
+        </div>
+    );
+};
+
 const DataTable = defineComponent({
     name: "DataTable",
     description: "A compact data table. Each row must contain one value for each column.",
@@ -502,21 +669,7 @@ const DataTable = defineComponent({
         rows: z.array(z.array(z.string())),
         title: z.string().optional(),
     }),
-    component: ({ props }) => {
-        const table = buildDataTableData(props.columns, props.rows);
-        return (
-            <div className="max-w-full overflow-x-auto">
-                <DataTableTitle title={props.title} />
-                <table className="w-full border-collapse border-y border-border-subtle text-left text-xs">
-                    <DataTableCaption title={props.title} />
-                    <DataTableHead columns={table.columns} />
-                    <DataTableRows rows={table.rows} />
-                </table>
-                <DataTableEmptyState empty={table.empty} />
-                <DataTableLimitNotice table={table} />
-            </div>
-        );
-    },
+    component: renderDataTable,
 });
 
 const library = createLibrary({
@@ -524,31 +677,59 @@ const library = createLibrary({
     components: [Surface, Stack, Text, Metric, Callout, Progress, BarChart, DataTable],
 });
 
+type OpenUIResponseProps = {
+    response: string;
+    isStreaming?: boolean;
+    exceedsWorkBudget: boolean;
+    onError: (errors: Array<{ severity?: "warning" }>) => void;
+};
+
+/** Render only bounded output; over-budget source never reaches the language renderer. */
+const OpenUIResponse = ({ response, isStreaming, exceedsWorkBudget, onError }: OpenUIResponseProps) => {
+    if (exceedsWorkBudget) {
+        return (
+            <p className="text-xs text-text-secondary" role="status">
+                This visual response is too complex to display safely. The surrounding answer is still available.
+            </p>
+        );
+    }
+    return (
+        <Renderer
+            response={response}
+            library={library}
+            isStreaming={isStreaming}
+            publishObservability={false}
+            onError={onError}
+        />
+    );
+};
+
+/** Display renderer and truncation notices as independent accessible status messages. */
+const OpenUIStatusMessages = ({ renderError, truncated }: { renderError: boolean; truncated?: boolean }) => (
+    <>
+        {renderError ? <p className="text-xs text-text-secondary" role="status">This visual response could not be rendered. The surrounding answer is still available.</p> : null}
+        {truncated ? <p className="text-xs text-text-secondary" role="status">The visual response was shortened to keep rendering responsive.</p> : null}
+    </>
+);
+
 /** Check expanded work before invoking the DSL renderer, then expose only a safe fallback on failure. */
 export const OpenUIBlock = ({ response, isStreaming, truncated }: { response: string; isStreaming?: boolean; truncated?: boolean }) => {
-    const [renderError, setRenderError] = useState(false);
+    const [renderErrorResponse, setRenderErrorResponse] = useState<string | null>(null);
     const exceedsWorkBudget = countExpandedNodes(response) > MAX_OPENUI_EXPANDED_NODES;
     const handleError = useCallback((errors: Array<{ severity?: "warning" }>) => {
-        setRenderError(errors.some((error) => !error.severity));
-    }, []);
+        setRenderErrorResponse(errors.some((error) => !error.severity) ? response : null);
+    }, [response]);
+    const renderError = renderErrorResponse === response;
 
     return (
         <div data-openui-block="true" className="min-w-0 max-w-full">
-            {exceedsWorkBudget ? (
-                <p className="text-xs text-text-secondary" role="status">
-                    This visual response is too complex to display safely. The surrounding answer is still available.
-                </p>
-            ) : (
-                <Renderer
-                    response={response}
-                    library={library}
-                    isStreaming={isStreaming}
-                    publishObservability={false}
-                    onError={handleError}
-                />
-            )}
-            {renderError ? <p className="text-xs text-text-secondary" role="status">This visual response could not be rendered. The surrounding answer is still available.</p> : null}
-            {truncated ? <p className="text-xs text-text-secondary" role="status">The visual response was shortened to keep rendering responsive.</p> : null}
+            <OpenUIResponse
+                response={response}
+                isStreaming={isStreaming}
+                exceedsWorkBudget={exceedsWorkBudget}
+                onError={handleError}
+            />
+            <OpenUIStatusMessages renderError={renderError} truncated={truncated} />
         </div>
     );
 };
