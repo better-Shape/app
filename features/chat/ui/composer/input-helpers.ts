@@ -511,13 +511,63 @@ const isComposerContentTall = (inputValue: string, content: number): boolean => 
   return inputValue.includes("\n") || content > COMPOSER_LINE_HEIGHT + 2;
 };
 
+/** Parses a CSS pixel value or falls back when layout styles are unavailable. */
+const parseCssPxOrFallback = (raw: string, fallback: number): number => {
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+/** Measures an inline composer action element's rendered width with fallback. */
+const measureElementWidth = (
+  element: HTMLElement | null,
+  fallback: number,
+): number => (element ? element.getBoundingClientRect().width : fallback);
+
+/** Computes horizontal padding and flex gaps consumed by the compact composer row. */
+const measureRowChromeOffset = (row: HTMLElement): number => {
+  const rowStyles = window.getComputedStyle(row);
+  const padLeft = parseCssPxOrFallback(rowStyles.paddingLeft, 0);
+  const padRight = parseCssPxOrFallback(rowStyles.paddingRight, 0);
+  const colGap = parseCssPxOrFallback(rowStyles.columnGap, 3.25);
+  return padLeft + padRight + colGap * 2;
+};
+
+/** Measures combined inline action widths (`+` button and dictation/send cluster). */
+const measureInlineActionWidths = (row: HTMLElement): number => {
+  const leftAction = row.querySelector<HTMLElement>(
+    "[data-composer-left-action]",
+  );
+  const rightActions = row.querySelector<HTMLElement>(
+    "[data-composer-right-actions]",
+  );
+  return (
+    measureElementWidth(leftAction, 32) + measureElementWidth(rightActions, 68)
+  );
+};
+
+/** Resolves the exact `<textarea>` width it would occupy in the compact single-row rail. */
+const resolveCompactProbeWidth = (
+  textarea: HTMLTextAreaElement,
+  clientWidth: number,
+): number | null => {
+  if (clientWidth <= 120) return null;
+  const row = textarea.closest<HTMLElement>("[data-composer-row]");
+  if (!row || row.clientWidth <= 120) return clientWidth - 106;
+  const available =
+    row.clientWidth -
+    measureRowChromeOffset(row) -
+    measureInlineActionWidths(row);
+  return Math.max(60, available);
+};
+
 /** Probes whether a currently wide `<textarea>` would still wrap at compact single-row width. */
 const wrapsAtCompactRailWidth = (
   textarea: HTMLTextAreaElement,
   clientWidth: number,
 ): boolean => {
-  if (clientWidth <= 120) return false;
-  textarea.style.width = `${clientWidth - 96}px`;
+  const probeWidth = resolveCompactProbeWidth(textarea, clientWidth);
+  if (probeWidth === null) return false;
+  textarea.style.width = `${probeWidth}px`;
   const compactContent = textarea.scrollHeight;
   textarea.style.width = "";
   return compactContent > COMPOSER_LINE_HEIGHT + 2;
@@ -659,8 +709,23 @@ const updateTextareaWidthRef = (
   return true;
 };
 
-/** Updates tracked resize dimensions for one `ResizeObserverEntry`. */
-const updateObservedDimension = (
+/** Updates inline action cluster width ref when dictation or send controls resize. */
+const updateInlineControlWidthRef = (
+  nextWidth: number,
+  rightActionsWidthRef: { current: number },
+): boolean => {
+  if (
+    nextWidth <= 0 ||
+    Math.abs(nextWidth - rightActionsWidthRef.current) <= 0.5
+  ) {
+    return false;
+  }
+  rightActionsWidthRef.current = nextWidth;
+  return true;
+};
+
+/** Updates stage or composer-box geometry refs when those outer containers resize. */
+const updateOuterContainerDimension = (
   entry: ResizeObserverEntry,
   targets: {
     stageEl: HTMLElement | null;
@@ -684,10 +749,36 @@ const updateObservedDimension = (
       refs.textareaClientWidthRef,
     );
   }
+  return false;
+};
+
+/** Updates tracked resize dimensions for one `ResizeObserverEntry`. */
+const updateObservedDimension = (
+  entry: ResizeObserverEntry,
+  targets: {
+    stageEl: HTMLElement | null;
+    box: HTMLDivElement;
+    ta: HTMLTextAreaElement | null;
+    rightActions: HTMLElement | null;
+  },
+  refs: {
+    stageHeightRef: { current: number };
+    composerBoxWidthRef: { current: number };
+    textareaClientWidthRef: { current: number };
+    rightActionsWidthRef: { current: number };
+  },
+): boolean => {
+  if (updateOuterContainerDimension(entry, targets, refs)) return true;
   if (entry.target === targets.ta) {
     return updateTextareaWidthRef(
       entry.contentRect.width,
       refs.textareaClientWidthRef,
+    );
+  }
+  if (entry.target === targets.rightActions) {
+    return updateInlineControlWidthRef(
+      entry.contentRect.width,
+      refs.rightActionsWidthRef,
     );
   }
   return false;
@@ -730,11 +821,13 @@ const applyObservedGeometryEntries = (
     stageEl: HTMLElement | null;
     box: HTMLDivElement;
     ta: HTMLTextAreaElement | null;
+    rightActions: HTMLElement | null;
   },
   refs: {
     stageHeightRef: { current: number };
     composerBoxWidthRef: { current: number };
     textareaClientWidthRef: { current: number };
+    rightActionsWidthRef: { current: number };
   },
 ): boolean => {
   let anyChanged = false;
@@ -746,7 +839,7 @@ const applyObservedGeometryEntries = (
   return anyChanged;
 };
 
-/** Attaches a `ResizeObserver` to the composer box, textarea, and stage container. */
+/** Attaches a `ResizeObserver` to the composer box, textarea, action cluster, and stage container. */
 export const observeComposerGeometry = (
   box: HTMLDivElement | null,
   ta: HTMLTextAreaElement | null,
@@ -759,13 +852,26 @@ export const observeComposerGeometry = (
 ): (() => void) | undefined => {
   if (!box || typeof ResizeObserver === "undefined") return undefined;
   const stageEl = box.closest<HTMLElement>("[data-chat-stage]");
+  const rightActions = box.querySelector<HTMLElement>(
+    "[data-composer-right-actions]",
+  );
+  const rightActionsWidthRef = {
+    current: rightActions ? rightActions.getBoundingClientRect().width : 0,
+  };
+  const allRefs = { ...refs, rightActionsWidthRef };
   seedComposerGeometryRefs(stageEl, box, ta, refs);
   const observer = new ResizeObserver((entries) => {
-    if (applyObservedGeometryEntries(entries, { stageEl, box, ta }, refs)) {
+    if (
+      applyObservedGeometryEntries(
+        entries,
+        { stageEl, box, ta, rightActions },
+        allRefs,
+      )
+    ) {
       onGeometryChanged();
     }
   });
-  observeNonNullTargets(observer, [box, ta, stageEl]);
+  observeNonNullTargets(observer, [box, ta, stageEl, rightActions]);
   return () => observer.disconnect();
 };
 

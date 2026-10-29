@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { cn } from "@/core/utils";
+import { measureAndSyncComposerTextarea } from "@/features/chat/ui/composer/input-helpers";
 import { hasProviderBrandIcon, providerIcon } from "@/lib/ui/provider-icon";
 
 let mountedRoot: Root | null = null;
@@ -76,3 +77,73 @@ describe("providerIcon SVG isolation & vendor brand detection", () => {
         expect(moonshotSvg?.getAttribute("fill")).toBe("currentColor");
     });
 });
+
+describe("measureAndSyncComposerTextarea dynamic inline action probe", () => {
+    it("subtracts live inline action widths including an expanded dictation control", () => {
+        const row = document.createElement("div");
+        row.setAttribute("data-composer-row", "");
+        row.style.paddingLeft = "2px";
+        row.style.paddingRight = "2px";
+        row.style.columnGap = "4px";
+        Object.defineProperty(row, "clientWidth", { configurable: true, value: 400 });
+
+        const leftAction = document.createElement("div");
+        leftAction.setAttribute("data-composer-left-action", "");
+        leftAction.getBoundingClientRect = () => ({ width: 32 } as DOMRect);
+
+        let rightWidth = 140;
+        const rightActions = document.createElement("div");
+        rightActions.setAttribute("data-composer-right-actions", "");
+        rightActions.getBoundingClientRect = () => ({ width: rightWidth } as DOMRect);
+
+        const textarea = document.createElement("textarea");
+        Object.defineProperty(textarea, "clientWidth", { configurable: true, value: 380 });
+        Object.defineProperty(textarea, "scrollHeight", {
+            configurable: true,
+            get() {
+                const probed = Number.parseFloat(textarea.style.width);
+                if (Number.isFinite(probed) && probed < 250) return 44;
+                return 22;
+            },
+        });
+
+        row.append(leftAction, textarea, rightActions);
+        document.body.appendChild(row);
+        mountedContainer = row;
+
+        const composerTallRef = { current: true };
+        const lastAppliedHeightRef = { current: 44 };
+        const textareaClientWidthRef = { current: 380 };
+        const stageHeightRef = { current: 760 };
+
+        // While dictation is listening (rightWidth = 140 -> probeWidth = 216 < 250), keep stacked.
+        const whileListening = measureAndSyncComposerTextarea({
+            textarea,
+            overlay: null,
+            inputValue: "Draft text that wraps only while dictation timer is expanded",
+            isExpanded: false,
+            revealCaretEnd: false,
+            composerTallRef,
+            lastAppliedHeightRef,
+            textareaClientWidthRef,
+            stageHeightRef,
+        });
+        expect(whileListening.tall).toBe(true);
+
+        // Once dictation ends (rightWidth = 68 -> probeWidth = 288 >= 250), collapse cleanly.
+        rightWidth = 68;
+        const afterListening = measureAndSyncComposerTextarea({
+            textarea,
+            overlay: null,
+            inputValue: "Draft text that wraps only while dictation timer is expanded",
+            isExpanded: false,
+            revealCaretEnd: false,
+            composerTallRef,
+            lastAppliedHeightRef,
+            textareaClientWidthRef,
+            stageHeightRef,
+        });
+        expect(afterListening.tall).toBe(false);
+    });
+});
+

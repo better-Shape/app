@@ -141,6 +141,12 @@ function optionsForFeature(
 /* Main view                                                                 */
 /* ------------------------------------------------------------------------ */
 
+/** Formats the usable-provider header summary without conflating enabled-without-key cards. */
+const formatUsableProvidersSummary = (usableCount: number): string => {
+    if (usableCount === 0) return "No usable providers available";
+    return `${usableCount} usable ${usableCount === 1 ? "provider" : "providers"}`;
+};
+
 export function ProvidersSettingsView() {
     const settings = useSettings();
     const providers = settings.ai.providers;
@@ -181,16 +187,18 @@ export function ProvidersSettingsView() {
     const groupsConfigured = React.useMemo(
         () =>
             providerGroups()
-                .map((g) => {
-                    const presets = g.presets.filter(
-                        (p) => configured.some((c) => c.id === p.id) && matchesProviderQuery(p, query),
+                .map((groupEntry) => {
+                    const presets = groupEntry.presets.filter(
+                        (preset) =>
+                            configured.some((configuredItem) => configuredItem.id === preset.id) &&
+                            matchesProviderQuery(preset, query),
                     );
-                    const readyCount = presets.filter((p) =>
-                        isConnectionUsable(p.id, providers.connections),
+                    const readyCount = presets.filter((preset) =>
+                        isConnectionUsable(preset.id, providers.connections),
                     ).length;
-                    return { group: g.group, presets, readyCount };
+                    return { group: groupEntry.group, presets, readyCount };
                 })
-                .filter((g) => g.presets.length > 0),
+                .filter((groupEntry) => groupEntry.presets.length > 0),
         [configured, providers.connections, query],
     );
 
@@ -279,9 +287,7 @@ export function ProvidersSettingsView() {
                 card={false}
                 action={
                     <span className="text-xs tabular-nums text-text-muted">
-                        {usableCount > 0
-                            ? `${usableCount} configured`
-                            : "No providers configured yet"}
+                        {formatUsableProvidersSummary(usableCount)}
                     </span>
                 }
             >
