@@ -187,6 +187,8 @@ export type RustAiProviderEntry = {
 export type RustAiConfig = {
   providers: RustAiProviderEntry[];
   defaultModel: string;
+  agentModel: string;
+  commitModel: string;
   embeddingModel: string;
   /** Provider that serves `embeddingModel`; Rust routes to it, not to a guess. */
   embeddingProvider: string;
@@ -2093,6 +2095,22 @@ export const embeddingsAvailable = (settings: ProvidersSettings): boolean =>
 const resolveDefaultModel = (settings: ProvidersSettings): string =>
   resolveActiveDefaultModelId(settings) ?? "";
 
+/** Resolves an explicit routable `agent` or `commits` feature model override, or `""` when inherited. */
+const resolveRoutableFeatureModel = (
+  settings: ProvidersSettings,
+  feature: "agent" | "commits",
+): string => {
+  const assignment = settings.featureModels.find((entry) => entry.feature === feature);
+  const raw = typeof assignment?.modelId === "string" ? assignment.modelId.trim() : "";
+  if (!raw) return "";
+  const wanted = translateModelId(raw);
+  if (!isExplicitRoutableModel(wanted, routableChatModelIds(settings))) return "";
+  if (feature === "agent" && catalogGetModelMetadata(wanted).toolUse === false) {
+    return "";
+  }
+  return wanted;
+};
+
 /** Builds a single `RustAiProviderEntry` for a usable provider connection. */
 const buildRustProviderEntry = (
   preset: ProviderPreset,
@@ -2144,6 +2162,8 @@ export const toRustAiConfig = (settings: ProvidersSettings): RustAiConfig => {
   return {
     providers,
     defaultModel: resolveDefaultModel(settings),
+    agentModel: resolveRoutableFeatureModel(settings, "agent"),
+    commitModel: resolveRoutableFeatureModel(settings, "commits"),
     embeddingModel: embeddingTarget?.model ?? "",
     embeddingProvider: embeddingTarget?.id ?? "",
     search: {

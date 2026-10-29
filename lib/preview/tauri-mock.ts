@@ -756,6 +756,8 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         get_ai_config: () => ({
             providers: [],
             defaultModel: "auto",
+            agentModel: "",
+            commitModel: "",
             embeddingModel: "",
             embeddingProvider: "",
             search: { provider: "", apiKey: "" },

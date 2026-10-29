@@ -107,7 +107,9 @@ pub async fn generate_commit_message(
     agent_state: tauri::State<'_, AgentState>,
 ) -> Result<String, AppError> {
     let client = Client::new();
-    let model = "auto";
+    let slot = crate::core::ai_providers::commit_model();
+    let use_slot = !slot.is_empty() && streaming::resolve_provider(&slot).is_ok();
+    let model = if use_slot { slot.as_str() } else { "auto" };
 
     let project_path = repo_path
         .filter(|p| !p.trim().is_empty())

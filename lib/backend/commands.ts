@@ -852,6 +852,8 @@ export const commands = {
             authStyle: string;
         }[];
         defaultModel: string;
+        agentModel?: string;
+        commitModel?: string;
         embeddingModel: string;
         embeddingProvider: string;
         search: { provider: string; apiKey: string };
@@ -875,6 +877,8 @@ export const commands = {
             authStyle: string;
         }[];
             defaultModel: string;
+            agentModel?: string;
+            commitModel?: string;
             embeddingModel: string;
             embeddingProvider: string;
             search: { provider: string; apiKey: string };

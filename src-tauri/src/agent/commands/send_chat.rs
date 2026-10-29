@@ -71,17 +71,21 @@ pub async fn send_chat_message(
         .unwrap_or_else(|| MODEL_DEFAULT.to_string());
     let client = Client::new();
     let current_proj_path = app_state.0.lock()?.project_path.clone();
+    let mode_to_use = mode.unwrap_or_else(|| "Ask".to_string());
     let selected_auto = model_router::is_auto_selection(&raw_model);
+    let agent_slot = crate::core::ai_providers::agent_model();
+    let slot_ok = !agent_slot.is_empty() && streaming::resolve_provider(&agent_slot).is_ok();
+    let use_slot = selected_auto && !mode_to_use.eq_ignore_ascii_case("ask") && slot_ok;
+    let effective_raw = if use_slot { &agent_slot } else { &raw_model };
     // `model_to_use` keeps the provider prefix (or `auto`) and is what every
     // request is routed by; `model_concrete` is the provider-native slug used
     // for capability checks (vision, family prompts, token budgets).
-    let model_to_use = model_router::normalize_model(&raw_model);
+    let model_to_use = model_router::normalize_model(effective_raw);
     let model_concrete = model_router::concrete_model(&model_to_use);
     // Fail fast with an actionable message instead of a mid-stream error.
     if let Err(err) = streaming::resolve_provider(&model_to_use) {
         return Err(err);
     }
-    let mode_to_use = mode.unwrap_or_else(|| "Ask".to_string());
     // Auto stays on DeepSeek locally. The website maps `auto` for billing.
     // Vision-capable picks keep pixels; text-only models get a caption pass.
     let effort_raw = reasoning_effort
