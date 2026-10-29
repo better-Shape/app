@@ -137,8 +137,8 @@ ALWAYS treat the current state as incomplete, even when it appears to work.
 - NEVER report "looks good" after a single verification. After the initial fix passes, you MUST run a dedicated refinement pass before reporting done. A feature that was not verified at its boundaries was not finished.
 - Adopt the refinement hypothesis: on first glance the implementation looks good but attention to detail may be low, edge cases may be rough, and a feature that should be there may be missing. Investigate that hypothesis with evidence; allow an evidence-backed finding that no gap exists to satisfy the refinement pass.
 - Define what missing means before you search for it: read the intent hypothesis from the Proactive Protocol, read `DESIGN.md` and `engineering/design-system-baseline.md` when the work touches UI, otherwise define completeness via tests, error handling, and platform conventions, and list the expected behaviors that are not yet present. Missing work that directly completes the explicitly requested intent is not scope creep; inferred or speculative work still requires explicit confirmation and never authorizes additional scope on its own.
-- Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web when relevant and authorized, fetch primary sources, and cite them; otherwise use repository evidence and document why external research was not needed.
-- Run multiple external research rounds while building, testing, and fixing instead of one upfront search. Audit touched screens against peer tools, primary docs, and `DESIGN.md`; your impression that UI "looks good" never proves it is good.
+- Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web when relevant and authorized, fetch primary sources, and cite them; otherwise use repository evidence and document why external research was not needed or not authorized.
+- When external network access is authorized, run iterative research rounds while building, testing, and fixing instead of one upfront search; otherwise use local repository sources and document that external research was not authorized. Audit touched UI against `DESIGN.md` and authorized references; "looks good" never proves it is good.
 
 ### 2. Attention to detail — polish until no rough edge remains
 
@@ -460,13 +460,13 @@ in a spec. Desktop behaviour still requires `npm run test:all`.
 
 ### Visual stress and upstream-issue testing
 
-For broad UI, layout, streaming, markdown, editor, git, or cross-route work, happy-path specs and fixed `1280x720` snapshots miss overflow, clipping, wrapping, and stacking bugs. Run a Chromium stress campaign against `npm run build:preview` or `npm run dev:browser` per `engineering/visual-stress-and-upstream-issue-verification.md`:
+For broad UI, layout, streaming, markdown, editor, git, or cross-route work, run the Chromium stress campaign in `engineering/visual-stress-and-upstream-issue-verification.md` against `npm run build:preview` or `npm run dev:browser`:
 
-- Sweep routes `/`, `/branch`, `/git`, `/popout`, and `/settings` at `340x560`, `1280x720`, `2560x1440`, and `1024x340`, with scaled font sizes and open menus or dialogs.
-- Test wild adversarial inputs first: unbroken tokens and URLs, deep paths, CJK and RTL and combining marks, large pastes and 15-plus composer attachments, 12 to 20 column GFM tables, mid-stream partial fences and tables and math, multi-hunk diffs, cramped split panes, and edge-anchored menus.
-- Mine real UI, layout, streaming, editor, diff, menu, and settings bug reports from comparable repositories across multiple research rounds, translate them into BetterShape scenarios, and run them in Chromium.
-- Seed state after `installBrowserPreviewMocks()` via `window.__BETTERSHAPE_PREVIEW__` with JSON-serializable IPC payloads; never set `window.__TAURI_INTERNALS__` before bootstrap.
-- Pair DOM checks for `scrollWidth > clientWidth` bleed, mid-word clipping, control overlap, off-screen menus, and zero-sized boxes with direct pixel review of contact sheets and PNGs in `.qa-artifacts/`. Fix shared root causes across renderer and Rust IPC boundaries, re-run to zero defects, lock regressions in `tests/` and `e2e/` while keeping `e2e/visual.spec.ts` baselines intact, and keep scratch files out of Git.
+- Sweep `/`, `/branch`, `/git`, `/popout`, and `/settings` across `340x560`, `1280x720`, `2560x1440`, and `1024x340`, with scaled font sizes and open menus or dialogs.
+- Run wild adversarial inputs: unbroken tokens and URLs, deep paths, CJK and RTL and combining marks, large pastes and 15-plus attachments, 12 to 20 column GFM tables, partial streamed fences and tables, multi-hunk diffs, cramped split panes, and edge menus.
+- When external network access is authorized, mine UI and layout bug reports from comparable repos across iterative research rounds and run them in Chromium; otherwise derive scenarios from local tests, git history, and docs and document that external research was not authorized.
+- Seed `"welcome"` or `"project"` via `window.__BETTERSHAPE_PREVIEW_SEED__` or `?seed=project`, inspect `window.__BETTERSHAPE_PREVIEW__`, never set `window.__TAURI_INTERNALS__` before `installBrowserPreviewMocks()`, and extend `lib/preview/tauri-mock.ts` for new IPC shapes.
+- Pair DOM geometry checks with direct screenshot inspection in `.qa-artifacts/`, fix shared root causes across renderer and Rust IPC, re-run to zero defects, lock `tests/` and `e2e/` regressions without breaking `e2e/visual.spec.ts`, and keep scratch files out of Git.
 
 ## Do not
 

@@ -62,5 +62,9 @@ A PR is substantially critical if it changes a public contract in a breaking way
 
 ## UI rule
 
-- [ ] For a UI change, I read `DESIGN.md`, `engineering/design-system-baseline.md`, and any relevant surface design file before editing.
-- [ ] For UI, layout, streaming, markdown, editor, git, or cross-route changes, I ran `npm run build:preview`, `E2E_STATIC=1 npx playwright test`, and the Chromium visual stress and upstream-issue campaign in `engineering/visual-stress-and-upstream-issue-verification.md` until zero visual defects remained.
+- [ ] For UI, layout, streaming, markdown, editor, git, or cross-route changes, each item below is complete.
+- [ ] I read `DESIGN.md`, `engineering/design-system-baseline.md`, and any relevant surface design file before editing.
+- [ ] I ran `npm run build:preview`.
+- [ ] I ran `E2E_STATIC=1 npx playwright test`.
+- [ ] I ran the Chromium visual stress and upstream-issue campaign in `engineering/visual-stress-and-upstream-issue-verification.md`.
+- [ ] Zero visual defects remain across all tested viewports and scenarios.

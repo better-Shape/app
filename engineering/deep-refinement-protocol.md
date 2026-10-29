@@ -16,7 +16,7 @@ Elaboration for Deep Refinement Protocol HARD CONSTRAINT in `AGENTS.md`. Authori
 
 - Enumerate: empty/maximal, boundaries/off-by-one, failure/cancellation/abort/retry/disconnect/shutdown, ordering/races, platform differences, all consumers of changed contract.
 - Watch hiding-failure patterns; state expected behavior + verification per edge; add tests without weakening existing.
-- For broad UI, layout, streaming, markdown, editor, git, or cross-route work, run multiple external research rounds and execute a Playwright Chromium visual stress campaign per `engineering/visual-stress-and-upstream-issue-verification.md` across wild adversarial scenarios and real bug reports from comparable repositories across narrow, default, wide, and short viewports, pairing DOM geometry probes with direct screenshot inspection until zero visual defects remain.
+- For broad UI, layout, streaming, markdown, editor, git, or cross-route work, execute a Playwright Chromium visual stress campaign per `engineering/visual-stress-and-upstream-issue-verification.md`. Run external research rounds only when external network access is authorized; otherwise use local repository sources and document that external research was not authorized.
 
 ## Missing features
 
