@@ -319,6 +319,25 @@ const readOptionalAttr = (tagText: string, name: string): string | undefined => 
     return value ? value : undefined;
 };
 
+/** Decodes an XML attribute when non-empty, returning `fallback` otherwise. */
+const decodeAttrOr = (
+    tagFull: string,
+    name: string,
+    fallback: string,
+): string => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : fallback;
+};
+
+/** Decodes an optional XML attribute when non-empty, returning `undefined` otherwise. */
+const decodeOptionalAttr = (
+    tagFull: string,
+    name: string,
+): string | undefined => {
+    const decoded = decodeXml(readAttr(tagFull, name));
+    return decoded ? decoded : undefined;
+};
+
 /** Parses a positive integer attribute value or returns `fallback`. */
 const parsePositiveIntOr = (raw: string, fallback: number): number => {
     const parsed = Number.parseInt(raw, 10);
@@ -421,9 +440,13 @@ const getInnerTagContent = (block: string, tag: string): string | undefined => {
 };
 
 /** Parses an `<edit>` diff block into a structured edit chunk. */
-const parseEditBlock = (block: string, isGenerating: boolean): Chunk => ({
+const parseEditBlock = (
+    tagHeader: string,
+    block: string,
+    isGenerating: boolean,
+): Chunk => ({
     type: "edit",
-    file: block.match(/<edit\s+file="([^"]*)"/)?.[1],
+    file: decodeOptionalAttr(tagHeader, "file"),
     original: getInnerTagContent(block, "original") ?? "",
     replacement: getInnerTagContent(block, "replacement") ?? "",
     isGenerating,
@@ -436,7 +459,7 @@ const parseEditPendingBlock = (
     isGenerating: boolean,
 ): Chunk => ({
     type: "edit_pending",
-    file: readOptionalAttr(tagHeader, "file"),
+    file: decodeOptionalAttr(tagHeader, "file"),
     commandId: readOptionalAttr(tagHeader, "id"),
     commandStatus: readOptionalAttr(tagHeader, "status") ?? "pending",
     original: getInnerTagContent(block, "original") ?? "",
@@ -462,8 +485,8 @@ const parsePlanSavedBlock = (
     innerContent?: string,
 ): Chunk => ({
     type: "plan_saved",
-    file: readOptionalAttr(tagHeader, "path"),
-    content: readOptionalAttr(tagHeader, "title") ?? "Implementation Plan",
+    file: decodeOptionalAttr(tagHeader, "path"),
+    content: decodeOptionalAttr(tagHeader, "title") ?? "Implementation Plan",
     planMarkdown: resolvePlanSavedMarkdown(block, innerContent),
 });
 
@@ -639,8 +662,8 @@ const parseTodosBlock = (block: string): Chunk => {
 
 /** Resolves subagent name attribute (`agent` preferred over `name`). */
 const resolveSubagentName = (tagFull: string): string => {
-    const agent = readAttr(tagFull, "agent");
-    return agent ? agent : readAttr(tagFull, "name");
+    const agent = decodeAttrOr(tagFull, "agent", "");
+    return agent ? agent : decodeAttrOr(tagFull, "name", "");
 };
 
 /** Resolves status attribute with a streaming-aware fallback (`running` vs `done`). */
@@ -661,9 +684,9 @@ const parseSubagentBlock = (
     isGenerating: boolean,
 ): Chunk => ({
     type: "subagent",
-    file: readAttr(tagFull, "id"),
+    file: decodeAttrOr(tagFull, "id", ""),
     query: resolveSubagentName(tagFull),
-    command: readAttr(tagFull, "model"),
+    command: decodeAttrOr(tagFull, "model", ""),
     content: inner.trim(),
     commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
     isGenerating,
@@ -672,10 +695,10 @@ const parseSubagentBlock = (
 /** Parses a self-closing `<subagent_ref ... />` tag into a subagent reference chunk. */
 const parseSubagentRefBlock = (tagFull: string, isGenerating: boolean): Chunk => ({
     type: "subagent_ref",
-    file: readAttr(tagFull, "id"),
-    query: readAttr(tagFull, "agent"),
-    command: readAttr(tagFull, "model"),
-    content: readAttr(tagFull, "task"),
+    file: decodeAttrOr(tagFull, "id", ""),
+    query: decodeAttrOr(tagFull, "agent", ""),
+    command: decodeAttrOr(tagFull, "model", ""),
+    content: decodeAttrOr(tagFull, "task", ""),
     commandStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "done"),
     isGenerating,
 });
@@ -688,7 +711,7 @@ const parseGitOperationBlock = (
 ): Chunk => ({
     type: "git_operation",
     content,
-    gitOp: readOptionalAttr(tagFull, "op"),
+    gitOp: decodeOptionalAttr(tagFull, "op"),
     gitStatus: resolveRunOrDoneStatus(tagFull, isGenerating, "completed"),
     isGenerating,
 });
@@ -708,7 +731,7 @@ const parseCatBlock = (
     isGenerating: boolean,
 ): Chunk => ({
     type: "cat",
-    content: readOptionalAttr(tagFull, "path") ?? content.trim(),
+    content: decodeOptionalAttr(tagFull, "path") ?? content.trim(),
     catStartLine: parseOptionalInt(readAttrPair(tagFull, "start", "startLine")),
     catEndLine: parseOptionalInt(readAttrPair(tagFull, "end", "endLine")),
     isGenerating,
@@ -725,14 +748,14 @@ const buildDesignPreviewItem = (
     attrs: string,
     inner: string,
 ): DesignPreviewItem | null => {
-    const previewId = readAttr(attrs, "id");
-    const path = readAttr(attrs, "path");
+    const previewId = decodeAttrOr(attrs, "id", "");
+    const path = decodeAttrOr(attrs, "path", "");
     const source = resolvePreviewSource(attrs, inner);
     if (!previewId.trim() || (!path.trim() && !source)) return null;
     return {
         id: previewId,
-        name: readAttr(attrs, "name"),
-        style: readAttr(attrs, "style"),
+        name: decodeAttrOr(attrs, "name", ""),
+        style: decodeAttrOr(attrs, "style", ""),
         path,
         source: source ? source : undefined,
         width: parsePositiveIntOr(readAttr(attrs, "width"), 1280),
@@ -790,7 +813,7 @@ const parsePersonaReviewBlock = (tagHeader: string, content: string): Chunk => (
     content: content.trim(),
     commandId: readOptionalAttr(tagHeader, "id"),
     commandStatus: readOptionalAttr(tagHeader, "status"),
-    visitUrl: readOptionalAttr(tagHeader, "url"),
+    visitUrl: decodeOptionalAttr(tagHeader, "url"),
 });
 
 /** Parses a `<question>` or `<questions>` interactive prompt card block. */
@@ -815,38 +838,19 @@ const parsePluginCallBlock = (
 ): Chunk => ({
     type: "plugin_call",
     content,
-    pluginToolkit: readOptionalAttr(tagFull, "toolkit"),
-    pluginSlug: readOptionalAttr(tagFull, "slug"),
-    pluginLabel: readOptionalAttr(tagFull, "label"),
+    pluginToolkit: decodeOptionalAttr(tagFull, "toolkit"),
+    pluginSlug: decodeOptionalAttr(tagFull, "slug"),
+    pluginLabel: decodeOptionalAttr(tagFull, "label"),
     commandId: readOptionalAttr(tagFull, "id"),
     commandStatus: readOptionalAttr(tagFull, "status") ?? "ok",
     isGenerating,
 });
 
-/** Decodes an XML attribute when non-empty, returning `fallback` otherwise. */
-const decodeAttrOr = (
-    tagFull: string,
-    name: string,
-    fallback: string,
-): string => {
-    const decoded = decodeXml(readAttr(tagFull, name));
-    return decoded ? decoded : fallback;
-};
-
-/** Decodes an optional XML attribute when non-empty, returning `undefined` otherwise. */
-const decodeOptionalAttr = (
-    tagFull: string,
-    name: string,
-): string | undefined => {
-    const decoded = decodeXml(readAttr(tagFull, name));
-    return decoded ? decoded : undefined;
-};
-
 /** Parses a `<sent_file>` attachment block into a sent-file card chunk. */
 const parseSentFileBlock = (tagFull: string, content: string): Chunk => ({
     type: "sent_file",
     file: decodeAttrOr(tagFull, "name", "File"),
-    query: readOptionalAttr(tagFull, "type") ?? "application/octet-stream",
+    query: decodeOptionalAttr(tagFull, "type") ?? "application/octet-stream",
     mediaPrompt: decodeOptionalAttr(tagFull, "title"),
     content: content.trim(),
 });
@@ -858,12 +862,12 @@ const parseGeneratedMediaBlock = (
     content: string,
     isGenerating: boolean,
 ): Chunk => {
-    const prompt = readOptionalAttr(tagFull, "prompt");
+    const prompt = decodeOptionalAttr(tagFull, "prompt");
     return {
         type,
         content: content.trim(),
         mediaPrompt: prompt,
-        mediaCredits: readOptionalAttr(tagFull, "credits"),
+        mediaCredits: decodeOptionalAttr(tagFull, "credits"),
         query: prompt,
         isGenerating,
     };
@@ -1037,8 +1041,8 @@ const parseInspectRuntimeBlock = (
     isGenerating: boolean,
 ): Chunk => ({
     type: "inspect_runtime",
-    query: readAttr(tagFull, "url"),
-    inspectKind: readAttr(tagFull, "kind"),
+    query: decodeAttrOr(tagFull, "url", ""),
+    inspectKind: decodeAttrOr(tagFull, "kind", ""),
     content,
     isGenerating,
 });
@@ -1077,7 +1081,12 @@ const buildGeneratedMediaFromCtx = (ctx: TagSliceContext): Chunk =>
     );
 
 const TAG_CHUNK_BUILDERS: Partial<Record<Chunk["type"], TagChunkBuilder>> = {
-    edit: (ctx) => parseEditBlock(ctx.fullBlock, Boolean(ctx.isGenerating)),
+    edit: (ctx) =>
+        parseEditBlock(
+            ctx.tagHeader,
+            ctx.fullBlock,
+            Boolean(ctx.isGenerating),
+        ),
     edit_pending: (ctx) =>
         parseEditPendingBlock(
             ctx.tagHeader,

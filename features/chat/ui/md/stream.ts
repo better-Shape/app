@@ -862,11 +862,18 @@ const collectProseInlineCodeSpans = (text: string): Array<[number, number]> => {
     return collectInlineSpansOutsideFenceRanges(text, fenceRanges);
 };
 
-/** Checks whether `offset` falls inside any `[start, end)` range in `spans`. */
-const isOffsetInsideSpans = (
+/** Advances `state.idx` past spans ending at or before `offset` and returns true when `offset` lies inside the active span. */
+const isOffsetInsideSortedSpans = (
     spans: ReadonlyArray<readonly [number, number]>,
     offset: number,
-): boolean => spans.some(([start, end]) => offset >= start && offset < end);
+    state: { idx: number },
+): boolean => {
+    while (state.idx < spans.length && spans[state.idx][1] <= offset) {
+        state.idx += 1;
+    }
+    const active = spans[state.idx];
+    return active !== undefined && offset >= active[0];
+};
 
 /** Replaces `pattern` matches whose opening `<` lies outside non-fenced inline code spans. */
 const stripAcrossFencePatternOutsideInlineCode = (
@@ -875,8 +882,9 @@ const stripAcrossFencePatternOutsideInlineCode = (
 ): string => {
     const spans = collectProseInlineCodeSpans(text);
     if (spans.length === 0) return text.replace(pattern, "");
+    const state = { idx: 0 };
     return text.replace(pattern, (match, offset: number) =>
-        isOffsetInsideSpans(spans, offset) ? match : "",
+        isOffsetInsideSortedSpans(spans, offset, state) ? match : "",
     );
 };
 

@@ -193,6 +193,13 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
         );
         expect(planChunks.find((c) => c.type === "plan")?.file).toBe("Auth & Rollout");
 
+        const savedPlanChunks = parseMessageContent(
+            '<plan_saved path="/workspace/R&amp;D &lt;v2&gt;/plan.md" title="R&amp;D -&gt; Rollout"></plan_saved>',
+        );
+        const savedPlanChunk = savedPlanChunks.find((c) => c.type === "plan_saved");
+        expect(savedPlanChunk?.file).toBe("/workspace/R&D <v2>/plan.md");
+        expect(savedPlanChunk?.content).toBe("R&D -> Rollout");
+
         const sentChunks = parseMessageContent(
             '<sent_file name="quarterly-&gt;report.pdf" title="Quarterly -&gt; Annual &amp;gt; Summary" type="application/pdf">data:application/pdf;base64,AA==</sent_file>',
         );
