@@ -286,6 +286,7 @@ export const stripAnsi = (input: string): string =>
 export type TerminalStreamBuffer = {
     output: string;
     carry: string;
+    sessionId?: number | null;
 };
 
 /** Splits any trailing `\r` run off `text` so split `\r\n` or `\r\x1b[2K` across PTY chunks stays intact. */
@@ -433,17 +434,39 @@ export const appendStreamAnsiChunk = (
 const activeOrCurrentPhase = (phase: StreamPhase): StreamPhase =>
     phase === "idle" ? "running" : phase;
 
-/** Reduces a `"start"` terminal event into a fresh running `StreamState`. */
+/** Checks whether an incoming `"start"` event belongs to a newly spawned session that should clear buffered output. */
+const shouldResetBufferOnStart = (
+    buffer: TerminalStreamBuffer,
+    nextSessionId: number | null,
+): boolean => {
+    if (!buffer.output && !buffer.carry) return true;
+    const prevSessionId = buffer.sessionId ?? null;
+    return (
+        nextSessionId !== null &&
+        prevSessionId !== null &&
+        nextSessionId !== prevSessionId
+    );
+};
+
+/** Reduces a `"start"` terminal event into a running `StreamState`, preserving early stdout from the same session. */
 const reduceStreamStartEvent = (
     payload: AgentTerminalEvent,
     bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
 ): StreamState => {
-    bufferRef.current = { output: "", carry: "" };
+    const nextSessionId = payload.sessionId ?? null;
+    const reset = shouldResetBufferOnStart(bufferRef.current, nextSessionId);
+    const nextBuffer: TerminalStreamBuffer = reset
+        ? { output: "", carry: "", sessionId: nextSessionId }
+        : {
+              ...bufferRef.current,
+              sessionId: nextSessionId ?? bufferRef.current.sessionId ?? null,
+          };
+    bufferRef.current = nextBuffer;
     return {
         phase: "running",
-        output: "",
+        output: nextBuffer.output,
         exitCode: null,
-        sessionId: payload.sessionId ?? null,
+        sessionId: nextSessionId ?? nextBuffer.sessionId ?? null,
         cancelled: false,
         waitingForInput: false,
     };
@@ -490,11 +513,16 @@ const TERMINAL_EVENT_HANDLERS: Partial<
     },
     data: (payload, bufferRef, setState) => {
         if (!payload.data) return;
-        bufferRef.current = appendStreamAnsiChunk(
+        const nextBuffer = appendStreamAnsiChunk(
             bufferRef.current,
             payload.data,
             false,
         );
+        bufferRef.current = {
+            ...nextBuffer,
+            sessionId:
+                payload.sessionId ?? bufferRef.current.sessionId ?? null,
+        };
         const output = bufferRef.current.output;
         setState((prev) => reduceStreamDataEvent(prev, payload, output));
     },
@@ -1208,9 +1236,38 @@ const computeEffectiveCommandStatus = (
 const resolveBlockCommandText = (block: Chunk): string =>
     (block.command ?? block.content ?? "").trim();
 
-/** Resolves the visible output text from live stream output or persisted chunk body. */
-const resolveStepOutputText = (streamOutput: string, block: Chunk): string =>
-    streamOutput ? streamOutput : stripTerminalChunkOutput(block);
+/** Joins pre-remount transcript output with post-remount live stream output without duplicating overlap. */
+const joinDisjointTerminalOutputs = (
+    persisted: string,
+    streamOutput: string,
+): string => {
+    const separator =
+        persisted.endsWith("\n") || streamOutput.startsWith("\n") ? "" : "\n";
+    return sliceTrailingOutputCap(
+        `${persisted}${separator}${streamOutput}`,
+        OUTPUT_CAP,
+    );
+};
+
+/** Merges non-empty `persisted` and `streamOutput` without dropping pre-remount lines. */
+const mergeNonEmptyTerminalOutputs = (
+    persisted: string,
+    streamOutput: string,
+): string => {
+    if (streamOutput.startsWith(persisted)) return streamOutput;
+    return persisted.endsWith(streamOutput)
+        ? persisted
+        : joinDisjointTerminalOutputs(persisted, streamOutput);
+};
+
+/** Resolves the visible output text across live stream chunks and persisted transcript output. */
+const resolveStepOutputText = (streamOutput: string, block: Chunk): string => {
+    const persisted = stripTerminalChunkOutput(block);
+    if (!streamOutput) return persisted;
+    return persisted
+        ? mergeNonEmptyTerminalOutputs(persisted, streamOutput)
+        : streamOutput;
+};
 
 /** Resolves the human-readable row status label for a finished command step. */
 const resolveFinishedRowLabel = (

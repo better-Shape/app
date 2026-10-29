@@ -300,7 +300,8 @@ describe("startDictationCapture audio graph & RMS levels", () => {
 
         let capturedWavLength = 0;
         let maxDurationCallbacks = 0;
-        const pushInvoke = vi.fn(async (wav: number[]) => {
+        const pushInvoke = vi.fn(async (wav: Uint8Array) => {
+            expect(wav).toBeInstanceOf(Uint8Array);
             capturedWavLength = wav.length;
         });
         type AudioProcessHandler = (e: { inputBuffer: { getChannelData: () => Float32Array } }) => void;

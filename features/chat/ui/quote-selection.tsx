@@ -14,7 +14,7 @@ export type QuotedExcerpt = {
 };
 
 const SKIP_SELECTOR =
-    "button:not([data-quote-allow]), [data-quote-skip], [aria-hidden='true'], [role='status'], svg, script, style";
+    "button:not([data-quote-allow]), [data-quote-skip], .sr-only, [aria-hidden='true'], [role='status'], svg, script, style";
 
 const BLOCK_TAGS = new Set([
     "P",

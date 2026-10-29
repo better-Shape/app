@@ -1131,5 +1131,6 @@ export const commands = {
         }),
     dictationStart: () => invokeCommand<void>("dictation_start"),
     dictationStop: () => invokeCommand<void>("dictation_stop"),
-    dictationPush: (wav: number[]) => invokeCommand<void>("dictation_push", { wav }),
+    dictationPush: (wav: Uint8Array | number[]) =>
+        invokeCommand<void>("dictation_push", { wav }),
 };
