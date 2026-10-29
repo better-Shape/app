@@ -295,6 +295,7 @@ export const PlanSavedBlock = ({
         >
             <button
                 type="button"
+                data-chat-find-text
                 aria-expanded={open}
                 aria-controls={collapseId}
                 onClick={() => {

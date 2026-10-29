@@ -311,12 +311,14 @@ describe("chat stream sanitization, transcript utilities, and workbench bridges"
         const container = document.createElement("div");
         container.setAttribute("data-chat-message-index", "0");
         container.innerHTML =
-            '<button type="button" data-chat-find-text data-quote-allow="">src/lib/router.ts</button><button type="button">Copy</button>';
+            '<button type="button" data-chat-find-text data-quote-allow="">src/lib/router.ts</button><button type="button" aria-expanded="false">Thought for a moment</button><button type="button">Copy</button>';
         document.body.appendChild(container);
         const { ranges } = syncChatDomHighlights(container, "router.ts");
         expect(ranges).toHaveLength(1);
         const { ranges: skippedCopy } = syncChatDomHighlights(container, "Copy");
         expect(skippedCopy).toHaveLength(0);
+        const { ranges: skippedThought } = syncChatDomHighlights(container, "Thought");
+        expect(skippedThought).toHaveLength(0);
 
         const selRange = document.createRange();
         selRange.selectNodeContents(container);
