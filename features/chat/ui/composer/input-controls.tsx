@@ -413,27 +413,42 @@ const ModeMenuInner = ({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-80 max-w-[calc(100vw-24px)]"
+        sideOffset={6}
+        className="w-[344px] max-w-[calc(100vw-24px)]"
       >
-        {CHAT_MODES.map((mode) => (
-          <DropdownMenuItem
-            key={mode.id}
-            onClick={() => setSelectedMode(mode.id)}
-            className="items-start gap-2.5 py-2"
-          >
-            <Icon
-              icon={mode.icon}
-              className="mt-0.5"
-              style={{ color: mode.color }}
-            />
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-sm text-text-primary">{mode.id}</span>
-              <span className="text-sm leading-snug text-text-muted">
-                {mode.description}
+        {CHAT_MODES.map((mode) => {
+          const isSelected = mode.id === selected.id;
+          return (
+            <DropdownMenuItem
+              key={mode.id}
+              onClick={() => setSelectedMode(mode.id)}
+              className={cn(
+                "items-center gap-2.5 py-1.5",
+                isSelected && "bg-[var(--row-selected)]",
+              )}
+            >
+              <Icon
+                icon={mode.icon}
+                className={cn("shrink-0", !isSelected && "text-text-secondary")}
+                style={isSelected ? { color: mode.color } : undefined}
+              />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm font-medium leading-tight text-text-primary">
+                  {mode.id}
+                </span>
+                <span className="truncate text-xs leading-snug text-text-muted">
+                  {mode.description}
+                </span>
               </span>
-            </span>
-          </DropdownMenuItem>
-        ))}
+              {isSelected ? (
+                <Icon
+                  icon={Checkmark20Regular}
+                  className="icon-sm size-3.5 shrink-0 text-text-primary"
+                />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -547,10 +562,10 @@ export const ComposerContextStrip = ({
     />
     {projectRuleFiles.length > 0 ? (
       <Tooltip content={projectRuleFiles.join("\n")}>
-        <span className="flex h-6.5 min-w-0 max-w-56 items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary">
+        <span className="flex h-6.5 min-w-0 max-w-56 items-center gap-1.5 squircle-lg border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary">
           <Icon
             icon={Document20Regular}
-            className="size-3.5 shrink-0 text-text-muted"
+            className="icon-sm size-3.5 shrink-0 text-text-muted"
           />
           <span className="truncate">
             {formatRuleFileBasenames(projectRuleFiles)}
@@ -579,11 +594,11 @@ export const ComposerQuotesStrip = ({
       {quotes.map((q, idx) => (
         <div
           key={q.id}
-          className="group/quote flex min-w-0 items-start gap-2 rounded-lg border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:border-border-secondary"
+          className="group/quote flex min-w-0 items-start gap-2 squircle-xl border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:border-border-secondary"
         >
           <Icon
             icon={TextQuote16Regular}
-            className="mt-0.5 size-3.5 shrink-0 text-text-muted"
+            className="icon-sm mt-0.5 size-3.5 shrink-0 text-text-muted"
           />
           <span className="min-w-0 flex-1 line-clamp-2 break-words leading-[16px] text-text-secondary">
             {q.text
@@ -690,6 +705,7 @@ export const ComposerPlusMenu = ({
   setPluginQuery,
   skills,
   appendToken,
+  stacked = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -699,8 +715,9 @@ export const ComposerPlusMenu = ({
   setPluginQuery: (q: string) => void;
   skills: Skill[];
   appendToken: (token: string) => void;
+  stacked?: boolean;
 }) => (
-  <div className="flex shrink-0 items-center self-end">
+  <div className={cn("flex shrink-0 items-center self-end", stacked && "order-2")}>
     <DropdownMenu
       open={open}
       onOpenChange={(nextOpen) => {
@@ -973,7 +990,7 @@ const resolveExpandButtonMeta = (isExpanded: boolean) =>
     : { label: "Expand composer", icon: ArrowMaximize20Regular };
 
 /** Renders the Expand / Collapse composer toggle button. */
-const ExpandComposerButton = ({
+export const ExpandComposerButton = ({
   showExpandButton,
   isExpanded,
   onToggleExpand,
@@ -987,7 +1004,7 @@ const ExpandComposerButton = ({
     <div
       aria-hidden={!showExpandButton || undefined}
       className={cn(
-        "absolute top-0 right-0 flex items-center transition-[opacity,transform] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transform-none motion-reduce:transition-none",
+        "absolute top-0 right-0 z-10 flex items-center transition-[opacity,transform] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] motion-reduce:transform-none motion-reduce:transition-none",
         showExpandButton
           ? "pointer-events-auto scale-100 opacity-100 delay-75"
           : "pointer-events-none scale-90 opacity-0 delay-0",
@@ -1033,7 +1050,7 @@ const SendButtonGlyph = ({
   );
 };
 
-/** Renders the right-hand composer column (Expand toggle, Dictation, Send/Stop). */
+/** Renders the right-hand composer column (Expand toggle when inline, Dictation, Send/Stop). */
 export const ComposerRightActions = ({
   showExpandButton,
   isExpanded,
@@ -1045,6 +1062,7 @@ export const ComposerRightActions = ({
   sendActive,
   onStopMessage,
   onSendWithHistory,
+  stacked = false,
 }: {
   showExpandButton: boolean;
   isExpanded: boolean;
@@ -1056,15 +1074,23 @@ export const ComposerRightActions = ({
   sendActive: boolean;
   onStopMessage: () => void;
   onSendWithHistory: () => void;
+  stacked?: boolean;
 }) => {
   const actionLabel = resolveSendButtonLabel(canStop, isLoading);
   return (
-    <div className="relative flex shrink-0 flex-col items-end justify-end self-stretch">
-      <ExpandComposerButton
-        showExpandButton={showExpandButton}
-        isExpanded={isExpanded}
-        onToggleExpand={onToggleExpand}
-      />
+    <div
+      className={cn(
+        "relative flex shrink-0 flex-col items-end justify-end",
+        stacked ? "order-3 ml-auto" : "self-stretch",
+      )}
+    >
+      {stacked ? null : (
+        <ExpandComposerButton
+          showExpandButton={showExpandButton}
+          isExpanded={isExpanded}
+          onToggleExpand={onToggleExpand}
+        />
+      )}
       <div className="flex shrink-0 items-center gap-1">
         <DictationButton />
         <Tooltip content={actionLabel} shortcut={canStop ? "Esc" : "Enter"}>

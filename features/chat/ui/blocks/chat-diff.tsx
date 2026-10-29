@@ -13,39 +13,41 @@ const DiffRows = ({ rows }: { rows: UnifiedDiffRow[] }) => {
     if (rows.length === 0) return null;
     const keyFor = createOccurrenceKeyer();
     return (
-        <div className="custom-scrollbar relative mt-1 mb-1 max-h-56 w-full overflow-auto rounded-xl border border-border-subtle bg-transparent px-1.5 py-2 font-mono text-sm leading-6">
-            {rows.map((row) => {
-                if (row.type === "hunk") return null;
-                const num = row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
-                const marker = row.type === "add" ? "+" : row.type === "remove" ? "-" : " ";
-                return (
-                    <div
-                        key={keyFor(`${row.type}:${row.oldNum ?? ""}:${row.newNum ?? ""}`)}
-                        className={cn(
-                            "flex min-w-full",
-                            row.type === "add" && "bg-success/10 text-success",
-                            row.type === "remove" && "bg-error/10 text-error",
-                            row.type === "context" && "text-text-secondary",
-                        )}
-                    >
-                        <span className="w-8 shrink-0 select-none px-1 text-right tabular-nums text-text-disabled">
-                            {num ?? ""}
-                        </span>
-                        <span
-                            aria-hidden
+        <div className="custom-scrollbar relative mt-1 mb-1 max-h-56 w-full overflow-auto squircle-xl border border-border-subtle bg-surface-2/60 py-1.5 font-mono text-xs leading-5">
+            <div className="min-w-full w-max">
+                {rows.map((row) => {
+                    if (row.type === "hunk") return null;
+                    const num = row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
+                    const marker = row.type === "add" ? "+" : row.type === "remove" ? "-" : " ";
+                    return (
+                        <div
+                            key={keyFor(`${row.type}:${row.oldNum ?? ""}:${row.newNum ?? ""}`)}
                             className={cn(
-                                "w-4 shrink-0 select-none text-center",
-                                row.type === "add" && "text-success/80",
-                                row.type === "remove" && "text-error/80",
-                                row.type === "context" && "text-text-disabled",
+                                "flex min-w-full",
+                                row.type === "add" && "bg-success/10 text-success",
+                                row.type === "remove" && "bg-error/10 text-error",
+                                row.type === "context" && "text-text-secondary",
                             )}
                         >
-                            {marker}
-                        </span>
-                        <span className="min-w-0 flex-1 whitespace-pre pr-2">{row.line || " "}</span>
-                    </div>
-                );
-            })}
+                            <span className="w-8 shrink-0 select-none px-1.5 text-right tabular-nums text-text-disabled">
+                                {num ?? ""}
+                            </span>
+                            <span
+                                aria-hidden
+                                className={cn(
+                                    "w-4 shrink-0 select-none text-center",
+                                    row.type === "add" && "text-success/80",
+                                    row.type === "remove" && "text-error/80",
+                                    row.type === "context" && "text-text-disabled",
+                                )}
+                            >
+                                {marker}
+                            </span>
+                            <span className="whitespace-pre pr-3">{row.line || " "}</span>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 };

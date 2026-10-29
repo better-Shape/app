@@ -1013,7 +1013,7 @@ const Chat = ({
                             }
                             onClick={handleJumpToBottom}
                             className={cn(
-                                "inline-flex h-7 items-center gap-1.5 rounded-full border border-border-secondary bg-surface-3 px-3 text-xs font-medium shadow-md",
+                                "inline-flex h-7 items-center gap-1.5 rounded-full border border-border-secondary bg-surface-3 px-3 text-xs font-medium shadow-[var(--menu-shadow)]",
                                 "transition-[background-color,border-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
                                 "active:scale-[0.96] hover:bg-[var(--btn-hover)]",
                                 activeHitlKind

@@ -246,7 +246,7 @@ function RulesEditor({ value }: { value: string }) {
             <Textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Add your custom instructions…"
+                placeholder="Add your custom instructions..."
                 className="min-h-40 rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm"
             />
             </SettingCard>
@@ -635,17 +635,17 @@ export function AiSettingsPanel({
                                 <div className="text-sm font-medium text-text-primary">
                                     {indexing
                                         ? indexPhase === "scanning"
-                                            ? "Scanning files…"
+                                            ? "Scanning files..."
                                             : indexPhase === "persisting"
-                                              ? "Saving index…"
-                                              : `Indexing… ${Math.min(indexPercent, 99)}%`
+                                              ? "Saving index..."
+                                              : `Indexing... ${Math.min(indexPercent, 99)}%`
                                         : indexStatus
                                           ? "Indexed"
                                           : "Not indexed yet"}
                                 </div>
                                 <div className="mt-0.5 text-xs text-text-muted">
                                     {indexStatus
-                                        ? `${indexStatus.filesIndexed.toLocaleString()} files · ${indexStatus.chunks.toLocaleString()} chunks${
+                                        ? `${(indexStatus.filesIndexed ?? 0).toLocaleString()} files · ${(indexStatus.chunks ?? 0).toLocaleString()} chunks${
                                               indexStatus.lastIndexedAt
                                                   ? ` · Last indexed ${new Date(indexStatus.lastIndexedAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
                                                   : ""
@@ -653,8 +653,8 @@ export function AiSettingsPanel({
                                         : "Index this project so search can find code."}
                                 </div>
                             </div>
-                            <Button variant="ghost" size="sm" className={cn(SETTING_CONTROL_BTN, "shrink-0")} disabled={indexing} onClick={() => void handleReindex()}>
-                                {indexing ? "Indexing…" : "Re-index"}
+                            <Button variant="ghost" size="sm" className={cn(SETTING_CONTROL_BTN, "shrink-0")} disabled={indexing} onClick={() => { handleReindex().catch(() => undefined); }}>
+                                {indexing ? "Indexing..." : "Re-index"}
                             </Button>
                         </div>
                         <IndexingProgressBar

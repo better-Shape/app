@@ -1,6 +1,8 @@
 "use client";
 
 import { Tooltip } from "@/components/ui/tooltip";
+import { Icon } from "@/components/ui/icon";
+import { hasProviderBrandIcon, providerIcon } from "@/lib/ui/provider-icon";
 import React from "react";
 import type { ProviderPreset } from "@/lib/ai/providers";
 
@@ -166,20 +168,30 @@ export function StatusDot({
     );
 }
 
-/** Monochrome mark for a preset — two-letter monogram in a squircle tile. */
-export function ProviderMonogram({ preset }: { preset: ProviderPreset }) {
-    const initials = preset.label
-        .split(/[\s()]+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase() ?? "")
-        .join("");
+/** Brand mark for a provider preset, falling back to a calm connection glyph for custom endpoints. */
+export function ProviderMonogram({
+    preset,
+    compact = false,
+}: {
+    preset: ProviderPreset;
+    compact?: boolean;
+}) {
+    const iconPx = compact ? 15 : 16;
+    const fallbackIcon = preset.group === "gateways" ? Globe20Regular : PlugConnected20Regular;
     return (
         <div
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-3 text-[10px] font-semibold tracking-tight text-text-secondary squircle-md"
+            className={
+                compact
+                    ? "flex size-6 shrink-0 items-center justify-center squircle-md bg-surface-3 text-text-secondary"
+                    : "flex size-7 shrink-0 items-center justify-center squircle-md bg-surface-3 text-text-secondary"
+            }
             aria-hidden
         >
-            {initials}
+            {hasProviderBrandIcon(preset.id) ? (
+                providerIcon(preset.id, iconPx)
+            ) : (
+                <Icon icon={fallbackIcon} className="icon-sm size-3.5 text-text-muted" />
+            )}
         </div>
     );
 }

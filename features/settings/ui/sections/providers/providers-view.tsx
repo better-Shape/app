@@ -35,6 +35,7 @@ import {
     matchesProviderQuery,
     embeddingModelOptions,
     embeddingsAvailable,
+    isConnectionUsable,
     providerPreset,
     searchKeyWarning,
     modelForFeature,
@@ -54,6 +55,7 @@ import {
 import {
     Add20Regular,
     Key20Regular,
+    ProviderMonogram,
     Search20Regular,
     Shield20Regular,
     ChevronUp20Regular,
@@ -158,6 +160,14 @@ export function ProvidersSettingsView() {
         [providers.connections],
     );
 
+    const usableCount = React.useMemo(
+        () =>
+            PROVIDER_PRESETS.filter((preset) =>
+                isConnectionUsable(preset.id, providers.connections),
+            ).length,
+        [providers.connections],
+    );
+
     const unconfigured = React.useMemo(() => {
         const configuredIds = new Set(configured.map((p) => p.id));
         return providerGroups()
@@ -171,14 +181,17 @@ export function ProvidersSettingsView() {
     const groupsConfigured = React.useMemo(
         () =>
             providerGroups()
-                .map((g) => ({
-                    group: g.group,
-                    presets: g.presets.filter(
+                .map((g) => {
+                    const presets = g.presets.filter(
                         (p) => configured.some((c) => c.id === p.id) && matchesProviderQuery(p, query),
-                    ),
-                }))
+                    );
+                    const readyCount = presets.filter((p) =>
+                        isConnectionUsable(p.id, providers.connections),
+                    ).length;
+                    return { group: g.group, presets, readyCount };
+                })
                 .filter((g) => g.presets.length > 0),
-        [configured, query],
+        [configured, providers.connections, query],
     );
 
     const configuredCount = configured.length;
@@ -262,14 +275,14 @@ export function ProvidersSettingsView() {
             <SettingSection
                 id="settings-providers"
                 title="Model providers"
-                description="Bring your own keys. Models are fetched from each provider automatically on Test, with metadata enriched from the community models.dev catalog — no model-id typing needed. Requests go straight from your machine to the provider; BetterShape never proxies them."
+                description="Keys stay on your machine and connect straight to each provider."
                 card={false}
                 action={
-                    configuredCount > 0 ? (
-                        <span className="text-xs text-text-muted">
-                            {configuredCount} configured
-                        </span>
-                    ) : null
+                    <span className="text-xs tabular-nums text-text-muted">
+                        {usableCount > 0
+                            ? `${usableCount} configured`
+                            : "No providers configured yet"}
+                    </span>
                 }
             >
                 {vault === false ? (
@@ -288,15 +301,15 @@ export function ProvidersSettingsView() {
                     <div className="relative w-full max-w-sm">
                         <Icon
                             icon={Search20Regular}
-                            className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-text-disabled"
+                            className="icon-sm pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted"
                         />
                         <input
                             type="search"
                             value={query}
-                            placeholder="Search providers and models…"
+                            placeholder="Search providers and models..."
                             spellCheck={false}
                             onChange={(e) => setQuery(e.target.value)}
-                            className="h-8 w-full rounded-md border border-border-secondary bg-transparent pl-7 pr-2 text-sm text-text-primary placeholder:text-text-disabled outline-none focus:border-accent"
+                            className="h-8 w-full squircle-lg border border-border-secondary bg-input-bg pl-9 pr-2.5 text-sm text-text-primary placeholder:text-input-placeholder outline-none transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:border-border-focus [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
                         />
                     </div>
                 </div>
@@ -312,12 +325,14 @@ export function ProvidersSettingsView() {
                                 {groupsConfigured.map((group) => (
                                     <div key={group.group} className="flex flex-col gap-2">
                                         <div className="flex items-baseline gap-2 px-1">
-                                            <span className="text-[11px] font-medium tracking-wide text-text-muted uppercase">
+                                            <span className="text-xs font-medium text-text-muted">
                                                 {group.group}
                                             </span>
-                                            <span className="text-[11px] text-text-disabled">
-                                                {group.presets.length} ready
-                                            </span>
+                                            {group.readyCount > 0 ? (
+                                                <span className="text-2xs tabular-nums text-text-disabled">
+                                                    {group.readyCount} ready
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div className="flex flex-col gap-1.5">
                                             {group.presets.map((preset) => (
@@ -494,7 +509,7 @@ export function ProvidersSettingsView() {
                         <div className="w-full sm:w-72">
                             <KeyInput
                                 value={providers.services.composio.apiKey}
-                                placeholder="ck_…"
+                                placeholder="ck_..."
                                 onChange={(apiKey) =>
                                     update({
                                         services: {
@@ -561,12 +576,12 @@ function FirstRun({ onAdd }: { onAdd: (id: ProviderId) => void }) {
                                     onClick={() => onAdd(preset.id)}
                                     className="group flex items-center gap-3 rounded-lg border border-border-secondary bg-panel px-3 py-2.5 text-left transition-colors duration-fast hover:border-border hover:bg-[var(--row-hover)]"
                                 >
-                                    <ProviderMonogramSm label={preset.label} />
+                                    <ProviderMonogram preset={preset} compact />
                                     <div className="min-w-0 flex-1">
                                         <div className="text-sm font-medium text-text-primary">
                                             {preset.label}
                                         </div>
-                                        <div className="text-[11px] text-text-disabled">
+                                        <div className="text-2xs tabular-nums text-text-disabled">
                                             {preset.models.length} models
                                         </div>
                                     </div>
@@ -623,30 +638,30 @@ function AddProviderBox({
                     </div>
                     <div className="min-w-0">
                         <div className="text-sm font-medium text-text-primary">Add a provider</div>
-                        <div className="text-[11px] text-text-muted">
+                        <div className="text-2xs text-text-muted">
                             {totalAvailable} available — gateways, clouds, local runtimes
                         </div>
                     </div>
                 </div>
                 <Icon
                     icon={open ? ChevronUp20Regular : ChevronDown20Regular}
-                    className="size-3.5 text-text-muted"
+                    className="icon-sm size-3.5 text-text-muted"
                 />
             </button>
             {open ? (
                 <div className="border-t border-border-subtle px-4 py-3">
                     {!query ? (
-                        <div className="relative mb-3">
+                        <div className="relative mb-3 max-w-xs">
                             <Icon
                                 icon={Search20Regular}
-                                className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-text-disabled"
+                                className="icon-sm pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted"
                             />
                             <input
                                 type="search"
                                 value={query}
-                                placeholder="Filter available providers…"
+                                placeholder="Filter available providers..."
                                 onChange={(e) => onQueryChange(e.target.value)}
-                                className="h-8 w-full max-w-xs rounded-md border border-border-secondary bg-transparent pl-7 pr-2 text-sm text-text-primary placeholder:text-text-disabled outline-none focus:border-accent"
+                                className="h-8 w-full squircle-lg border border-border-secondary bg-input-bg pl-9 pr-2.5 text-sm text-text-primary placeholder:text-input-placeholder outline-none transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:border-border-focus [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
                             />
                         </div>
                     ) : null}
@@ -658,7 +673,7 @@ function AddProviderBox({
                         <div className="flex flex-col gap-3">
                             {groups.map((g) => (
                                 <div key={g.group}>
-                                    <div className="mb-1.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-text-disabled">
+                                    <div className="mb-1.5 px-0.5 text-xs font-medium text-text-muted">
                                         {g.group}
                                     </div>
                                     <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -676,12 +691,12 @@ function AddProviderBox({
                                                         : "border-border-secondary bg-panel hover:border-border hover:bg-[var(--row-hover)]"
                                                 }`}
                                             >
-                                                <ProviderMonogramSm label={preset.label} />
+                                                <ProviderMonogram preset={preset} compact />
                                                 <div className="min-w-0 flex-1">
                                                     <div className="truncate text-sm font-medium text-text-primary">
                                                         {preset.label}
                                                     </div>
-                                                    <div className="truncate text-[11px] text-text-disabled">
+                                                    <div className="truncate text-2xs text-text-disabled">
                                                         {preset.kind === "anthropic"
                                                             ? "Messages API"
                                                             : preset.kind === "google"
@@ -707,19 +722,3 @@ function AddProviderBox({
     );
 }
 
-function ProviderMonogramSm({ label }: { label: string }) {
-    const initials = label
-        .split(/[\s()]+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase() ?? "")
-        .join("");
-    return (
-        <div
-            className="flex size-6 shrink-0 items-center justify-center rounded-[4px] bg-surface-3 text-[10px] font-semibold text-text-secondary"
-            aria-hidden
-        >
-            {initials}
-        </div>
-    );
-}

@@ -1079,7 +1079,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
                 onToggleSidebar={controllers.toggleSidebar}
                 onSearch={() => {
                     window.dispatchEvent(
-                        new CustomEvent("bettershape-command-palette", { detail: { placeholder: "Search…" } }),
+                        new CustomEvent("bettershape-command-palette", { detail: { placeholder: "Search..." } }),
                     );
                 }}
             />

@@ -493,7 +493,7 @@ const CommitMessageComposer = ({
     onCommitAll: () => void;
     onSuggest: () => void;
 }) => (
-    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
+    <div className="overflow-hidden squircle-xl border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
         <div className="relative flex items-center">
             <Input
                 value={title}
@@ -608,7 +608,7 @@ const CommitSecondarySubmenu = ({
             <DropdownMenuSubTrigger
                 aria-label="Commit options"
                 disabled={busy}
-                className="h-9 w-9 shrink-0 justify-center rounded-full bg-panel-hover px-0! py-0! [&>svg]:ml-0"
+                className="h-9 w-9 shrink-0 justify-center squircle-2xl border border-border-subtle bg-surface-3 px-0! py-0! hover:bg-[var(--btn-hover)] [&>svg]:ml-0"
             />
             <DropdownMenuSubContent className="min-w-52">
                 <DropdownMenuItem disabled={!state.canAmend} onSelect={onAmend}>
@@ -691,10 +691,12 @@ const CommitSecondarySubmenu = ({
 /** Renders the scrollable changed-files list inside `CommitMenu`. */
 const CommitChangesList = ({ files }: { files: GitFileParams[] }) => (
     <>
-        <div className="flex items-center gap-2 px-2 py-1 text-sm text-text-secondary">
+        <div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-text-muted">
             <span className="flex-1">Changes</span>
             {files.length > 0 ? (
-                <span className="rounded-full bg-primary px-1.5 text-xs text-text-primary">{files.length}</span>
+                <span className="squircle-md bg-surface-3 px-1.5 py-0.5 text-2xs tabular-nums text-text-secondary">
+                    {files.length}
+                </span>
             ) : null}
         </div>
         <div className="max-h-64 overflow-y-auto">

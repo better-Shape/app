@@ -515,6 +515,18 @@ const isComposerContentTall = (inputValue: string, content: number): boolean => 
   return inputValue.includes("\n") || content > COMPOSER_LINE_HEIGHT + 2;
 };
 
+/** Probes whether a currently wide `<textarea>` would still wrap at compact single-row width. */
+const wrapsAtCompactRailWidth = (
+  textarea: HTMLTextAreaElement,
+  clientWidth: number,
+): boolean => {
+  if (clientWidth <= 120) return false;
+  textarea.style.width = `${clientWidth - 96}px`;
+  const compactContent = textarea.scrollHeight;
+  textarea.style.width = "";
+  return compactContent > COMPOSER_LINE_HEIGHT + 2;
+};
+
 /** Applies measured height, scrollTop, and mirror overlay sync onto `<textarea>`. */
 const commitMeasuredTextareaStyles = (opts: {
   textarea: HTMLTextAreaElement;
@@ -581,7 +593,9 @@ export const measureAndSyncComposerTextarea = (opts: {
   const cw = textarea.clientWidth;
   if (cw > 0) opts.textareaClientWidthRef.current = cw;
 
-  const tall = isComposerContentTall(inputValue, content);
+  const tall =
+    isComposerContentTall(inputValue, content) ||
+    (opts.composerTallRef.current && wrapsAtCompactRailWidth(textarea, cw));
   opts.composerTallRef.current = tall;
   const nextHeight = resolveMeasuredEditorHeight({
     content,

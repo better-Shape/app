@@ -45,10 +45,10 @@ export const QueuedMessagesPanel = ({
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    className="inline-flex h-6.5 shrink-0 items-center gap-1.5 rounded-full border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                    className="inline-flex h-6.5 shrink-0 items-center gap-1.5 squircle-lg border border-border-subtle bg-surface-3/90 px-2.5 text-xs font-medium text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                     aria-label="Queued messages"
                 >
-                    <Icon icon={Clock20Regular} className="size-3.5 shrink-0 text-text-muted" />
+                    <Icon icon={Clock20Regular} className="icon-sm size-3.5 shrink-0 text-text-muted" />
                     <span>Queued</span>
                     <span className="tabular-nums text-text-muted">{items.length}</span>
                 </button>

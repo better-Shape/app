@@ -788,7 +788,7 @@ export const CommandPalette = () => {
 
                     <div
                         ref={listRef}
-                        className="max-h-[420px] min-h-0 flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar py-1"
+                        className="max-h-[420px] min-h-0 flex-1 overflow-x-hidden overflow-y-auto custom-scrollbar pt-1 pb-2"
                     >
                         {effectiveRows.length === 0 && (
                             <div className="px-4 py-6 text-center text-sm text-text-muted">
@@ -837,7 +837,7 @@ export const CommandPalette = () => {
                                             "mx-1 flex min-w-0 cursor-pointer items-center justify-between rounded-md px-3 py-1.5 text-left transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                             action.reply && "ml-6",
                                             idx === selectedIndex
-                                                ? "bg-panel-hover text-text-primary"
+                                                ? "bg-[var(--row-selected)] text-text-primary hover:bg-[var(--row-selected-hover)]"
                                                 : "text-text-secondary hover:bg-[var(--row-hover)]",
                                             action.muted && "text-text-disabled [&_img]:opacity-50 [&_svg]:opacity-50",
                                         )}

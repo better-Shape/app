@@ -216,9 +216,9 @@ export const ChatFindBar = ({
             aria-hidden={!open || undefined}
             inert={!open || undefined}
             data-chat-find-bar
-            className="pointer-events-auto flex h-[32px] items-center gap-1 rounded-xl border border-border-secondary bg-surface-3 px-2.5 shadow-md"
+            className="pointer-events-auto flex h-[32px] items-center gap-1.5 squircle-xl border border-border-secondary bg-surface-3 px-2.5 shadow-[var(--menu-shadow)]"
         >
-            <Icon icon={Search20Regular} className="size-3.5 shrink-0 text-text-muted" />
+            <Icon icon={Search20Regular} className="icon-sm size-3.5 shrink-0 text-text-muted" />
             <input
                 ref={inputRef}
                 type="text"

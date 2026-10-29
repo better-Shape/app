@@ -1999,7 +1999,7 @@ const CommitComposer = ({
     };
     return (
     <div
-        className="flex flex-col gap-0.5 relative overflow-hidden m-2 border border-border rounded-xl bg-transparent"
+        className="relative m-2 flex flex-col gap-0.5 overflow-hidden squircle-xl border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary"
         aria-busy={commitSuggestionStatus === "loading" || undefined}
     >
         <Input
@@ -2007,14 +2007,14 @@ const CommitComposer = ({
             value={commitTitle}
             onChange={(e) => setCommitTitle(e.target.value)}
             onKeyDown={commitShortcut ? handleKeyDown : undefined}
-            className="border-none shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent py-2 pl-2 pr-2"
+            className="border-none bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         <Textarea
             placeholder="Add description..."
             value={commitDescription}
             onChange={(e) => setCommitDescription(e.target.value)}
             onKeyDown={commitShortcut ? handleKeyDown : undefined}
-            className="border-none shadow-none resize-none text-sm min-h-[60px] focus-visible:ring-0 focus-visible:ring-offset-0 px-2 pb-8 mt-0 rounded-none bg-transparent"
+            className="mt-0 min-h-[60px] resize-none rounded-none border-none bg-transparent px-3 pt-1 pb-8 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             rows={2}
         />
         <GenerateStarButton

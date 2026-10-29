@@ -153,7 +153,8 @@ export const MentionPicker = ({
             const measured = menuEl?.offsetHeight;
             const menuHeight = measured && measured > 0 ? measured : 260;
             const maxAllowedWidth = Math.max(200, vw - 16);
-            const width = rect.width > 0 ? Math.min(rect.width, maxAllowedWidth) : Math.min(320, maxAllowedWidth);
+            const preferredWidth = rect.width > 0 ? Math.min(340, rect.width) : 320;
+            const width = Math.min(preferredWidth, maxAllowedWidth);
             const left = rect.width > 0 ? Math.max(8, Math.min(rect.left, vw - width - 8)) : rect.left;
 
             if (rect.height === 0 && rect.top === 0) {
@@ -167,13 +168,13 @@ export const MentionPicker = ({
             let maxListHeight: number | undefined;
 
             if (top >= 8) {
-                maxListHeight = Math.min(288, Math.max(120, spaceAbove - 44));
+                maxListHeight = Math.min(332, Math.max(120, spaceAbove - 44));
             } else if (spaceBelow > spaceAbove && spaceBelow >= 140) {
                 top = rect.bottom + 6;
-                maxListHeight = Math.min(288, Math.max(120, spaceBelow - 44));
+                maxListHeight = Math.min(332, Math.max(120, spaceBelow - 44));
             } else {
                 top = 8;
-                maxListHeight = Math.min(288, Math.max(110, rect.top - 52));
+                maxListHeight = Math.min(332, Math.max(110, rect.top - 52));
             }
 
             setPos({ left, top: Math.max(8, top), width, maxListHeight });
@@ -649,7 +650,7 @@ export const MentionPicker = ({
     return createPortal(
         <div
             ref={setMenuEl}
-            className="bettershape-popover-content bettershape-menu-content fixed z-dropdown overflow-hidden rounded-xl border border-border-secondary bg-surface-4 shadow-lg"
+            className="bettershape-popover-content bettershape-menu-content fixed z-dropdown overflow-hidden squircle-xl border border-border-subtle bg-[var(--menu-bg)] shadow-[var(--menu-shadow)]"
             style={{ left: pos.left, top: pos.top, width: pos.width }}
         >
             <SearchInput
@@ -673,8 +674,8 @@ export const MentionPicker = ({
             ) : null}
 
             <div
-                className="overflow-y-auto no-scrollbar px-1 pb-1"
-                style={{ maxHeight: pos.maxListHeight ?? 288 }}
+                className="overflow-y-auto no-scrollbar px-1 pt-0.5 pb-1.5"
+                style={{ maxHeight: pos.maxListHeight ?? 332 }}
             >
                 {mode === "slash" ? (
                     slashEntries.length === 0 ? (

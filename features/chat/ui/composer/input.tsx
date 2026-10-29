@@ -46,6 +46,7 @@ import {
   ComposerPlusMenu,
   ComposerQuotesStrip,
   ComposerRightActions,
+  ExpandComposerButton,
   IDLE_COMPOSER_HINTS,
   RotatingComposerHint,
 } from "./input-controls";
@@ -1232,6 +1233,8 @@ const ComposerEditorColumn = ({
   onSelect,
   onScroll,
   onContextMenuPaste,
+  stacked = false,
+  reserveExpandCorner = false,
 }: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   mentionOverlayRef: React.RefObject<HTMLDivElement | null>;
@@ -1253,10 +1256,14 @@ const ComposerEditorColumn = ({
   onSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   onScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
   onContextMenuPaste: () => void;
+  stacked?: boolean;
+  reserveExpandCorner?: boolean;
 }) => (
   <div
     className={cn(
-      "relative min-h-[32px] min-w-0 flex-1 py-[5px] transition-[height] motion-reduce:transition-none",
+      "relative min-h-[32px] min-w-0 py-[5px] transition-[height] motion-reduce:transition-none",
+      stacked ? "order-1 w-full basis-full px-1" : "flex-1",
+      stacked && reserveExpandCorner && "pr-8",
       isExpanded
         ? "duration-[var(--spring-panel-dur)] ease-[var(--spring-panel)]"
         : "duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)]",
@@ -1622,7 +1629,21 @@ const ComposerVesselCard = ({
         }}
       />
       <HiddenComposerFileInputs onChange={onFileInputChange} />
-      <div className="relative flex w-full items-end gap-1 px-0.5">
+      <div
+        className={cn(
+          "relative flex w-full px-0.5",
+          isExpandedLayout
+            ? "flex-wrap items-center gap-x-1 gap-y-1"
+            : "items-end gap-1",
+        )}
+      >
+        {isExpandedLayout ? (
+          <ExpandComposerButton
+            showExpandButton={showExpandButton}
+            isExpanded={isExpanded}
+            onToggleExpand={onToggleExpand}
+          />
+        ) : null}
         <ComposerPlusMenu
           open={plusMenuOpen}
           onOpenChange={setPlusMenuOpen}
@@ -1632,6 +1653,7 @@ const ComposerVesselCard = ({
           setPluginQuery={setPluginQuery}
           skills={skills}
           appendToken={appendToken}
+          stacked={isExpandedLayout}
         />
         <ComposerEditorColumn
           textareaRef={textareaRef}
@@ -1648,6 +1670,8 @@ const ComposerVesselCard = ({
           setupGap={setupGap}
           composerBreakAll={composerBreakAll}
           composerAriaLabel={composerAriaLabel}
+          stacked={isExpandedLayout}
+          reserveExpandCorner={showExpandButton}
           onChange={onInputChange}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
@@ -1674,6 +1698,7 @@ const ComposerVesselCard = ({
           sendActive={sendActive}
           onStopMessage={onStopMessage}
           onSendWithHistory={onSendWithHistory}
+          stacked={isExpandedLayout}
         />
       </div>
     </div>

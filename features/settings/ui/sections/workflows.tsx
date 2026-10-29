@@ -45,7 +45,11 @@ export function WorkflowsEditor({ value }: { value: AgentWorkflow[] }) {
     };
 
     return (
-        <SettingSection id="settings-ai-workflows" title="Workflows">
+        <SettingSection
+            id="settings-ai-workflows"
+            title="Saved workflows"
+            description="Reusable prompt triggers that attach tools and instructions automatically."
+        >
             <SettingCard>
             {value.map((w) => (
                     <div key={w.id} className="flex items-center gap-2.5 px-3.5 py-2.5">

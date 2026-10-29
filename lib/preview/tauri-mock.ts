@@ -907,7 +907,14 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             };
         },
         read_mcp_config: () => "{}",
-        get_index_status: () => ({ state: "idle", indexed_files: 0, total_files: 0 }),
+        get_index_status: () => ({
+            state: "idle",
+            indexed_files: 0,
+            total_files: 0,
+            filesIndexed: 0,
+            chunks: 0,
+            lastIndexedAt: null,
+        }),
         get_project_stats: () => null,
         discover_tests: () => ({ tests: [], framework: null }),
         search_project_files: () => [],

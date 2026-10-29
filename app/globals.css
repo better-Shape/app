@@ -1442,12 +1442,8 @@ body[data-resizing] .xterm {
    activity state in text/aria-busy; this surface is not an ambient animation. */
 .preview-placeholder {
   overflow: hidden;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-accent, #7c6af0) 18%, var(--color-surface-2, #1c1c1f)) 0%,
-    var(--color-surface-2, #1c1c1f) 52%,
-    color-mix(in srgb, #56c4ff 12%, var(--color-surface-2, #1c1c1f)) 100%
-  );
+  background: var(--surface-3);
+  border: 1px solid var(--border-subtle);
 }
 
 /* ── Pixel grid loader (LoadingState) ── */

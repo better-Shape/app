@@ -324,11 +324,18 @@ export const ComposerFileTile = ({
     );
 };
 
-/** Sent-message chip: filename only. */
-export const MessageAttachmentPill = ({ name }: { kind?: AttachmentKind; name: string }) => {
+/** Sent-message chip: file-kind icon + filename. */
+export const MessageAttachmentPill = ({
+    kind = "file",
+    name,
+}: {
+    kind?: AttachmentKind;
+    name: string;
+}) => {
     return (
         <Tooltip content={name} side="top" delayDuration={220}>
-            <span className="inline-flex h-7 max-w-52 items-center rounded-full border border-border-subtle bg-surface-1 px-2.5 text-xs text-text-primary">
+            <span className="inline-flex h-7 max-w-56 items-center gap-1.5 squircle-lg border border-border-subtle bg-surface-2 px-2.5 text-xs font-medium text-text-primary">
+                <KindIcon kind={kind} name={name} />
                 <span className="min-w-0 truncate">{name}</span>
             </span>
         </Tooltip>

@@ -1,7 +1,8 @@
 .wrap {
     overflow-x: auto;
-    border-radius: 12px;
-    background: var(--surface-3, transparent);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-2, transparent);
 }
 
 .table {
@@ -12,16 +13,17 @@
 }
 
 .th {
-    padding: 0.4rem 0.65rem;
+    padding: 0.5rem 0.85rem;
     font: inherit;
     font-weight: 500;
     color: var(--text-primary);
     text-align: start;
     background: var(--surface-3);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .td {
-    padding: 0.45rem 0.65rem;
+    padding: 0.5rem 0.85rem;
     color: var(--text-secondary);
     vertical-align: middle;
 }
