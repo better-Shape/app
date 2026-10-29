@@ -32,7 +32,7 @@ const MIN_WORKSPACE = 360;
 const MIN_WORKSPACE_SOFT = 280;
 const MIN_CHAT = 380;
 const SIDEBAR_EXPANDED = 304;
-const MIN_SIDEBAR_WINDOW = 640;
+const MIN_SIDEBAR_WINDOW = SIDEBAR_EXPANDED + MIN_CHAT;
 const WORKSPACE_GUTTER = 12;
 const WINDOW_MIN_HEIGHT = 500;
 const WINDOW_MIN_WIDTH = 1000;
@@ -848,7 +848,7 @@ const useAgentLayoutPaneControllers = ({
 
     const toggleSidebar = useCallback(() => {
         if (!sidebarFits) {
-            setSidebarFlyout((prev) => !prev);
+            setSidebarFlyout(true);
             return;
         }
         setSidebarFlyout(false);

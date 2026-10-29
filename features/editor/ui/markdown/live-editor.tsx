@@ -448,14 +448,11 @@ const appendDomTableRow = (
 };
 
 class TableBlockWidget extends WidgetType {
-    constructor(
-        readonly rawSource: string,
-        readonly fromPos: number,
-    ) {
+    constructor(readonly rawSource: string) {
         super();
     }
     eq(other: TableBlockWidget): boolean {
-        return other.rawSource === this.rawSource && other.fromPos === this.fromPos;
+        return other.rawSource === this.rawSource;
     }
     toDOM(view: EditorView): HTMLElement {
         const wrap = document.createElement("div");
@@ -482,7 +479,7 @@ class TableBlockWidget extends WidgetType {
         wrap.appendChild(table);
         wrap.addEventListener("mousedown", (event) => {
             event.preventDefault();
-            view.dispatch({ selection: { anchor: this.fromPos } });
+            view.dispatch({ selection: { anchor: view.posAtDOM(wrap) } });
             view.focus();
         });
         return wrap;
@@ -511,12 +508,13 @@ const computeTableBlockDecorations = (
     syntaxTree(state).iterate({
         enter: (node) => {
             if (node.name !== "Table") return;
+            if (node.node.parent?.name !== "Document") return;
             if (focused && selectionTouchesLines(state, node.from, node.to)) return;
             const rawSource = state.doc.sliceString(node.from, node.to);
             if (!rawSource.includes("|")) return;
             ranges.push(
                 Decoration.replace({
-                    widget: new TableBlockWidget(rawSource, node.from),
+                    widget: new TableBlockWidget(rawSource),
                     block: true,
                 }).range(node.from, node.to),
             );
@@ -541,10 +539,10 @@ const resolveTableFocusFromEffects = (
 
 /** Checks whether `tr` requires recomputing table block decorations. */
 const shouldRecomputeTableBlocks = (
-    docChanged: boolean,
+    docOrTreeChanged: boolean,
     hasSelection: boolean,
     focusChanged: boolean,
-): boolean => docChanged || hasSelection || focusChanged;
+): boolean => docOrTreeChanged || hasSelection || focusChanged;
 
 const tableBlockField = StateField.define<{ focused: boolean; decos: DecorationSet }>({
     create: (state) => ({
@@ -553,7 +551,8 @@ const tableBlockField = StateField.define<{ focused: boolean; decos: DecorationS
     }),
     update: (prev, tr) => {
         const focused = resolveTableFocusFromEffects(prev.focused, tr.effects);
-        if (!shouldRecomputeTableBlocks(tr.docChanged, Boolean(tr.selection), focused !== prev.focused)) {
+        const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
+        if (!shouldRecomputeTableBlocks(tr.docChanged || treeChanged, Boolean(tr.selection), focused !== prev.focused)) {
             return prev;
         }
         return {

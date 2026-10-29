@@ -246,7 +246,7 @@ const Status = () => {
     };
 
     return (
-        <div className="status-bar @container/status relative flex @[760px]/status:grid @[760px]/status:grid-cols-[1fr_minmax(0,auto)_1fr] h-statusbar w-full select-none items-center justify-between overflow-hidden bg-background text-text-muted text-xs font-light font-sans px-1 shrink-0">
+        <div className="status-bar @container/status relative flex @[760px]/status:grid @[760px]/status:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] h-statusbar w-full select-none items-center justify-between overflow-hidden bg-background text-text-muted text-xs font-light font-sans px-1 shrink-0">
             <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
                 <GitStatusButton />
 

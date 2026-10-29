@@ -420,7 +420,7 @@ export const ComposerAttachments = ({
 
     return (
         <>
-            <div className="custom-scrollbar flex max-h-[min(116px,22vh)] flex-wrap gap-1.5 overflow-x-hidden overflow-y-auto px-2.5 pt-1.5 pb-1">
+            <div className="custom-scrollbar flex max-h-[min(116px,22vh)] flex-wrap gap-1.5 overflow-x-hidden overflow-y-auto px-2.5 pt-2.5 pb-1">
                 {attachments.map((att) => (
                     <AttachmentPill
                         key={att.id}

@@ -9,6 +9,15 @@ import { ChatDataTable, MarkdownTableShell } from "@/features/chat/ui/md/data-ta
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { OpenInMenu } from "@/features/chat/ui/shell/open-in";
+import {
+    clearProposedEdit,
+    getProposedEdit,
+    isFileResolved,
+    markFileResolved,
+    setCurrentConversationId,
+    setProposedEdit,
+} from "@/features/chat/lib/proposed-edits";
+import { chatModelIdsFor, defaultProvidersSettings } from "@/lib/ai/providers";
 import { unifiedDiffRows } from "@/lib/ui/diff-count";
 
 const mountedRoots: Array<{ root: Root; host: HTMLDivElement }> = [];
@@ -213,5 +222,40 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
         for (const cssText of styleBlocks) {
             expect(cssText).not.toMatch(/(?:^|[^-\w])\.st0\b/);
         }
+    });
+
+    it("falls back to catalog nonChat metadata when discovered entries omit nonChat", () => {
+        const settings = defaultProvidersSettings();
+        settings.connections.openai = {
+            ...settings.connections.openai,
+            apiKey: "sk-test-catalog-fallback",
+            enabled: true,
+            models: ["text-embedding-3-small", "gpt-4o"],
+            discoveredModels: [
+                { id: "text-embedding-3-small" },
+                { id: "gpt-4o" },
+            ],
+        };
+
+        const chatIds = chatModelIdsFor("openai", settings.connections);
+        expect(chatIds).toContain("gpt-4o");
+        expect(chatIds).not.toContain("text-embedding-3-small");
+    });
+
+    it("stores and resolves proposed edits safely on __proto__ and constructor paths", () => {
+        setCurrentConversationId("conv-proto-check");
+        setProposedEdit("__proto__", {
+            id: "edit-proto",
+            original: "a",
+            replacement: "b",
+            baseline: "a",
+        });
+        expect(getProposedEdit("__proto__")?.id).toBe("edit-proto");
+        expect(({} as Record<string, unknown>).id).toBeUndefined();
+
+        markFileResolved("constructor", "__proto__", "applied", "b");
+        expect(isFileResolved("constructor", "__proto__", "b")).toBe(true);
+        clearProposedEdit("__proto__");
+        setCurrentConversationId(null);
     });
 });
