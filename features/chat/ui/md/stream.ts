@@ -1722,21 +1722,196 @@ const stepQuotedTagScan = (
     return fallbackGt;
 };
 
+/** Steps `TagCloseScanState` by one character at `index`, returning `>= 0` on `>` match or `-1`. */
+const stepTagCloseAt = (
+    state: TagCloseScanState,
+    ch: string,
+    index: number,
+): number =>
+    state.quote === null
+        ? stepUnquotedTagScan(state, ch, index)
+        : stepQuotedTagScan(state, ch, index);
+
 /**
  * Finds the closing `>` of an HTML tag starting at `start`, ignoring `>` inside
  * single- or double-quoted attribute values across single- and multi-line tags.
  */
 const findHtmlTagClose = (input: string, start: number): number => {
     const state: TagCloseScanState = { quote: null, unclosedQuoteGt: -1 };
-    for (let i = start; i < input.length; i += 1) {
-        const ch = input.charAt(i);
-        const hit =
-            state.quote === null
-                ? stepUnquotedTagScan(state, ch, i)
-                : stepQuotedTagScan(state, ch, i);
+    for (let pos = start; pos < input.length; pos += 1) {
+        const hit = stepTagCloseAt(state, input.charAt(pos), pos);
         if (hit !== -1) return hit;
     }
     return state.unclosedQuoteGt;
+};
+
+type TagScanCache = {
+    lastGtInInput: number;
+    deadOpeningStates: Uint16Array | null;
+    lowerInput: string | null;
+};
+
+type OpeningScanProgress = {
+    scanState: TagCloseScanState;
+    tailQuote: string | null;
+};
+
+/** Maps a quote delimiter (`null`, `'"'`, `"'"`) to a compact state index `0..2`. */
+const encodeQuoteDelimiter = (quote: string | null): number => {
+    if (quote === '"') return 1;
+    return quote === "'" ? 2 : 0;
+};
+
+/** Encodes `(scanQuote, tailQuote)` into a 9-state bitmask `1..256`. */
+const encodeOpeningScanMask = (
+    scanQuote: string | null,
+    tailQuote: string | null,
+): number =>
+    1 << (encodeQuoteDelimiter(scanQuote) * 3 + encodeQuoteDelimiter(tailQuote));
+
+/** Marks `(pos, mask)` pairs visited during a failed standard opening-tag scan. */
+const recordDeadOpeningStates = (
+    cache: TagScanCache,
+    inputLength: number,
+    visitedPos: number[],
+    visitedMasks: number[],
+): -1 => {
+    if (visitedPos.length < 32) return -1;
+    const table = cache.deadOpeningStates ?? new Uint16Array(inputLength);
+    cache.deadOpeningStates = table;
+    for (let idx = 0; idx < visitedPos.length; idx += 1) {
+        table[visitedPos[idx]] |= visitedMasks[idx];
+    }
+    return -1;
+};
+
+/** Checks whether `(pos, progress)` is already known dead; otherwise records it for memoization. */
+const isKnownDeadOrTrackOpeningState = (
+    deadTable: Uint16Array | null,
+    progress: OpeningScanProgress,
+    pos: number,
+    visited: { positions: number[]; masks: number[] },
+): boolean => {
+    if (progress.scanState.unclosedQuoteGt !== -1) return false;
+    const mask = encodeOpeningScanMask(
+        progress.scanState.quote,
+        progress.tailQuote,
+    );
+    if (deadTable && (deadTable[pos] & mask) !== 0) return true;
+    visited.positions.push(pos);
+    visited.masks.push(mask);
+    return false;
+};
+
+/** Checks whether a closing `>` candidate `hit` at scan index `pos` has a valid opening tail. */
+const resolveOpeningHitOutcome = (
+    ctx: { input: string; afterNamePos: number },
+    pos: number,
+    hit: number,
+    tailQuote: string | null,
+): number => {
+    const valid =
+        hit === pos
+            ? tailQuote === null
+            : hasPlausibleHtmlTagTail(ctx.input, ctx.afterNamePos, hit, false);
+    return valid ? hit : -2;
+};
+
+/** Advances `progress` by one character (`>= 0` valid `>`, `-2` dead tail, `-1` continue). */
+const stepStandardOpeningChar = (
+    ctx: { input: string; afterNamePos: number },
+    progress: OpeningScanProgress,
+    pos: number,
+): number => {
+    const ch = ctx.input.charAt(pos);
+    const nextTailQuote = stepQuoteState(progress.tailQuote, ch);
+    if (
+        progress.scanState.unclosedQuoteGt === -1 &&
+        isDisallowedUnquotedChar(progress.tailQuote, nextTailQuote, ch)
+    ) {
+        return -2;
+    }
+    const hit = stepTagCloseAt(progress.scanState, ch, pos);
+    if (hit !== -1) {
+        return resolveOpeningHitOutcome(ctx, pos, hit, progress.tailQuote);
+    }
+    progress.tailQuote = nextTailQuote;
+    return -1;
+};
+
+/** Validates any fallback `unclosedQuoteGt` remaining at EOF, or returns `-2`. */
+const finalizeEofOpeningScan = (
+    ctx: { input: string; afterNamePos: number },
+    eofGt: number,
+): number =>
+    eofGt !== -1 &&
+    hasPlausibleHtmlTagTail(ctx.input, ctx.afterNamePos, eofGt, false)
+        ? eofGt
+        : -2;
+
+/** Runs the linear opening-tag scan loop and returns `>= 0` on match or `-2` on failure. */
+const runOpeningTagScanLoop = (
+    ctx: { input: string; afterNamePos: number },
+    deadTable: Uint16Array | null,
+    progress: OpeningScanProgress,
+    visited: { positions: number[]; masks: number[] },
+): number => {
+    for (let pos = ctx.afterNamePos; pos < ctx.input.length; pos += 1) {
+        const dead = isKnownDeadOrTrackOpeningState(
+            deadTable,
+            progress,
+            pos,
+            visited,
+        );
+        const outcome = dead
+            ? -2
+            : stepStandardOpeningChar(ctx, progress, pos);
+        if (outcome !== -1) return outcome;
+    }
+    return finalizeEofOpeningScan(ctx, progress.scanState.unclosedQuoteGt);
+};
+
+/** Scans for a plausible opening HTML tag `>` in linear amortized time across malformed inputs. */
+const findStandardOpeningTagGt = (
+    input: string,
+    afterNamePos: number,
+    cache: TagScanCache,
+): number => {
+    if (afterNamePos > cache.lastGtInInput) return -1;
+    const progress: OpeningScanProgress = {
+        scanState: { quote: null, unclosedQuoteGt: -1 },
+        tailQuote: null,
+    };
+    const visited = { positions: [] as number[], masks: [] as number[] };
+    const outcome = runOpeningTagScanLoop(
+        { input, afterNamePos },
+        cache.deadOpeningStates,
+        progress,
+        visited,
+    );
+    return outcome >= 0
+        ? outcome
+        : recordDeadOpeningStates(
+              cache,
+              input.length,
+              visited.positions,
+              visited.masks,
+          );
+};
+
+/** Scans a closing standard HTML tag tail (`</div  >`), aborting on any non-whitespace character. */
+const findStandardClosingTagGt = (
+    input: string,
+    start: number,
+    lastGtInInput: number,
+): number => {
+    if (start > lastGtInInput) return -1;
+    for (let pos = start; pos < input.length; pos += 1) {
+        const ch = input.charAt(pos);
+        if (ch === ">") return pos;
+        if (!/\s/.test(ch)) return -1;
+    }
+    return -1;
 };
 
 /** Checks whether the character immediately following an HTML tag name is a valid delimiter. */
@@ -1848,20 +2023,13 @@ const mapValidatedHtmlTagText = (
 const resolveStandardHtmlTagReplacement = (
     input: string,
     lt: number,
-    gt: number,
     header: ParsedHtmlTagHeader,
+    cache: TagScanCache,
 ): { chunk: string; nextCursor: number } => {
-    if (
-        gt === -1 ||
-        !hasPlausibleHtmlTagTail(
-            input,
-            header.afterNamePos,
-            gt,
-            header.isClosing,
-        )
-    ) {
-        return { chunk: "<", nextCursor: lt + 1 };
-    }
+    const gt = header.isClosing
+        ? findStandardClosingTagGt(input, header.afterNamePos, cache.lastGtInInput)
+        : findStandardOpeningTagGt(input, header.afterNamePos, cache);
+    if (gt === -1) return { chunk: "<", nextCursor: lt + 1 };
     return {
         chunk: mapValidatedHtmlTagText(input, lt, gt, header),
         nextCursor: gt + 1,
@@ -1875,52 +2043,48 @@ const needsPairedClosingSearch = (header: ParsedHtmlTagHeader): boolean =>
 /** Resolves the next scanner cursor when stripping a paired `<script>`/`<style>` tag. */
 const resolvePairedStripCursor = (
     input: string,
-    gt: number,
     header: ParsedHtmlTagHeader,
-    cachedLower: string | null,
-): { nextCursor: number; lowerInput: string | null } => {
-    if (gt === -1) return { nextCursor: input.length, lowerInput: cachedLower };
-    if (!needsPairedClosingSearch(header)) {
-        return { nextCursor: gt + 1, lowerInput: cachedLower };
-    }
-    const lowerInput = cachedLower ?? input.toLowerCase();
+    cache: TagScanCache,
+): number => {
+    const gt =
+        header.afterNamePos > cache.lastGtInInput
+            ? -1
+            : findHtmlTagClose(input, header.afterNamePos);
+    if (gt === -1) return input.length;
+    if (!needsPairedClosingSearch(header)) return gt + 1;
+    const lowerInput = cache.lowerInput ?? input.toLowerCase();
+    cache.lowerInput = lowerInput;
     const closeEnd = findPairedClosingTagEnd(lowerInput, header.tagName, gt + 1);
-    return { nextCursor: closeEnd !== -1 ? closeEnd : gt + 1, lowerInput };
+    return closeEnd !== -1 ? closeEnd : gt + 1;
 };
 
-/** Evaluates one `<` candidate at `lt` and returns `{ chunk, nextCursor, lowerInput }`. */
+/** Evaluates one `<` candidate at `lt` and returns `{ chunk, nextCursor }`. */
 const stepHtmlTagAt = (
     input: string,
     lt: number,
     insideCode: boolean,
-    cachedLower: string | null,
-): { chunk: string; nextCursor: number; lowerInput: string | null } => {
+    cache: TagScanCache,
+): { chunk: string; nextCursor: number } => {
     const header = insideCode ? null : parseHtmlTagHeaderAt(input, lt);
-    if (!header) {
-        return { chunk: "<", nextCursor: lt + 1, lowerInput: cachedLower };
-    }
-    const gt = findHtmlTagClose(input, header.afterNamePos);
+    if (!header) return { chunk: "<", nextCursor: lt + 1 };
     if (header.isPairedStripTag) {
-        const paired = resolvePairedStripCursor(input, gt, header, cachedLower);
         return {
             chunk: "",
-            nextCursor: paired.nextCursor,
-            lowerInput: paired.lowerInput,
+            nextCursor: resolvePairedStripCursor(input, header, cache),
         };
     }
-    const step = resolveStandardHtmlTagReplacement(input, lt, gt, header);
-    return {
-        chunk: step.chunk,
-        nextCursor: step.nextCursor,
-        lowerInput: cachedLower,
-    };
+    return resolveStandardHtmlTagReplacement(input, lt, header, cache);
 };
 
 /** Single linear character-scanner pass stripping raw HTML tags without regex backtracking. */
 const stripHtmlTagsOnce = (input: string): string => {
     const codeRanges = collectInlineCodeRanges(input);
+    const cache: TagScanCache = {
+        lastGtInInput: input.lastIndexOf(">"),
+        deadOpeningStates: null,
+        lowerInput: null,
+    };
     let rangeIndex = 0;
-    let lowerInput: string | null = null;
     let out = "";
     let cursor = 0;
 
@@ -1930,15 +2094,9 @@ const stripHtmlTagsOnce = (input: string): string => {
         out += input.slice(cursor, lt);
         const rangeCheck = advanceInlineCodeRange(codeRanges, rangeIndex, lt);
         rangeIndex = rangeCheck.nextRangeIndex;
-        const step = stepHtmlTagAt(
-            input,
-            lt,
-            rangeCheck.insideCode,
-            lowerInput,
-        );
+        const step = stepHtmlTagAt(input, lt, rangeCheck.insideCode, cache);
         out += step.chunk;
         cursor = step.nextCursor;
-        lowerInput = step.lowerInput;
     }
 
     return out;

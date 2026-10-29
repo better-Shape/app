@@ -36,7 +36,13 @@ import {
     type QuestionAnswers,
 } from "../blocks/questions";
 import { hostnameOf } from "@/lib/ui/favicon";
-import { decodeBasicXmlEntities } from "@/lib/chat/transcript-search";
+import {
+    decodeBasicXmlEntities,
+    parseWebResults,
+    type WebSearchResultItem,
+} from "@/lib/chat/transcript-search";
+
+export { parseWebResults, type WebSearchResultItem };
 
 export type Chunk = {
     type:
@@ -94,12 +100,6 @@ export type Chunk = {
     openuiSourceStart?: number;
     /** Stable offset in the original message used to key the rendered chunk. */
     sourceStart?: number;
-};
-
-export type WebSearchResultItem = {
-    title: string;
-    url: string;
-    snippet: string;
 };
 
 type TodoStepStatus = "done" | "active" | "pending" | "cancelled";
@@ -2190,31 +2190,6 @@ const mergeAdjacentTextChunks = (chunks: Chunk[]): Chunk[] => {
         }
     }
     return merged;
-};
-
-/** Parses a single `---`-delimited web search result section when a title or URL is present. */
-const parseSingleWebResultSection = (
-    block: string,
-): WebSearchResultItem | null => {
-    const titleMatch = block.match(/### (.*)/);
-    const urlMatch = block.match(/URL: (.*)/);
-    if (!titleMatch && !urlMatch) return null;
-    return {
-        title: titleMatch ? titleMatch[1].trim() : "Result",
-        url: urlMatch ? urlMatch[1].trim() : "",
-        snippet: block.replace(/### .*/, "").replace(/URL: .*/, "").trim(),
-    };
-};
-
-/** Parses `<web_result>` markdown sections into structured citation items. */
-export const parseWebResults = (blockContent: string): WebSearchResultItem[] => {
-    const results: WebSearchResultItem[] = [];
-    for (const block of blockContent.split("---")) {
-        if (!block) continue;
-        const parsed = parseSingleWebResultSection(block);
-        if (parsed) results.push(parsed);
-    }
-    return results;
 };
 
 /** Formats a `WebSearchResultItem` from a `web_visit` chunk. */

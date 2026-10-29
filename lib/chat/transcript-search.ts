@@ -422,3 +422,63 @@ export const findTranscriptMatches = (
 
     return results;
 };
+
+export type WebSearchResultItem = {
+    title: string;
+    url: string;
+    snippet: string;
+};
+
+/** Extracts the trimmed remainder of the first line containing `prefix`, or `null`. */
+const extractFirstPrefixedLine = (
+    block: string,
+    prefix: string,
+): string | null => {
+    const idx = block.indexOf(prefix);
+    if (idx === -1) return null;
+    const start = idx + prefix.length;
+    const lineEnd = block.indexOf("\n", start);
+    const raw =
+        lineEnd === -1 ? block.slice(start) : block.slice(start, lineEnd);
+    return raw.trim();
+};
+
+/** Removes the first `prefix...` single-line entry (excluding its trailing `\r\n`/`\n`) from `block`. */
+const stripFirstPrefixedLine = (block: string, prefix: string): string => {
+    const idx = block.indexOf(prefix);
+    if (idx === -1) return block;
+    const lineEnd = block.indexOf("\n", idx + prefix.length);
+    if (lineEnd === -1) return block.slice(0, idx);
+    const end = block.charAt(lineEnd - 1) === "\r" ? lineEnd - 1 : lineEnd;
+    return `${block.slice(0, idx)}${block.slice(end)}`;
+};
+
+/** Parses a single `---`-delimited web search result section when a title or URL is present. */
+const parseSingleWebResultSection = (
+    block: string,
+): WebSearchResultItem | null => {
+    const title = extractFirstPrefixedLine(block, "### ");
+    const url = extractFirstPrefixedLine(block, "URL:");
+    if (title === null && url === null) return null;
+    const withoutTitle = stripFirstPrefixedLine(block, "### ");
+    const snippet = stripFirstPrefixedLine(withoutTitle, "URL:").trim();
+    return {
+        title: title !== null ? title : "Result",
+        url: url !== null ? url : "",
+        snippet,
+    };
+};
+
+/** Parses `<web_result>` markdown sections into structured citation items. */
+export const parseWebResults = (
+    blockContent: string,
+): WebSearchResultItem[] => {
+    const results: WebSearchResultItem[] = [];
+    for (const block of blockContent.split("---")) {
+        if (!block) continue;
+        const parsed = parseSingleWebResultSection(block);
+        if (parsed) results.push(parsed);
+    }
+    return results;
+};
+
