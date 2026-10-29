@@ -1011,7 +1011,7 @@ const resolveClampedRangeAt = (
         Math.max(0, activeIndex ?? 0),
         collected.length - 1,
     );
-    return collected[clamped]?.range ?? null;
+    return collected[clamped].range;
 };
 
 /** Resolves the first `Range` inside `targetMessageIndex` when specified. */

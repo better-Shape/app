@@ -10,7 +10,7 @@ const ASSISTANT_HIDDEN_BLOCK_AT_RE =
 const ASSISTANT_EDIT_BLOCK_AT_RE = /<edit\b([^>]*)>[\s\S]*?<\/edit>/yi;
 const ASSISTANT_ACTION_TAG_AT_RE = /<bettershape_action\b[^>]*\/?>/yi;
 
-type AngleMatchReplacement = {
+export type AngleMatchReplacement = {
     replacement: string;
     end: number;
 };
@@ -110,57 +110,68 @@ const findNextInterestingOffset = (source: string, from: number): number => {
     return best;
 };
 
+/** Reads a fenced code block starting on the line at `cursor`, or `null` if not at a fence opener. */
+const tryReadFenceSliceAt = (
+    source: string,
+    cursor: number,
+): { text: string; end: number } | null => {
+    if (cursor !== 0 && source.charCodeAt(cursor - 1) !== 10) return null;
+    const fence = readOpeningFenceAt(source, cursor);
+    if (!fence) return null;
+    const end = findClosingFenceEnd(source, fence.afterLine, fence.char, fence.len);
+    return { text: source.slice(cursor, end), end };
+};
+
+/** Reads an inline backtick code span (or unmatched backtick run) starting at `cursor`. */
+const readInlineBacktickSliceAt = (
+    source: string,
+    cursor: number,
+): { text: string; end: number } => {
+    const runLen = countBacktickRun(source, cursor);
+    const closeEnd = findClosingInlineTicks(source, cursor + runLen, runLen);
+    const end = closeEnd !== -1 ? closeEnd : cursor + runLen;
+    return { text: source.slice(cursor, end), end };
+};
+
+/** Resolves `onAngleAt` at `<` offset `cursor`, falling back to literal `"<"`. */
+const stepAngleHookAt = (
+    source: string,
+    cursor: number,
+    onAngleAt: (input: string, offset: number) => AngleMatchReplacement | null,
+): { text: string; end: number } => {
+    const matched = onAngleAt(source, cursor);
+    return matched
+        ? { text: matched.replacement, end: matched.end }
+        : { text: "<", end: cursor + 1 };
+};
+
+/** Consumes one step (fenced block, inline code, `<` hook, or plain text) from `cursor`. */
+const stepMarkdownOutsideCodeAt = (
+    source: string,
+    cursor: number,
+    onAngleAt: (input: string, offset: number) => AngleMatchReplacement | null,
+): { text: string; end: number } => {
+    const fenced = tryReadFenceSliceAt(source, cursor);
+    if (fenced) return fenced;
+    const code = source.charCodeAt(cursor);
+    if (code === 96) return readInlineBacktickSliceAt(source, cursor);
+    if (code === 60) return stepAngleHookAt(source, cursor, onAngleAt);
+    const end = findNextInterestingOffset(source, cursor);
+    return { text: source.slice(cursor, end), end };
+};
+
 /** Scans `source` while skipping fenced/inline code and invoking `onAngleAt` at top-level `<`. */
-const scanMarkdownOutsideCode = (
+export const scanMarkdownOutsideCode = (
     source: string,
     onAngleAt: (input: string, offset: number) => AngleMatchReplacement | null,
 ): string => {
     const out: string[] = [];
     let cursor = 0;
-
     while (cursor < source.length) {
-        if (cursor === 0 || source.charCodeAt(cursor - 1) === 10) {
-            const fence = readOpeningFenceAt(source, cursor);
-            if (fence) {
-                const fenceEnd = findClosingFenceEnd(
-                    source,
-                    fence.afterLine,
-                    fence.char,
-                    fence.len,
-                );
-                out.push(source.slice(cursor, fenceEnd));
-                cursor = fenceEnd;
-                continue;
-            }
-        }
-
-        const code = source.charCodeAt(cursor);
-        if (code === 96) {
-            const runLen = countBacktickRun(source, cursor);
-            const closeEnd = findClosingInlineTicks(source, cursor + runLen, runLen);
-            const spanEnd = closeEnd !== -1 ? closeEnd : cursor + runLen;
-            out.push(source.slice(cursor, spanEnd));
-            cursor = spanEnd;
-            continue;
-        }
-
-        if (code === 60) {
-            const matched = onAngleAt(source, cursor);
-            if (matched) {
-                out.push(matched.replacement);
-                cursor = matched.end;
-                continue;
-            }
-            out.push("<");
-            cursor += 1;
-            continue;
-        }
-
-        const nextStop = findNextInterestingOffset(source, cursor);
-        out.push(source.slice(cursor, nextStop));
-        cursor = nextStop;
+        const step = stepMarkdownOutsideCodeAt(source, cursor, onAngleAt);
+        out.push(step.text);
+        cursor = step.end;
     }
-
     return out.join("");
 };
 
@@ -178,10 +189,10 @@ const matchAttachmentBlockAt = (
 ): AngleMatchReplacement | null => {
     const match = execStickyAt(ATTACHED_BLOCK_AT_RE, input, offset);
     if (!match) return null;
-    const kind = match[1] ?? "file";
-    const attrs = match[2] ?? "";
-    const nameMatch = /\bname=["']([^"']+)["']/i.exec(attrs);
-    const label = nameMatch?.[1]?.trim() || kind;
+    const kind = match[1] || "file";
+    const attrs = match[2];
+    const nameMatch = attrs.match(/\bname=["']([^"']+)["']/i);
+    const label = nameMatch?.[1].trim() || kind;
     attachmentNotes.push(`_Attached: \`${label}\`_`);
     return { replacement: "", end: offset + match[0].length };
 };
@@ -196,9 +207,9 @@ const matchAssistantControlAt = (
 
     const editMatch = execStickyAt(ASSISTANT_EDIT_BLOCK_AT_RE, input, offset);
     if (editMatch) {
-        const attrs = editMatch[1] ?? "";
-        const fileMatch = /\bfile=["']([^"']+)["']/i.exec(attrs);
-        const filePath = fileMatch?.[1]?.trim() ?? "";
+        const attrs = editMatch[1];
+        const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
+        const filePath = fileMatch?.[1].trim() ?? "";
         return {
             replacement: filePath ? `\n> Edited \`${filePath}\`\n` : "",
             end: offset + editMatch[0].length,

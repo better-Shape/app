@@ -2,6 +2,8 @@
  * Searchable text extraction and match indexing for in-conversation find.
  */
 
+import { type AngleMatchReplacement, scanMarkdownOutsideCode } from "./export-markdown";
+
 export interface TranscriptMatch {
     messageIndex: number;
     role: string;
@@ -16,7 +18,9 @@ export interface TranscriptSearchOptions {
     maxMatches?: number;
 }
 
-const HIDDEN_AGENT_TAG_NAMES = [
+type PairedTagFormatter = (openTag: string, inner: string) => string;
+
+const HIDDEN_PAIRED_TAG_NAMES = [
     "tool_result",
     "terminal_read",
     "terminal_input",
@@ -37,13 +41,32 @@ const HIDDEN_AGENT_TAG_NAMES = [
     "tools",
     "new_path",
     "file_content",
+    "attached_image",
+    "attached_file",
+    "attached_asset",
+    "thinking",
+    "thought",
+    "think",
+    "analysis",
+    "rename_chat",
+    "todos",
 ] as const;
 
-const INLINE_SYSTEM_MARKER_RE = /<(?:chat_renamed|forked_from)(?:[ \t][^<>]*)?\/>/giu;
+const SELF_CLOSING_MARKER_TAGS = new Set(["chat_renamed", "forked_from"]);
+const TAG_BOUNDARY_CHARS = new Set([">", " ", "\t", "\n", "\r", "/"]);
+const ATTR_QUOTES = new Set(['"', "'"]);
+const UNQUOTED_TAG_OUTCOMES: Partial<Record<string, 1 | -1>> = {
+    ">": 1,
+    "<": -1,
+};
+
+const LOWER_TAG_NAME_CHARS = new Set(
+    "abcdefghijklmnopqrstuvwxyz0123456789_:-",
+);
 const SENT_FILE_TITLE_ATTR_RE = /\btitle=(["'])([^"']*)\1/i;
 const SENT_FILE_NAME_ATTR_RE = /\bname=(["'])([^"']*)\1/i;
-
-const TAG_BOUNDARY_CHARS = new Set([">", " ", "\t", "\n", "\r", "/"]);
+const EDIT_FILE_ATTR_RE = /\bfile=(["'])([^"']*)\1/i;
+const CAT_PATH_ATTR_RE = /\bpath=(["'])([^"']*)\1/i;
 
 /** Decodes basic XML entities inside an extracted tag attribute value. */
 export const decodeBasicXmlEntities = (raw: string): string =>
@@ -76,6 +99,67 @@ const formatSentFileSearchLabel = (openTag: string): string => {
     return label ? ` ${label} ` : " ";
 };
 
+/** Formats the edited file path rendered by `<edit file="...">` for search indexing. */
+const formatEditSearchLabel = (openTag: string): string => {
+    const filePath = readDecodedTagAttr(openTag, EDIT_FILE_ATTR_RE);
+    return filePath ? ` ${filePath} ` : " ";
+};
+
+/** Formats the file path rendered by `<cat path="...">` for search indexing. */
+const formatCatSearchLabel = (openTag: string, inner: string): string => {
+    const label = readDecodedTagAttr(openTag, CAT_PATH_ATTR_RE) || inner.trim();
+    return label ? ` ${label} ` : " ";
+};
+
+const PAIRED_TAG_FORMATTERS: ReadonlyMap<string, PairedTagFormatter> = new Map<
+    string,
+    PairedTagFormatter
+>([
+    ...HIDDEN_PAIRED_TAG_NAMES.map((tag): [string, PairedTagFormatter] => [
+        tag,
+        () => " ",
+    ]),
+    ["sent_file", (openTag) => formatSentFileSearchLabel(openTag)],
+    ["edit", (openTag) => formatEditSearchLabel(openTag)],
+    ["cat", formatCatSearchLabel],
+]);
+
+/** Reads a lowercase XML tag name immediately after `<` at `offset`, or `""` if invalid. */
+const readLowerTagNameAt = (lower: string, offset: number): string => {
+    let end = offset + 1;
+    while (LOWER_TAG_NAME_CHARS.has(lower.charAt(end))) {
+        end += 1;
+    }
+    if (end === offset + 1) return "";
+    return TAG_BOUNDARY_CHARS.has(lower.charAt(end))
+        ? lower.slice(offset + 1, end)
+        : "";
+};
+
+/** Advances attribute quote state (`""`, `'"'`, or `"'"`) for one tag-header character. */
+const nextAttrQuoteState = (quote: string, ch: string): string => {
+    if (quote) return ch === quote ? "" : quote;
+    return ATTR_QUOTES.has(ch) ? ch : "";
+};
+
+/** Classifies one tag-header character (`1` hit `>`, `-1` abort, `0` continue). */
+const classifyOpenTagChar = (quote: string, ch: string): 1 | -1 | 0 => {
+    if (quote) return ch === "\n" ? -1 : 0;
+    return UNQUOTED_TAG_OUTCOMES[ch] ?? 0;
+};
+
+/** Finds the closing `>` of an opening XML tag starting at `from`, or `-1` if malformed. */
+const findOpenTagCloseGt = (source: string, from: number): number => {
+    let quote = "";
+    for (let idx = from; idx < source.length; idx += 1) {
+        const ch = source.charAt(idx);
+        const status = classifyOpenTagChar(quote, ch);
+        if (status !== 0) return status === 1 ? idx : -1;
+        quote = nextAttrQuoteState(quote, ch);
+    }
+    return -1;
+};
+
 /** Finds the next valid `<tag` opener with a tag-boundary delimiter at or after `from`. */
 const findNextOpenTagAt = (
     lower: string,
@@ -91,95 +175,116 @@ const findNextOpenTagAt = (
     return -1;
 };
 
-/** Finds the matching `</tag>` start index after opening `>` at `gtIdx`, or `-1`. */
-const findPairedTagCloseFromGt = (
+/** Finds the next valid `</tag>` closer at or after `from`, returning `[closeStart, closeEnd]`. */
+const findNextCloseTagBounds = (
     lower: string,
-    gtIdx: number,
-    closeToken: string,
-): number => (gtIdx === -1 ? -1 : lower.indexOf(closeToken, gtIdx + 1));
+    closePrefix: string,
+    from: number,
+): readonly [number, number] | null => {
+    let idx = lower.indexOf(closePrefix, from);
+    while (idx !== -1) {
+        const afterName = idx + closePrefix.length;
+        const gt = lower.indexOf(">", afterName);
+        if (gt === -1) return null;
+        if (/^[ \t\r\n]*$/u.test(lower.slice(afterName, gt))) {
+            return [idx, gt + 1];
+        }
+        idx = lower.indexOf(closePrefix, afterName);
+    }
+    return null;
+};
 
-/** Replaces paired `<tag ...>...</tag>` blocks for a single lowercase `tag` in linear time. */
-const replaceSinglePairedTag = (
-    text: string,
+/** Counts non-self-closing nested `<tag ...>` openers inside `lower[from..limit)`. */
+const countNestedOpenersBefore = (
+    source: string,
+    lower: string,
+    openPrefix: string,
+    from: number,
+    limit: number,
+): number => {
+    let added = 0;
+    let openIdx = findNextOpenTagAt(lower, openPrefix, from);
+    while (openIdx !== -1 && openIdx < limit) {
+        const gt = findOpenTagCloseGt(source, openIdx + openPrefix.length);
+        if (gt === -1) break;
+        added += Number(source.charAt(gt - 1) !== "/");
+        openIdx = findNextOpenTagAt(lower, openPrefix, gt + 1);
+    }
+    return added;
+};
+
+/** Finds balanced `[closeStart, closeEnd]` for `<tag>` opened at `afterOpenGt`, or `null`. */
+const findBalancedPairedClose = (
+    source: string,
+    lower: string,
+    afterOpenGt: number,
     tag: string,
-    renderOpenTag: (openTag: string) => string,
-): string => {
-    const lower = text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
+): readonly [number, number] | null => {
     const openPrefix = `<${tag}`;
-    let openIdx = findNextOpenTagAt(lower, openPrefix, 0);
-    if (openIdx === -1) return text;
-    const closeToken = `</${tag}>`;
-    const parts: string[] = [];
-    let cursor = 0;
-    while (openIdx !== -1) {
-        const gtIdx = lower.indexOf(">", openIdx + openPrefix.length);
-        const closeIdx = findPairedTagCloseFromGt(lower, gtIdx, closeToken);
-        if (closeIdx === -1) break;
-        parts.push(
-            text.slice(cursor, openIdx),
-            renderOpenTag(text.slice(openIdx, gtIdx + 1)),
-        );
-        cursor = closeIdx + closeToken.length;
-        openIdx = findNextOpenTagAt(lower, openPrefix, cursor);
+    const closePrefix = `</${tag}`;
+    let depth = 1;
+    let cursor = afterOpenGt;
+    while (depth > 0) {
+        const close = findNextCloseTagBounds(lower, closePrefix, cursor);
+        if (!close) return null;
+        depth +=
+            countNestedOpenersBefore(source, lower, openPrefix, cursor, close[0]) - 1;
+        cursor = close[1];
+        if (depth === 0) return close;
     }
-    parts.push(text.slice(cursor));
-    return parts.join("");
+    return null;
 };
 
-/** Strips all hidden backend tool/payload XML blocks from `segment` without regex backtracking. */
-const stripHiddenPayloadTags = (segment: string): string => {
-    if (!segment.includes("<")) return segment;
-    let out = replaceSinglePairedTag(
-        segment,
-        "sent_file",
-        formatSentFileSearchLabel,
-    );
-    for (const tag of HIDDEN_AGENT_TAG_NAMES) {
-        out = replaceSinglePairedTag(out, tag, () => " ");
+/** Matches `<chat_renamed .../>`, `<forked_from .../>`, or `<bettershape_action ...>` at `openGt`. */
+const matchInlineActionTag = (
+    source: string,
+    tagName: string,
+    openGt: number,
+): AngleMatchReplacement | null => {
+    if (tagName === "bettershape_action") {
+        return { replacement: " ", end: openGt + 1 };
     }
-    return out;
+    if (!SELF_CLOSING_MARKER_TAGS.has(tagName)) return null;
+    return source.charAt(openGt - 1) === "/"
+        ? { replacement: " ", end: openGt + 1 }
+        : null;
 };
 
-/** Strips hidden agent control tags on a non-fenced text slice. */
-const stripControlTagsSlice = (segment: string): string =>
-    stripHiddenPayloadTags(segment)
-        .replace(/<attached_(image|file|asset)\b[^>]*>[\s\S]*?<\/attached_\1>/gi, " ")
-        .replace(/<(thinking|thought|think|analysis)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-        .replace(/<rename_chat\b[^>]*>[\s\S]*?<\/rename_chat>/gi, " ")
-        .replace(/<todos\b[^>]*>[\s\S]*?<\/todos>/gi, " ")
-        .replace(INLINE_SYSTEM_MARKER_RE, " ")
-        .replace(/<bettershape_action\b[^>]*\/?>/gi, " ")
-        .replace(
-            /<edit\b([^>]*)>[\s\S]*?<\/edit>/gi,
-            (_match, attrs: string) => {
-                const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
-                return fileMatch?.[1] ? ` ${fileMatch[1]} ` : " ";
-            },
-        )
-        .replace(
-            /<cat\b([^>]*)>([\s\S]*?)<\/cat>/gi,
-            (_match, attrs: string, inner: string) => {
-                const pathMatch = attrs.match(/\bpath=["']([^"']+)["']/i);
-                if (pathMatch?.[1]) return ` ${pathMatch[1]} `;
-                const trimmedInner = inner.trim();
-                return trimmedInner ? ` ${trimmedInner} ` : " ";
-            },
-        );
+/** Matches a paired control/tool tag opened at `[offset, openGt]` across any inner fences. */
+const matchPairedControlTag = (
+    source: string,
+    lower: string,
+    tagName: string,
+    offset: number,
+    openGt: number,
+    formatter: PairedTagFormatter,
+): AngleMatchReplacement | null => {
+    const openTag = source.slice(offset, openGt + 1);
+    if (source.charAt(openGt - 1) === "/") {
+        return { replacement: formatter(openTag, ""), end: openGt + 1 };
+    }
+    const close = findBalancedPairedClose(source, lower, openGt + 1, tagName);
+    if (!close) return null;
+    return {
+        replacement: formatter(openTag, source.slice(openGt + 1, close[0])),
+        end: close[1],
+    };
+};
 
-/** Parse markdown fence line. */
-const parseMarkdownFenceLine = (
-    line: string,
-): { char: string; length: number; rest: string } | null => {
-    let idx = 0;
-    while (idx < 4 && idx < line.length && line.charCodeAt(idx) === 32) idx += 1;
-    if (idx > 3 || idx >= line.length) return null;
-    const ch = line.charAt(idx);
-    if (ch !== "`" && ch !== "~") return null;
-    let fenceEnd = idx;
-    while (fenceEnd < line.length && line.charAt(fenceEnd) === ch) fenceEnd += 1;
-    const runLen = fenceEnd - idx;
-    if (runLen < 3) return null;
-    return { char: ch, length: runLen, rest: line.slice(fenceEnd) };
+/** Matches any hidden or summarized control/tool XML block starting at top-level `<` `offset`. */
+const matchTranscriptControlTagAt = (
+    source: string,
+    lower: string,
+    offset: number,
+): AngleMatchReplacement | null => {
+    const tagName = readLowerTagNameAt(lower, offset);
+    if (!tagName) return null;
+    const openGt = findOpenTagCloseGt(source, offset + 1 + tagName.length);
+    if (openGt === -1) return null;
+    const pairedFormatter = PAIRED_TAG_FORMATTERS.get(tagName);
+    return pairedFormatter
+        ? matchPairedControlTag(source, lower, tagName, offset, openGt, pairedFormatter)
+        : matchInlineActionTag(source, tagName, openGt);
 };
 
 /**
@@ -189,42 +294,10 @@ const parseMarkdownFenceLine = (
 export const extractSearchableMessageText = (raw: string): string => {
     if (!raw) return "";
     const normalized = raw.replace(/\r\n?/g, "\n");
-    const lines = normalized.split("\n");
-    const out: string[] = [];
-    const proseBuf: string[] = [];
-    let fenceChar = "";
-    let fenceLen = 0;
-
-    for (const line of lines) {
-        const fence = parseMarkdownFenceLine(line);
-        if (!fenceChar && fence) {
-            if (proseBuf.length > 0) {
-                out.push(stripControlTagsSlice(proseBuf.join("\n")));
-                proseBuf.length = 0;
-            }
-            fenceChar = fence.char;
-            fenceLen = fence.length;
-            out.push(line);
-        } else if (
-            fenceChar &&
-            fence &&
-            fence.char === fenceChar &&
-            fence.length >= fenceLen &&
-            fence.rest.trim().length === 0
-        ) {
-            fenceChar = "";
-            fenceLen = 0;
-            out.push(line);
-        } else if (fenceChar) {
-            out.push(line);
-        } else {
-            proseBuf.push(line);
-        }
-    }
-    if (proseBuf.length > 0) {
-        out.push(stripControlTagsSlice(proseBuf.join("\n")));
-    }
-    return out.join("\n").trim();
+    const lower = normalized.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
+    return scanMarkdownOutsideCode(normalized, (src, offset) =>
+        matchTranscriptControlTagAt(src, lower, offset),
+    ).trim();
 };
 
 /** Build match snippet. */
