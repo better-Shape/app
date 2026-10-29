@@ -8,6 +8,73 @@ import {
     type UnifiedDiffRow,
 } from "@/lib/ui/diff-count";
 
+type RenderableDiffRowType = Exclude<UnifiedDiffRow["type"], "hunk">;
+
+const DIFF_ROW_STYLES: Record<
+    RenderableDiffRowType,
+    {
+        marker: string;
+        srPrefix: string;
+        rowClass: string;
+        markerClass: string;
+    }
+> = {
+    add: {
+        marker: "+",
+        srPrefix: "Added line ",
+        rowClass: "bg-success/10 text-success",
+        markerClass: "text-success/80",
+    },
+    remove: {
+        marker: "-",
+        srPrefix: "Removed line ",
+        rowClass: "bg-error/10 text-error",
+        markerClass: "text-error/80",
+    },
+    context: {
+        marker: " ",
+        srPrefix: "",
+        rowClass: "text-text-secondary",
+        markerClass: "text-text-disabled",
+    },
+};
+
+/** Resolves the displayed line number for a renderable diff row. */
+const resolveDiffLineNumber = (row: UnifiedDiffRow): number | undefined =>
+    row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
+
+/** Renders a single unified diff line with visual marker and screen-reader change label. */
+const DiffLineRow = ({
+    row,
+    rowType,
+}: {
+    row: UnifiedDiffRow;
+    rowType: RenderableDiffRowType;
+}) => {
+    const style = DIFF_ROW_STYLES[rowType];
+    const lineNum = resolveDiffLineNumber(row);
+    return (
+        <div className={cn("flex min-w-full", style.rowClass)}>
+            <span className="w-8 shrink-0 select-none px-1.5 text-right tabular-nums text-text-disabled">
+                {lineNum ?? ""}
+            </span>
+            {style.srPrefix ? (
+                <span className="sr-only">{style.srPrefix}</span>
+            ) : null}
+            <span
+                aria-hidden
+                className={cn(
+                    "w-4 shrink-0 select-none text-center",
+                    style.markerClass,
+                )}
+            >
+                {style.marker}
+            </span>
+            <span className="whitespace-pre pr-3">{row.line || " "}</span>
+        </div>
+    );
+};
+
 /** Renders the DiffRows UI component. */
 const DiffRows = ({ rows }: { rows: UnifiedDiffRow[] }) => {
     if (rows.length === 0) return null;
@@ -15,38 +82,17 @@ const DiffRows = ({ rows }: { rows: UnifiedDiffRow[] }) => {
     return (
         <div className="custom-scrollbar relative mt-1 mb-1 max-h-56 w-full overflow-auto squircle-xl border border-border-subtle bg-surface-2/60 py-1.5 font-mono text-xs leading-5">
             <div className="min-w-full w-max">
-                {rows.map((row) => {
-                    if (row.type === "hunk") return null;
-                    const num = row.type === "remove" ? row.oldNum : row.newNum ?? row.oldNum;
-                    const marker = row.type === "add" ? "+" : row.type === "remove" ? "-" : " ";
-                    return (
-                        <div
-                            key={keyFor(`${row.type}:${row.oldNum ?? ""}:${row.newNum ?? ""}`)}
-                            className={cn(
-                                "flex min-w-full",
-                                row.type === "add" && "bg-success/10 text-success",
-                                row.type === "remove" && "bg-error/10 text-error",
-                                row.type === "context" && "text-text-secondary",
+                {rows.map((row) =>
+                    row.type === "hunk" ? null : (
+                        <DiffLineRow
+                            key={keyFor(
+                                `${row.type}:${row.oldNum ?? ""}:${row.newNum ?? ""}`,
                             )}
-                        >
-                            <span className="w-8 shrink-0 select-none px-1.5 text-right tabular-nums text-text-disabled">
-                                {num ?? ""}
-                            </span>
-                            <span
-                                aria-hidden
-                                className={cn(
-                                    "w-4 shrink-0 select-none text-center",
-                                    row.type === "add" && "text-success/80",
-                                    row.type === "remove" && "text-error/80",
-                                    row.type === "context" && "text-text-disabled",
-                                )}
-                            >
-                                {marker}
-                            </span>
-                            <span className="whitespace-pre pr-3">{row.line || " "}</span>
-                        </div>
-                    );
-                })}
+                            row={row}
+                            rowType={row.type}
+                        />
+                    ),
+                )}
             </div>
         </div>
     );

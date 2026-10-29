@@ -1775,14 +1775,13 @@ const recordDeadOpeningStates = (
     inputLength: number,
     visitedPos: number[],
     visitedMasks: number[],
-): -1 => {
-    if (visitedPos.length < 32) return -1;
+): void => {
+    if (visitedPos.length < 32) return;
     const table = cache.deadOpeningStates ?? new Uint16Array(inputLength);
     cache.deadOpeningStates = table;
     for (let idx = 0; idx < visitedPos.length; idx += 1) {
         table[visitedPos[idx]] |= visitedMasks[idx];
     }
-    return -1;
 };
 
 /** Checks whether `(pos, progress)` is already known dead; otherwise records it for memoization. */
@@ -1889,14 +1888,14 @@ const findStandardOpeningTagGt = (
         progress,
         visited,
     );
-    return outcome >= 0
-        ? outcome
-        : recordDeadOpeningStates(
-              cache,
-              input.length,
-              visited.positions,
-              visited.masks,
-          );
+    if (outcome >= 0) return outcome;
+    recordDeadOpeningStates(
+        cache,
+        input.length,
+        visited.positions,
+        visited.masks,
+    );
+    return -1;
 };
 
 /** Scans a closing standard HTML tag tail (`</div  >`), aborting on any non-whitespace character. */
