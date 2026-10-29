@@ -369,7 +369,7 @@ describe("strip equivalence", () => {
         const sampleFragments = (count: number): string =>
             Array.from(
                 { length: count },
-                () => fragments[Math.floor(nextRand() * fragments.length)] ?? "",
+                () => fragments[Math.floor(nextRand() * fragments.length)],
             ).join("");
         for (let iter = 0; iter < 2000; iter += 1) {
             const text = sampleFragments(1 + Math.floor(nextRand() * 12));
@@ -387,7 +387,7 @@ describe("strip equivalence", () => {
             const parts: string[] = [];
             for (let slot = 0; slot < 4; slot++) {
                 const idx = Math.floor(nextRandom() * cases.length);
-                parts.push(cases[idx] ?? "");
+                parts.push(cases[idx]);
             }
             const text = parts.join(nextRandom() > 0.5 ? "\n" : " ");
             expect(stripLeakedToolCode(text), text).toBe(referenceCode(text));

@@ -916,7 +916,7 @@ const parseWebVisitBlock = (tagFull: string, isGenerating: boolean): Chunk => {
 /** Finds the index of the last non-blank line in `lines`, or `-1` when all lines are blank. */
 const findLastNonEmptyLineIndex = (lines: string[]): number => {
     for (let idx = lines.length - 1; idx >= 0; idx -= 1) {
-        if ((lines[idx] ?? "").trim().length > 0) return idx;
+        if (lines[idx].trim().length > 0) return idx;
     }
     return -1;
 };
@@ -925,7 +925,7 @@ const APPROVAL_COMMAND_STATUSES = new Set(["pending", "blocked"]);
 
 /** Reads the last non-blank line at `footerIdx`, or `""` when `footerIdx < 0`. */
 const readLineAtOrEmpty = (lines: string[], idx: number): string =>
-    idx >= 0 ? captureOrEmpty(lines[idx]) : "";
+    idx >= 0 ? lines[idx] : "";
 
 /** Extracts trailing approval/blocked footer metadata from a pending or blocked terminal block. */
 const extractApprovalFooter = (
@@ -962,7 +962,7 @@ const collectCompletedShellCommand = (rawLines: string[]): string => {
     if (nonEmptyStart === -1) return "";
     const collected: string[] = [];
     for (let idx = nonEmptyStart; idx < rawLines.length; idx += 1) {
-        const line = rawLines[idx] ?? "";
+        const line = rawLines[idx];
         collected.push(line);
         if (!/\\\s*$/.test(line)) break;
     }

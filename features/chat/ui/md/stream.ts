@@ -1568,26 +1568,37 @@ const demoteIndentedMarkdown = (text: string): string => {
     );
 };
 
-/** Checks whether `trimmed` starts and ends with valid standalone triple-backtick fence lines. */
-const hasOuterTripleBacktickBounds = (
+/** Checks whether `trimmed` is covered end-to-end by a single closed Markdown code fence. */
+const isSingleClosedOuterFence = (trimmed: string): boolean => {
+    const { ranges, fenceStart } = scanMarkdownCodeFences(trimmed, 0);
+    if (fenceStart !== -1) return false;
+    if (ranges.length !== 1) return false;
+    const [start, end] = ranges[0];
+    return start === 0 && end === trimmed.length;
+};
+
+/** Checks whether `trimmed` starts and ends with standalone unlabeled triple-backtick fence lines. */
+const hasUnlabeledOuterTripleBacktickBounds = (
     trimmed: string,
     firstNl: number,
     closeFenceIdx: number,
 ): boolean => {
-    if (firstNl === -1 || firstNl >= closeFenceIdx - 1) return false;
+    if (firstNl < 3 || firstNl >= closeFenceIdx - 1) return false;
     if (trimmed.charAt(closeFenceIdx - 1) !== "\n") return false;
-    return /^[\w-]*$/u.test(trimmed.slice(3, firstNl).trim());
+    return trimmed.slice(0, firstNl).trimEnd() === "```";
 };
 
-/** Extracts inner body of a standalone ` ```lang\n...\n``` ` block, or `null` when not matching. */
+/** Extracts inner body of a single unlabeled ` ```\n...\n``` ` wrapper, or `null` when labeled or split. */
 const extractOuterTripleBacktickBody = (trimmed: string): string | null => {
     if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) return null;
     const firstNl = trimmed.indexOf("\n");
     const closeFenceIdx = trimmed.length - 3;
-    if (!hasOuterTripleBacktickBounds(trimmed, firstNl, closeFenceIdx)) {
+    if (!hasUnlabeledOuterTripleBacktickBounds(trimmed, firstNl, closeFenceIdx)) {
         return null;
     }
-    return trimmed.slice(firstNl + 1, closeFenceIdx - 1);
+    return isSingleClosedOuterFence(trimmed)
+        ? trimmed.slice(firstNl + 1, closeFenceIdx - 1)
+        : null;
 };
 
 /** Unwraps an accidental outer triple-backtick fence wrapping ordinary prose Markdown. */

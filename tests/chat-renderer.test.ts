@@ -361,9 +361,21 @@ describe("preprocessChatMarkdown", () => {
         expect(preprocessChatMarkdown(input)).toContain("## Step 3\n- item one");
     });
 
-    it("unwraps outer prose code fence", () => {
+    it("unwraps outer prose code fence while preserving explicitly labeled or multi-fence blocks", () => {
         const input = "```\n## Title\n\nBody\n```";
         expect(preprocessChatMarkdown(input)).toBe("## Title\n\nBody");
+
+        const labeledMarkdown = "```markdown\n# Sample Heading\n\n- item one\n```";
+        expect(preprocessChatMarkdown(labeledMarkdown)).toBe(labeledMarkdown);
+
+        const labeledMd = "```md\n## Changelog\n\n1. First entry\n```";
+        expect(preprocessChatMarkdown(labeledMd)).toBe(labeledMd);
+
+        const labeledBash = "```bash\n# Install dependencies\nnpm ci\n```";
+        expect(preprocessChatMarkdown(labeledBash)).toBe(labeledBash);
+
+        const twoUnlabeledFences = "```\nconst a = 1;\n```\n\n## Middle Heading\n\n```\nconst b = 2;\n```";
+        expect(preprocessChatMarkdown(twoUnlabeledFences)).toBe(twoUnlabeledFences);
     });
 
     it("strips leaked tool markup while preserving prose around malformed tags", () => {

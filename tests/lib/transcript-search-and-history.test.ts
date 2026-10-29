@@ -55,6 +55,35 @@ describe("transcript-search", () => {
         expect(sentSearchable).toContain("Quarterly -> Annual &gt; Summary");
         expect(sentSearchable).toContain("quarterly->report.pdf");
         expect(sentSearchable).not.toContain("SECRET_BASE64_PAYLOAD");
+
+        const crossFenceHidden = [
+            "Working on styles.",
+            "<tool_result>",
+            "[edit_file] ERROR: snippet:",
+            "```css",
+            ".leaked_cross_fence_selector { color: red; }",
+            "```",
+            "<tool_result>nested_inner_payload</tool_result>",
+            "trailing_hidden_tool_note",
+            "</tool_result>",
+            '<attached_file name="guide.md">',
+            "```ts",
+            "const hidden_attachment_symbol = 42;",
+            "```",
+            "</attached_file>",
+            "```xml",
+            "<tool_result>visible_fenced_tool_sample</tool_result>",
+            "```",
+            "Retrying the edit.",
+        ].join("\n");
+        const crossFenceSearchable = extractSearchableMessageText(crossFenceHidden);
+        expect(crossFenceSearchable).toContain("Working on styles.");
+        expect(crossFenceSearchable).toContain("Retrying the edit.");
+        expect(crossFenceSearchable).toContain("visible_fenced_tool_sample");
+        expect(crossFenceSearchable).not.toContain("leaked_cross_fence_selector");
+        expect(crossFenceSearchable).not.toContain("nested_inner_payload");
+        expect(crossFenceSearchable).not.toContain("trailing_hidden_tool_note");
+        expect(crossFenceSearchable).not.toContain("hidden_attachment_symbol");
     });
 
     it("indexes multiple case-insensitive matches across user and assistant messages", () => {
