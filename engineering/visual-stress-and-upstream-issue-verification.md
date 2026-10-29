@@ -1,6 +1,8 @@
 # Visual stress campaigns and upstream issue verification
 
-## Conclusion
+This guide is binding for broad UI, layout, streaming, markdown, editor, git, and cross-route work. Read it alongside `AGENTS.md`, `DESIGN.md`, `engineering/design-system-baseline.md`, and `engineering/deep-refinement-protocol.md`.
+
+## Why baseline suites are not enough
 
 Unit tests in `tests/` and the three `1280x720` snapshots in `e2e/visual.spec.ts` do not catch narrow-window clipping, wide GFM table bleed, mid-stream sanitizer corruption, tall composer overflow, off-screen Radix menus, or standalone `/popout` provider crashes. Broad UI, layout, streaming, markdown, editor, git, or cross-route changes must run a Playwright Chromium visual stress campaign combining wild adversarial inputs with real bug reports mined from comparable repositories, then inspect the rendered pixels directly and fix root-cause classes before pushing.
 
@@ -17,12 +19,12 @@ Unit tests in `tests/` and the three `1280x720` snapshots in `e2e/visual.spec.ts
 
 ## Evidence from PR 53
 
-On branch `arena/c0114966-app` in [PR 53](https://github.com/better-Shape/app/pull/53), commits `1b8d0ce18e18670df1ad52970b48942561479514`, `b3fdd4ac6ea454d6aad0b0c130b6a346572875e3`, and `c0ad8e12b0ec637c523bd92ddd51efeb4cdcb726` ran 265 Chromium scenarios across 150 adversarial cases and 115 scenarios derived from 300 upstream issues after unit and baseline E2E suites were already green.
+On branch `arena/c0114966-app` in [PR 53](https://github.com/better-Shape/app/pull/53), commits `1b8d0ce18e18670df1ad52970b48942561479514`, `b3fdd4ac6ea454d6aad0b0c130b6a346572875e3`, `c0ad8e12b0ec637c523bd92ddd51efeb4cdcb726`, and `0c6f3fea589c92d746b2cad020bb3b0099a68c9f` ran 265 Chromium scenarios across 150 adversarial cases and 115 scenarios derived from 300 upstream issues after unit and baseline E2E suites were already green.
 
 | Defect class uncovered by the 265-scenario run | Root cause | Fix verified in `tests/features/layout-resilience-and-stream-tables.test.tsx` and `e2e/responsive-resilience.spec.ts` |
 | --- | --- | --- |
 | `/popout?file=...` crashed in standalone and browser-preview windows | `app/popout/popout-page.tsx` rendered workbench components without `installBrowserPreviewMocks()`, `AgentProvider`, or `TooltipProvider` | Wrapped `PopoutPage` in `AgentProvider` and `TooltipProvider` after preview mock bootstrap |
-| Pinned `260px` sidebar crushed main workspace below `684px` window width, and status bar clipped right-cluster labels mid-word | `features/agent/layout.tsx` forced the pinned sidebar open regardless of window width, and `features/agent/workbench/status/ui/status.tsx` lacked priority folding | Added `MIN_SIDEBAR_WINDOW = 684` auto-fold with hover peek and `@container/statusbar` folding of secondary items while keeping `1280x720` `workbench.png` identical |
+| Pinned `260px` sidebar crushed main workspace below `684px` window width, and status bar clipped right-cluster labels mid-word | `features/agent/layout.tsx` forced the pinned sidebar open regardless of window width, and `features/agent/workbench/status/ui/status.tsx` lacked priority folding | Added `MIN_SIDEBAR_WINDOW = 684` auto-fold with hover and keyboard toggle plus `Escape` dismissal, and `@container/status` ancestor grid centering with secondary-item folding while keeping `1280x720` `workbench.png` identical |
 | Streaming duplicate-span repair mangled ASCII tables and hex dumps, and wide GFM tables overflowed chat and Markdown previews | `collapseAdjacentDuplicateSpan` ran inside code fences and pipe rows, `MarkdownPreview` omitted `remarkGfm`, and table wrappers lacked horizontal scroll containment | Guarded `stream.ts` via `mapOutsideCodeFences` plus pipe and box-drawing checks, added `remarkGfm`, and bounded `MarkdownTableShell`, `ChatDataTable`, and CodeMirror `StateField` table widgets |
 | 18 attachment chips or 240-line pastes pushed composer controls off `560px` and `340px` viewports, and tall Radix menus clipped at viewport edges | Attachment tray and textarea max heights ignored viewport height, and `DropdownMenuContent` placed `max-h` only on inner scroll areas | Capped attachment tray to `max-h-[min(120px,22vh)]`, bounded composer height against `100dvh`, and applied `--radix-dropdown-menu-content-available-height` on `DropdownMenuPrimitive.Content` and `MorphMenu` |
 | Provider `agent` and `commits` model slots updated UI state without reaching Rust `send_chat_message` or `generate_commit_message` | `toRustAiConfig` in `lib/ai/providers.ts` forwarded only `defaultModel`, and `AiProviderConfig` in `src-tauri/src/core/ai_providers.rs` had no `agent_model` or `commit_model` fields | Added `resolveRoutableFeatureModel` validating tool-use support for `agent`, extended `AiProviderConfig`, and wired `generate_commit_message` and non-`Ask` `auto` chat routing |

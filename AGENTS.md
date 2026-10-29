@@ -12,6 +12,7 @@ Quick pointers
 - Local commit guidance: `COMMIT.md`
 - Design docs before UI changes: `DESIGN.md` and `engineering/design-system-baseline.md`
 - Motion craft guide: `engineering/motion-design.md`
+- Visual stress guide: `engineering/visual-stress-and-upstream-issue-verification.md`
 
 ## Instruction sources
 
@@ -459,7 +460,7 @@ in a spec. Desktop behaviour still requires `npm run test:all`.
 
 ### Visual stress and upstream-issue testing
 
-For broad UI, layout, streaming, markdown, editor, git, or cross-route work, happy-path specs and fixed `1280x720` snapshots miss overflow, clipping, wrapping, and stacking bugs. Run a Chromium stress campaign against `npm run build:preview` or `npm run dev:browser` per `.dump/global/visual-stress-and-upstream-issue-verification.md`:
+For broad UI, layout, streaming, markdown, editor, git, or cross-route work, happy-path specs and fixed `1280x720` snapshots miss overflow, clipping, wrapping, and stacking bugs. Run a Chromium stress campaign against `npm run build:preview` or `npm run dev:browser` per `engineering/visual-stress-and-upstream-issue-verification.md`:
 
 - Sweep routes `/`, `/branch`, `/git`, `/popout`, and `/settings` at `340x560`, `1280x720`, `2560x1440`, and `1024x340`, with scaled font sizes and open menus or dialogs.
 - Test wild adversarial inputs first: unbroken tokens and URLs, deep paths, CJK and RTL and combining marks, large pastes and 15-plus composer attachments, 12 to 20 column GFM tables, mid-stream partial fences and tables and math, multi-hunk diffs, cramped split panes, and edge-anchored menus.
