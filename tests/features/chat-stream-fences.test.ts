@@ -221,6 +221,25 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
                 codeNode?.position?.end.offset ?? -1,
             ],
         ]);
+
+        const crFencedChunks = parseMessageContent(
+            '```xml\r<terminal_command status="pending">rm -rf /</terminal_command>\r```',
+        );
+        expect(crFencedChunks.some((c) => c.type === "terminal_command")).toBe(false);
+        expect(crFencedChunks).toHaveLength(1);
+        expect(crFencedChunks[0]?.type).toBe("text");
+
+        const crBlankSpans: Array<[number, number]> = [];
+        const crBlankSample = "`unclosed\r\r<terminal_command>cmd</terminal_command>`";
+        appendInlineCodeSpansInRange(crBlankSample, 0, crBlankSample.length, crBlankSpans);
+        expect(crBlankSpans).toEqual([]);
+
+        const crLeaked = preprocessChatMarkdown(
+            "Intro\r```python\rprint(default_api.read_file(path='a.ts'))\r```\rDone",
+        );
+        expect(crLeaked).not.toContain("default_api.read_file");
+        expect(crLeaked).toContain("Done");
     });
 });
+
 

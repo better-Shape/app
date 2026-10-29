@@ -231,16 +231,52 @@ const isClosingStreamFence = (
             /^[ \t]*$/u.test(parsed.suffix),
     );
 
+/** Clamps a raw `indexOf` result to `-1` when it reaches or exceeds `limit`. */
+const clampIndexBelowLimit = (idx: number, limit: number): number =>
+    idx !== -1 && idx < limit ? idx : -1;
+
+/** Builds `{ breakStart, breakEnd }` for `\n` at `lf`, or `null` when `lf === -1`. */
+const buildLfLineEndingOrNull = (
+    lf: number,
+): { breakStart: number; breakEnd: number } | null =>
+    lf === -1 ? null : { breakStart: lf, breakEnd: lf + 1 };
+
+/** Computes `{ breakStart, breakEnd }` for a `\r` or `\r\n` line ending starting at `cr`. */
+const buildCrLineEnding = (
+    cr: number,
+    lf: number,
+): { breakStart: number; breakEnd: number } => ({
+    breakStart: cr,
+    breakEnd: lf === cr + 1 ? cr + 2 : cr + 1,
+});
+
+/** Finds the next CommonMark §2.1 line ending (`\n`, `\r\n`, or `\r`) within `[from, limit)`. */
+const findNextLineEndingInRange = (
+    text: string,
+    from: number,
+    limit: number,
+): { breakStart: number; breakEnd: number } | null => {
+    const lf = clampIndexBelowLimit(text.indexOf("\n", from), limit);
+    const cr = clampIndexBelowLimit(text.indexOf("\r", from), limit);
+    if (cr === -1) return buildLfLineEndingOrNull(lf);
+    return lf !== -1 && lf < cr
+        ? { breakStart: lf, breakEnd: lf + 1 }
+        : buildCrLineEnding(cr, lf);
+};
+
 /** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
 const readLineSliceAt = (
     text: string,
     cursor: number,
 ): { lineText: string; afterLine: number } => {
-    const nl = text.indexOf("\n", cursor);
-    if (nl === -1) {
+    const brk = findNextLineEndingInRange(text, cursor, text.length);
+    if (!brk) {
         return { lineText: text.slice(cursor), afterLine: text.length };
     }
-    return { lineText: text.slice(cursor, nl), afterLine: nl + 1 };
+    return {
+        lineText: text.slice(cursor, brk.breakStart),
+        afterLine: brk.breakEnd,
+    };
 };
 
 /** Resets open fence tracking fields on `CodeFenceState` after recording `[fenceStart, endOffset)`. */
@@ -547,14 +583,6 @@ const appendParagraphInlineCodeSpans = (
     }
 };
 
-/** Returns `nl - 1` when preceded by `\r` within `[segStart, nl)`, otherwise `nl`. */
-const resolveBreakStartAtNewline = (
-    text: string,
-    segStart: number,
-    nl: number,
-): number =>
-    nl > segStart && text.charCodeAt(nl - 1) === 0x0d ? nl - 1 : nl;
-
 /** Checks whether `text` has `\r\n` starting at `pos` within `segEnd`. */
 const isCrLfAt = (text: string, segEnd: number, pos: number): boolean =>
     pos + 1 < segEnd &&
@@ -576,27 +604,36 @@ const skipHorizontalSpace = (
     return idx;
 };
 
-/** Returns the index right after a CommonMark blank line starting after `nl`, or `-1` when non-blank. */
-const resolveBreakEndAfterNewline = (
+/** Resolves the end offset (`pos + 2` for `\r\n`, `pos + 1` for `\r`) of a CR break at `pos`. */
+const resolveCrBreakEndAt = (
     text: string,
     segEnd: number,
-    nl: number,
+    pos: number,
+): number => (isCrLfAt(text, segEnd, pos) ? pos + 2 : pos + 1);
+
+/** Returns the end offset of a CommonMark line ending starting right at `pos`, or `-1`. */
+const readLineBreakEndAt = (
+    text: string,
+    segEnd: number,
+    pos: number,
 ): number => {
-    const afterWs = skipHorizontalSpace(text, nl + 1, segEnd);
-    if (afterWs >= segEnd) return -1;
-    if (text.charCodeAt(afterWs) === 0x0a) return afterWs + 1;
-    return isCrLfAt(text, segEnd, afterWs) ? afterWs + 2 : -1;
+    if (pos >= segEnd) return -1;
+    const code = text.charCodeAt(pos);
+    if (code === 0x0a) return pos + 1;
+    return code === 0x0d ? resolveCrBreakEndAt(text, segEnd, pos) : -1;
 };
 
-/** Finds the next `\n` within `[from, limit)`, or `-1` when none exists. */
-const indexOfNewlineInRange = (
+/** Returns the index right after a CommonMark blank line starting at `breakEnd`, or `-1` when non-blank. */
+const resolveBreakEndAfterLineEnding = (
     text: string,
-    from: number,
-    limit: number,
-): number => {
-    const nl = text.indexOf("\n", from);
-    return nl !== -1 && nl < limit ? nl : -1;
-};
+    segEnd: number,
+    breakEnd: number,
+): number =>
+    readLineBreakEndAt(
+        text,
+        segEnd,
+        skipHorizontalSpace(text, breakEnd, segEnd),
+    );
 
 /** Appends closed single-paragraph CommonMark inline code spans within `[segStart, segEnd)` to `out` in O(n) time. */
 export const appendInlineCodeSpansInRange = (
@@ -608,16 +645,19 @@ export const appendInlineCodeSpansInRange = (
     let paraStart = segStart;
     let scanPos = segStart;
     while (scanPos < segEnd) {
-        const nl = indexOfNewlineInRange(text, scanPos, segEnd);
-        if (nl === -1) break;
-        const resumeAt = resolveBreakEndAfterNewline(text, segEnd, nl);
+        const brk = findNextLineEndingInRange(text, scanPos, segEnd);
+        if (!brk) break;
+        const resumeAt = resolveBreakEndAfterLineEnding(
+            text,
+            segEnd,
+            brk.breakEnd,
+        );
         if (resumeAt !== -1) {
-            const paraEnd = resolveBreakStartAtNewline(text, paraStart, nl);
-            appendParagraphInlineCodeSpans(text, paraStart, paraEnd, out);
+            appendParagraphInlineCodeSpans(text, paraStart, brk.breakStart, out);
             paraStart = resumeAt;
             scanPos = resumeAt;
         } else {
-            scanPos = nl + 1;
+            scanPos = brk.breakEnd;
         }
     }
     appendParagraphInlineCodeSpans(text, paraStart, segEnd, out);
@@ -977,25 +1017,30 @@ export const stripLeakedToolMarkup = (text: string): string => {
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
-const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\r\f\v]*\n/u;
+const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\f\v]*$/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/gu;
 
-/** Trims a single trailing `\r?\n` from `rangeEnd` so stripped closed fences preserve outer line breaks. */
+/** Trims a single trailing CommonMark line break (`\r\n`, `\n`, or `\r`) from `rangeEnd`. */
 const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
-    if (text.charCodeAt(rangeEnd - 1) !== 0x0a) return rangeEnd;
+    const last = text.charCodeAt(rangeEnd - 1);
+    if (last === 0x0d) return rangeEnd - 1;
+    if (last !== 0x0a) return rangeEnd;
     return text.charCodeAt(rangeEnd - 2) === 0x0d ? rangeEnd - 2 : rangeEnd - 1;
 };
 
 /** Resolves `{ body, dropEnd }` for a closed CommonMark fence `[rangeStart, rangeEnd)`. */
 const resolveClosedFenceCandidate = (
     text: string,
-    headEnd: number,
+    bodyStart: number,
     rangeEnd: number,
 ): { body: string; dropEnd: number } => {
     const dropEnd = trimFenceRangeBreakEnd(text, rangeEnd);
-    const closeNl = text.lastIndexOf("\n", dropEnd - 1);
-    const bodyEnd = closeNl > headEnd ? closeNl + 1 : headEnd + 1;
-    return { body: text.slice(headEnd + 1, bodyEnd), dropEnd };
+    const closeBrkEnd = Math.max(
+        text.lastIndexOf("\n", dropEnd - 1),
+        text.lastIndexOf("\r", dropEnd - 1),
+    );
+    const bodyEnd = closeBrkEnd >= bodyStart ? closeBrkEnd + 1 : bodyStart;
+    return { body: text.slice(bodyStart, bodyEnd), dropEnd };
 };
 
 /** Extracts `{ body, dropEnd }` for a CommonMark fence `[rangeStart, rangeEnd)`, or `null` if ineligible. */
@@ -1005,13 +1050,13 @@ const extractLeakedFenceCandidate = (
     rangeEnd: number,
     isOpenTail: boolean,
 ): { body: string; dropEnd: number } | null => {
-    const headEnd = indexOfNewlineInRange(text, rangeStart, rangeEnd);
-    if (headEnd === -1) return null;
-    const headLine = text.slice(rangeStart, headEnd + 1).trimStart();
+    const headBrk = findNextLineEndingInRange(text, rangeStart, rangeEnd);
+    if (!headBrk) return null;
+    const headLine = text.slice(rangeStart, headBrk.breakStart).trimStart();
     if (!LEAKED_FENCE_HEAD_RE.test(headLine)) return null;
     return isOpenTail
-        ? { body: text.slice(headEnd + 1, rangeEnd), dropEnd: rangeEnd }
-        : resolveClosedFenceCandidate(text, headEnd, rangeEnd);
+        ? { body: text.slice(headBrk.breakEnd, rangeEnd), dropEnd: rangeEnd }
+        : resolveClosedFenceCandidate(text, headBrk.breakEnd, rangeEnd);
 };
 
 /** Returns `dropEnd` when CommonMark fence `[rangeStart, rangeEnd)` contains leaked tool code, or `-1`. */

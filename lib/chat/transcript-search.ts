@@ -104,7 +104,7 @@ const replaceSinglePairedTag = (
     tag: string,
     renderOpenTag: (openTag: string) => string,
 ): string => {
-    const lower = text.toLowerCase();
+    const lower = text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
     const openPrefix = `<${tag}`;
     let openIdx = findNextOpenTagAt(lower, openPrefix, 0);
     if (openIdx === -1) return text;
@@ -188,7 +188,7 @@ const parseMarkdownFenceLine = (
  */
 export const extractSearchableMessageText = (raw: string): string => {
     if (!raw) return "";
-    const normalized = raw.replace(/\r\n/g, "\n");
+    const normalized = raw.replace(/\r\n?/g, "\n");
     const lines = normalized.split("\n");
     const out: string[] = [];
     const proseBuf: string[] = [];

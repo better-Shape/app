@@ -213,7 +213,7 @@ const matchAssistantControlAt = (
 /** Cleans a raw user or assistant message body into export-ready Markdown. */
 const cleanMessageBodyForMarkdown = (raw: string, role: "user" | "assistant"): string => {
     if (!raw) return "";
-    const normalized = raw.replace(/\r\n/g, "\n");
+    const normalized = raw.replace(/\r\n?/g, "\n");
     const attachmentNotes: string[] = [];
 
     const stripped = scanMarkdownOutsideCode(normalized, (input, offset) => {
