@@ -28,6 +28,10 @@ import {
     TerminalCommandStep,
     type TerminalStreamBuffer,
 } from "@/features/chat/ui/blocks/terminal-live";
+import {
+    clearAgentCommandStart,
+    setAgentCommandStart,
+} from "@/features/chat/lib/agent-terminal-notify";
 import { getSettings, updateSettingSection } from "@/lib/settings";
 import { ActionLine } from "@/features/chat/ui/blocks/action-line";
 import { TurnWorkflowSummary } from "@/features/chat/ui/blocks/turn";
@@ -2170,6 +2174,79 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             clearMocks();
             vi.unstubAllGlobals();
             vi.useRealTimers();
+        }
+    });
+
+    it("strips OSC aborted by CSI, avoids punctuation spaces in dictation, guards missing clipboard, and preserves pre-mount terminal elapsed time", async () => {
+        expect(stripAnsi("\x1b]0;window title\x1b[32mgreen\x1b[0m")).toBe(
+            "green",
+        );
+
+        expect(insertDictatedSlice("hello", 5, ", world")).toEqual({
+            next: "hello, world",
+            caret: 12,
+        });
+        expect(insertDictatedSlice("call(", 5, "arg)")).toEqual({
+            next: "call(arg)",
+            caret: 9,
+        });
+        expect(insertDictatedSlice("now", 0, "")).toEqual({
+            next: "now",
+            caret: 0,
+        });
+
+        mockIPC(() => null, { shouldMockEvents: true });
+        const prevClipboard = Object.getOwnPropertyDescriptor(
+            navigator,
+            "clipboard",
+        );
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: undefined,
+        });
+        setAgentCommandStart("cmd-late-mount", Date.now() - 5_000);
+        try {
+            const container = mount(
+                <TooltipProvider>
+                    <TerminalCommandStep
+                        block={{
+                            type: "terminal_command",
+                            command: "npm test",
+                            commandId: "cmd-late-mount",
+                            commandStatus: "running",
+                            content: "PASS suite",
+                            isGenerating: true,
+                        }}
+                    />
+                </TooltipProvider>,
+            );
+            expect(container.textContent).toContain("5s");
+
+            const optionsBtn = container.querySelector<HTMLButtonElement>(
+                'button[aria-label="Command options"]',
+            );
+            expect(optionsBtn).not.toBeNull();
+            await act(async () => {
+                optionsBtn?.dispatchEvent(
+                    new KeyboardEvent("keydown", {
+                        key: "Enter",
+                        bubbles: true,
+                    }),
+                );
+            });
+            const copyItem = Array.from(
+                document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+            ).find((el) => el.textContent?.includes("Copy command"));
+            expect(copyItem).toBeDefined();
+            await act(async () => {
+                copyItem?.click();
+            });
+        } finally {
+            clearAgentCommandStart("cmd-late-mount");
+            if (prevClipboard) {
+                Object.defineProperty(navigator, "clipboard", prevClipboard);
+            }
+            clearMocks();
         }
     });
 });

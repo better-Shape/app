@@ -584,61 +584,74 @@ type ChildXmlMatch = {
     body: string;
 };
 
+type ChildXmlScanInput = {
+    block: string;
+    lowerBlock: string;
+    openPrefix: string;
+    closeTag: string;
+};
+
 const XML_CHILD_BOUNDARY_CODES = new Set([9, 10, 13, 32, 47, 62]);
+
+/** Converts ASCII uppercase `A-Z` to `a-z` while preserving exact UTF-16 code-unit indices. */
+const toAsciiLower = (text: string): string =>
+    text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
 
 /** Reads body and closing tag of a non-self-closing child XML element after `gtIdx`. */
 const readPairedChildXmlBody = (
-    block: string,
+    scan: ChildXmlScanInput,
     afterName: number,
     gtIdx: number,
-    closeTag: string,
 ): { item: ChildXmlMatch | null; nextCursor: number } => {
-    const closeIdx = block.indexOf(closeTag, gtIdx + 1);
-    if (closeIdx === -1) return { item: null, nextCursor: block.length };
+    const closeIdx = scan.lowerBlock.indexOf(scan.closeTag, gtIdx + 1);
+    if (closeIdx === -1) return { item: null, nextCursor: scan.block.length };
     return {
         item: {
-            attrs: block.slice(afterName, gtIdx),
-            body: block.slice(gtIdx + 1, closeIdx),
+            attrs: scan.block.slice(afterName, gtIdx),
+            body: scan.block.slice(gtIdx + 1, closeIdx),
         },
-        nextCursor: closeIdx + closeTag.length,
+        nextCursor: closeIdx + scan.closeTag.length,
     };
 };
 
 /** Consumes one `<tagName ...>...</tagName>` or `<tagName .../>` at `openIdx`, or `null`. */
 const readChildXmlElementAt = (
-    block: string,
+    scan: ChildXmlScanInput,
     openIdx: number,
-    openPrefix: string,
-    closeTag: string,
 ): { item: ChildXmlMatch | null; nextCursor: number } => {
-    const afterName = openIdx + openPrefix.length;
-    if (!XML_CHILD_BOUNDARY_CODES.has(block.charCodeAt(afterName))) {
+    const afterName = openIdx + scan.openPrefix.length;
+    if (!XML_CHILD_BOUNDARY_CODES.has(scan.block.charCodeAt(afterName))) {
         return { item: null, nextCursor: afterName };
     }
-    const gtIdx = findTagHeaderCloseIndex(block, afterName);
-    if (gtIdx === -1) return { item: null, nextCursor: block.length };
-    if (block.charCodeAt(gtIdx - 1) === 47) {
+    const gtIdx = findTagHeaderCloseIndex(scan.block, afterName);
+    if (gtIdx === -1) return { item: null, nextCursor: scan.block.length };
+    if (scan.block.charCodeAt(gtIdx - 1) === 47) {
         return {
-            item: { attrs: block.slice(afterName, gtIdx - 1), body: "" },
+            item: { attrs: scan.block.slice(afterName, gtIdx - 1), body: "" },
             nextCursor: gtIdx + 1,
         };
     }
-    return readPairedChildXmlBody(block, afterName, gtIdx, closeTag);
+    return readPairedChildXmlBody(scan, afterName, gtIdx);
 };
 
-/** Scans all `<tagName ...>` child elements inside `block` in linear time without regexes. */
+/** Scans all `<tagName ...>` child elements case-insensitively in linear time without regexes. */
 const scanChildXmlElements = (
     block: string,
     tagName: string,
     closeTag: string,
 ): ChildXmlMatch[] => {
-    const openPrefix = `<${tagName}`;
+    const scan: ChildXmlScanInput = {
+        block,
+        lowerBlock: toAsciiLower(block),
+        openPrefix: `<${toAsciiLower(tagName)}`,
+        closeTag: toAsciiLower(closeTag),
+    };
     const results: ChildXmlMatch[] = [];
     let cursor = 0;
     while (cursor < block.length) {
-        const openIdx = block.indexOf(openPrefix, cursor);
+        const openIdx = scan.lowerBlock.indexOf(scan.openPrefix, cursor);
         if (openIdx === -1) break;
-        const step = readChildXmlElementAt(block, openIdx, openPrefix, closeTag);
+        const step = readChildXmlElementAt(scan, openIdx);
         if (step.item) results.push(step.item);
         cursor = step.nextCursor;
     }
@@ -659,9 +672,15 @@ const parseTodoEntry = (
     };
 };
 
+/** Reads the opening XML tag header (`<tag ...>`) from `block`. */
+const readOpeningTagHeader = (block: string): string => {
+    const gtIdx = findTagHeaderCloseIndex(block, 0);
+    return gtIdx === -1 ? block : block.slice(0, gtIdx + 1);
+};
+
 /** Parses a `<todos>` block into a normalized todo-list chunk. */
 const parseTodosBlock = (block: string): Chunk => {
-    const title = block.match(/<todos\s+title="([^"]*)"/u)?.[1] ?? "Todos";
+    const title = decodeAttrOr(readOpeningTagHeader(block), "title", "Todos");
     const todoMatches = scanChildXmlElements(block, "todo", "</todo>");
     return {
         type: "todos",

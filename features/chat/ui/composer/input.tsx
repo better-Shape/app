@@ -328,18 +328,28 @@ const appendAttachedPromptLine = (cur: string, prompt: string): string =>
   cur.trim() ? `${cur.trimEnd()}\n${prompt}` : prompt;
 
 const NO_LEADING_SPACE_AFTER_DICTATION_RE = /^(?:[\s.,!?;:)}]|\])/u;
+const NO_SPACE_BEFORE_DICTATION_TAIL_RE = /[\s([{]$/u;
 
-/** Collapses leading horizontal spaces on `after` and prefixes a single space unless `after` starts with whitespace or punctuation. */
-const formatDictatedSuffix = (text: string, after: string): string => {
-  const trimmedAfter = after.replace(/^[ \t]+/u, "");
-  if (!trimmedAfter) return "";
-  const needsSpace =
-    !NO_LEADING_SPACE_AFTER_DICTATION_RE.test(trimmedAfter) &&
-    !/\s$/u.test(text);
-  return `${needsSpace ? " " : ""}${trimmedAfter}`;
+/** Checks whether `prefix` and `follower` require a separating space between them. */
+const needsLeadingDictationSpace = (
+  prefix: string,
+  follower: string,
+): boolean => {
+  if (!prefix || NO_SPACE_BEFORE_DICTATION_TAIL_RE.test(prefix)) return false;
+  return (
+    Boolean(follower) && !NO_LEADING_SPACE_AFTER_DICTATION_RE.test(follower)
+  );
 };
 
-/** Inserts dictated speech text across `[caret, selectionEnd]` with single-space padding and returns next caret. */
+/** Collapses leading horizontal spaces on `after` and prefixes a single space when `lead` and `after` need separation. */
+const formatDictatedSuffix = (lead: string, after: string): string => {
+  const trimmedAfter = after.replace(/^[ \t]+/u, "");
+  if (!trimmedAfter) return "";
+  const sep = needsLeadingDictationSpace(lead, trimmedAfter) ? " " : "";
+  return `${sep}${trimmedAfter}`;
+};
+
+/** Inserts dictated speech text across `[caret, selectionEnd]` with punctuation-aware single-space padding. */
 export const insertDictatedSlice = (
   val: string,
   caret: number,
@@ -353,10 +363,11 @@ export const insertDictatedSlice = (
   );
   const before = val.slice(0, start);
   const after = val.slice(end);
-  const pad = before && !/\s$/u.test(before) ? " " : "";
+  const pad = needsLeadingDictationSpace(before, text) ? " " : "";
+  const lead = `${before}${pad}${text}`;
   return {
-    next: `${before}${pad}${text}${formatDictatedSuffix(text, after)}`,
-    caret: before.length + pad.length + text.length,
+    next: `${lead}${formatDictatedSuffix(lead, after)}`,
+    caret: lead.length,
   };
 };
 

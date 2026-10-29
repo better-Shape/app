@@ -309,6 +309,7 @@ const useAgentLayoutWindowChannels = ({
     setOverlay,
     setSidebarOpen,
     setZenMode,
+    setDesiredWorkspaceWidth,
     setWorkspaceWidth,
     setWorkspaceFits,
     widthRef,
@@ -320,6 +321,7 @@ const useAgentLayoutWindowChannels = ({
     setOverlay: React.Dispatch<React.SetStateAction<AgentOverlay>>;
     setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setZenMode: React.Dispatch<React.SetStateAction<boolean>>;
+    setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
     widthRef: React.MutableRefObject<number>;
@@ -406,6 +408,7 @@ const useAgentLayoutWindowChannels = ({
         /** Restores default panes, widths, and zen mode on `bettershape-layout-reset`. */
         const onReset = () => {
             setZenMode(false);
+            setDesiredWorkspaceWidth(560);
             setWorkspaceWidth(560);
             widthRef.current = 560;
             setWorkspaceFits(true);
@@ -448,6 +451,7 @@ const useAgentLayoutWindowChannels = ({
     }, [
         persistWorkspace,
         projectPath,
+        setDesiredWorkspaceWidth,
         setOverlay,
         setSidebarOpen,
         setWorkspaceFits,
@@ -462,21 +466,25 @@ const useAgentWorkspaceGeometry = ({
     projectPath,
     sidebarOpen,
     workspaceOpen,
+    desiredWorkspaceWidth,
     clampWorkspace,
     draggingRef,
     widthRef,
     setIsResizing,
     setWorkspaceFits,
+    setDesiredWorkspaceWidth,
     setWorkspaceWidth,
 }: {
     projectPath: string | null;
     sidebarOpen: boolean;
     workspaceOpen: boolean;
+    desiredWorkspaceWidth: number;
     clampWorkspace: (x: number, winW?: number) => number;
     draggingRef: React.MutableRefObject<boolean>;
     widthRef: React.MutableRefObject<number>;
     setIsResizing: React.Dispatch<React.SetStateAction<boolean>>;
     setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
+    setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
 }) => {
     useEffect(() => {
@@ -486,6 +494,7 @@ const useAgentWorkspaceGeometry = ({
             const next = clampWorkspace(window.innerWidth - e.clientX);
             if (next < MIN_WORKSPACE_SOFT) return;
             widthRef.current = next;
+            setDesiredWorkspaceWidth(next);
             setWorkspaceWidth(next);
         };
         /** Commits workspace width on mouseup and clears drag cursor styles. */
@@ -507,7 +516,7 @@ const useAgentWorkspaceGeometry = ({
             window.removeEventListener("mousemove", onMove);
             window.removeEventListener("mouseup", onUp);
         };
-    }, [clampWorkspace, draggingRef, setIsResizing, setWorkspaceWidth, widthRef]);
+    }, [clampWorkspace, draggingRef, setDesiredWorkspaceWidth, setIsResizing, setWorkspaceWidth, widthRef]);
 
     useEffect(() => {
         /** Clamps workspace width whenever the viewport or native window resizes. */
@@ -532,7 +541,7 @@ const useAgentWorkspaceGeometry = ({
             window.removeEventListener("resize", apply);
             unlisten?.();
         };
-    }, [clampWorkspace, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
+    }, [clampWorkspace, desiredWorkspaceWidth, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
 
     useEffect(() => {
         const minWidth = layoutMinWidth(sidebarOpen, workspaceOpen && Boolean(projectPath));
@@ -698,12 +707,14 @@ const AgentWorkspaceDock = ({
 
 /** Hydrates saved layout preferences once on the client without hydration mismatch. */
 const useHydratedAgentLayoutPrefs = ({
+    setDesiredWorkspaceWidth,
     setWorkspaceWidth,
     setWorkspaceOpen,
     setSidebarOpen,
     setZenMode,
     setSplash,
 }: {
+    setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -715,7 +726,10 @@ const useHydratedAgentLayoutPrefs = ({
     if (!hydrated || restoredPreferences) return;
     setRestoredPreferences(true);
     const prefs = readStoredAgentLayoutPrefs();
-    if (prefs.workspaceWidth !== undefined) setWorkspaceWidth(prefs.workspaceWidth);
+    if (prefs.workspaceWidth !== undefined) {
+        setDesiredWorkspaceWidth(prefs.workspaceWidth);
+        setWorkspaceWidth(prefs.workspaceWidth);
+    }
     setWorkspaceOpen(prefs.workspaceOpen);
     setSidebarOpen(prefs.sidebarOpen);
     setZenMode(prefs.zenMode);
@@ -923,6 +937,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const [workspaceOpen, setWorkspaceOpen] = useState(true);
     const [zenMode, setZenMode] = useState(false);
     const [overlay, setOverlay] = useState<AgentOverlay>(null);
+    const [desiredWorkspaceWidth, setDesiredWorkspaceWidth] = useState(560);
     const [workspaceWidth, setWorkspaceWidth] = useState(560);
     const [workspaceFits, setWorkspaceFits] = useState(true);
     const [splash, setSplash] = useState(false);
@@ -931,9 +946,10 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const [sidebarFlyout, setSidebarFlyout] = useState(false);
     const draggingRef = useRef(false);
     const widthRef = useRef(560);
-    useLayoutEffect(() => { widthRef.current = workspaceWidth; }, [workspaceWidth]);
+    useLayoutEffect(() => { widthRef.current = desiredWorkspaceWidth; }, [desiredWorkspaceWidth]);
 
     useHydratedAgentLayoutPrefs({
+        setDesiredWorkspaceWidth,
         setWorkspaceWidth,
         setWorkspaceOpen,
         setSidebarOpen,
@@ -974,6 +990,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         setOverlay,
         setSidebarOpen,
         setZenMode,
+        setDesiredWorkspaceWidth,
         setWorkspaceWidth,
         setWorkspaceFits,
         widthRef,
@@ -982,11 +999,13 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         projectPath: project_path,
         sidebarOpen,
         workspaceOpen,
+        desiredWorkspaceWidth,
         clampWorkspace: controllers.clampWorkspace,
         draggingRef,
         widthRef,
         setIsResizing,
         setWorkspaceFits,
+        setDesiredWorkspaceWidth,
         setWorkspaceWidth,
     });
 
