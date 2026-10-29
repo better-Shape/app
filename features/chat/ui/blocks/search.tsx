@@ -16,7 +16,10 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { WebSearchResultItem } from "../md/renderer";
+import {
+    parseWebResults,
+    type WebSearchResultItem,
+} from "@/lib/chat/transcript-search";
 import {
     notifyTranscriptDisclosureToggle,
     useExpandForChatFind,
@@ -25,22 +28,7 @@ import { GeneratingIndicator } from "./generating";
 
 type WebSearchResult = WebSearchResultItem;
 
-export function parseWebSearchHits(content: string): WebSearchResult[] {
-    const results: WebSearchResult[] = [];
-    for (const part of content.split("---").filter(Boolean)) {
-        const titleMatch = part.match(/### (.*)/);
-        const urlMatch = part.match(/URL:\s*(.*)/);
-        const text = part.replace(/### .*/, "").replace(/URL:.*/, "").trim();
-        if (titleMatch || urlMatch) {
-            results.push({
-                title: titleMatch ? titleMatch[1].trim() : "Result",
-                url: urlMatch ? urlMatch[1].trim() : "",
-                snippet: text,
-            });
-        }
-    }
-    return results;
-}
+export const parseWebSearchHits = parseWebResults;
 
 type Brand = {
     id: string;

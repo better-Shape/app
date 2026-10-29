@@ -865,9 +865,8 @@ function computeGroupHeader(visible: Chunk[]): { icon: IconGlyph; label: string 
 
 /** Extracts up to 5 result URLs from a web-search markdown block. */
 const extractWebSearchResultUrls = (content: string | undefined): string[] =>
-    (content || "")
-        .split("---")
-        .map((part) => part.match(/URL:\s*(.+)/)?.[1]?.trim() || "")
+    parseWebSearchHits(content || "")
+        .map((hit) => hit.url)
         .filter(Boolean)
         .slice(0, 5);
 

@@ -651,3 +651,59 @@ it("renders the submitted image body when a filename contains a tag delimiter", 
         { type: "attached_image", content: dataUrl, isGenerating: false, sourceStart: 0 },
     ]);
 });
+
+it("scans repeated malformed <div openers in linear time without quadratic rescanning", () => {
+    const repeatedUnclosed = `${"<div ".repeat(6000)}<span>clean</span>`;
+    const quotedSyncAdversarial = `${'<div a="<div \'" '.repeat(2500)}(tail`;
+    const startedAt = performance.now();
+    const outUnclosed = preprocessChatMarkdown(repeatedUnclosed);
+    const outAdversarial = preprocessChatMarkdown(quotedSyncAdversarial);
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(outUnclosed.endsWith("clean")).toBe(true);
+    expect(outUnclosed).not.toContain("<span>");
+    expect(outAdversarial.endsWith("(tail")).toBe(true);
+    expect(elapsedMs).toBeLessThan(500);
+});
+
+it("parses spaceless URL: entries consistently across parseWebResults and parseWebSearchHits", async () => {
+    const { parseWebResults, extractWebSearchResults } = await import(
+        "@/features/chat/ui/md/renderer"
+    );
+    const { parseWebSearchHits } = await import(
+        "@/features/chat/ui/blocks/search"
+    );
+    const block = [
+        "### MDN Highlight API",
+        "URL:https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API",
+        "Custom range highlights without mutating DOM.",
+        "---",
+        "URL: https://example.com/spaced",
+        "Spaced URL line.",
+    ].join("\n");
+
+    const parsedRenderer = parseWebResults(block);
+    const parsedSearchBlock = parseWebSearchHits(block);
+    expect(parsedRenderer).toEqual(parsedSearchBlock);
+    expect(parsedRenderer).toEqual([
+        {
+            title: "MDN Highlight API",
+            url: "https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API",
+            snippet: "Custom range highlights without mutating DOM.",
+        },
+        {
+            title: "Result",
+            url: "https://example.com/spaced",
+            snippet: "Spaced URL line.",
+        },
+    ]);
+
+    const messageSources = extractWebSearchResults(
+        `<web_result query="highlight">${block}</web_result>`,
+    );
+    expect(messageSources.map((entry) => entry.url)).toEqual([
+        "https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API",
+        "https://example.com/spaced",
+    ]);
+});
+
