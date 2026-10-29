@@ -434,10 +434,14 @@ export const dedupeTerminalChunks = (chunks: Chunk[]): Chunk[] => {
     return chunks.filter((_, index) => !skip.has(index));
 };
 
+/** Converts ASCII uppercase `A-Z` to `a-z` while preserving exact UTF-16 code-unit indices. */
+const toAsciiLower = (text: string): string =>
+    text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
+
 /** Extracts inner tag content `<tag>...</tag>` case-insensitively from a serialized block string. */
 const getInnerTagContent = (block: string, tag: string): string | undefined => {
-    const lowerBlock = block.toLowerCase();
-    const lowerTag = tag.toLowerCase();
+    const lowerBlock = toAsciiLower(block);
+    const lowerTag = toAsciiLower(tag);
     const startTag = `<${lowerTag}>`;
     const start = lowerBlock.indexOf(startTag);
     if (start === -1) return undefined;
@@ -592,10 +596,6 @@ type ChildXmlScanInput = {
 };
 
 const XML_CHILD_BOUNDARY_CODES = new Set([9, 10, 13, 32, 47, 62]);
-
-/** Converts ASCII uppercase `A-Z` to `a-z` while preserving exact UTF-16 code-unit indices. */
-const toAsciiLower = (text: string): string =>
-    text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
 
 /** Reads body and closing tag of a non-self-closing child XML element after `gtIdx`. */
 const readPairedChildXmlBody = (
@@ -1347,6 +1347,7 @@ const isSelfClosingTagAt = (
 /** Resolves a matched XML tag at `match` into a `TagSliceContext` and next scanner cursor. */
 const consumeMatchedTagAt = (
     text: string,
+    lowerText: string,
     match: MatchedTagRange,
 ): { slice: TagSliceContext; nextIndex: number } => {
     const gtIndex = findTagHeaderCloseIndex(
@@ -1383,9 +1384,7 @@ const consumeMatchedTagAt = (
     }
     const contentStart = gtIndex + 1;
     const tagHeader = text.slice(match.index, contentStart);
-    const endIndex = text
-        .toLowerCase()
-        .indexOf(match.endTag.toLowerCase(), contentStart);
+    const endIndex = lowerText.indexOf(toAsciiLower(match.endTag), contentStart);
     if (endIndex === -1) {
         return {
             slice: {
@@ -1785,6 +1784,34 @@ const activateTopLevelOpenUIFence = (
     };
 };
 
+/** Replaces `[start, end)` spans in `line` with equal-width space runs. */
+const blankOutSpans = (
+    line: string,
+    spans: ReadonlyArray<readonly [number, number]>,
+): string => {
+    let out = "";
+    let cursor = 0;
+    for (const [start, end] of spans) {
+        out += line.slice(cursor, start) + " ".repeat(end - start);
+        cursor = end;
+    }
+    return out + line.slice(cursor);
+};
+
+/** Replaces closed inline backtick code spans in `line` with spaces so literal `<tag>` examples stay inert. */
+const maskInlineCodeInLine = (line: string): string => {
+    if (!line.includes("`") || !line.includes("<")) return line;
+    const spans: Array<[number, number]> = [];
+    appendInlineCodeSpansInRange(line, 0, line.length, spans);
+    return spans.length === 0 ? line : blankOutSpans(line, spans);
+};
+
+/** Checks whether the scanner is outside all structural tags and pending tag headers. */
+const isOutsideOpaqueStructuralTag = (
+    state: OpenUIFenceScannerState,
+): boolean =>
+    state.activeMessageTags.size === 0 && state.pendingMessageTag === null;
+
 /** Opens top-level Markdown fences only when no opaque structural tag is active. */
 const openFenceOnLine = (
     state: OpenUIFenceScannerState,
@@ -1792,18 +1819,20 @@ const openFenceOnLine = (
     lineStart: number,
     nextLineStart: number,
 ): void => {
+    const outsideOpaqueTag = isOutsideOpaqueStructuralTag(state);
+    if (outsideOpaqueTag) {
+        const fence = parseValidTopLevelFence(line);
+        if (fence) {
+            activateTopLevelOpenUIFence(state, fence, lineStart, nextLineStart);
+            return;
+        }
+    }
+    const scanLine = outsideOpaqueTag ? maskInlineCodeInLine(line) : line;
     state.pendingMessageTag = scanStructuralTags(
-        line,
+        scanLine,
         state.activeMessageTags,
         state.pendingMessageTag,
     );
-    if (state.activeMessageTags.size > 0 || state.pendingMessageTag !== null) {
-        return;
-    }
-    const fence = parseValidTopLevelFence(line);
-    if (fence) {
-        activateTopLevelOpenUIFence(state, fence, lineStart, nextLineStart);
-    }
 };
 
 /** Finalizes any unclosed OpenUI or overflow fence at `textLength`. */
@@ -1978,6 +2007,7 @@ const parseStructuralMessageContent = (
     sourceOffset = 0,
 ): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
+    const lowerText = toAsciiLower(text);
     const fenceRanges = collectProtectedCodeRanges(text);
     const fenceCursor = { idx: 0 };
     const chunks: Chunk[] = [];
@@ -2003,7 +2033,11 @@ const parseStructuralMessageContent = (
                 firstMatch.index,
             );
         }
-        const { slice, nextIndex } = consumeMatchedTagAt(text, firstMatch);
+        const { slice, nextIndex } = consumeMatchedTagAt(
+            text,
+            lowerText,
+            firstMatch,
+        );
         const built = buildChunkFromSlice(slice);
         built.sourceStart = sourceOffset + firstMatch.index;
         pushParsedChunk(chunks, built);

@@ -586,7 +586,7 @@ describe("HITL single-owner shortcuts, tool-call presentation, and workbench bri
             );
             actionsBtn?.click();
         });
-        expect(document.body.textContent ?? "").not.toContain("Regenerate");
+        expect(document.body.textContent).not.toContain("Regenerate");
         expect(onRedo).not.toHaveBeenCalled();
     });
 });
@@ -601,7 +601,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 onRetry={onRetry}
             />,
         );
-        const bodyText = document.body.textContent ?? "";
+        const bodyText = document.body.textContent;
         expect(bodyText).toContain("model 'gpt-5-private' rejected");
         const retryBtn = Array.from(document.body.querySelectorAll("button")).find(
             (btn) => btn.textContent === "Try again",
@@ -1058,7 +1058,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 timestamp={1_700_000_000_000}
             />,
         );
-        expect(renderedPlan.textContent ?? "").toContain("1/2");
+        expect(renderedPlan.textContent).toContain("1/2");
     });
 
     it("cancels pending mic permission without starting recognizer and ignores stale push rejections", async () => {
@@ -1165,7 +1165,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             />,
         );
         expect(appliedEl.querySelector("[data-pending-approval='true']")).toBeNull();
-        expect(appliedEl.textContent ?? "").toContain("Edited");
+        expect(appliedEl.textContent).toContain("Edited");
     });
 
     it("carries split ANSI CSI/OSC escapes across PTY chunks and highlights ActionLine buttons", () => {
@@ -1262,8 +1262,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                 runBtn.click();
                 await Promise.resolve();
             });
-            expect(el.textContent ?? "").toContain("Running");
-            expect(el.textContent ?? "").not.toContain("Ran ");
+            expect(el.textContent).toContain("Running");
+            expect(el.textContent).not.toContain("Ran ");
         } finally {
             approveSpy.mockRestore();
         }
@@ -1395,7 +1395,7 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     data: "first chunk line\n",
                 });
             });
-            expect(el.textContent ?? "").toContain("first chunk line");
+            expect(el.textContent).toContain("first chunk line");
 
             const upsertedChunk: Chunk = {
                 ...initialChunk,
@@ -1415,8 +1415,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     data: "second chunk line\n",
                 });
             });
-            expect(el.textContent ?? "").toContain("first chunk line");
-            expect(el.textContent ?? "").toContain("second chunk line");
+            expect(el.textContent).toContain("first chunk line");
+            expect(el.textContent).toContain("second chunk line");
         } finally {
             clearMocks();
         }
@@ -1564,8 +1564,8 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
                     exitCode: 130,
                 });
             });
-            expect(el.textContent ?? "").toContain("Cancelled");
-            expect(el.textContent ?? "").not.toContain("Failed");
+            expect(el.textContent).toContain("Cancelled");
+            expect(el.textContent).not.toContain("Failed");
         } finally {
             clearMocks();
         }

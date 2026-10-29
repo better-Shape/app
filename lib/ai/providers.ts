@@ -1079,7 +1079,9 @@ export const canonicalProviderId = (prefix: string): ProviderId | null => {
   if (PROVIDER_PRESETS.some((preset) => preset.id === lower)) {
     return lower as ProviderId;
   }
-  return PROVIDER_ALIASES[lower] ?? null;
+  return Object.hasOwn(PROVIDER_ALIASES, lower)
+    ? PROVIDER_ALIASES[lower]
+    : null;
 };
 
 /** Model id rewritten onto the canonical provider prefix this app stores. */

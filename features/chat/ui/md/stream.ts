@@ -1219,7 +1219,7 @@ const stripMistralAndExecuteBlocks = (prose: string): string => {
     }
     if (hasExecuteDump(out)) {
         out = out.replace(
-            /(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/gi,
+            /(?:^|\r?\n)[ \t]*_execute[ \t]*\r?\n[ \t]*(?:tool_name|name)[ \t]*:[^\r\n]*(?:\r?\n[ \t]*[a-z_]+[ \t]*:[^\r\n]*)*/gi,
             "\n",
         );
     }
@@ -1289,6 +1289,21 @@ const resolveClosedFenceCandidate = (
     return { body: text.slice(bodyStart, bodyEnd), dropEnd };
 };
 
+const FENCE_QUOTE_PREFIX_CHARS = new Set([" ", "\t", ">"]);
+
+/** Strips leading spaces, tabs, and `>` blockquote markers from a fence line. */
+const stripFenceQuotePrefix = (line: string): string => {
+    let idx = 0;
+    while (FENCE_QUOTE_PREFIX_CHARS.has(line.charAt(idx))) idx += 1;
+    return line.slice(idx);
+};
+
+/** Strips leading blockquote `>` prefixes on each line so quoted tool-call bodies match leak detectors. */
+const unquoteFenceBody = (body: string): string =>
+    body.includes(">")
+        ? body.split(/\r\n|\n|\r/u).map(stripFenceQuotePrefix).join("\n")
+        : body;
+
 /** Extracts `{ body, dropEnd }` for a CommonMark fence `[rangeStart, rangeEnd)`, or `null` if ineligible. */
 const extractLeakedFenceCandidate = (
     text: string,
@@ -1298,7 +1313,9 @@ const extractLeakedFenceCandidate = (
 ): { body: string; dropEnd: number } | null => {
     const headBrk = findNextLineEndingInRange(text, rangeStart, rangeEnd);
     if (!headBrk) return null;
-    const headLine = text.slice(rangeStart, headBrk.breakStart).trimStart();
+    const headLine = stripFenceQuotePrefix(
+        text.slice(rangeStart, headBrk.breakStart),
+    );
     if (!LEAKED_FENCE_HEAD_RE.test(headLine)) return null;
     return isOpenTail
         ? { body: text.slice(headBrk.breakEnd, rangeEnd), dropEnd: rangeEnd }
@@ -1318,7 +1335,7 @@ const resolveDroppedFenceEnd = (
         rangeEnd,
         isOpenTail,
     );
-    return candidate && looksLikeLeakedToolCode(candidate.body)
+    return candidate && looksLikeLeakedToolCode(unquoteFenceBody(candidate.body))
         ? candidate.dropEnd
         : -1;
 };
@@ -2197,9 +2214,20 @@ const normalizeSingleProseLine = (line: string): string => {
     return afterWs > 1 ? `- ${line.slice(afterWs)}` : line;
 };
 
-/** Normalizes Unicode bullet glyphs and standalone horizontal rules in prose outside code fences. */
-const normalizeProseBulletsAndRules = (prose: string): string =>
-    prose.split("\n").map(normalizeSingleProseLine).join("\n");
+/** Normalizes Unicode bullet glyphs and standalone horizontal rules across LF, CRLF, and CR lines. */
+const normalizeProseBulletsAndRules = (prose: string): string => {
+    if (!prose) return prose;
+    let out = "";
+    let cursor = 0;
+    while (cursor < prose.length) {
+        const { lineText, afterLine } = readLineSliceAt(prose, cursor);
+        const lineEnd = cursor + lineText.length;
+        out +=
+            normalizeSingleProseLine(lineText) + prose.slice(lineEnd, afterLine);
+        cursor = afterLine;
+    }
+    return out;
+};
 
 type PreprocessCacheEntry = {
     bounded: string;

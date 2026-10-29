@@ -102,7 +102,7 @@ const stripReferenceSentinelsInProse = (prose: string): string => {
         .replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\](?=\s*(?:\n|$))/gu, "")
         .replace(/\[TOOL_CALLS\][^\n]*(?:\n\[(?:ARGS|CALL_ID)\][^\n]*)*/gu, "")
         .replace(
-            /(?:^|\n)_execute\s*\n(?:tool_name|name)\s*:[^\n]*(?:\n[a-z_]+\s*:[^\n]*)*/giu,
+            /(?:^|\r?\n)[ \t]*_execute[ \t]*\r?\n[ \t]*(?:tool_name|name)[ \t]*:[^\r\n]*(?:\r?\n[ \t]*[a-z_]+[ \t]*:[^\r\n]*)*/giu,
             "\n",
         )
         .replace(/<\/?function\s*=[^>]*>/giu, "")
@@ -168,6 +168,9 @@ const detectTrailingLineBreak = (fenceSlice: string): string => {
     return fenceSlice.endsWith("\n") ? "\n" : "";
 };
 
+const unquoteRef = (raw: string): string =>
+    raw.replace(/^[ \t>]*/gmu, "");
+
 const filterClosedReferenceFence = (
     fenceSlice: string,
     nlPos: number,
@@ -176,24 +179,32 @@ const filterClosedReferenceFence = (
     const trimmedFence = suffixBreak
         ? fenceSlice.slice(0, -suffixBreak.length)
         : fenceSlice;
-    const closeNl = trimmedFence.lastIndexOf("\n");
+    const closeNl = Math.max(
+        trimmedFence.lastIndexOf("\n"),
+        trimmedFence.lastIndexOf("\r"),
+    );
     const bodySlice =
         closeNl > nlPos ? trimmedFence.slice(nlPos + 1, closeNl + 1) : "";
-    return looksLikeLeakedToolCode(bodySlice) ? suffixBreak : fenceSlice;
+    return looksLikeLeakedToolCode(unquoteRef(bodySlice))
+        ? suffixBreak
+        : fenceSlice;
 };
 
 const filterReferenceLeakedFence = (
     fenceSlice: string,
     isClosed: boolean,
 ): string => {
-    const nlPos = fenceSlice.indexOf("\n");
-    if (nlPos === -1) return fenceSlice;
-    const header = fenceSlice.slice(0, nlPos + 1).trimStart();
-    if (!/^(?:`{3,}|~{3,})[\w-]*[ \t\r\f\v]*\n/u.test(header)) {
+    const brkMatch = /\r\n|\n|\r/u.exec(fenceSlice);
+    if (!brkMatch) return fenceSlice;
+    const nlPos = brkMatch.index + brkMatch[0].length - 1;
+    const header = fenceSlice
+        .slice(0, brkMatch.index)
+        .replace(/^[ \t>]+/u, "");
+    if (!/^(?:`{3,}|~{3,})[\w-]*[ \t\f\v]*$/u.test(header)) {
         return fenceSlice;
     }
     if (!isClosed) {
-        return looksLikeLeakedToolCode(fenceSlice.slice(nlPos + 1))
+        return looksLikeLeakedToolCode(unquoteRef(fenceSlice.slice(nlPos + 1)))
             ? ""
             : fenceSlice;
     }

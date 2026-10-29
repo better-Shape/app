@@ -477,7 +477,9 @@ const useComposerWindowBridges = (opts: {
     let raf = 0;
     /** Handles `bettershape-chat-attach-element` browser picker events. */
     const onElement = (e: Event) => {
-      const detail = (e as CustomEvent<BrowserPickedElement>).detail;
+      const detail = (
+        e as CustomEvent<BrowserPickedElement | undefined>
+      ).detail;
       if (!detail?.tag) return;
       const token = registerElementMention(detail);
       const val = inputValueRef.current;
@@ -509,7 +511,7 @@ const useComposerWindowBridges = (opts: {
     /** Handles `bettershape-chat-attach-files` workbench events. */
     const onAttachFiles = (e: Event) => {
       const detail = (
-        e as CustomEvent<{ files?: File[]; prompt?: string }>
+        e as CustomEvent<{ files?: File[]; prompt?: string } | undefined>
       ).detail;
       const incoming = detail?.files?.filter(Boolean) ?? [];
       if (incoming.length > 0) {
@@ -550,11 +552,14 @@ const useComposerWindowBridges = (opts: {
     /** Handles `bettershape-open-media` lightbox events. */
     const onOpen = (e: Event) => {
       const detail = (
-        e as CustomEvent<{
-          src: string;
-          title?: string;
-          kind?: "image" | "html";
-        }>
+        e as CustomEvent<
+          | {
+              src: string;
+              title?: string;
+              kind?: "image" | "html";
+            }
+          | undefined
+        >
       ).detail;
       if (!detail?.src) return;
       setMediaViewer({
@@ -575,7 +580,8 @@ const useComposerWindowBridges = (opts: {
     let raf = 0;
     /** Handles `bettershape-dictation-text` voice transcription events. */
     const onDictation = (e: Event) => {
-      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      const text = (e as CustomEvent<{ text?: string } | undefined>).detail
+        ?.text;
       if (!text) return;
       const val = inputValueRef.current;
       const [selStart, selEnd] = readTextareaSelectionRange(
@@ -853,7 +859,7 @@ const emitInputChangeAndResolveCaret = (
   textareaRef: React.RefObject<HTMLTextAreaElement | null>,
 ): number => {
   const raw = e.target.value;
-  const caretRaw = e.target.selectionStart ?? raw.length;
+  const caretRaw = e.target.selectionStart;
   if (shortened === raw) {
     onInputChange(e);
     return caretRaw;
@@ -1139,6 +1145,71 @@ const useComposerDragAndDrop = (opts: {
   return { dragOver, onDrop, onDragEnter, onDragLeave, onDragOver };
 };
 
+/** Renders the context-menu-wrapped composer `<textarea>` input element. */
+const ComposerTextareaWithMenu = ({
+  textareaRef,
+  inputValue,
+  composerBreakAll,
+  composerAriaLabel,
+  setIsEditorFocused,
+  onChange,
+  onKeyDown,
+  onPaste,
+  onSelect,
+  onScroll,
+  onContextMenuPaste,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  inputValue: string;
+  composerBreakAll: boolean;
+  composerAriaLabel: string;
+  setIsEditorFocused: (focused: boolean) => void;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (e: React.ClipboardEvent) => void;
+  onSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
+  onScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
+  onContextMenuPaste: () => void;
+}) => (
+  <ContextMenu>
+    <ContextMenuTrigger asChild>
+      <textarea
+        ref={textareaRef}
+        value={inputValue}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onSelect={onSelect}
+        onScroll={onScroll}
+        onFocus={() => {
+          setIsEditorFocused(true);
+          if (hasActiveTauriBridge()) {
+            warmComposerResources(safeReadProjectPath());
+          }
+        }}
+        onBlur={() => setIsEditorFocused(false)}
+        placeholder=""
+        aria-label={composerAriaLabel}
+        rows={1}
+        className={cn(
+          "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",
+          composerBreakAll ? "break-all" : "break-words",
+        )}
+        style={{ caretColor: "var(--text-primary)" }}
+      />
+    </ContextMenuTrigger>
+    <ComposerContextMenuItems
+      onPasteClick={onContextMenuPaste}
+      onSelectAllClick={() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.select();
+      }}
+    />
+  </ContextMenu>
+);
+
 /** Renders the center `<textarea>` + mirror + rotating hint column inside the composer vessel. */
 const ComposerEditorColumn = ({
   textareaRef,
@@ -1213,43 +1284,19 @@ const ComposerEditorColumn = ({
         workflows={workflows ?? []}
         composerBreakAll={composerBreakAll}
       />
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <textarea
-            ref={textareaRef}
-            value={inputValue}
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            onSelect={onSelect}
-            onScroll={onScroll}
-            onFocus={() => {
-              setIsEditorFocused(true);
-              if (hasActiveTauriBridge()) {
-                warmComposerResources(safeReadProjectPath());
-              }
-            }}
-            onBlur={() => setIsEditorFocused(false)}
-            placeholder=""
-            aria-label={composerAriaLabel}
-            rows={1}
-            className={cn(
-              "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",
-              composerBreakAll ? "break-all" : "break-words",
-            )}
-            style={{ caretColor: "var(--text-primary)" }}
-          />
-        </ContextMenuTrigger>
-        <ComposerContextMenuItems
-          onPasteClick={onContextMenuPaste}
-          onSelectAllClick={() => {
-            const el = textareaRef.current;
-            if (!el) return;
-            el.focus();
-            el.select();
-          }}
-        />
-      </ContextMenu>
+      <ComposerTextareaWithMenu
+        textareaRef={textareaRef}
+        inputValue={inputValue}
+        composerBreakAll={composerBreakAll}
+        composerAriaLabel={composerAriaLabel}
+        setIsEditorFocused={setIsEditorFocused}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+        onSelect={onSelect}
+        onScroll={onScroll}
+        onContextMenuPaste={onContextMenuPaste}
+      />
     </div>
   </div>
 );
@@ -1339,7 +1386,7 @@ const useComposerTextController = ({
     (char: "@" | "/", token: string) => {
       const textarea = textareaRef.current;
       if (!textarea) return;
-      const caret = textarea.selectionStart ?? inputValue.length;
+      const caret = textarea.selectionStart;
       const replaced = replaceTriggerAtCaret(inputValue, caret, char, token);
       if (replaced === null) return;
       applyProgrammaticInputValue(replaced.next);
@@ -1607,7 +1654,7 @@ const ComposerVesselCard = ({
           onSelect={(e) => {
             if (!pickerOpen) return;
             const el = e.currentTarget;
-            setTrigger(detectComposerTrigger(el.value, el.selectionStart ?? 0));
+            setTrigger(detectComposerTrigger(el.value, el.selectionStart));
           }}
           onScroll={(e) => {
             const el = e.currentTarget;
@@ -2032,6 +2079,7 @@ const ChatInputInner = ({
       [addUploadedFiles, inputValue, textCtrl],
     );
     const handleContextMenuPaste = React.useCallback(() => {
+      if (!navigator.clipboard) return;
       navigator.clipboard
         .readText()
         .then((text) =>

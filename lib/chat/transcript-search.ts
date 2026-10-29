@@ -41,9 +41,6 @@ const HIDDEN_PAIRED_TAG_NAMES = [
     "tools",
     "new_path",
     "file_content",
-    "attached_image",
-    "attached_file",
-    "attached_asset",
     "thinking",
     "thought",
     "think",
@@ -65,6 +62,8 @@ const LOWER_TAG_NAME_CHARS = new Set(
 );
 const SENT_FILE_TITLE_ATTR_RE = /\btitle=(["'])([^"']*)\1/i;
 const SENT_FILE_NAME_ATTR_RE = /\bname=(["'])([^"']*)\1/i;
+const ATTACHMENT_TYPE_ATTR_RE = /\btype=(["'])([^"']*)\1/i;
+const ATTACHMENT_XML_ENC_RE = /\bname_encoding=(["'])xml\1/i;
 const EDIT_FILE_ATTR_RE = /\bfile=(["'])([^"']*)\1/i;
 const CAT_PATH_ATTR_RE = /\bpath=(["'])([^"']*)\1/i;
 
@@ -78,10 +77,54 @@ export const decodeBasicXmlEntities = (raw: string): string =>
         .replace(/&gt;/g, ">")
         .replace(/&amp;/g, "&");
 
+/** Reads the raw attribute value matched by `attrRe` from `openTag`, or `""`. */
+const readRawTagAttr = (openTag: string, attrRe: RegExp): string =>
+    openTag.match(attrRe)?.[2] ?? "";
+
 /** Reads and XML-decodes an attribute matched by `attrRe` from `openTag`. */
 const readDecodedTagAttr = (openTag: string, attrRe: RegExp): string => {
-    const match = openTag.match(attrRe);
-    return match ? decodeBasicXmlEntities(match[2]).trim() : "";
+    const raw = readRawTagAttr(openTag, attrRe);
+    return raw ? decodeBasicXmlEntities(raw).trim() : "";
+};
+
+/** Checks whether an attachment payload contains an inline `data:` URL thumbnail. */
+const hasInlineAttachmentDataUrl = (
+    isAssetTag: boolean,
+    inner: string,
+): boolean => {
+    const trimmed = inner.trim();
+    if (trimmed.startsWith("data:")) return true;
+    if (!isAssetTag) return false;
+    return trimmed
+        .slice(trimmed.lastIndexOf("\n") + 1)
+        .trim()
+        .startsWith("data:");
+};
+
+/** Checks whether a user attachment renders as an `<img>` thumbnail rather than a text pill. */
+const rendersAsImageThumb = (
+    tagKind: "image" | "file" | "asset",
+    openTag: string,
+    inner: string,
+): boolean => {
+    const mime = readRawTagAttr(openTag, ATTACHMENT_TYPE_ATTR_RE).toLowerCase();
+    const isImage = tagKind === "image" || mime.startsWith("image/");
+    return isImage && hasInlineAttachmentDataUrl(tagKind === "asset", inner);
+};
+
+/** Formats the visible pill filename rendered by `<SentAttachment>` for search indexing. */
+const formatUserAttachmentSearchLabel = (
+    tagKind: "image" | "file" | "asset",
+    openTag: string,
+    inner: string,
+): string => {
+    if (rendersAsImageThumb(tagKind, openTag, inner)) return " ";
+    const rawName =
+        readRawTagAttr(openTag, SENT_FILE_NAME_ATTR_RE) || "attachment";
+    const name = ATTACHMENT_XML_ENC_RE.test(openTag)
+        ? decodeBasicXmlEntities(rawName)
+        : rawName;
+    return ` ${name} `;
 };
 
 /** Joins `a` and `b` with a space, deduplicating empty or identical values. */
@@ -119,6 +162,21 @@ const PAIRED_TAG_FORMATTERS: ReadonlyMap<string, PairedTagFormatter> = new Map<
         tag,
         () => " ",
     ]),
+    [
+        "attached_image",
+        (openTag, inner) =>
+            formatUserAttachmentSearchLabel("image", openTag, inner),
+    ],
+    [
+        "attached_file",
+        (openTag, inner) =>
+            formatUserAttachmentSearchLabel("file", openTag, inner),
+    ],
+    [
+        "attached_asset",
+        (openTag, inner) =>
+            formatUserAttachmentSearchLabel("asset", openTag, inner),
+    ],
     ["sent_file", (openTag) => formatSentFileSearchLabel(openTag)],
     ["edit", (openTag) => formatEditSearchLabel(openTag)],
     ["cat", formatCatSearchLabel],
