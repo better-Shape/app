@@ -7,7 +7,9 @@ import { ChatFindBar } from "@/features/chat/ui/shell/find-bar";
 import { ProblemsPanel } from "@/features/git/ui/problems/panel";
 import { groupProblems, summarize, toProblem } from "@/features/git/ui/problems/model";
 import { PendingEditsPanel } from "@/features/chat/ui/composer/edits";
-import { ChatEditDiff } from "@/features/chat/ui/blocks/chat-diff";
+import { ChatEditDiff, ChatPatchDiff } from "@/features/chat/ui/blocks/chat-diff";
+import { extractCleanSelectionText } from "@/features/chat/ui/quote-selection";
+import { TerminalCommandStep } from "@/features/chat/ui/blocks/terminal-live";
 import {
     ChatStreamProvider,
     useChatStream,
@@ -195,8 +197,112 @@ describe("PendingEditsPanel", () => {
                 (node) => node.textContent?.trim(),
             );
             expect(srLabels).toEqual(["Removed line", "Added line"]);
+
+            const range = document.createRange();
+            range.selectNodeContents(diff.host);
+            const quoted = extractCleanSelectionText(range, diff.host);
+            expect(quoted).not.toContain("Removed line");
+            expect(quoted).not.toContain("Added line");
+            expect(quoted).toContain("oldVal");
+            expect(quoted).toContain("newVal");
         } finally {
             unmount(diff.root, diff.host);
+        }
+    });
+
+    it("renders file and @@ hunk headers in ChatPatchDiff", () => {
+        const patch = mount(
+            createElement(ChatPatchDiff, {
+                body: [
+                    "diff --git a/src/app.ts b/src/app.ts",
+                    "--- a/src/app.ts",
+                    "+++ b/src/app.ts",
+                    "@@ -10,2 +10,2 @@",
+                    "-const before = 1;",
+                    "+const after = 2;",
+                ].join("\n"),
+            }),
+        );
+        try {
+            const text = patch.host.textContent ?? "";
+            expect(text).toContain("diff --git a/src/app.ts b/src/app.ts");
+            expect(text).toContain("@@ -10,2 +10,2 @@");
+            expect(text).toContain("const after = 2;");
+        } finally {
+            unmount(patch.root, patch.host);
+        }
+    });
+
+    it("preserves early terminal data before start and merges pre-remount output on TerminalCommandStep", async () => {
+        const listeners = new Map<string, Array<(event: { payload: unknown }) => void>>();
+        mockInvoke((cmd, args) => {
+            if (cmd === "plugin:event|listen") {
+                const payload = args as { event: string; handler: number };
+                const list = listeners.get(payload.event) ?? [];
+                list.push((ev) => {
+                    const run = (
+                        window as unknown as {
+                            __TAURI_INTERNALS__?: {
+                                runCallback?: (id: number, data: unknown) => void;
+                            };
+                        }
+                    ).__TAURI_INTERNALS__?.runCallback;
+                    run?.(payload.handler, ev);
+                });
+                listeners.set(payload.event, list);
+                return Promise.resolve(payload.handler);
+            }
+            return Promise.resolve(null);
+        });
+
+        const emit = (payload: unknown) => {
+            for (const fn of listeners.get("agent-terminal-stream") ?? []) {
+                fn({ payload });
+            }
+        };
+
+        const row = mount(
+            createElement(TerminalCommandStep, {
+                block: {
+                    type: "terminal_command",
+                    commandId: "cmd-race-1",
+                    commandStatus: "running",
+                    command: "echo fast",
+                    content: "echo fast\nbefore-remount",
+                    isGenerating: true,
+                },
+            }),
+        );
+        try {
+            await act(async () => {
+                await Promise.resolve();
+            });
+            await act(async () => {
+                emit({
+                    commandId: "cmd-race-1",
+                    sessionId: 42,
+                    kind: "data",
+                    data: "early-line\n",
+                });
+                emit({
+                    commandId: "cmd-race-1",
+                    sessionId: 42,
+                    kind: "start",
+                    command: "echo fast",
+                });
+            });
+            // Click header button to expand output if collapsed
+            const toggleBtn = row.host.querySelector("button");
+            if (toggleBtn && !(row.host.textContent ?? "").includes("early-line")) {
+                act(() => {
+                    toggleBtn.click();
+                });
+            }
+            const text = row.host.textContent ?? "";
+            expect(text).toContain("before-remount");
+            expect(text).toContain("early-line");
+        } finally {
+            unmount(row.root, row.host);
         }
     });
 });

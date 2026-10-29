@@ -43,7 +43,7 @@ export type DictationSession = {
 type DictationInvokeBridge = {
     start: () => Promise<void>;
     stop: () => Promise<void>;
-    push: (wav: number[]) => Promise<unknown>;
+    push: (wav: Uint8Array) => Promise<unknown>;
 };
 
 const DOM_EXCEPTION_MESSAGES: Partial<Record<string, string>> = {
@@ -427,7 +427,7 @@ const triggerStopIfCurrent = (
 
 /** Runs `invoke.push()` inside the serialized queue and stops the recognizer if superseded mid-push. */
 const runSerializedRecognizerPush = (
-    wavBytes: number[],
+    wavBytes: Uint8Array,
     invoke: DictationInvokeBridge,
     token: SessionLifecycleToken,
 ): Promise<unknown> =>
@@ -449,7 +449,7 @@ const pushEncodedWav = (
     setState: (state: DictationState) => void,
     handlers: Pick<DictationHandlers, "onText" | "onError">,
 ): void => {
-    runSerializedRecognizerPush(Array.from(wav), invoke, token)
+    runSerializedRecognizerPush(wav, invoke, token)
         .then((result) => {
             if (!isCurrentDictationAttempt(token.epoch, token.signal)) return;
             forwardRecognizedPushText(result, setState, handlers.onText);
@@ -481,6 +481,19 @@ const disconnectCaptureGraph = (
     context.close().catch(() => {
         /* ignore audio context close errors */
     });
+};
+
+/** Drains captured PCM chunks, tears down the audio graph, and encodes audible speech to 16 kHz WAV. */
+const encodeDrainedCaptureToWav = (
+    chunks: Float32Array[],
+    sampleRate: number,
+    teardown: () => void,
+): Uint8Array | null => {
+    const samples = concatFloat32(chunks);
+    teardown();
+    if (!hasAudibleSignal(samples)) return null;
+    const pcm = resampleTo16k(samples, sampleRate);
+    return encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
 };
 
 /** Builds an active PCM capture session over an initialized `AudioContext` and `MediaStream`. */
@@ -521,16 +534,17 @@ const createActiveDictationSession = (
             teardown();
             return;
         }
-        const samples = concatFloat32(chunks);
-        teardown();
-        if (!hasAudibleSignal(samples)) {
+        const wav = encodeDrainedCaptureToWav(
+            chunks,
+            context.sampleRate,
+            teardown,
+        );
+        if (!wav) {
             triggerStopIfCurrent(invoke, token.epoch);
             setState("idle");
             return;
         }
         setState("processing");
-        const pcm = resampleTo16k(samples, context.sampleRate);
-        const wav = encodeWavPcm16(pcm, DICTATION_SAMPLE_RATE);
         pushEncodedWav(wav, invoke, token, setState, handlers);
     };
 

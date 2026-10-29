@@ -364,7 +364,7 @@ const buildAttemptDictationBridge = (
         }
     },
     stop: () => commands.dictationStop(),
-    push: (wav: number[]) =>
+    push: (wav: Uint8Array) =>
         isCurrentRecognizerAttempt(attemptId, refs)
             ? commands.dictationPush(wav)
             : Promise.resolve(""),
