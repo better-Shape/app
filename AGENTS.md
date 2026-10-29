@@ -137,6 +137,7 @@ ALWAYS treat the current state as incomplete, even when it appears to work.
 - Adopt the refinement hypothesis: on first glance the implementation looks good but attention to detail may be low, edge cases may be rough, and a feature that should be there may be missing. Investigate that hypothesis with evidence; allow an evidence-backed finding that no gap exists to satisfy the refinement pass.
 - Define what missing means before you search for it: read the intent hypothesis from the Proactive Protocol, read `DESIGN.md` and `engineering/design-system-baseline.md` when the work touches UI, otherwise define completeness via tests, error handling, and platform conventions, and list the expected behaviors that are not yet present. Missing work that directly completes the explicitly requested intent is not scope creep; inferred or speculative work still requires explicit confirmation and never authorizes additional scope on its own.
 - Research outside this repository when the domain has known standards the current code ignores: accessibility, platform conventions, error handling, security boundaries, and performance expectations for the specific feature. Search the web when relevant and authorized, fetch primary sources, and cite them; otherwise use repository evidence and document why external research was not needed.
+- Run multiple external research rounds while building, testing, and fixing instead of one upfront search. Audit touched screens against peer tools, primary docs, and `DESIGN.md`; your impression that UI "looks good" never proves it is good.
 
 ### 2. Attention to detail — polish until no rough edge remains
 
@@ -156,6 +157,7 @@ ALWAYS enumerate and handle the edge cases the first pass ignored. List them exp
 - Specifically watch for patterns that look correct but hide failure: a fallback that swallows the original error, a retry that replays an aborted request, a response body read twice, an unchecked cast, an unvalidated redirect, an unbounded buffer, stale persisted state, and a race between concurrent writes.
 - For each edge case, state the expected behavior, the verification that proves it, and what the code does when the edge is hit. If verification cannot be run in this sandbox, name why and what substitute command was run.
 - Add or update tests for every edge case you fix, without altering existing tests to make them pass. Fix the code the test describes. If a test is genuinely wrong, say so in the PR.
+- For UI, layout, streaming, markdown, editor, git, or cross-route work, unit tests and three fixed snapshots are not enough; run the Chromium visual stress and upstream-issue campaign in Browser preview & QA below until zero visual defects remain.
 - Run the full verification gate after hardening, not just the single test that covers the fix. A green run from before your last edit proves nothing about the current tree.
 
 ### 4. Missing features — research, propose, implement, refine
@@ -231,20 +233,9 @@ npm run skills:verify             # every vendored skill matches skills-lock.jso
 
 `npm run test` alone or a single-file Vitest run is not enough because targeted runs skip cross-module equivalence suites and Rust tests. Use `npm run test:all`, which builds the runtime and runs the full Vitest suite plus Cargo tests, before you call a change done. For a Tauri or Rust change, also run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`, because CI runs both.
 
-Run the gate the way CI runs it. A piped command reports the exit code of the pipe, so read the printed diagnostics too.
+When a diff touches UI, routes, layout, markdown, editor, git, or settings code, run `npm run build:preview` and `E2E_STATIC=1 npx playwright test` so `@audit`, `@smoke`, `@visual` snapshots, and responsive resilience specs pass. Before pushing, scan `git diff <base>...HEAD --unified=0 | node scripts/ci/check-secrets.mjs` and build test placeholder keys dynamically instead of committing literal `sk-` strings of 20 or more characters.
 
-Preflight checklist (required before any push)
-
-- Run these locally and paste the head SHA plus results in the PR verification block:
-  - npm ci
-  - npm run lint:strict
-  - npm run typecheck
-  - npm run test:all
-  - npm run skills:verify
-- If changing Rust, also run:
-  - cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-  - cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
-- Never push directly to `main`. Create a branch per concern and open a PR against its base.
+Run the gate the way CI runs it. A piped command reports the exit code of the pipe, so read the printed diagnostics too. Follow `.agents/PREFLIGHT.md` before every push, paste the head SHA plus results in the PR verification block, and never push directly to `main`.
 
 ## Blocked sandbox toolchain
 
@@ -327,7 +318,7 @@ Keep thinking what is missing.
 3. Load `REVIEW.md` and `FULL-REVIEW.md` from the working tree of the branch under review, since neither file is on `main`. Load the CodeRabbit profile in `.coderabbit.yaml`.
 4. Review the full diff against its base. Classify each finding as critical, major, minor, nitpick or UI concern, and fix it. Check touched TypeScript and JavaScript files against `.dump/global/local-gate-parity-and-external-analyzers.md` for the external analyzer rules enforced outside `eslint.config.cjs`.
 5. Repeat steps 1 to 4 up to three times until a pass finds nothing new. A pass that finds nothing is a reason to dig deeper, not a reason to stop. Re-check the parts that the fixes touched.
-6. Push only after the local gate is green.
+6. Finish every fix, regression test, visual re-check, secret scan, and local gate completely before pushing. Never push partial commits while checks, reviews, or visual scenarios remain unfinished.
 
 Do not wait for bots to find what you can find. Fix the minor and nitpick findings before they are posted.
 
@@ -457,6 +448,7 @@ The full UI also runs in a plain browser with a mocked Tauri backend
 
 ```bash
 npm run dev:browser   # launch the app at localhost:48921 (?seed=project for a fake open project)
+npm run build:preview # build the static browser export used by E2E_STATIC=1 Playwright runs
 npm run qa            # Playwright suite + summary (headless; routes, a11y, screenshots)
 npm run qa:audit      # route crawl only, see e2e/README.md
 ```
@@ -464,6 +456,16 @@ npm run qa:audit      # route crawl only, see e2e/README.md
 Specs live in `e2e/` (roles/text locators, seeds via fixtures). If the UI
 needs an IPC shape the mock lacks, extend the mock, do not work around it
 in a spec. Desktop behaviour still requires `npm run test:all`.
+
+### Visual stress and upstream-issue testing
+
+For broad UI, layout, streaming, markdown, editor, git, or cross-route work, happy-path specs and fixed `1280x720` snapshots miss overflow, clipping, wrapping, and stacking bugs. Run a Chromium stress campaign against `npm run build:preview` or `npm run dev:browser` per `.dump/global/visual-stress-and-upstream-issue-verification.md`:
+
+- Sweep routes `/`, `/branch`, `/git`, `/popout`, and `/settings` at `340x560`, `1280x720`, `2560x1440`, and `1024x340`, with scaled font sizes and open menus or dialogs.
+- Test wild adversarial inputs first: unbroken tokens and URLs, deep paths, CJK and RTL and combining marks, large pastes and 15-plus composer attachments, 12 to 20 column GFM tables, mid-stream partial fences and tables and math, multi-hunk diffs, cramped split panes, and edge-anchored menus.
+- Mine real UI, layout, streaming, editor, diff, menu, and settings bug reports from comparable repositories across multiple research rounds, translate them into BetterShape scenarios, and run them in Chromium.
+- Seed state after `installBrowserPreviewMocks()` via `window.__BETTERSHAPE_PREVIEW__` with JSON-serializable IPC payloads; never set `window.__TAURI_INTERNALS__` before bootstrap.
+- Pair DOM checks for `scrollWidth > clientWidth` bleed, mid-word clipping, control overlap, off-screen menus, and zero-sized boxes with direct pixel review of contact sheets and PNGs in `.qa-artifacts/`. Fix shared root causes across renderer and Rust IPC boundaries, re-run to zero defects, lock regressions in `tests/` and `e2e/` while keeping `e2e/visual.spec.ts` baselines intact, and keep scratch files out of Git.
 
 ## Do not
 
@@ -525,10 +527,6 @@ Rules and memory
 Durable engineering memory lives in `.dump/`. The directory is described in `.dump/README.md`. Research notes, decision records and measurements belong there, never in a PR description. Attach them to a PR by path in a collapsible block. Never write secrets, tokens or raw provider output into `.dump/`.
 
 When you add a rule to this file, make sure it passes the test in `REVIEW.md` and does not encode a fact that changes often. Ask the human before you append a new rule, using the form "To improve my behaviour and session quality, should I append this rule? Yes or ignore."
-
-## Filing a pull request
-
-Write the description for someone who has never seen this codebase. The first paragraph says what the change does, what it fixes and what it touches, in plain sentences. Put every measurement, file list and research record in a collapsible block after it.
 
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions

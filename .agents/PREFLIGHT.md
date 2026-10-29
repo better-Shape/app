@@ -5,12 +5,13 @@ Use this before every push. Paste the results and head SHA into the PR Verificat
 ## Required local checks
 
 - [ ] `npm ci --ignore-scripts`
-- [ ] `npm run lint`
+- [ ] `npm run lint:strict`
 - [ ] `npm run typecheck`
 - [ ] `npm run build:runtime`
 - [ ] `npm run test:all`
 - [ ] `npm run test:rust` if you touched `src-tauri/`
 - [ ] `npm run skills:verify`
+- [ ] `git diff <base>...HEAD --unified=0 | node scripts/ci/check-secrets.mjs`
 
 ## Blocked sandbox
 
@@ -62,3 +63,4 @@ A PR is substantially critical if it changes a public contract in a breaking way
 ## UI rule
 
 - [ ] For a UI change, I read `DESIGN.md`, `engineering/design-system-baseline.md`, and any relevant surface design file before editing.
+- [ ] For UI, layout, streaming, markdown, editor, git, or cross-route changes, I ran `npm run build:preview`, `E2E_STATIC=1 npx playwright test`, and the Chromium visual stress and upstream-issue campaign in `AGENTS.md` until zero visual defects remained.
