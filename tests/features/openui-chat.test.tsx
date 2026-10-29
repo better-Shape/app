@@ -1,0 +1,262 @@
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { OpenUIBlock } from "@/features/chat/ui/blocks/openui";
+import { ChatMessageItem } from "@/features/chat/ui/message/item";
+
+let host: HTMLDivElement | null = null;
+let root: Root | null = null;
+let clipboardDescriptor: PropertyDescriptor | undefined;
+
+afterEach(() => {
+    if (root) act(() => root?.unmount());
+    host?.remove();
+    root = null;
+    host = null;
+    if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+    else Reflect.deleteProperty(navigator, "clipboard");
+    clipboardDescriptor = undefined;
+});
+
+/** Mount an assistant message and expose its public copy action and clipboard spy. */
+const renderAssistantMessageForCopy = async (content: string) => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+    });
+    await act(async () => {
+        root?.render(<ChatMessageItem role="assistant" content={content} timestamp={0} />);
+    });
+    const copyButton = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]');
+    if (!copyButton) throw new Error("Assistant copy action was not rendered");
+    return {
+        writeText,
+        copyMessage: () => act(async () => copyButton.click()),
+    };
+};
+
+describe("OpenUIBlock", () => {
+    it("copies rendered visual text through the assistant message action", async () => {
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            '```openui-lang\nroot = Surface([label])\nlabel = Text("Visual summary")\n```',
+        );
+        expect(host?.querySelector("[data-openui-block]")?.textContent).toContain("Visual summary");
+        await copyMessage();
+
+        expect(writeText).toHaveBeenCalledWith("Visual summary");
+    });
+
+    it("copies rendered metadata labels instead of protocol prefixes", async () => {
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            '<forked_from id="source" title="Earlier chat"/>Answer from the earlier conversation.',
+        );
+        expect(host?.textContent).toContain("Forked from");
+        await copyMessage();
+
+        const copied = writeText.mock.calls[0]?.[0] ?? "";
+        expect(copied).toContain("Forked from");
+        expect(copied).toContain("Answer from the earlier conversation.");
+        expect(copied).not.toContain("<forked_from");
+    });
+
+    it("copies rendered chart text instead of dropping structured message blocks", async () => {
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            'A chart:\n<chart>{"title":"Test results","points":[{"label":"Passed","value":42}]}</chart>',
+        );
+        expect(host?.textContent).toContain("Test results");
+        expect(host?.textContent).toContain("Passed");
+        await copyMessage();
+
+        expect(writeText.mock.calls[0]?.[0]).toContain("A chart:");
+        expect(writeText.mock.calls[0]?.[0]).toContain("Test results");
+        expect(writeText.mock.calls[0]?.[0]).toContain("Passed");
+    });
+
+    it("copies rendered question content instead of omitting structured prompts", async () => {
+        const payload = JSON.stringify({
+            questions: [{ id: "goal", prompt: "What should the report emphasize?", options: [{ id: "risks", label: "Risks first" }] }],
+        });
+        const { writeText, copyMessage } = await renderAssistantMessageForCopy(
+            `Question for you:\n<questions id="ask-1" status="pending">${payload}</questions>`,
+        );
+
+        expect(host?.textContent).toContain("What should the report emphasize?");
+        await copyMessage();
+
+        const copied = writeText.mock.calls[0]?.[0] ?? "";
+        expect(copied).toContain("Question for you:");
+        expect(copied).toContain("What should the report emphasize?");
+        expect(copied).toContain("Risks first");
+        expect(copied).not.toContain("<questions");
+    });
+
+    it("disables OpenUI runtime telemetry and the remote development inspector", () => {
+        expect(process.env.OPENUI_TELEMETRY_DISABLED).toBe("1");
+        expect(Reflect.get(globalThis, Symbol.for("openui.devtools.autoMount"))).toBe(true);
+    });
+
+    it("renders registered components from a generated program", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+
+        await act(async () => {
+            root?.render(
+                <OpenUIBlock
+                    response={'root = Surface([stack], "Project summary")\nstack = Stack([heading, metric], "row")\nheading = Text("The project has 12 files.", "body")\nmetric = Metric("Files", "12")'}
+                />,
+            );
+        });
+
+        expect(host.textContent).toContain("Project summary");
+        expect(host.textContent).toContain("The project has 12 files.");
+        expect(host.textContent).toContain("12");
+        expect(host.querySelector("section")).toBeTruthy();
+    });
+
+    it("renders extra static components with bounded and accessible values", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+
+        await act(async () => {
+            root?.render(
+                <OpenUIBlock
+                    response={'root = Surface([heading, callout, progress, chart, table], "Details")\nheading = Text("Accessible summary", "heading")\ncallout = Callout("Note", "Everything shown is read-only.", "positive")\nprogress = Progress("Completion", 125, "Clamped to the supported range")\nchart = BarChart([], [])\ntable = DataTable(["Name", "Count"], [["Tests", "42"]], "Summary table")'}
+                />,
+            );
+        });
+
+        expect(host.textContent).toContain("Everything shown is read-only.");
+        expect(host.querySelector("h4")?.textContent).toBe("Accessible summary");
+        expect(host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("100");
+        expect(host.textContent).toContain("No chart data was provided.");
+        expect(host.querySelector("section")?.className).toContain("bg-surface-2");
+        expect(host.querySelector("section")?.className).not.toContain("shadow-sm");
+        expect(host.querySelector('aside[role="note"]')?.textContent).toContain("Note");
+        expect(host.querySelector('aside[role="note"] p')?.className).toContain("text-success");
+        expect(host.querySelector("table:not(.sr-only) caption")?.textContent).toBe("Summary table");
+        expect(host.querySelector("table:not(.sr-only)")?.previousElementSibling?.textContent).toBe("Summary table");
+    });
+
+    it("keeps signed chart values legible and limits large tables accessibly", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const columns = Array.from({ length: 9 }, (_, index) => `Column ${index + 1}`);
+        const rows = Array.from({ length: 31 }, (_, index) => [`Row ${index + 1}`]);
+        const response = [
+            'root = Surface([chart, table], "Bounded data")',
+            'chart = BarChart(["Gain", "Loss"], [5, -5], "Signed values")',
+            `table = DataTable(${JSON.stringify(columns)}, ${JSON.stringify(rows)}, "Long table")`,
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        const bars = Array.from(host.querySelectorAll("figure span[style]"));
+        expect(host.textContent).toContain("-5");
+        expect(host.querySelector("figure > div[aria-hidden='true']")).toBeTruthy();
+        const accessibleTable = host.querySelector("table.sr-only");
+        expect(accessibleTable?.closest("figure")).toBeNull();
+        expect(accessibleTable?.querySelector("tbody")?.textContent).toContain("-5");
+        expect(bars[0]?.getAttribute("style")).toContain("left: 50%");
+        expect(bars[1]?.getAttribute("style")).toContain("left: 0%");
+        const table = host.querySelector("table:not(.sr-only)");
+        expect(table?.querySelectorAll("tbody tr")).toHaveLength(30);
+        expect(table?.querySelectorAll("thead th")).toHaveLength(8);
+        expect(host.textContent).toContain("Showing the first 30 rows and 8 columns.");
+    });
+
+    it("uses the full chart width when comparing non-negative values", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+
+        await act(async () => {
+            root?.render(
+                <OpenUIBlock response={'root = Surface([chart])\nchart = BarChart(["Small", "Large"], [2, 4])'} />,
+            );
+        });
+
+        const bars = Array.from(host.querySelectorAll("figure span[style]"));
+        expect(bars[0]?.getAttribute("style")).toContain("width: 50%");
+        expect(bars[0]?.getAttribute("style")).toContain("left: 0%");
+        expect(bars[1]?.getAttribute("style")).toContain("width: 100%");
+    });
+
+    it("caps pathological nested layouts with a readable fallback", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const layers = Array.from({ length: 20 }, (_, index) =>
+            `node${index} = Stack([${index === 19 ? "leaf" : `node${index + 1}`}])`,
+        );
+        const response = [
+            "root = Surface([node0])",
+            ...layers,
+            'leaf = Text("Deep content")',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("nested too deeply to display");
+        expect(host.textContent).not.toContain("Deep content");
+    });
+
+    it("does not count definition-like text inside a string as expanded work", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const response = 'root = Surface([label])\nlabel = Text("root = Surface([a, a, a, a, a])", "body")';
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("root = Surface([a, a, a, a, a])");
+        expect(host.querySelector("section")).toBeTruthy();
+    });
+
+    it("rejects repeated references whose expanded component tree exceeds the total budget", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+        const repeated = Array(8).fill("b").join(", ");
+        const response = [
+            `root = Surface([${Array(8).fill("a").join(", ")}])`,
+            `a = Stack([${repeated}])`,
+            `b = Stack([${Array(8).fill("leaf").join(", ")}])`,
+            'leaf = Text("Safe leaf")',
+        ].join("\n");
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={response} />);
+        });
+
+        expect(host.textContent).toContain("too complex to display safely");
+        expect(host.textContent).not.toContain("Safe leaf");
+        expect(host.querySelector("section")).toBeNull();
+    });
+
+    it("shows a safe fallback when a generated program references an unknown component", async () => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+        root = createRoot(host);
+
+        await act(async () => {
+            root?.render(<OpenUIBlock response={'root = Surface([missing])\nmissing = NotRegistered("ignored")'} />);
+        });
+
+        expect(host.textContent).toContain("This visual response could not be rendered.");
+        expect(host.querySelector("script, iframe, img")).toBeNull();
+    });
+});

@@ -246,6 +246,8 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
         command: preview.clone(),
         safety: "needs_approval".to_string(),
         reason: format!("Starts the MCP server '{}' as a local process.", cfg.id),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: None,
         payload: None,
     };
@@ -263,19 +265,18 @@ async fn approve_stdio_server(cfg: &McpServerConfig, ctx: &ToolCtx<'_>) -> Resul
 
     let decision = super::common::wait_for_command_decision(&cmd_id, ctx).await;
     super::common::cleanup_pending_command(&cmd_id, ctx);
-    if !matches!(decision, super::common::ApprovalDecision::Cancelled) {
-        super::common::emit_command_resolved(
-            ctx,
-            &cmd_id,
-            matches!(decision, super::common::ApprovalDecision::Approved),
-        );
-    }
     match decision {
-        super::common::ApprovalDecision::Approved => Ok(()),
-        super::common::ApprovalDecision::Rejected => Err(format!(
-            "'{}' was not approved. Nothing was written or started. Ask the user first if it should run.",
-            preview
-        )),
+        super::common::ApprovalDecision::Approved => {
+            super::common::emit_command_resolved(ctx, &cmd_id, true, Some("Starting MCP server"));
+            Ok(())
+        }
+        super::common::ApprovalDecision::Rejected => {
+            super::common::emit_command_resolved(ctx, &cmd_id, false, None);
+            Err(format!(
+                "'{}' was not approved. Nothing was written or started. Ask the user first if it should run.",
+                preview
+            ))
+        }
         super::common::ApprovalDecision::Cancelled => {
             Err("The turn was cancelled while waiting for approval.".to_string())
         }

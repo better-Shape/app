@@ -16,6 +16,7 @@ import { isBrowserTab } from "@/lib/window/browser-tab";
 import { WorkspaceTabs } from "./tabs";
 import { FileBar } from "./file-bar";
 import type { CSSProperties } from "react";
+import workspaceLayout from "./workspace-layout.module.css";
 
 /**
  * Panels behind a tab the user has to open are split out of the first-load
@@ -108,7 +109,11 @@ const WorkspaceFileSplitBody = ({
             <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
                 <FileEditor path={path} />
             </div>
-            <div className="hidden w-44 shrink-0 border-l border-border-subtle @[440px]/workspace:block">
+            <div
+                role="region"
+                aria-label="File explorer"
+                className={`border-l border-border-subtle ${workspaceLayout.fileExplorer}`}
+            >
                 <FileTree projectPath={projectPath} activePath={path} onOpenFile={onOpenFile} />
             </div>
         </div>
@@ -442,7 +447,7 @@ export const AgentWorkspace = ({
     if (!expanded) return null;
 
     return (
-        <aside className="@container/workspace flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar">
+        <aside className={`flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar ${workspaceLayout.workspaceViewport}`}>
             <div className="flex h-titlebar shrink-0 items-stretch">
                 <WorkspaceTabs
                     className="min-w-0 flex-1 bg-transparent"

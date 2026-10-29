@@ -460,6 +460,8 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
         command: format!("{toolkit}: {label}"),
         safety: "needs_approval".to_string(),
         reason: format!("Plugin action on {toolkit}"),
+        turn_id: ctx.turn_id.clone(),
+        conversation_id: ctx.conversation_id.clone(),
         action: Some("plugin_run".to_string()),
         payload: None,
     };
@@ -482,7 +484,7 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
 
     match decision {
         ApprovalDecision::Approved => {
-            emit_command_resolved(ctx, &cmd_id, true);
+            emit_command_resolved(ctx, &cmd_id, true, Some("Running plugin action"));
             let mut outcome =
                 execute_plugin_run_ui(&toolkit, &slug, &label, &arguments, ctx, Some(&cmd_id))
                     .await;
@@ -490,7 +492,7 @@ pub(super) async fn tool_plugin_run(args: &Value, ctx: &ToolCtx<'_>) -> ToolOutc
             outcome
         }
         ApprovalDecision::Rejected => {
-            emit_command_resolved(ctx, &cmd_id, false);
+            emit_command_resolved(ctx, &cmd_id, false, None);
             ToolOutcome {
                 tool_result: format!(
                     "Plugin action '{}' was rejected by the user. Do NOT retry it. Continue without it, or ask how to proceed.",

@@ -929,7 +929,11 @@ describe("Regression guards for error details, grapheme truncation, HTML tag bou
             "Example payload: <content>visible text</content>",
         );
         expect(proseWithContentTag).toEqual([
-            { type: "text", content: "Example payload: <content>visible text</content>" },
+            {
+                type: "text",
+                content: "Example payload: <content>visible text</content>",
+                sourceStart: 0,
+            },
         ]);
 
         const manyTools = Array.from(

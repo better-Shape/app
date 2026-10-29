@@ -75,11 +75,14 @@ If you paste model output into a thread, quote it, say a model wrote it, and add
 
 Node.js 22.13+ (or 24+), Rust, and [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/):
 
-```bash
+```powershell
+$env:DO_NOT_TRACK = "1"
 npm install
 cp .env.example .env   # optional
 npm run tauri:dev
 ```
+
+Use `DO_NOT_TRACK=1 npm install` on macOS or Linux. This disables OpenUI's package-install telemetry.
 
 Cloud URLs: [Local development](./docs/developing/local-development.mdx).
 

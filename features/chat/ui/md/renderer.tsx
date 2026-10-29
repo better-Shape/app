@@ -4,6 +4,7 @@ import React, { useEffect, useMemo } from "react";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import {
     appendInlineCodeSpansInRange,
+    readLineSliceAt,
     scanMarkdownCodeFences,
     stripLeakedToolCode,
     stripOrphanThinkTags,
@@ -27,6 +28,7 @@ import { ReviewDebatePanel } from "../blocks/debate";
 import { PersonaReviewPanel } from "../blocks/persona-review";
 import { BrowseChatCard } from "../blocks/browse-frame";
 import { ChartBlock, InsightCard } from "../blocks/chart";
+import { OpenUIBlock } from "../blocks/openui";
 import {
     QuestionsCard,
     parseQuestionsPayload,
@@ -38,7 +40,7 @@ import { decodeBasicXmlEntities } from "@/lib/chat/transcript-search";
 
 export type Chunk = {
     type:
-        | "text" | "edit" | "edit_pending" | "search" | "grep" | "status"
+        | "text" | "openui" | "edit" | "edit_pending" | "search" | "grep" | "status"
         | "web_search" | "think" | "thought" | "search_result" | "web_result"
         | "web_visit" | "inspect_runtime" | "terminal_command" | "git_operation"
         | "run" | "ls" | "cat" | "create_file" | "mkdir" | "delete_file"
@@ -87,6 +89,11 @@ export type Chunk = {
     mediaCredits?: string;
     questions?: AgentQuestion[];
     answers?: QuestionAnswers | null;
+    openuiTruncated?: boolean;
+    /** Source offset of the fence; stable across incremental renders of its generated DSL. */
+    openuiSourceStart?: number;
+    /** Stable offset in the original message used to key the rendered chunk. */
+    sourceStart?: number;
 };
 
 export type WebSearchResultItem = {
@@ -1268,12 +1275,17 @@ const pushParsedChunk = (chunks: Chunk[], chunk: Chunk): void => {
 const pushSanitizedTextSlice = (
     chunks: Chunk[],
     text: string,
+    sourceOffset: number,
     start: number,
     end?: number,
 ): void => {
     const cleaned = stripOrphanThinkTags(text.slice(start, end));
     if (cleaned) {
-        chunks.push({ type: "text", content: cleaned });
+        chunks.push({
+            type: "text",
+            content: cleaned,
+            sourceStart: sourceOffset + start,
+        });
     }
 };
 
@@ -1372,13 +1384,481 @@ const consumeMatchedTagAt = (
     };
 };
 
+const MAX_OPENUI_SOURCE_LENGTH = 32_000;
+const MAX_OPENUI_BLOCKS_PER_MESSAGE = 3;
+const MAX_TAG_NAME_LENGTH = 128;
+
+type OpenUIFence = {
+    start: number;
+    end: number;
+    sourceStart: number;
+    sourceEnd: number;
+    closed: boolean;
+};
+
+type OpenUIFenceOverflow = { start: number; end: number };
+type OpenUIFenceScan = { fences: OpenUIFence[]; overflow?: OpenUIFenceOverflow };
+
+type PendingTag = {
+    name: string;
+    closing: boolean;
+    quote: '"' | "'" | null;
+    lastNonWhitespace: string;
+    readingName: boolean;
+};
+
+type PendingTagStep = { tag: PendingTag | null; consumed: boolean };
+
+type ActiveOpenUIFence = {
+    marker: string;
+    length: number;
+    openUI?: OpenUIFence;
+    overflow?: boolean;
+};
+
+type OpenUIFenceScannerState = {
+    fences: OpenUIFence[];
+    activeFence: ActiveOpenUIFence | null;
+    activeMessageTags: Map<string, number>;
+    pendingMessageTag: PendingTag | null;
+    overflow?: OpenUIFenceOverflow;
+};
+
+const MESSAGE_BLOCK_TAG_NAMES: ReadonlySet<string> = new Set(
+    SEARCH_TAGS.map((spec) => spec.start.slice(1)),
+);
+
+/** Constrains the incremental tag scanner to XML-like name characters. */
+const isTagNameCharacter = (ch: string): boolean =>
+    /^[A-Za-z0-9:_-]$/u.test(ch);
+
+/** Checks whether `ch` is an ASCII attribute quote (`"` or `'`). */
+const isAsciiQuoteChar = (ch: string): ch is '"' | "'" =>
+    ch === '"' || ch === "'";
+
+/** Decrements or removes `name` from `activeTags` when a closing structural tag completes. */
+const decrementActiveTagDepth = (
+    name: string,
+    activeTags: Map<string, number>,
+): void => {
+    const count = activeTags.get(name) ?? 0;
+    if (count <= 1) activeTags.delete(name);
+    else activeTags.set(name, count - 1);
+};
+
+/** Increments depth for `name` inside `activeTags`. */
+const incrementActiveTagDepth = (
+    name: string,
+    activeTags: Map<string, number>,
+): void => {
+    activeTags.set(name, (activeTags.get(name) ?? 0) + 1);
+};
+
+/** Applies a completed structural tag to the active-tag depth map. */
+const applyCompletedTag = (
+    completed: PendingTag,
+    activeTags: Map<string, number>,
+): void => {
+    if (!MESSAGE_BLOCK_TAG_NAMES.has(completed.name)) return;
+    if (completed.closing) {
+        decrementActiveTagDepth(completed.name, activeTags);
+    } else if (completed.lastNonWhitespace !== "/") {
+        incrementActiveTagDepth(completed.name, activeTags);
+    }
+};
+
+/** Appends `ch` to `tag.name` while keeping oversized tag names inert (`"\0"`). */
+const appendBoundedTagNameChar = (tag: PendingTag, ch: string): void => {
+    if (tag.name === "\u0000") return;
+    tag.name =
+        tag.name.length < MAX_TAG_NAME_LENGTH ? tag.name + ch : "\u0000";
+};
+
+/** Advances `tag` while reading its XML tag name, returning `null` once name reading finishes. */
+const stepPendingTagName = (
+    ch: string,
+    tag: PendingTag,
+): PendingTagStep | null => {
+    if (isTagNameCharacter(ch)) {
+        appendBoundedTagNameChar(tag, ch);
+        return { tag, consumed: true };
+    }
+    if (!tag.name) return { tag: null, consumed: false };
+    tag.readingName = false;
+    return null;
+};
+
+/** Advances a quoted attribute value inside `tag`. */
+const stepQuotedTagBody = (ch: string, tag: PendingTag): PendingTagStep => {
+    if (ch === tag.quote) tag.quote = null;
+    return { tag, consumed: true };
+};
+
+/** Advances an unquoted tag body across `ch`. */
+const stepUnquotedTagBody = (
+    ch: string,
+    tag: PendingTag,
+    activeTags: Map<string, number>,
+): PendingTagStep => {
+    if (isAsciiQuoteChar(ch)) {
+        tag.quote = ch;
+        return { tag, consumed: true };
+    }
+    if (ch === ">") {
+        applyCompletedTag(tag, activeTags);
+        return { tag: null, consumed: true };
+    }
+    if (!/\s/u.test(ch)) tag.lastNonWhitespace = ch;
+    return { tag, consumed: true };
+};
+
+/** Consumes one character of an unfinished tag while retaining quote and name state. */
+const advancePendingTag = (
+    ch: string,
+    tag: PendingTag,
+    activeTags: Map<string, number>,
+): PendingTagStep => {
+    if (tag.readingName) {
+        const nameStep = stepPendingTagName(ch, tag);
+        if (nameStep) return nameStep;
+    }
+    if (tag.quote) return stepQuotedTagBody(ch, tag);
+    return stepUnquotedTagBody(ch, tag, activeTags);
+};
+
+/** Attempts to open a `PendingTag` at `<` (`index`), returning `{ tag, nextIndex }`. */
+const tryStartPendingTagAt = (
+    text: string,
+    index: number,
+): { tag: PendingTag | null; nextIndex: number } => {
+    const closing = text.charAt(index + 1) === "/";
+    const nameStart = closing ? index + 2 : index + 1;
+    const first = text.charAt(nameStart);
+    if (first && !/[A-Za-z]/u.test(first)) {
+        return { tag: null, nextIndex: index + 1 };
+    }
+    return {
+        tag: {
+            name: "",
+            closing,
+            quote: null,
+            lastNonWhitespace: "",
+            readingName: true,
+        },
+        nextIndex: nameStart,
+    };
+};
+
+/** Advances the structural tag scanner by one step at `index`. */
+const stepStructuralScannerAt = (
+    text: string,
+    index: number,
+    tag: PendingTag | null,
+    activeTags: Map<string, number>,
+): { tag: PendingTag | null; nextIndex: number } => {
+    if (tag) {
+        const step = advancePendingTag(text.charAt(index), tag, activeTags);
+        return { tag: step.tag, nextIndex: step.consumed ? index + 1 : index };
+    }
+    return text.charAt(index) === "<"
+        ? tryStartPendingTagAt(text, index)
+        : { tag: null, nextIndex: index + 1 };
+};
+
+/** Transitions multiline `<tag\nattr=...>` out of `readingName` at end-of-line. */
+const finalizeLineEndPendingTag = (tag: PendingTag | null): PendingTag | null => {
+    if (tag && tag.readingName && tag.name) tag.readingName = false;
+    return tag;
+};
+
+/** Updates structural-block depth with a quote-aware, bounded-state tag scanner. */
+const scanStructuralTags = (
+    text: string,
+    activeTags: Map<string, number>,
+    pending: PendingTag | null,
+): PendingTag | null => {
+    let index = 0;
+    let tag = pending;
+    while (index < text.length) {
+        const next = stepStructuralScannerAt(text, index, tag, activeTags);
+        tag = next.tag;
+        index = next.nextIndex;
+    }
+    return finalizeLineEndPendingTag(tag);
+};
+
+/** Counts up to 3 leading spaces before a top-level Markdown fence marker. */
+const countOpenUIFenceIndent = (line: string): number => {
+    let spaces = 0;
+    while (spaces < 3 && line.charAt(spaces) === " ") spaces += 1;
+    return spaces;
+};
+
+/** Reads a fence marker run (`3+` backticks or tildes) after up to 3 spaces. */
+const readOpenUIFenceMarker = (
+    line: string,
+): { marker: string; suffix: string } | null => {
+    const start = countOpenUIFenceIndent(line);
+    const ch = line.charAt(start);
+    if (ch !== "`" && ch !== "~") return null;
+    let end = start;
+    while (line.charAt(end) === ch) end += 1;
+    return end - start >= 3
+        ? { marker: line.slice(start, end), suffix: line.slice(end) }
+        : null;
+};
+
+/** Reads a closing fence marker run when `line` has only horizontal trailing space. */
+const parseOpenUIFenceClosing = (line: string): string | null => {
+    const parsed = readOpenUIFenceMarker(line);
+    return parsed && /^[ \t]*$/u.test(parsed.suffix) ? parsed.marker : null;
+};
+
+/** Checks whether `line` closes `active` fence. */
+const matchesActiveOpenUIFenceCloser = (
+    active: ActiveOpenUIFence,
+    line: string,
+): boolean => {
+    const closing = parseOpenUIFenceClosing(line);
+    return Boolean(
+        closing && closing[0] === active.marker && closing.length >= active.length,
+    );
+};
+
+/** Trims a single preceding CommonMark line break (`\r\n`, `\n`, or `\r`) before `offset`. */
+const trimPrecedingLineBreak = (text: string, offset: number): number => {
+    if (text.endsWith("\r\n", offset)) return offset - 2;
+    const prev = text.charCodeAt(offset - 1);
+    return prev === 0x0a || prev === 0x0d ? offset - 1 : offset;
+};
+
+/** Records a closed `active` OpenUI or overflow fence, returning true when overflow finished. */
+const recordClosedActiveOpenUIFence = (
+    state: OpenUIFenceScannerState,
+    active: ActiveOpenUIFence,
+    text: string,
+    lineStart: number,
+    nextLineStart: number,
+): boolean => {
+    if (active.openUI) {
+        state.fences.push({
+            ...active.openUI,
+            end: nextLineStart,
+            sourceEnd: trimPrecedingLineBreak(text, lineStart),
+            closed: true,
+        });
+        return false;
+    }
+    if (!active.overflow || !state.overflow) return false;
+    state.overflow = { ...state.overflow, end: nextLineStart };
+    return true;
+};
+
+/** Closes an active fence on `line` when matched, reporting whether overflow finished. */
+const closeOpenUIFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    lineStart: number,
+    nextLineStart: number,
+): boolean => {
+    const active = state.activeFence;
+    if (!active || !matchesActiveOpenUIFenceCloser(active, line)) return false;
+    const finishedOverflow = recordClosedActiveOpenUIFence(
+        state,
+        active,
+        text,
+        lineStart,
+        nextLineStart,
+    );
+    state.activeFence = null;
+    return finishedOverflow;
+};
+
+/** Parses a valid top-level fence opener on `line`, or `null`. */
+const parseValidTopLevelFence = (
+    line: string,
+): { markerChar: string; markerLen: number; language: string } | null => {
+    const parsed = readOpenUIFenceMarker(line);
+    if (!parsed) return null;
+    if (parsed.marker[0] === "`" && parsed.suffix.includes("`")) return null;
+    const firstToken = parsed.suffix.trim().split(/\s+/u, 1)[0];
+    return {
+        markerChar: parsed.marker[0],
+        markerLen: parsed.marker.length,
+        language: firstToken ? firstToken.toLowerCase() : "",
+    };
+};
+
+/** Creates a pending `OpenUIFence` descriptor when `eligible` is true. */
+const buildPendingOpenUIFence = (
+    eligible: boolean,
+    lineStart: number,
+    nextLineStart: number,
+): OpenUIFence | undefined =>
+    eligible
+        ? {
+              start: lineStart,
+              end: nextLineStart,
+              sourceStart: nextLineStart,
+              sourceEnd: nextLineStart,
+              closed: false,
+          }
+        : undefined;
+
+/** Initializes `state.overflow` at `lineStart` on the first excess OpenUI fence. */
+const ensureOpenUIOverflowStarted = (
+    state: OpenUIFenceScannerState,
+    isOverflow: boolean,
+    lineStart: number,
+): void => {
+    if (isOverflow && !state.overflow) {
+        state.overflow = { start: lineStart, end: lineStart };
+    }
+};
+
+/** Activates a top-level Markdown fence on `state`, tracking OpenUI eligibility and cap overflow. */
+const activateTopLevelOpenUIFence = (
+    state: OpenUIFenceScannerState,
+    fence: { markerChar: string; markerLen: number; language: string },
+    lineStart: number,
+    nextLineStart: number,
+): void => {
+    const isOpenUI = fence.language === "openui-lang";
+    const isOverflow =
+        isOpenUI && state.fences.length >= MAX_OPENUI_BLOCKS_PER_MESSAGE;
+    ensureOpenUIOverflowStarted(state, isOverflow, lineStart);
+    state.activeFence = {
+        marker: fence.markerChar,
+        length: fence.markerLen,
+        openUI: buildPendingOpenUIFence(
+            isOpenUI && !isOverflow,
+            lineStart,
+            nextLineStart,
+        ),
+        overflow: isOverflow,
+    };
+};
+
+/** Opens top-level Markdown fences only when no opaque structural tag is active. */
+const openFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    line: string,
+    lineStart: number,
+    nextLineStart: number,
+): void => {
+    state.pendingMessageTag = scanStructuralTags(
+        line,
+        state.activeMessageTags,
+        state.pendingMessageTag,
+    );
+    if (state.activeMessageTags.size > 0 || state.pendingMessageTag !== null) {
+        return;
+    }
+    const fence = parseValidTopLevelFence(line);
+    if (fence) {
+        activateTopLevelOpenUIFence(state, fence, lineStart, nextLineStart);
+    }
+};
+
+/** Finalizes any unclosed OpenUI or overflow fence at `textLength`. */
+const finalizeOpenUIFenceScan = (
+    state: OpenUIFenceScannerState,
+    textLength: number,
+): OpenUIFenceScan => {
+    if (state.activeFence?.openUI) {
+        state.fences.push({
+            ...state.activeFence.openUI,
+            end: textLength,
+            sourceEnd: textLength,
+        });
+    }
+    if (state.overflow) {
+        state.overflow = { ...state.overflow, end: textLength };
+    }
+    return { fences: state.fences, overflow: state.overflow };
+};
+
+/** Steps `state` across one line `[lineStart, afterLine)`, returning true if overflow closed. */
+const stepOpenUIFenceLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    lineText: string,
+    lineStart: number,
+    afterLine: number,
+): boolean => {
+    if (state.activeFence) {
+        return closeOpenUIFenceOnLine(
+            state,
+            text,
+            lineText,
+            lineStart,
+            afterLine,
+        );
+    }
+    openFenceOnLine(state, lineText, lineStart, afterLine);
+    return false;
+};
+
+/** Finds top-level OpenUI fences while keeping examples inside opaque structural blocks untouched. */
+const findOpenUIFences = (text: string): OpenUIFenceScan => {
+    if (!/openui-lang/iu.test(text)) return { fences: [] };
+    const state: OpenUIFenceScannerState = {
+        fences: [],
+        activeFence: null,
+        activeMessageTags: new Map<string, number>(),
+        pendingMessageTag: null,
+    };
+    let lineStart = 0;
+    while (lineStart < text.length) {
+        const { lineText, afterLine } = readLineSliceAt(text, lineStart);
+        if (stepOpenUIFenceLine(state, text, lineText, lineStart, afterLine)) {
+            return { fences: state.fences, overflow: state.overflow };
+        }
+        lineStart = afterLine;
+    }
+    return finalizeOpenUIFenceScan(state, text.length);
+};
+
+/** Trims an optional string value, returning `""` when `value` is `undefined`. */
+const trimOptionalText = (value: string | undefined): string =>
+    (value ?? "").trim();
+
+/** Extracts copyable text for a single prose or OpenUI chunk. */
+const extractSingleChunkCopyText = (
+    chunk: Chunk,
+    openUIText: readonly string[],
+    state: { visualIndex: number },
+): string => {
+    if (chunk.type === "text") return trimOptionalText(chunk.content);
+    if (chunk.type !== "openui") return "";
+    const visual = openUIText[state.visualIndex];
+    state.visualIndex += 1;
+    return trimOptionalText(visual);
+};
+
+/** Plain-text copy keeps prose and includes rendered visual text rather than raw OpenUI source. */
+export const getMessageCopyText = (
+    chunks: readonly Chunk[],
+    openUIText: readonly string[] = [],
+): string => {
+    const state = { visualIndex: 0 };
+    return chunks
+        .map((chunk) => extractSingleChunkCopyText(chunk, openUIText, state))
+        .filter(Boolean)
+        .join("\n\n");
+};
+
 const PARSE_CACHE_MAX_ENTRIES = 8;
 const PARSE_CACHE_MAX_CHARS = 192_000;
 const parseCache = new Map<string, Chunk[]>();
 let parseCacheChars = 0;
 
-/** Parses uncached message content into chronological prose, workflow, and rich card chunks. */
-const parseMessageContentUncached = (rawText: string): Chunk[] => {
+/** Parses structural tool blocks and plain text across `rawText` with `sourceOffset` tracking. */
+const parseStructuralMessageContent = (
+    rawText: string,
+    sourceOffset = 0,
+): Chunk[] => {
     const text = stripLeakedToolCode(rawText);
     const fenceRanges = collectProtectedCodeRanges(text);
     const fenceCursor = { idx: 0 };
@@ -1393,18 +1873,118 @@ const parseMessageContentUncached = (rawText: string): Chunk[] => {
             fenceCursor,
         );
         if (!firstMatch) {
-            pushSanitizedTextSlice(chunks, text, currentIndex);
+            pushSanitizedTextSlice(chunks, text, sourceOffset, currentIndex);
             break;
         }
         if (firstMatch.index > currentIndex) {
-            pushSanitizedTextSlice(chunks, text, currentIndex, firstMatch.index);
+            pushSanitizedTextSlice(
+                chunks,
+                text,
+                sourceOffset,
+                currentIndex,
+                firstMatch.index,
+            );
         }
         const { slice, nextIndex } = consumeMatchedTagAt(text, firstMatch);
-        pushParsedChunk(chunks, buildChunkFromSlice(slice));
+        const built = buildChunkFromSlice(slice);
+        built.sourceStart = sourceOffset + firstMatch.index;
+        pushParsedChunk(chunks, built);
         currentIndex = nextIndex;
     }
 
     return dedupeTerminalChunks(chunks);
+};
+
+/** Converts an accepted visual fence into a bounded, sanitized OpenUI chunk. */
+const openUIFenceChunk = (
+    text: string,
+    fence: OpenUIFence,
+    sourceOffset: number,
+): Chunk => {
+    const sourceLength = fence.sourceEnd - fence.sourceStart;
+    const boundedSource = text.slice(
+        fence.sourceStart,
+        Math.min(fence.sourceEnd, fence.sourceStart + MAX_OPENUI_SOURCE_LENGTH),
+    );
+    const content = stripLeakedToolCode(boundedSource, {
+        includeFencedCode: true,
+    });
+    return {
+        type: "openui",
+        content,
+        isGenerating: !fence.closed,
+        openuiTruncated: sourceLength > MAX_OPENUI_SOURCE_LENGTH,
+        openuiSourceStart: sourceOffset + fence.start,
+        sourceStart: sourceOffset + fence.start,
+    };
+};
+
+/** Appends a structural range `[start, end)` when non-empty. */
+const appendStructuralRange = (
+    chunks: Chunk[],
+    text: string,
+    start: number,
+    end: number,
+    sourceOffset: number,
+): void => {
+    if (end > start) {
+        chunks.push(
+            ...parseStructuralMessageContent(
+                text.slice(start, end),
+                sourceOffset + start,
+            ),
+        );
+    }
+};
+
+/** Keeps over-budget visual source as sanitized Markdown rather than materializing excess OpenUI nodes. */
+const overflowFenceChunk = (
+    text: string,
+    overflow: OpenUIFenceOverflow,
+    sourceOffset: number,
+): Chunk => ({
+    type: "text",
+    content: stripLeakedToolCode(text.slice(overflow.start, overflow.end), {
+        includeFencedCode: true,
+    }),
+    sourceStart: sourceOffset + overflow.start,
+});
+
+/** Splits scanned visual fences, parses intervening ranges, and preserves source offsets. */
+const parseScannedOpenUIContent = (
+    text: string,
+    scan: OpenUIFenceScan,
+    sourceOffset: number,
+): Chunk[] => {
+    const chunks: Chunk[] = [];
+    let cursor = 0;
+    for (const fence of scan.fences) {
+        appendStructuralRange(chunks, text, cursor, fence.start, sourceOffset);
+        chunks.push(openUIFenceChunk(text, fence, sourceOffset));
+        cursor = fence.end;
+    }
+    if (scan.overflow) {
+        appendStructuralRange(
+            chunks,
+            text,
+            cursor,
+            scan.overflow.start,
+            sourceOffset,
+        );
+        chunks.push(overflowFenceChunk(text, scan.overflow, sourceOffset));
+        cursor = scan.overflow.end;
+    }
+    appendStructuralRange(chunks, text, cursor, text.length, sourceOffset);
+    return mergeAdjacentTextChunks(chunks);
+};
+
+/** Parses uncached message content into chronological prose, OpenUI, workflow, and rich card chunks. */
+const parseMessageContentUncached = (rawText: string): Chunk[] => {
+    const scan = findOpenUIFences(rawText);
+    if (scan.fences.length > 0 || scan.overflow) {
+        return parseScannedOpenUIContent(rawText, scan, 0);
+    }
+    return parseStructuralMessageContent(rawText, 0);
 };
 
 /** Checks whether the bounded LRU parse cache must evict its oldest entry. */
@@ -2014,7 +2594,17 @@ const renderQuestionChunkView: ChunkViewRenderer = (chunk) => (
     />
 );
 
+/** Renders a bounded OpenUI visual answer surface. */
+const renderOpenUIChunkView: ChunkViewRenderer = (chunk, ctx) => (
+    <OpenUIBlock
+        response={chunk.content ?? ""}
+        isStreaming={Boolean(ctx.isGenerating && ctx.isLastSegment)}
+        truncated={chunk.openuiTruncated}
+    />
+);
+
 const CHUNK_VIEW_RENDERERS: Partial<Record<Chunk["type"], ChunkViewRenderer>> = {
+    openui: renderOpenUIChunkView,
     text: renderTextChunkView,
     plan_saved: renderPlanSavedChunkView,
     plan: renderPlanChunkView,
@@ -2047,6 +2637,9 @@ const deriveSegmentSignature = (segment: Segment): string => {
         return `wf:${first.type}:${first.commandId ?? resolveChunkSignatureHint(first)}`;
     }
     const { chunk } = segment;
+    if (chunk.type === "openui") {
+        return `openui:${chunk.openuiSourceStart ?? 0}`;
+    }
     if (chunk.commandId) {
         return `${chunk.type}:${chunk.commandId}`;
     }

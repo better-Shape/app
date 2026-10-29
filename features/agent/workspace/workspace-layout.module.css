@@ -1,0 +1,15 @@
+.workspaceViewport {
+    container-name: workspace-viewport;
+    container-type: inline-size;
+}
+
+.fileExplorer {
+    flex: 0 0 16rem;
+    min-width: 0;
+}
+
+@container workspace-viewport (max-width: 480px) {
+    .fileExplorer {
+        display: none;
+    }
+}

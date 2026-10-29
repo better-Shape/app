@@ -4,6 +4,8 @@ import {
     scanMarkdownCodeFences,
     stripLeakedToolCode,
     stripLeakedToolMarkup,
+    stripNestedTagBlocks,
+    stripUnclosedToolTag,
     looksLikeLeakedToolCode,
     LEAKED_TOOL_XML_TAGS,
 } from "@/features/chat/ui/md/stream";
@@ -64,8 +66,9 @@ const stripReferenceTagList = (prose: string): string => {
     let cleaned = prose;
     for (const tag of LEAKED_TOOL_XML_TAGS) {
         const esc = escapeRegexLiteral(tag);
+        cleaned = cleaned.replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"), "");
+        cleaned = stripUnclosedToolTag(cleaned, tag);
         cleaned = cleaned
-            .replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"), "")
             .replace(new RegExp(`<${esc}\\b[^>]*\\/?>`, "giu"), "")
             .replace(new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "giu"), "")
             .replace(new RegExp(`<\\/${esc}>`, "giu"), "");
@@ -149,13 +152,10 @@ const collectReferenceProseInlineSpans = (text: string): Array<[number, number]>
 const referenceMarkup = (inputText: string): string => {
     let working = inputText;
     for (const tag of STRIP_ACROSS_FENCES) {
-        const esc = escapeRegexLiteral(tag);
         const spans = collectReferenceProseInlineSpans(working);
-        working = working.replace(
-            new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
-            (match, offset: number) =>
-                spans.some(([s, e]) => offset >= s && offset < e) ? match : "",
-        );
+        working = stripNestedTagBlocks(working, tag, spans);
+        const tailSpans = collectReferenceProseInlineSpans(working);
+        working = stripUnclosedToolTag(working, tag, true, tailSpans);
     }
     working = mapOutsideReferenceFences(working, (prose) =>
         mapOutsideReferenceInlineCode(prose, stripReferenceSentinelsInProse),

@@ -265,7 +265,7 @@ const findNextLineEndingInRange = (
 };
 
 /** Reads one line from `text` starting at `cursor`, returning the line text and next offset. */
-const readLineSliceAt = (
+export const readLineSliceAt = (
     text: string,
     cursor: number,
 ): { lineText: string; afterLine: number } => {
@@ -832,7 +832,7 @@ export const LEAKED_TOOL_XML_TAGS = [
 ] as const;
 
 /** BetterShape UI wrappers. Strip even when they contain markdown fences (edit_file excerpts). */
-const STRIP_ACROSS_FENCES = [
+export const STRIP_ACROSS_FENCES = [
     "tool_result",
     "terminal_read",
     "terminal_input",
@@ -841,14 +841,10 @@ const STRIP_ACROSS_FENCES = [
 
 const ESCAPE_RE = /[.*+?^${}()|[\]\\]/gu;
 
-const STRIP_ACROSS_FENCES_PATTERNS = STRIP_ACROSS_FENCES.map((tag) => {
-    const esc = tag.replace(ESCAPE_RE, "\\$&");
-    return new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu");
-});
-
 const LEAKED_TAG_PATTERNS = LEAKED_TOOL_XML_TAGS.map((tag) => {
     const esc = tag.replace(ESCAPE_RE, "\\$&");
     return {
+        tag,
         paired: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*?<\\/${esc}>`, "giu"),
         selfClosing: new RegExp(`<${esc}\\b[^>]*\\/?>`, "giu"),
         openTail: new RegExp(`<${esc}\\b[^>]*>[\\s\\S]*$`, "giu"),
@@ -915,25 +911,259 @@ const isOffsetInsideSortedSpans = (
     return active !== undefined && offset >= active[0];
 };
 
-/** Replaces `pattern` matches whose opening `<` lies outside non-fenced inline code spans. */
-const stripAcrossFencePatternOutsideInlineCode = (
-    text: string,
-    pattern: RegExp,
-): string => {
-    const spans = collectProseInlineCodeSpans(text);
-    if (spans.length === 0) return text.replace(pattern, "");
-    const state = { idx: 0 };
-    return text.replace(pattern, (match, offset: number) =>
-        isOffsetInsideSortedSpans(spans, offset, state) ? match : "",
-    );
+/** Opens an attribute quote (`'` or `"`) only when immediately preceded by `=`. */
+const tryOpenTagAttrQuote = (
+    ch: string,
+    prevNonWs: string,
+): "'" | '"' | null =>
+    (ch === "'" || ch === '"') && prevNonWs === "=" ? ch : null;
+
+/** Advances active attribute-quote state across character `ch`. */
+const advanceTagQuoteState = (
+    quote: "'" | '"' | null,
+    ch: string,
+    prevNonWs: string,
+): "'" | '"' | null => {
+    if (quote) return ch === quote ? null : quote;
+    return tryOpenTagAttrQuote(ch, prevNonWs);
 };
 
-/** Strips BetterShape cross-fence UI wrapper tags in declaration order while preserving inline code examples. */
-const stripAcrossFenceWrappers = (text: string): string => {
+/** Updates `prevNonWs` when `ch` is not whitespace. */
+const nextPrevNonWhitespace = (prev: string, ch: string): string =>
+    /\s/u.test(ch) ? prev : ch;
+
+/** Finds a tag's closing `>` without mistaking an `=`-prefixed quoted attribute for it. */
+const findTagEnd = (text: string, start: number): number => {
+    let quote: "'" | '"' | null = null;
+    let prevNonWs = "";
+    for (let index = start; index < text.length; index += 1) {
+        const ch = text.charAt(index);
+        if (!quote && ch === ">") return index;
+        quote = advanceTagQuoteState(quote, ch, prevNonWs);
+        prevNonWs = nextPrevNonWhitespace(prevNonWs, ch);
+    }
+    return -1;
+};
+
+type UnclosedTagAction =
+    | { type: "truncate"; from: number }
+    | { type: "remove"; from: number; nextIndex: number }
+    | { type: "skip"; nextIndex: number };
+
+/** Resolves the action for a matched opener whose closing `>` lies at `end`. */
+const resolveClosedOpenerAction = (
+    text: string,
+    matchIndex: number,
+    afterName: number,
+    end: number,
+    truncateNonSelfClosing: boolean,
+): UnclosedTagAction => {
+    const selfClosing = text.slice(afterName, end).trimEnd().endsWith("/");
+    if (selfClosing) return { type: "skip", nextIndex: end + 1 };
+    return truncateNonSelfClosing
+        ? { type: "truncate", from: matchIndex }
+        : { type: "remove", from: matchIndex, nextIndex: end + 1 };
+};
+
+/** Decides whether one matching opener must be hidden, removed, or skipped. */
+const inspectToolTagOpener = (
+    text: string,
+    matchIndex: number,
+    afterName: number,
+    truncateNonSelfClosing: boolean,
+): UnclosedTagAction => {
+    const end = findTagEnd(text, afterName);
+    return end === -1
+        ? { type: "truncate", from: matchIndex }
+        : resolveClosedOpenerAction(
+              text,
+              matchIndex,
+              afterName,
+              end,
+              truncateNonSelfClosing,
+          );
+};
+
+/** Applies one `UnclosedTagAction` to the mutable `stripUnclosedToolTag` scan state. */
+const applyUnclosedTagAction = (
+    state: { text: string; removedDelta: number; done: boolean },
+    action: UnclosedTagAction,
+    openingTag: RegExp,
+): void => {
+    if (action.type === "truncate") {
+        state.text = state.text.slice(0, action.from);
+        state.done = true;
+        return;
+    }
+    if (action.type === "remove") {
+        state.text =
+            state.text.slice(0, action.from) +
+            state.text.slice(action.nextIndex);
+        state.removedDelta += action.nextIndex - action.from;
+        openingTag.lastIndex = action.from;
+        return;
+    }
+    openingTag.lastIndex = action.nextIndex;
+};
+
+/** Removes malformed leaked-tag openers, optionally hiding the rest of a wrapper payload. */
+export const stripUnclosedToolTag = (
+    text: string,
+    tag: string,
+    truncateNonSelfClosing = false,
+    protectedSpans: ReadonlyArray<readonly [number, number]> = [],
+): string => {
+    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
+    const openingTag = new RegExp(`<${escapedTag}\\b`, "giu");
+    const state = { text, removedDelta: 0, done: false };
+    const spanCursor = { idx: 0 };
+    let match = openingTag.exec(state.text);
+    while (match !== null) {
+        const rawOffset = match.index + state.removedDelta;
+        if (!isOffsetInsideSortedSpans(protectedSpans, rawOffset, spanCursor)) {
+            const action = inspectToolTagOpener(
+                state.text,
+                match.index,
+                openingTag.lastIndex,
+                truncateNonSelfClosing,
+            );
+            applyUnclosedTagAction(state, action, openingTag);
+        }
+        if (state.done) break;
+        match = openingTag.exec(state.text);
+    }
+    return state.text;
+};
+
+type NestedStripState = {
+    output: string;
+    cursor: number;
+    depth: number;
+};
+
+/** Applies a closing `</tag>` token at `[start, afterTag)` to `NestedStripState`. */
+const applyNestedClosingTag = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    afterTag: number,
+): void => {
+    if (state.depth > 0) {
+        state.depth -= 1;
+        if (state.depth === 0) state.cursor = afterTag;
+        return;
+    }
+    state.output += text.slice(state.cursor, start);
+    state.cursor = afterTag;
+};
+
+/** Applies an opening or self-closing `<tag ...>` token at `[start, afterTag)` to `NestedStripState`. */
+const applyNestedOpeningTag = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    afterTag: number,
+    selfClosing: boolean,
+): void => {
+    if (selfClosing) {
+        if (state.depth === 0) {
+            state.output += text.slice(state.cursor, start);
+            state.cursor = afterTag;
+        }
+        return;
+    }
+    if (state.depth === 0) state.output += text.slice(state.cursor, start);
+    state.depth += 1;
+};
+
+/** Inspects a `<...>` token at `[start, end]` and updates `state` when it matches `matchingTag`. */
+const processNestedTagCandidate = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    end: number,
+    matchingTag: RegExp,
+): void => {
+    const tagText = text.slice(start, end + 1);
+    const match = matchingTag.exec(tagText);
+    if (!match) return;
+    if (match[1]) {
+        applyNestedClosingTag(state, text, start, end + 1);
+        return;
+    }
+    const selfClosing = tagText
+        .slice(match[0].length, -1)
+        .trimEnd()
+        .endsWith("/");
+    applyNestedOpeningTag(state, text, start, end + 1, selfClosing);
+};
+
+/** Advances `NestedStripState` from `<` at `start`, returning next index or `-1` on unclosed tag. */
+const stepNestedTagAt = (
+    state: NestedStripState,
+    text: string,
+    start: number,
+    matchingTag: RegExp,
+): number => {
+    const end = findTagEnd(text, start + 1);
+    if (end === -1) return -1;
+    processNestedTagCandidate(state, text, start, end, matchingTag);
+    return end + 1;
+};
+
+/** Finalizes output from `NestedStripState` when scanning terminates. */
+const finalizeNestedStripState = (
+    state: NestedStripState,
+    text: string,
+): string =>
+    state.depth > 0 ? state.output : state.output + text.slice(state.cursor);
+
+/** Removes complete nested wrapper payloads without mistaking quoted tag text for delimiters. */
+export const stripNestedTagBlocks = (
+    text: string,
+    tag: string,
+    protectedSpans: ReadonlyArray<readonly [number, number]> = [],
+): string => {
+    const escapedTag = tag.replace(ESCAPE_RE, "\\$&");
+    const matchingTag = new RegExp(`^<\\s*(?:(\\/)\\s*)?${escapedTag}\\b`, "iu");
+    const state: NestedStripState = { output: "", cursor: 0, depth: 0 };
+    const spanCursor = { idx: 0 };
+    let index = 0;
+    while (index < text.length) {
+        const start = text.indexOf("<", index);
+        if (start === -1) break;
+        const next = isOffsetInsideSortedSpans(protectedSpans, start, spanCursor)
+            ? start + 1
+            : stepNestedTagAt(state, text, start, matchingTag);
+        if (next === -1) return finalizeNestedStripState(state, text);
+        index = next;
+    }
+    return finalizeNestedStripState(state, text);
+};
+
+/** Strips one `STRIP_ACROSS_FENCES` tag across fences while respecting `protectInlineCode`. */
+const stripSingleAcrossFenceTag = (
+    text: string,
+    tag: string,
+    protectInlineCode: boolean,
+): string => {
+    const spans = protectInlineCode ? collectProseInlineCodeSpans(text) : [];
+    const afterNested = stripNestedTagBlocks(text, tag, spans);
+    const tailSpans = protectInlineCode
+        ? collectProseInlineCodeSpans(afterNested)
+        : [];
+    return stripUnclosedToolTag(afterNested, tag, true, tailSpans);
+};
+
+/** Strips BetterShape cross-fence UI wrapper tags in declaration order. */
+const stripAcrossFenceWrappers = (
+    text: string,
+    protectInlineCode: boolean,
+): string => {
     let out = text;
-    for (const pattern of STRIP_ACROSS_FENCES_PATTERNS) {
+    for (const tag of STRIP_ACROSS_FENCES) {
         if (!out.includes("<")) break;
-        out = stripAcrossFencePatternOutsideInlineCode(out, pattern);
+        out = stripSingleAcrossFenceTag(out, tag, protectInlineCode);
     }
     return out;
 };
@@ -943,8 +1173,9 @@ const stripLeakedXmlTagsInProse = (prose: string): string => {
     let out = prose;
     for (const rule of LEAKED_TAG_PATTERNS) {
         if (!out.includes("<")) break;
+        out = out.replace(rule.paired, "");
+        out = stripUnclosedToolTag(out, rule.tag);
         out = out
-            .replace(rule.paired, "")
             .replace(rule.selfClosing, "")
             .replace(rule.openTail, "")
             .replace(rule.strayCloser, "");
@@ -1004,14 +1235,22 @@ const sanitizeProseToolMarkup = (prose: string): string => {
  * Kimi/Llama/Gemma `<|...|>` sentinels, Gemini `<function_calls>` / `tool_code`,
  * Mistral `[TOOL_CALLS]`, plus BetterShape terminal UI chunks.
  */
-export const stripLeakedToolMarkup = (text: string): string => {
+export const stripLeakedToolMarkup = (
+    text: string,
+    options?: { includeFencedCode?: boolean },
+): string => {
     if (!hasAnyToolMarkupSentinel(text)) {
         return collapseExcessNewlines(text);
     }
-    let out = text.includes("<") ? stripAcrossFenceWrappers(text) : text;
-    out = mapOutsideCodeFences(out, (prose) =>
-        mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
-    );
+    const includeFencedCode = Boolean(options?.includeFencedCode);
+    let out = text.includes("<")
+        ? stripAcrossFenceWrappers(text, !includeFencedCode)
+        : text;
+    out = includeFencedCode
+        ? sanitizeProseToolMarkup(out)
+        : mapOutsideCodeFences(out, (prose) =>
+              mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
+          );
     return collapseExcessNewlines(out);
 };
 
@@ -1149,13 +1388,18 @@ const hasToolCodeMarker = (text: string): boolean =>
  * Strip Gemini/OpenRouter-style tool leaks that models sometimes paste as
  * markdown JSON instead of issuing a real tool call, plus cross-model XML sentinels.
  */
-export const stripLeakedToolCode = (text: string): string => {
+export const stripLeakedToolCode = (
+    text: string,
+    options?: { includeFencedCode?: boolean },
+): string => {
     if (!hasToolCodeMarker(text) && !hasAnyToolMarkupSentinel(text)) {
         return collapseExcessNewlines(text);
     }
     const withoutFences = stripLeakedFencedToolBlocks(text);
     const withoutInvocations = stripBareToolInvocations(withoutFences);
-    return collapseExcessNewlines(stripLeakedToolMarkup(withoutInvocations));
+    return collapseExcessNewlines(
+        stripLeakedToolMarkup(withoutInvocations, options),
+    );
 };
 
 /** Fast 3-point character precheck before comparing `text.slice(i, i + len)` against `i + len`. */

@@ -1,8 +1,164 @@
 import { describe, expect, it } from "vitest";
-import { dedupeTerminalChunks, parseMessageContent } from "@/features/chat/ui/md/renderer";
-import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
+import { dedupeTerminalChunks, parseMessageContent, getMessageCopyText } from "@/features/chat/ui/md/renderer";
+import { preprocessChatMarkdown, repairStreamGlitches, stripLeakedToolCode } from "@/features/chat/ui/md/stream";
 
 describe("parseMessageContent", () => {
+    it("parses fenced OpenUI programs separately from surrounding prose", () => {
+        const message = 'A compact view:\n```openui-lang\nroot = Surface([label], "Summary")\nlabel = Text("Ready")\n```\nThat is the result.';
+        const chunks = parseMessageContent(message);
+        expect(chunks.map((chunk) => chunk.type)).toEqual(["text", "openui", "text"]);
+        expect(chunks[1]?.content).toContain('root = Surface([label], "Summary")');
+        expect(chunks[1]?.isGenerating).toBe(false);
+        expect(chunks[1]?.openuiSourceStart).toBe(message.indexOf("```openui-lang"));
+        expect(chunks[0]?.content).toContain("A compact view");
+        expect(chunks[2]?.content).toContain("That is the result.");
+    });
+
+    it("keeps incomplete OpenUI fences renderable while streaming", () => {
+        const chunks = parseMessageContent("```openui-lang\nroot = Surface([metric])\nmetric = Metric(\"Tests\", \"12\")");
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.type).toBe("openui");
+        expect(chunks[0]?.isGenerating).toBe(true);
+        expect(chunks[0]?.content).toContain("Metric");
+    });
+
+    it("does not route ordinary or nested code fences through the OpenUI renderer", () => {
+        const ordinary = parseMessageContent("```typescript\nconst answer = 42;\n```");
+        const nested = parseMessageContent(
+            "````markdown\n```openui-lang\nroot = Surface([])\n```\n````",
+        );
+        const inline = parseMessageContent("Use ```openui-lang on a new line to start a visual block.");
+
+        expect(ordinary.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(nested.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(inline.some((chunk) => chunk.type === "openui")).toBe(false);
+    });
+
+    it("accepts tilde fences, indentation, and case-insensitive language labels", () => {
+        const chunks = parseMessageContent("  ~~~OPENUI-LANG\r\nroot = Surface([])\r\n  ~~~\r\n");
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.type).toBe("openui");
+        expect(chunks[0]?.content).toBe("root = Surface([])");
+        expect(chunks[0]?.isGenerating).toBe(false);
+    });
+
+    it("bounds oversized OpenUI source and marks it as truncated", () => {
+        const chunks = parseMessageContent(`\`\`\`openui-lang\n${"x".repeat(40_000)}\n\`\`\``);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.type).toBe("openui");
+        expect(chunks[0]?.content).toHaveLength(32_000);
+        expect(chunks[0]?.openuiTruncated).toBe(true);
+    });
+
+    it("limits rendered OpenUI blocks while keeping excess source visible", () => {
+        const fence = "```";
+        const message = Array.from({ length: 4 }, (_, index) =>
+            `${fence}openui-lang\nroot = Surface([])\n// block ${index}${index === 3 ? "\n<tool_result>hidden tool output</tool_result>\n<analysis>hidden reasoning</analysis>" : ""}\n${fence}`,
+        ).join("\n");
+        const chunks = parseMessageContent(message);
+
+        expect(chunks.filter((chunk) => chunk.type === "openui")).toHaveLength(3);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("block 3"))).toBe(true);
+        expect(chunks.some((chunk) => chunk.type === "tool_result")).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden tool output"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden reasoning"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("<analysis>"))).toBe(false);
+    });
+
+    it("copies rendered visual text instead of leaking the OpenUI DSL", () => {
+        const chunks = parseMessageContent("Before\n```openui-lang\nroot = Surface([])\n```\nAfter");
+        expect(getMessageCopyText(chunks, ["Visual summary\n42 tests passed"])).toBe(
+            "Before\n\nVisual summary\n42 tests passed\n\nAfter",
+        );
+    });
+
+    it("keeps OpenUI source out of the embedded-block parser and strips leaked tool output", () => {
+        const chunks = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result>hidden tool output</tool_result> text")\n```');
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.type).toBe("openui");
+        expect(chunks[0]?.content).toContain("visible");
+        expect(chunks[0]?.content).toContain("text");
+        expect(chunks[0]?.content).not.toContain("hidden tool output");
+
+        const streaming = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result>hidden tool output');
+        expect(streaming[0]?.type).toBe("openui");
+        expect(streaming[0]?.content).toContain("visible");
+        expect(streaming[0]?.content).not.toContain("hidden tool output");
+
+        const partialTag = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result');
+        expect(partialTag[0]?.content).toContain("visible");
+        expect(partialTag[0]?.content).not.toContain("tool_result");
+
+        const unclosedAttribute = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result title=\"unfinished>hidden tool output');
+        expect(unclosedAttribute[0]?.content).toContain("visible");
+        expect(unclosedAttribute[0]?.content).not.toContain("hidden tool output");
+
+        const emptyTag = parseMessageContent('```openui-lang\nroot = Surface([label])\nlabel = Text("visible <tool_result /> text")\n```');
+        expect(emptyTag[0]?.content).toContain("visible");
+        expect(emptyTag[0]?.content).toContain("text");
+        expect(emptyTag[0]?.content).not.toContain("tool_result");
+
+        const nestedToolResult = parseMessageContent(
+            '```openui-lang\nroot = Surface([label])\nlabel = Text("visible")\n<tool_result>outer <tool_result>inner</tool_result>trailing hidden</tool_result>\n```',
+        );
+        expect(nestedToolResult[0]?.content).toContain("visible");
+        expect(nestedToolResult[0]?.content).not.toContain("trailing hidden");
+        expect(nestedToolResult[0]?.content).not.toContain("inner");
+    });
+
+    it("does not extract OpenUI fences from BetterShape block payloads", () => {
+        const chunks = parseMessageContent(
+            "<tool_result\nsource=hidden>\n```openui-lang\nroot = Surface([])\n```\n</tool_result>\nVisible prose",
+        );
+        expect(chunks.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("root = Surface"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("Visible prose"))).toBe(true);
+    });
+
+    it("reopens OpenUI extraction after closed hidden tool-call and tool-response wrappers", () => {
+        for (const tag of ["tool_call", "tool_response"]) {
+            const chunks = parseMessageContent(
+                `<${tag}>hidden payload</${tag}>\n\`\`\`openui-lang\nroot = Surface([])\n\`\`\``,
+            );
+            expect(chunks.some((chunk) => chunk.type === "openui")).toBe(true);
+            expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("hidden payload"))).toBe(false);
+        }
+    });
+
+    it("does not treat quoted structural closing text as a real close", () => {
+        const chunks = parseMessageContent(
+            '<tool_result note="literal </tool_result> still hidden">\n```openui-lang\nroot = Surface([])\n```\n</tool_result>\n```openui-lang\nroot = Surface([])\n```',
+        );
+        expect(chunks.filter((chunk) => chunk.type === "openui")).toHaveLength(1);
+    });
+
+    it("keeps a long, multiline structural tag opaque without truncating scanner state", () => {
+        const longAttribute = "x".repeat(2_600);
+        const chunks = parseMessageContent(
+            `<tool_result title="\n${longAttribute}\n\`\`\`openui-lang\nroot = Surface([])\n\`\`\`\n">payload</tool_result>\nAfter`,
+        );
+        expect(chunks.some((chunk) => chunk.type === "openui")).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("root = Surface"))).toBe(false);
+        expect(chunks.some((chunk) => chunk.type === "text" && chunk.content?.includes("After"))).toBe(true);
+    });
+
+    it("strips hidden markup inside nested Markdown fences in OpenUI source", () => {
+        const chunks = parseMessageContent(
+            '```openui-lang\nroot = Surface([label])\nlabel = Text("```\n<analysis>hidden reasoning</analysis>\n```")\n```',
+        );
+        expect(chunks[0]?.type).toBe("openui");
+        expect(chunks[0]?.content).not.toContain("hidden reasoning");
+    });
+
+    it("resumes structural parsing after an excess OpenUI block", () => {
+        const visual = "```openui-lang\nroot = Surface([])\n```";
+        const chunks = parseMessageContent(
+            `${visual}\n${visual}\n${visual}\n${visual}\n<edit file="src/a.ts"><original>a</original><replacement>b</replacement></edit>`,
+        );
+        expect(chunks.filter((chunk) => chunk.type === "openui")).toHaveLength(3);
+        expect(chunks.some((chunk) => chunk.type === "edit" && chunk.file === "src/a.ts")).toBe(true);
+    });
+
     it("parses redacted_thinking blocks instead of leaking closing tags", () => {
         const chunks = parseMessageContent(
             "Hello\n<think>Checking project layout</think>\n\nReady.",
@@ -166,6 +322,34 @@ describe("preprocessChatMarkdown", () => {
         expect(out).toContain("Here are two concepts");
         expect(out).not.toContain("tool_code");
         expect(out).not.toContain("render_design_previews");
+    });
+
+    it("preserves prose after a valid apostrophe-containing tag and truncates broken attributes", () => {
+        const prose = stripLeakedToolCode("<analysis it's fine> following prose");
+        const broken = stripLeakedToolCode('<analysis title="unfinished>hidden prose');
+        expect(prose).toContain("following prose");
+        expect(prose).not.toContain("<analysis");
+        expect(broken).not.toContain("hidden prose");
+    });
+
+    it("removes the full contents of nested hidden tool-result wrappers", () => {
+        const sanitized = stripLeakedToolCode(
+            "Before <tool_result>outer <tool_result>inner</tool_result> trailing hidden</tool_result> After",
+        );
+        expect(sanitized).toContain("Before");
+        expect(sanitized).toContain("After");
+        expect(sanitized).not.toContain("inner");
+        expect(sanitized).not.toContain("trailing hidden");
+
+        const quotedCloseTag = stripLeakedToolCode(
+            'Before <tool_result><div data-value="</tool_result>">hidden content</div></tool_result> After',
+        );
+        expect(quotedCloseTag).toContain("Before");
+        expect(quotedCloseTag).toContain("After");
+        expect(quotedCloseTag).not.toContain("hidden content");
+
+        const unclosed = stripLeakedToolCode("Before <tool_result>hidden trailing");
+        expect(unclosed.trim()).toBe("Before");
     });
 
     it("hides Gemini function_calls / tool_code XML (Auto + Gemini)", () => {
@@ -333,6 +517,6 @@ it("renders the submitted image body when a filename contains a tag delimiter", 
         file: new File(["hello"], 'a>b".png', { type: "image/png" }),
     }], new AbortController().signal);
     expect(parseMessageContent(body).filter(chunk => chunk.type === "attached_image")).toEqual([
-        { type: "attached_image", content: dataUrl, command: undefined, isGenerating: false },
+        { type: "attached_image", content: dataUrl, isGenerating: false, sourceStart: 0 },
     ]);
 });

@@ -132,11 +132,22 @@ pub(super) fn cleanup_pending_design_pick(pick_id: &str, ctx: &ToolCtx<'_>) {
     }
 }
 
-pub(super) fn emit_command_resolved(ctx: &ToolCtx<'_>, cmd_id: &str, approved: bool) {
-    ctx.emit_scoped_event(
-        "agent-command-resolved",
-        json!({ "id": cmd_id, "approved": approved }),
-    );
+pub(super) fn emit_command_resolved(
+    ctx: &ToolCtx<'_>,
+    cmd_id: &str,
+    approved: bool,
+    activity_label: Option<&str>,
+) {
+    let mut payload = json!({
+        "id": cmd_id,
+        "approved": approved,
+        "turnId": ctx.turn_id,
+        "conversationId": ctx.conversation_id,
+    });
+    if let Some(label) = activity_label {
+        payload["activityLabel"] = json!(label);
+    }
+    ctx.emit_scoped_event("agent-command-resolved", payload);
 }
 
 pub(super) fn is_read_only_mode(mode: &str) -> bool {

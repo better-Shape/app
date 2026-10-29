@@ -52,6 +52,8 @@ jobs:
 
       - name: Manual build fallback (Next.js)
         if: always() && matrix.language == 'javascript-typescript'
+        env:
+          DO_NOT_TRACK: "1"
         run: |
           set -euo pipefail
           echo "Autobuild outcome: ${{ steps.autobuild.outcome }}"
