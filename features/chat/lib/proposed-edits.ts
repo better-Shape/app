@@ -11,42 +11,44 @@ type ResolvedEntry = {
     contentHash?: string;
 };
 
+type RawResolvedValue = ResolvedEntry | "applied" | "rejected" | undefined;
+type ResolvedConversationMap = Map<string, ResolvedEntry>;
+type ResolvedStoreMap = Map<string, ResolvedConversationMap>;
+
 const RESOLVED_FILES_KEY = "bettershape-resolved-files";
 
-let proposedEdits: Record<string, ProposedEdit> = {};
+const proposedEdits = new Map<string, ProposedEdit>();
 let currentConversationId: string | null = null;
 
-function normalize(p: string): string {
-    return p.replace(/\\/g, "/").toLowerCase();
-}
+/** Normalizes slashes and case for cross-platform path comparisons. */
+const normalize = (filePath: string): string =>
+    filePath.replaceAll("\\", "/").toLowerCase();
 
-/** Exact path equality after normalize, or one path is a full path ending with `/` + the other. */
-function pathsMatch(a: string, b: string): boolean {
-    const na = normalize(a);
-    const nb = normalize(b);
-    if (na === nb) return true;
-    // Allow relative vs absolute when one ends with "/<other>" as a full segment.
-    // Do NOT use bare endsWith (collides a.ts vs data.ts).
-    return na.endsWith("/" + nb) || nb.endsWith("/" + na);
-}
+/** Exact path equality after normalize, or one path ending with `/<other>`. */
+const pathsMatch = (leftPath: string, rightPath: string): boolean => {
+    const normLeft = normalize(leftPath);
+    const normRight = normalize(rightPath);
+    if (normLeft === normRight) return true;
+    return normLeft.endsWith(`/${normRight}`) || normRight.endsWith(`/${normLeft}`);
+};
 
-export function pathsEqual(a: string, b: string): boolean {
-    return pathsMatch(a, b);
+export function pathsEqual(leftPath: string, rightPath: string): boolean {
+    return pathsMatch(leftPath, rightPath);
 }
 
 /** Fingerprint for matching an accepted/rejected edit payload. */
 export function editContentHash(replacement: string): string {
-    const s = replacement.replace(/\r\n/g, "\n");
-    let h = 0;
-    for (let i = 0; i < s.length; i++) {
-        h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+    const normalized = replacement.replaceAll("\r\n", "\n");
+    let hash = 0;
+    for (let idx = 0; idx < normalized.length; idx += 1) {
+        hash = (Math.imul(hash, 31) + normalized.charCodeAt(idx)) | 0;
     }
-    return `${s.length}:${h.toString(36)}`;
+    return `${normalized.length}:${hash.toString(36)}`;
 }
 
 export function setCurrentConversationId(id: string | null) {
     if (currentConversationId !== id) {
-        proposedEdits = {};
+        proposedEdits.clear();
     }
     currentConversationId = id;
 }
@@ -55,68 +57,89 @@ export function getCurrentConversationId(): string | null {
     return currentConversationId;
 }
 
-type ResolvedStore = Record<string, Record<string, ResolvedEntry | "applied" | "rejected">>;
-
-/**
- * Parsed copy of the persisted store, keyed by the exact text it came from.
- * Every render of an edit card asks whether its file is resolved, and
- * re-parsing the whole JSON store for each answer added up.
- */
-/** `undefined` means "no memo yet"; `null` is a real value (`getItem` miss). */
-let resolvedStoreRaw: string | null | undefined;
-let resolvedStore: ResolvedStore = {};
-
-/** Reads the resolved-edit map, reusing the last parse when storage is unchanged. */
-function loadResolvedFilesStore(): ResolvedStore {
-    let stored: string | null;
-    try {
-        stored = localStorage.getItem(RESOLVED_FILES_KEY);
-    } catch {
-        // Blocked storage: no memo, so a later read can still succeed.
-        return {};
-    }
-
-    if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) return resolvedStore;
-
-    try {
-        const parsed: ResolvedStore = stored ? (JSON.parse(stored) as ResolvedStore) : {};
-        // Commit the memo only after a successful parse, so a corrupt value
-        // never leaves the previous store being served under the new text.
-        resolvedStoreRaw = stored;
-        resolvedStore = parsed;
-    } catch {
-        // Corrupt JSON: remember the empty result, or every edit card holding
-        // this text would throw through `JSON.parse` again on each render.
-        resolvedStoreRaw = stored;
-        resolvedStore = {};
-    }
-    return resolvedStore;
-}
-
-/** Persists the resolved-edit map and refreshes the in-memory copy. */
-function saveResolvedFilesStore(store: ResolvedStore) {
-    try {
-        const raw = JSON.stringify(store);
-        localStorage.setItem(RESOLVED_FILES_KEY, raw);
-        resolvedStoreRaw = raw;
-        resolvedStore = store;
-    } catch {
-        // Quota or a blocked storage API: drop the memo so the next read falls
-        // back to whatever actually persisted, instead of serving a value that
-        // was never saved.
-        resolvedStoreRaw = undefined;
-    }
-}
-
 /** Reads a stored entry from any older format, or `null` when it is not a decision. */
-function normalizeEntry(
-    raw: ResolvedEntry | "applied" | "rejected" | undefined,
-): ResolvedEntry | null {
+const normalizeEntry = (raw: RawResolvedValue): ResolvedEntry | null => {
     if (!raw) return null;
     if (raw === "applied" || raw === "rejected") return { status: raw };
     if (raw.status === "applied" || raw.status === "rejected") return raw;
     return null;
-}
+};
+
+/** Parses one conversation's raw JSON object into a `Map` without prototype keys. */
+const parseConversationEntries = (rawConv: unknown): ResolvedConversationMap => {
+    const convMap: ResolvedConversationMap = new Map();
+    if (!rawConv || typeof rawConv !== "object" || Array.isArray(rawConv)) {
+        return convMap;
+    }
+    for (const [fileKey, rawVal] of Object.entries(rawConv as Record<string, RawResolvedValue>)) {
+        const entry = normalizeEntry(rawVal);
+        if (entry) convMap.set(fileKey, entry);
+    }
+    return convMap;
+};
+
+/** Parses the top-level persisted JSON object into a nested `Map` store. */
+const parseResolvedStoreJson = (stored: string | null): ResolvedStoreMap => {
+    const storeMap: ResolvedStoreMap = new Map();
+    if (!stored) return storeMap;
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return storeMap;
+    }
+    for (const [convKey, rawConv] of Object.entries(parsed as Record<string, unknown>)) {
+        storeMap.set(convKey, parseConversationEntries(rawConv));
+    }
+    return storeMap;
+};
+
+/** Serializes the nested `Map` store into a plain JSON string. */
+const serializeResolvedStore = (store: ResolvedStoreMap): string => {
+    const outerEntries = Array.from(store.entries(), ([convKey, convMap]) => [
+        convKey,
+        Object.fromEntries(convMap),
+    ]);
+    return JSON.stringify(Object.fromEntries(outerEntries));
+};
+
+/** `undefined` means "no memo yet"; `null` is a real value (`getItem` miss). */
+let resolvedStoreRaw: string | null | undefined;
+let resolvedStore: ResolvedStoreMap = new Map();
+
+/** Reads the resolved-edit map, reusing the last parse when storage is unchanged. */
+const loadResolvedFilesStore = (): ResolvedStoreMap => {
+    let stored: string | null;
+    try {
+        stored = localStorage.getItem(RESOLVED_FILES_KEY);
+    } catch {
+        return new Map();
+    }
+
+    if (resolvedStoreRaw !== undefined && stored === resolvedStoreRaw) {
+        return resolvedStore;
+    }
+
+    try {
+        const parsed = parseResolvedStoreJson(stored);
+        resolvedStoreRaw = stored;
+        resolvedStore = parsed;
+    } catch {
+        resolvedStoreRaw = stored;
+        resolvedStore = new Map();
+    }
+    return resolvedStore;
+};
+
+/** Persists the resolved-edit map and refreshes the in-memory copy. */
+const saveResolvedFilesStore = (store: ResolvedStoreMap): void => {
+    try {
+        const raw = serializeResolvedStore(store);
+        localStorage.setItem(RESOLVED_FILES_KEY, raw);
+        resolvedStoreRaw = raw;
+        resolvedStore = store;
+    } catch {
+        resolvedStoreRaw = undefined;
+    }
+};
 
 export function markFileResolved(
     conversationId: string,
@@ -125,23 +148,27 @@ export function markFileResolved(
     replacement?: string,
 ) {
     const store = loadResolvedFilesStore();
-    if (!store[conversationId]) store[conversationId] = {};
-    store[conversationId][normalize(file)] = {
+    let convMap = store.get(conversationId);
+    if (!convMap) {
+        convMap = new Map();
+        store.set(conversationId, convMap);
+    }
+    convMap.set(normalize(file), {
         status,
         contentHash: replacement !== undefined ? editContentHash(replacement) : undefined,
-    };
+    });
     saveResolvedFilesStore(store);
     clearProposedEdit(file);
 }
 
 export function clearFileResolved(conversationId: string, file: string) {
     const store = loadResolvedFilesStore();
-    const conv = store[conversationId];
-    if (!conv) return;
-    const n = normalize(file);
-    delete conv[n];
-    for (const key of Object.keys(conv)) {
-        if (pathsMatch(key, n)) delete conv[key];
+    const convMap = store.get(conversationId);
+    if (!convMap) return;
+    const normalizedFile = normalize(file);
+    convMap.delete(normalizedFile);
+    for (const key of Array.from(convMap.keys())) {
+        if (pathsMatch(key, normalizedFile)) convMap.delete(key);
     }
     saveResolvedFilesStore(store);
 }
@@ -152,19 +179,28 @@ export function getResolvedContentHash(
     file: string,
 ): string | undefined {
     if (!conversationId) return undefined;
-    const store = loadResolvedFilesStore();
-    const conv = store[conversationId];
-    if (!conv) return undefined;
-    const n = normalize(file);
-    const direct = normalizeEntry(conv[n]);
+    const convMap = loadResolvedFilesStore().get(conversationId);
+    if (!convMap) return undefined;
+    const normalizedFile = normalize(file);
+    const direct = convMap.get(normalizedFile);
     if (direct?.contentHash) return direct.contentHash;
-    for (const [key, val] of Object.entries(conv)) {
-        if (!pathsMatch(key, n)) continue;
-        const e = normalizeEntry(val);
-        if (e?.contentHash) return e.contentHash;
+    for (const [key, entry] of convMap.entries()) {
+        if (pathsMatch(key, normalizedFile) && entry.contentHash) {
+            return entry.contentHash;
+        }
     }
     return undefined;
 }
+
+/** Checks whether `entry` matches the optional `currentReplacement` hash. */
+const matchesResolvedReplacement = (
+    entry: ResolvedEntry | undefined,
+    currentReplacement?: string,
+): boolean => {
+    if (!entry) return false;
+    if (currentReplacement === undefined || !entry.contentHash) return true;
+    return editContentHash(currentReplacement) === entry.contentHash;
+};
 
 export function isFileResolved(
     conversationId: string | null,
@@ -172,40 +208,29 @@ export function isFileResolved(
     currentReplacement?: string,
 ): boolean {
     if (!conversationId) return false;
-    const store = loadResolvedFilesStore();
-    const convResolved = store[conversationId];
-    if (!convResolved) return false;
+    const convMap = loadResolvedFilesStore().get(conversationId);
+    if (!convMap) return false;
     const normalizedFile = normalize(file);
-
-    const check = (entry: ResolvedEntry | "applied" | "rejected" | undefined) => {
-        const e = normalizeEntry(entry);
-        if (!e) return false;
-        if (
-            currentReplacement !== undefined
-            && e.contentHash
-            && editContentHash(currentReplacement) !== e.contentHash
-        ) {
-            return false;
-        }
+    if (matchesResolvedReplacement(convMap.get(normalizedFile), currentReplacement)) {
         return true;
-    };
-
-    if (check(convResolved[normalizedFile])) return true;
-    for (const [key, val] of Object.entries(convResolved)) {
-        if (pathsMatch(key, normalizedFile) && check(val)) return true;
+    }
+    for (const [key, entry] of convMap.entries()) {
+        if (pathsMatch(key, normalizedFile) && matchesResolvedReplacement(entry, currentReplacement)) {
+            return true;
+        }
     }
     return false;
 }
 
 export function getResolvedFiles(conversationId: string | null): Record<string, "applied" | "rejected"> {
     if (!conversationId) return {};
-    const raw = loadResolvedFilesStore()[conversationId] || {};
-    const out: Record<string, "applied" | "rejected"> = {};
-    for (const [k, v] of Object.entries(raw)) {
-        const e = normalizeEntry(v);
-        if (e) out[k] = e.status;
-    }
-    return out;
+    const convMap = loadResolvedFilesStore().get(conversationId);
+    if (!convMap) return {};
+    const statusEntries = Array.from(convMap.entries(), ([fileKey, entry]) => [
+        fileKey,
+        entry.status,
+    ]);
+    return Object.fromEntries(statusEntries) as Record<string, "applied" | "rejected">;
 }
 
 export function setProposedEdit(path: string, edit: ProposedEdit) {
@@ -213,20 +238,21 @@ export function setProposedEdit(path: string, edit: ProposedEdit) {
         return;
     }
     const normalizedPath = normalize(path);
-    proposedEdits[normalizedPath] = {
+    proposedEdits.set(normalizedPath, {
         ...edit,
         baseline: edit.baseline ?? edit.original,
-    };
+    });
     window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
         detail: { path: normalizedPath },
     }));
 }
 
 export function getProposedEdit(path: string): ProposedEdit | null {
-    const n = normalize(path);
-    if (proposedEdits[n]) return proposedEdits[n];
-    for (const [key, value] of Object.entries(proposedEdits)) {
-        if (pathsMatch(n, key)) {
+    const normalizedPath = normalize(path);
+    const direct = proposedEdits.get(normalizedPath);
+    if (direct) return direct;
+    for (const [key, value] of proposedEdits.entries()) {
+        if (pathsMatch(normalizedPath, key)) {
             return value;
         }
     }
@@ -234,27 +260,27 @@ export function getProposedEdit(path: string): ProposedEdit | null {
 }
 
 export function clearProposedEdit(path: string) {
-    const n = normalize(path);
-    delete proposedEdits[n];
-    for (const key of Object.keys(proposedEdits)) {
-        if (pathsMatch(n, key)) {
-            delete proposedEdits[key];
+    const normalizedPath = normalize(path);
+    proposedEdits.delete(normalizedPath);
+    for (const key of Array.from(proposedEdits.keys())) {
+        if (pathsMatch(normalizedPath, key)) {
+            proposedEdits.delete(key);
         }
     }
     window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
-        detail: { path: n },
+        detail: { path: normalizedPath },
     }));
 }
 
 export function clearAllProposedEdits() {
-    proposedEdits = {};
+    proposedEdits.clear();
     window.dispatchEvent(new CustomEvent("bettershape-proposed-edits-changed", {
         detail: { all: true },
     }));
 }
 
 export function getAllProposedEdits(): Record<string, ProposedEdit> {
-    return { ...proposedEdits };
+    return Object.fromEntries(proposedEdits);
 }
 
 export function isFileResolvedForCurrentConversation(
@@ -267,14 +293,4 @@ export function isFileResolvedForCurrentConversation(
 /** @deprecated Use isFileResolved instead - kept for gradual migration */
 export function loadEditStatuses(): Record<string, "applied" | "rejected"> {
     return {};
-}
-
-/** @deprecated No longer persisted */
-export function saveEditStatuses(_statuses: Record<string, "applied" | "rejected">) {
-    // no-op: resolvedFiles is the single source of truth
-}
-
-/** @deprecated No longer used */
-export function clearEditStatuses() {
-    // no-op
 }

@@ -1554,12 +1554,12 @@ export const chatModelIdsFor = (
   const all = modelIdsFor(id, connections);
   const discoveredChat = new Set(
     connection.discoveredModels
-      .filter((model) => !model.nonChat)
+      .filter((model) => model.nonChat === false)
       .map((model) => model.id),
   );
   const discoveredNonChat = new Set(
     connection.discoveredModels
-      .filter((model) => model.nonChat)
+      .filter((model) => model.nonChat === true)
       .map((model) => model.id),
   );
   return all.filter((modelId) =>

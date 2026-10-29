@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -22,18 +23,19 @@ export const StatusItem = ({
 }) => {
     return (
         <Tooltip content={label}>
-            <button
-                type="button"
+            <Button
+                variant="ghost"
+                size="xs"
                 disabled={!onClick}
                 onClick={onClick}
                 className={cn(
-                    "flex h-full shrink-0 items-center whitespace-nowrap px-2 text-xs font-normal text-text-primary transition-colors hover:bg-[var(--row-hover)]",
+                    "h-full min-h-0 shrink-0 rounded-none squircle-none px-2 text-xs font-normal text-text-primary hover:bg-[var(--row-hover)] hover:text-text-primary disabled:text-text-primary aria-disabled:text-text-primary",
                     !onClick && "cursor-default hover:bg-transparent",
                     className,
                 )}
             >
                 {children}
-            </button>
+            </Button>
         </Tooltip>
     );
 };
