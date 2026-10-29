@@ -6,7 +6,7 @@ export const WORKBENCH_TAB_BAR_CLASS =
     "workbench-tab-bar relative box-border flex h-[36px] shrink-0 w-full items-center gap-1 bg-panel-hover px-2";
 
 export const WORKBENCH_TAB_SCROLL_CLASS =
-    "workbench-tab-scroll flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar";
+    "workbench-tab-scroll flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden no-scrollbar";
 
 /** Fills unused width in the tab row */
 export const WORKBENCH_TAB_TRAIL_CLASS =

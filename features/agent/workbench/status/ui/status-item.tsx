@@ -27,7 +27,7 @@ export const StatusItem = ({
                 disabled={!onClick}
                 onClick={onClick}
                 className={cn(
-                    "h-full px-2 text-xs font-normal text-text-primary hover:bg-[var(--row-hover)] transition-colors",
+                    "flex h-full shrink-0 items-center whitespace-nowrap px-2 text-xs font-normal text-text-primary transition-colors hover:bg-[var(--row-hover)]",
                     !onClick && "cursor-default hover:bg-transparent",
                     className,
                 )}

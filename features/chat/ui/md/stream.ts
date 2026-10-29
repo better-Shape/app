@@ -1463,21 +1463,35 @@ export const stripLeakedToolCode = (
     );
 };
 
-/** Fast 3-point character precheck before comparing `text.slice(i, i + len)` against `i + len`. */
+/** Checks whether `span` contains GFM pipe-table delimiters or Unicode box-drawing glyphs. */
+const isStructuredTableOrBoxSpan = (span: string): boolean =>
+    span.includes("|") || /[\u2500-\u257f]/u.test(span);
+
+/** Checks first, middle, and last code units of two adjacent `len`-char windows in `text`. */
+const matchesSampleCharsAt = (
+    text: string,
+    offset: number,
+    len: number,
+    midOffset: number,
+): boolean =>
+    text.charCodeAt(offset) === text.charCodeAt(offset + len) &&
+    text.charCodeAt(offset + len - 1) ===
+        text.charCodeAt(offset + len * 2 - 1) &&
+    text.charCodeAt(offset + midOffset) ===
+        text.charCodeAt(offset + len + midOffset);
+
+/** Fast 3-point character precheck before comparing `text.slice(offset, offset + len)` against `offset + len`. */
 const matchesAdjacentRepeatAt = (
     text: string,
-    i: number,
+    offset: number,
     len: number,
     midOffset: number,
 ): boolean => {
-    const matchesEnds =
-        text.charCodeAt(i) === text.charCodeAt(i + len) &&
-        text.charCodeAt(i + len - 1) === text.charCodeAt(i + len * 2 - 1);
-    if (!matchesEnds) return false;
+    if (!matchesSampleCharsAt(text, offset, len, midOffset)) return false;
+    const candidate = text.slice(offset, offset + len);
     return (
-        text.charCodeAt(i + midOffset) ===
-            text.charCodeAt(i + len + midOffset) &&
-        text.startsWith(text.slice(i, i + len), i + len)
+        !isStructuredTableOrBoxSpan(candidate) &&
+        text.startsWith(candidate, offset + len)
     );
 };
 
@@ -1571,13 +1585,17 @@ const repairLongStreamGlitches = (text: string): string => {
     return collapseOpeningPrefixReplay(text) ?? text;
 };
 
-/** Repair cumulative-stream glitches and obvious duplicate phrases in assistant text. */
-export const repairStreamGlitches = (text: string): string => {
+/** Repairs cumulative-stream glitches on an unfenced prose segment. */
+const repairProseStreamGlitches = (text: string): string => {
     const glued = collapseGluedTailReplay(text);
     if (glued !== null) return glued;
     if (text.length < 40) return text;
     return repairLongStreamGlitches(text);
 };
+
+/** Repair cumulative-stream glitches and obvious duplicate phrases outside fenced code blocks. */
+export const repairStreamGlitches = (text: string): string =>
+    mapOutsideCodeFences(text, repairProseStreamGlitches);
 
 /** Normalize assistant markdown before ReactMarkdown. */
 export const looksLikeProseMarkdown = (text: string): boolean =>

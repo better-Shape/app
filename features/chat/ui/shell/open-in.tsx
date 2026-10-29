@@ -36,8 +36,61 @@ import { commands, useProjectState } from "@/lib/backend";
 import { notify } from "@/features/notifications";
 import { Button } from "@/components/ui/button";
 
-function BrandIcon({ icon }: { icon: IconModule }) {
-    const html = icon.variants.dark || icon.variants.default || icon.svg;
+const scopedBrandSvgCache = new Map<string, string>();
+
+/** Rewrites `class="..."` tokens inside `svgMarkup` using `defined` class names. */
+const rewriteSvgClassAttributes = (
+    svgMarkup: string,
+    defined: ReadonlySet<string>,
+    scopePrefix: string,
+): string =>
+    svgMarkup.replaceAll(/\bclass="([^"]+)"/g, (_attr, classList: string) => {
+        const next = classList
+            .split(/\s+/)
+            .map((token) => (defined.has(token) ? `${scopePrefix}-${token}` : token))
+            .join(" ");
+        return `class="${next}"`;
+    });
+
+/** Locates `[styleStart, openEnd, styleClose]` for an embedded `<style>...</style>` block, or `null`. */
+const locateStyleTagSlice = (
+    rawSvg: string,
+): { styleStart: number; openEnd: number; styleClose: number } | null => {
+    const styleStart = rawSvg.indexOf("<style");
+    const styleClose = styleStart === -1 ? -1 : rawSvg.indexOf("</style>", styleStart);
+    const openEnd = styleClose === -1 ? -1 : rawSvg.indexOf(">", styleStart);
+    return openEnd === -1 || openEnd > styleClose
+        ? null
+        : { styleStart, openEnd, styleClose };
+};
+
+/** Scopes embedded `<style>` class selectors inside a `thesvg` icon so `.st0` never leaks globally. */
+const scopeEmbeddedSvgClasses = (rawSvg: string, scopePrefix: string): string => {
+    const slice = locateStyleTagSlice(rawSvg);
+    if (!slice) return rawSvg;
+    const cssBody = rawSvg.slice(slice.openEnd + 1, slice.styleClose);
+    const defined = new Set<string>();
+    const scopedCss = cssBody.replaceAll(/\.([A-Za-z_][\w-]*)/g, (_match, cls: string) => {
+        defined.add(cls);
+        return `.${scopePrefix}-${cls}`;
+    });
+    if (defined.size === 0) return rawSvg;
+    const withScopedStyle = `${rawSvg.slice(0, slice.styleStart)}<style>${scopedCss}</style>${rawSvg.slice(slice.styleClose + 8)}`;
+    return rewriteSvgClassAttributes(withScopedStyle, defined, scopePrefix);
+};
+
+/** Resolves cached, CSS-scoped SVG markup for a `thesvg` brand icon. */
+const resolveScopedBrandSvg = (icon: IconModule, targetId: string): string => {
+    const cached = scopedBrandSvgCache.get(targetId);
+    if (cached !== undefined) return cached;
+    const raw = icon.variants.dark || icon.variants.default || icon.svg;
+    const scoped = scopeEmbeddedSvgClasses(raw, `bs-brand-${targetId}`);
+    scopedBrandSvgCache.set(targetId, scoped);
+    return scoped;
+};
+
+const BrandIcon = ({ icon, targetId }: { icon: IconModule; targetId: string }) => {
+    const html = resolveScopedBrandSvg(icon, targetId);
     return (
         <span
             aria-hidden
@@ -45,7 +98,7 @@ function BrandIcon({ icon }: { icon: IconModule }) {
             dangerouslySetInnerHTML={{ __html: html }}
         />
     );
-}
+};
 
 const OPEN_TARGETS: { id: string; label: string; icon: IconModule }[] = [
     { id: "cursor", label: "Cursor", icon: cursor },
@@ -114,7 +167,7 @@ export function OpenInMenu({ path }: { path?: string | null } = {}) {
                         size="sm"
                         className="px-1.5 text-sm text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
                     >
-                        <BrandIcon icon={cursor} />
+                        <BrandIcon icon={cursor} targetId="cursor" />
                         <span>Open</span>
                         <Icon icon={ChevronDown20Regular} className="opacity-60" />
                     </Button>
@@ -123,7 +176,7 @@ export function OpenInMenu({ path }: { path?: string | null } = {}) {
             <DropdownMenuContent align="end" className="max-h-80 min-w-48 overflow-y-auto">
                 {OPEN_TARGETS.map((app) => (
                     <DropdownMenuItem key={app.id} onClick={() => void open(app.id)}>
-                        <BrandIcon icon={app.icon} />
+                        <BrandIcon icon={app.icon} targetId={app.id} />
                         <span className="flex-1">{app.label}</span>
                         {app.id === "cursor" ? (
                             <span className="text-xs text-text-muted">Ctrl+O</span>

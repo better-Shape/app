@@ -70,7 +70,7 @@ const StatusFileCrumb = ({ statusFile, relativePath }: { statusFile: string; rel
     <button
         type="button"
         onClick={() => commands.revealPath(statusFile)}
-        className="pointer-events-auto flex h-full max-w-[60%] cursor-pointer items-center gap-1.5 truncate px-3 font-light text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
+        className="pointer-events-auto flex h-full min-w-0 max-w-full cursor-pointer items-center gap-1.5 truncate px-3 font-light text-text-secondary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary"
         title={statusFile}
     >
         <FileIcon name={relativePath.split(/[\\/]/).pop() || relativePath} className="h-3.5 w-3.5 shrink-0" />
@@ -107,10 +107,11 @@ const EditorStatusItems = ({
         );
     return (
         <>
-            <StatusItem label="Go to Line/Column" onClick={openLinePicker}>
-                {/* The one status value that changes while the user watches it, so it
-                    crosses rather than blinking between two readings. Tabular digits
-                    keep the digits themselves from shifting. */}
+            <StatusItem
+                label="Go to Line/Column"
+                onClick={openLinePicker}
+                className="hidden @[240px]/status:flex"
+            >
                 <SwapText
                     value={`Ln ${editorStatus.line}, Col ${editorStatus.column}`}
                     durationMs={90}
@@ -118,50 +119,57 @@ const EditorStatusItems = ({
                 />
             </StatusItem>
 
-            <StatusItem label="Select Indentation" onClick={onIndentation}>
-                <span className="hidden sm:inline">
-                    <SwapText
-                        value={editorStatus.insertSpaces
-                            ? `Spaces: ${editorStatus.spaces}`
-                            : `Tab Size: ${editorStatus.spaces}`}
-                    />
-                </span>
-                <span className="sm:hidden">{editorStatus.spaces}</span>
+            <StatusItem
+                label="Select Indentation"
+                onClick={onIndentation}
+                className="hidden @[480px]/status:flex"
+            >
+                <SwapText
+                    value={editorStatus.insertSpaces
+                        ? `Spaces: ${editorStatus.spaces}`
+                        : `Tab Size: ${editorStatus.spaces}`}
+                />
             </StatusItem>
 
-            <StatusItem label="Select Encoding">
-                <span className="hidden md:inline">UTF-8</span>
+            <StatusItem
+                label="Select Encoding"
+                className="hidden @[580px]/status:flex"
+            >
+                <span>UTF-8</span>
             </StatusItem>
 
-            <StatusItem label="Select End of Line Sequence" onClick={onEol}>
-                <span className="hidden md:inline">
-                    <SwapText value={editorStatus.eol} />
-                </span>
+            <StatusItem
+                label="Select End of Line Sequence"
+                onClick={onEol}
+                className="hidden @[530px]/status:flex"
+            >
+                <SwapText value={editorStatus.eol} />
             </StatusItem>
 
             <Tooltip content="Format Document">
                 <button
                     type="button"
-                    className="hidden lg:flex h-full px-1.5 items-center text-text-primary hover:bg-[var(--row-hover)] transition-colors"
+                    className="hidden @[640px]/status:flex h-full shrink-0 px-1.5 items-center text-text-primary hover:bg-[var(--row-hover)] transition-colors"
                     onClick={() => dispatchEditorAction("format")}
                 >
                     <Icon icon={Code20Regular} />
                 </button>
             </Tooltip>
 
-            <StatusItem label="Select Language Mode" onClick={openLanguagePicker}>
-                <span className="hidden sm:inline">
-                    <SwapText value={languageLabel} />
-                    {typescriptVersion && editorStatus.language.includes("typescript") && (
-                        <span className="text-text-muted ml-1">TS {typescriptVersion}</span>
-                    )}
-                </span>
-                <span className="sm:hidden">
-                    <SwapText value={languageLabel.slice(0, 3).toUpperCase()} durationMs={90} />
-                </span>
+            <StatusItem
+                label="Select Language Mode"
+                onClick={openLanguagePicker}
+                className="hidden @[340px]/status:flex"
+            >
+                <SwapText value={languageLabel} />
+                {typescriptVersion && editorStatus.language.includes("typescript") && (
+                    <span className="text-text-muted ml-1">TS {typescriptVersion}</span>
+                )}
             </StatusItem>
 
-            <PythonInterpreterStatus language={editorStatus.language} projectPath={projectPath} />
+            <div className="hidden @[680px]/status:contents">
+                <PythonInterpreterStatus language={editorStatus.language} projectPath={projectPath} />
+            </div>
         </>
     );
 };
@@ -238,8 +246,8 @@ const Status = () => {
     };
 
     return (
-        <div className="status-bar relative flex h-statusbar w-full select-none items-center bg-background text-text-muted text-xs font-light font-sans px-1 shrink-0">
-            <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5">
+        <div className="status-bar @container/status relative flex @[760px]/status:grid @[760px]/status:grid-cols-[1fr_minmax(0,auto)_1fr] h-statusbar w-full select-none items-center justify-between overflow-hidden bg-background text-text-muted text-xs font-light font-sans px-1 shrink-0">
+            <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
                 <GitStatusButton />
 
                 {latestProgressMessage && (
@@ -247,11 +255,11 @@ const Status = () => {
                 )}
             </div>
 
-            <div className="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center px-2 lg:flex">
+            <div className="hidden @[760px]/status:flex h-full min-w-0 items-center justify-center overflow-hidden px-2">
                 {statusFile && <StatusFileCrumb statusFile={statusFile} relativePath={relativePath} />}
             </div>
 
-            <div className="relative z-30 ml-auto flex items-center h-full shrink-0 min-w-0">
+            <div className="relative z-30 ml-auto flex items-center justify-end h-full shrink-0 min-w-0">
                 {hasEditor ? (
                     <EditorStatusItems
                         statusFile={statusFile as string}

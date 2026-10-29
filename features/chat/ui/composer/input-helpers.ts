@@ -498,7 +498,8 @@ const computeComposerHeightBounds = (
   stageH: number,
   isExpanded: boolean,
 ): { max: number; expandedFloor: number } => {
-  const compactMax = Math.min(220, Math.max(96, stageH - 132));
+  const compactCap = Math.min(stageH - 140, Math.round(stageH * 0.36));
+  const compactMax = Math.min(220, Math.max(76, compactCap));
   const expandedMax = Math.max(
     compactMax + 44,
     Math.min(Math.round(stageH * 0.6), 420),

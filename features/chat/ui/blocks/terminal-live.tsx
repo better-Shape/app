@@ -754,7 +754,7 @@ const TerminalCommandMenu = ({ command }: { command: string }) => {
                     <Icon icon={MoreHorizontal20Regular} />
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-76">
+            <DropdownMenuContent align="end" className="w-76 max-w-[calc(100vw-1rem)]">
                 <div className="px-2 py-1.5 text-sm font-medium text-text-muted">
                     Auto-run
                 </div>
@@ -1110,12 +1110,13 @@ const AutoRunModePicker = ({ disabled }: { disabled?: boolean }) => {
                     size="sm"
                     disabled={disabled}
                     aria-label="Approval mode for future agent commands"
+                    className="max-w-full whitespace-nowrap"
                 >
-                    {activeLabel}
-                    <Icon icon={ChevronDown20Regular} className="opacity-70" />
+                    <span className="truncate">{activeLabel}</span>
+                    <Icon icon={ChevronDown20Regular} className="shrink-0 opacity-70" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuContent align="start" className="w-64 max-w-[calc(100vw-1rem)]">
                 {AUTO_RUN_OPTIONS.map((opt) => {
                     const selected = settings.ai.autoRunMode === opt.value;
                     return (

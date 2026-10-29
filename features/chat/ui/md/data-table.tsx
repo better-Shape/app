@@ -70,6 +70,27 @@ function CellInner({ value }: { value: string }) {
     );
 }
 
+/** Renders body rows inside `ChatDataTable`. */
+const ChatDataTableBody = ({ rows }: { rows: string[][] }) => {
+    const rowKey = createOccurrenceKeyer();
+    return (
+        <tbody>
+            {rows.map((row) => {
+                const cellKey = createOccurrenceKeyer();
+                return (
+                    <tr key={rowKey(row.join("|"))} className={styles.tr}>
+                        {row.map((cell) => (
+                            <td key={cellKey(cell)} className={styles.td}>
+                                <CellInner value={cell} />
+                            </td>
+                        ))}
+                    </tr>
+                );
+            })}
+        </tbody>
+    );
+};
+
 /** Renders the ChatDataTable UI component. */
 export const ChatDataTable = ({
     headers,
@@ -93,36 +114,22 @@ export const ChatDataTable = ({
                     />
                 </div>
             ) : null}
-            <table className={styles.table}>
-                {headers.length > 0 ? (
-                    <thead>
-                        <tr>
-                            {headers.map((h) => (
-                                <th key={h} className={styles.th}>
-                                    {h}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                ) : null}
-                <tbody>
-                    {(() => {
-                        const rowKey = createOccurrenceKeyer();
-                        return rows.map((row) => {
-                            const cellKey = createOccurrenceKeyer();
-                            return (
-                                <tr key={rowKey(row.join("|"))} className={styles.tr}>
-                                    {row.map((cell) => (
-                                        <td key={cellKey(cell)} className={styles.td}>
-                                            <CellInner value={cell} />
-                                        </td>
-                                    ))}
-                                </tr>
-                            );
-                        });
-                    })()}
-                </tbody>
-            </table>
+            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>
+                <table className={styles.table}>
+                    {headers.length > 0 ? (
+                        <thead>
+                            <tr>
+                                {headers.map((header) => (
+                                    <th key={header} className={styles.th}>
+                                        {header}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                    ) : null}
+                    <ChatDataTableBody rows={rows} />
+                </table>
+            </div>
         </div>
     );
 };
@@ -132,13 +139,13 @@ export const ChatKeyedRowsTable = ({ rows }: { rows: Record<string, string>[] })
     const headers = React.useMemo(() => {
         const keys: string[] = [];
         for (const row of rows) {
-            for (const k of Object.keys(row)) {
-                if (!keys.includes(k)) keys.push(k);
+            for (const key of Object.keys(row)) {
+                if (!keys.includes(key)) keys.push(key);
             }
         }
         return keys;
     }, [rows]);
-    const body = rows.map((row) => headers.map((h) => row[h] ?? ""));
+    const body = rows.map((row) => headers.map((header) => row[header] ?? ""));
     return <ChatDataTable headers={headers} rows={body} />;
 };
 
@@ -170,7 +177,7 @@ export const MarkdownTableShell = ({ children }: { children?: React.ReactNode })
                     boxClassName="bg-surface-3 border border-border-subtle shadow-xs"
                 />
             </div>
-            {children}
+            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>{children}</div>
         </div>
     );
 };

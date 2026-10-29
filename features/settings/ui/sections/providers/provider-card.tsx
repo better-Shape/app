@@ -394,11 +394,13 @@ const ProviderHeaderSummary = ({
             <span className="truncate">{preset.label}</span>
             <HiddenModelsBadge hiddenCount={hiddenCount} />
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-text-muted">
             <StatusDot style={status} />
-            <span>{status.label}</span>
-            <span className="text-text-disabled">·</span>
-            <span className="truncate">{wireLabel(preset.kind)}</span>
+            <span className="shrink-0 whitespace-nowrap">{status.label}</span>
+            <span className="hidden min-w-0 truncate min-[520px]:inline">
+                <span className="mr-1.5 text-text-disabled">·</span>
+                {wireLabel(preset.kind)}
+            </span>
         </div>
     </div>
 );

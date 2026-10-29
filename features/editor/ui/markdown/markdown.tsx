@@ -309,9 +309,8 @@ export const MarkdownPreview = React.forwardRef<HTMLDivElement, MarkdownPreviewP
                     "[&>blockquote]:border-l-4 [&>blockquote]:border-accent [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-text-muted [&>blockquote]:my-4 [&>blockquote]:bg-editor/50 [&>blockquote]:py-1 [&>blockquote]:rounded-r-lg",
                     "[&>hr]:border-border-subtle [&>hr]:my-8",
                     "[&_a]:text-accent [&_a]:hover:underline [&_a]:transition-colors [&_a]:cursor-pointer",
-                    "[&>table]:w-full [&>table]:mb-4 [&>table]:border-collapse",
-                    "[&_th]:border [&_th]:border-border-subtle [&_th]:px-4 [&_th]:py-2 [&_th]:bg-editor [&_th]:font-semibold [&_th]:text-left",
-                    "[&_td]:border [&_td]:border-border-subtle [&_td]:px-4 [&_td]:py-2",
+                    "[&_th]:whitespace-nowrap [&_th]:border [&_th]:border-border-subtle [&_th]:px-4 [&_th]:py-2 [&_th]:bg-editor [&_th]:font-semibold [&_th]:text-left",
+                    "[&_td]:border [&_td]:border-border-subtle [&_td]:px-4 [&_td]:py-2 [&_td_code]:whitespace-nowrap",
                     "[&_[align=center]]:text-center",
                     "[&_[align=right]]:text-right",
                     "[&_[align=center]_img]:mx-auto [&_[align=center]_img]:inline-block",
@@ -367,6 +366,13 @@ export const MarkdownPreview = React.forwardRef<HTMLDivElement, MarkdownPreviewP
                                     </code>
                                 );
                             },
+                            table: ({ children, ...props }) => (
+                                <div className="custom-scrollbar my-4 w-full max-w-full overflow-x-auto">
+                                    <table className="w-max min-w-full border-collapse" {...props}>
+                                        {children}
+                                    </table>
+                                </div>
+                            ),
                             a: ({ href, children, ...props }) => (
                                 <a
                                     href={href}

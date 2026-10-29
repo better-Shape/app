@@ -589,6 +589,24 @@ export const ChatMarkdown = React.memo(({
     );
 });
 
+/** Extracts a trimmed single string child from `children`, or `null` when mixed/empty. */
+const extractSingleStringChild = (children: React.ReactNode): string | null => {
+    if (typeof children === "string") return children.trim();
+    if (Array.isArray(children) && children.length === 1 && typeof children[0] === "string") {
+        return children[0].trim();
+    }
+    return null;
+};
+
+/** Extracts the inner formula of a standalone `$$ ... $$` display math paragraph, or `null`. */
+const extractDisplayMathFormula = (children: React.ReactNode): string | null => {
+    const raw = extractSingleStringChild(children);
+    if (!raw || raw.length <= 4) return null;
+    if (!raw.startsWith("$$") || !raw.endsWith("$$")) return null;
+    const formula = raw.slice(2, -2).trim();
+    return formula || null;
+};
+
 /** createMarkdownComponents helper. */
 function createMarkdownComponents(options?: { nested?: boolean; streamingFence?: boolean }) {
     const nested = options?.nested;
@@ -686,9 +704,24 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                 </code>
             );
         },
-        p: ({ children }: { children?: React.ReactNode }) => (
-            <p className="mb-2 font-sans chat-text font-medium text-text-primary last:mb-0">{linkifyChildren(children)}</p>
-        ),
+        p: ({ children }: { children?: React.ReactNode }) => {
+            const formula = extractDisplayMathFormula(children);
+            if (formula) {
+                return (
+                    <div
+                        data-math-display="true"
+                        className="custom-scrollbar my-2 max-w-full overflow-x-auto overflow-y-hidden rounded-xl border border-border-subtle bg-surface-2/70 px-4 py-2.5 text-center font-mono text-sm leading-relaxed whitespace-pre text-text-primary"
+                    >
+                        {formula}
+                    </div>
+                );
+            }
+            return (
+                <p className="mb-2 font-sans chat-text font-medium text-text-primary last:mb-0">
+                    {linkifyChildren(children)}
+                </p>
+            );
+        },
         ul: ({ children }: { children?: React.ReactNode }) => (
             <ul className="mb-2 ml-4 list-outside list-disc space-y-1 font-sans chat-text">{children}</ul>
         ),
@@ -725,22 +758,22 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
         ),
         table: ({ children }: { children?: React.ReactNode }) => (
             <MarkdownTableShell>
-                <table className="w-full min-w-50 border-collapse text-left">{children}</table>
+                <table className="w-max min-w-full border-collapse text-left">{children}</table>
             </MarkdownTableShell>
         ),
         thead: ({ children }: { children?: React.ReactNode }) => (
             <thead>{children}</thead>
         ),
         th: ({ children }: { children?: React.ReactNode }) => (
-            <th className="px-2.5 py-1.5 font-sans chat-text font-medium text-text-primary">{children}</th>
+            <th className="whitespace-nowrap px-2.5 py-1.5 font-sans chat-text font-medium text-text-primary">{children}</th>
         ),
         td: ({ children }: { children?: React.ReactNode }) => {
             const text = React.Children.toArray(children)
-                .map((c) => (typeof c === "string" || typeof c === "number" ? String(c) : ""))
+                .map((child) => (typeof child === "string" || typeof child === "number" ? String(child) : ""))
                 .join("");
             const modelId = tableCellModelId(text);
             return (
-                <td className="px-2.5 py-1.5 font-sans chat-text text-text-secondary">
+                <td className="max-w-[24rem] break-words [word-break:normal] [&_code]:whitespace-nowrap px-2.5 py-1.5 font-sans chat-text text-text-secondary">
                     {modelId ? (
                         <span className="inline-flex items-center gap-1.5">
                             {providerIcon(modelId, 14)}

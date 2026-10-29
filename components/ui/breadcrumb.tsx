@@ -59,14 +59,22 @@ export const Breadcrumb = ({
       )}
     >
       <ol className="flex min-w-0 items-center gap-1 px-1">
-        {items.map((item, pos) => (
-          <Fragment key={keyFor(String(item.key ?? "crumb"))}>
-            {pos > 0 && (
-              <Icon icon={ChevronRight20Regular} className="icon-sm shrink-0 text-text-muted/70" />
-            )}
-            {item}
-          </Fragment>
-        ))}
+        {items.map((item, pos) => {
+          const prevCollapse =
+            pos > 0
+              ? (items[pos - 1]?.props as BreadcrumbItemProps | undefined)?.collapseClassName
+              : undefined;
+          return (
+            <Fragment key={keyFor(String(item.key ?? "crumb"))}>
+              {pos > 0 && (
+                <span className={cn("inline-flex shrink-0 items-center", prevCollapse)}>
+                  <Icon icon={ChevronRight20Regular} className="icon-sm shrink-0 text-text-muted/70" />
+                </span>
+              )}
+              {item}
+            </Fragment>
+          );
+        })}
       </ol>
     </nav>
   );
@@ -81,6 +89,8 @@ export interface BreadcrumbItemProps {
   /** Marks the active page: not interactive, darker text. */
   current?: boolean;
   className?: string;
+  /** Responsive visibility class shared by this ancestor item and its trailing separator. */
+  collapseClassName?: string;
 }
 
 /**
@@ -97,6 +107,7 @@ export const BreadcrumbItem = ({
   onClick,
   current = false,
   className,
+  collapseClassName,
 }: BreadcrumbItemProps) => {
   const content = (
     <>
@@ -128,7 +139,7 @@ export const BreadcrumbItem = ({
   );
 
   return (
-    <li className="flex min-w-0 shrink items-center overflow-hidden">
+    <li className={cn("flex min-w-0 shrink items-center overflow-hidden", collapseClassName)}>
       {href ? (
         <Link href={href} className={interactiveClass}>
           {content}

@@ -977,7 +977,7 @@ export function SettingsView({
                 );
                 if (navPortalTarget) return createPortal(nav, navPortalTarget);
                 return (
-                    <aside className="flex w-64 shrink-0 flex-col overflow-hidden bg-background">
+                    <aside className="flex w-44 sm:w-56 md:w-64 shrink-0 flex-col overflow-hidden bg-background">
                         {nav}
                     </aside>
                 );
@@ -996,7 +996,7 @@ export function SettingsView({
                         <McpSettingsView />
                     </div>
                 ) : (
-                    <div className="absolute inset-0 overflow-y-auto px-8 py-8">
+                    <div className="absolute inset-0 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-8">
                         <div className="mx-auto w-full max-w-4xl">
                             <h1 className="mb-6 text-2xl font-medium text-text-primary">
                                 {allSettingsLeaves().find((leaf) => leaf.id === activeLeafId)?.label}

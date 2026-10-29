@@ -152,7 +152,10 @@ const DefaultMenu = ({
                     "absolute bottom-[calc(100%+8px)] z-50 overflow-hidden squircle-2xl border border-border bg-surface-3/80 backdrop-blur-sm shadow-md",
                     align === "end" ? "right-0" : "left-0",
                 )}
-                style={{ width: openWidth, maxHeight: openHeight }}
+                style={{
+                    width: `min(${openWidth}px, calc(100vw - 16px))`,
+                    maxHeight: `min(${openHeight}px, calc(100vh - 64px))`,
+                }}
                 role="menu"
             >
                 <div className="custom-scrollbar max-h-full overflow-y-auto">{children}</div>
@@ -220,6 +223,25 @@ const MorphBox = ({
     </div>
 );
 
+/** Clamps requested `openWidth`/`openHeight` to the current viewport and trigger position. */
+const clampMorphOpenDimensions = (
+    boxEl: HTMLElement | null,
+    openWidth: number,
+    openHeight: number,
+    closedHeight: number,
+): { w: number; h: number } => {
+    if (typeof window === "undefined") return { w: openWidth, h: openHeight };
+    const availW = Math.max(180, window.innerWidth - 16);
+    const rect = boxEl?.getBoundingClientRect();
+    const availH = rect
+        ? Math.max(closedHeight + 96, Math.floor(rect.bottom - 12))
+        : openHeight;
+    return {
+        w: Math.min(openWidth, availW),
+        h: Math.min(openHeight, availH),
+    };
+};
+
 /**
  * Pill trigger → panel.
  *
@@ -269,10 +291,12 @@ export const MorphMenu = ({
     useClosedWidth(useMorph, measureRef, setClosedW);
     useDismissOnOutside(open, ref, setOpen);
 
-    /** Opens and closes the menu, locking the open size on the way in. */
+    /** Opens and closes the menu, clamping the open size to the current viewport. */
     const toggle = () => {
-        if (!open) setLockedOpen({ w: openWidth, h: openHeight });
-        setOpen((v) => !v);
+        if (!open) {
+            setLockedOpen(clampMorphOpenDimensions(ref.current, openWidth, openHeight, closedHeight));
+        }
+        setOpen((prev) => !prev);
     };
 
     if (!useMorph) {

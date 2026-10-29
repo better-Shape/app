@@ -286,8 +286,7 @@ const ChangeSectionHeader = ({ title, count, isAllStaged, isSomeStaged, onToggle
     onToggleOpen: () => void;
     onToggleStage: () => void;
 }) => (
-    <div className="flex items-center group py-1 rounded-lg shrink-0 hover:bg-[var(--row-hover)] transition-colors">
-        <div className="w-4 h-4 -mr-2.5 flex items-center justify-center shrink-0 text-text-primary hover:text-text-primary" />
+    <div className="flex items-center group py-1 pl-1.5 rounded-lg shrink-0 hover:bg-[var(--row-hover)] transition-colors">
         <div role="presentation" className="flex shrink-0 items-center justify-center h-full mr-2">
             <Checkmark
                 checked={isAllStaged ? true : isSomeStaged ? "indeterminate" : false}
@@ -300,8 +299,8 @@ const ChangeSectionHeader = ({ title, count, isAllStaged, isSomeStaged, onToggle
             onClick={onToggleOpen}
             className="flex min-w-0 flex-1 cursor-pointer items-center text-left"
         >
-            <span className="text-sm font-normal text-text-secondary group-hover:text-text-primary transition-colors">
-                {title} <span className="text-text-muted font-normal ml-1">{count} files</span>
+            <span className="truncate text-sm font-normal text-text-secondary group-hover:text-text-primary transition-colors">
+                {title} <span className="text-text-muted font-normal ml-1">{count} {count === 1 ? "file" : "files"}</span>
             </span>
         </button>
     </div>
@@ -2007,14 +2006,14 @@ const CommitComposer = ({
             value={commitTitle}
             onChange={(e) => setCommitTitle(e.target.value)}
             onKeyDown={commitShortcut ? handleKeyDown : undefined}
-            className="border-none bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="border-none bg-transparent px-3 pr-9 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         <Textarea
             placeholder="Add description..."
             value={commitDescription}
             onChange={(e) => setCommitDescription(e.target.value)}
             onKeyDown={commitShortcut ? handleKeyDown : undefined}
-            className="mt-0 min-h-[60px] resize-none rounded-none border-none bg-transparent px-3 pt-1 pb-8 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="custom-scrollbar mt-0 min-h-[60px] max-h-[min(168px,26vh)] overflow-y-auto resize-none rounded-none border-none bg-transparent px-3 pt-1 pb-8 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             rows={2}
         />
         <GenerateStarButton

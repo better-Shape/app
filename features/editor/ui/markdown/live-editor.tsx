@@ -12,7 +12,14 @@ import { TextUnderline20Regular } from "@fluentui/react-icons/headless/svg/text-
 
 
 import { useEffect, useRef, useState } from "react";
-import { EditorSelection, EditorState, type Extension, type Range } from "@codemirror/state";
+import {
+    EditorSelection,
+    EditorState,
+    StateEffect,
+    StateField,
+    type Extension,
+    type Range,
+} from "@codemirror/state";
 import {
     Decoration,
     type DecorationSet,
@@ -280,9 +287,17 @@ const proseTheme = EditorView.theme({
     },
     ".cm-content": {
         padding: "32px 0 160px",
+        width: "100%",
+        minWidth: "0",
         maxWidth: "760px",
+        boxSizing: "border-box",
         margin: "0 auto",
         caretColor: "var(--text-primary)",
+    },
+    ".cm-content.cm-lineWrapping": {
+        width: "100%",
+        minWidth: "0",
+        overflowWrap: "anywhere",
     },
     "&.cm-focused": { outline: "none" },
     ".cm-line": { padding: "1px 32px" },
@@ -340,6 +355,222 @@ const proseTheme = EditorView.theme({
         verticalAlign: "middle",
         backgroundColor: "var(--border)",
     },
+    ".cm-md-table-wrap": {
+        margin: "8px 32px",
+        maxWidth: "calc(100% - 64px)",
+        overflowX: "auto",
+        overflowY: "hidden",
+        borderRadius: "var(--radius-lg)",
+        border: "1px solid var(--border-subtle)",
+        backgroundColor: "var(--surface-2)",
+    },
+    ".cm-md-table": {
+        width: "max-content",
+        minWidth: "100%",
+        borderCollapse: "collapse",
+        fontSize: "13px",
+        lineHeight: "1.45",
+    },
+    ".cm-md-table th": {
+        padding: "6px 12px",
+        fontWeight: "600",
+        textAlign: "left",
+        whiteSpace: "nowrap",
+        color: "var(--text-primary)",
+        backgroundColor: "var(--surface-3)",
+        borderBottom: "1px solid var(--border-subtle)",
+    },
+    ".cm-md-table td": {
+        padding: "6px 12px",
+        maxWidth: "22rem",
+        color: "var(--text-secondary)",
+        borderTop: "1px solid var(--border-subtle)",
+        overflowWrap: "break-word",
+    },
+    ".cm-md-table code": {
+        padding: "1px 5px",
+        borderRadius: "var(--radius-sm)",
+        backgroundColor: "var(--surface-3)",
+        border: "1px solid var(--border-subtle)",
+        fontFamily: "var(--font-mono)",
+        fontSize: "0.9em",
+        color: "var(--text-primary)",
+        whiteSpace: "nowrap",
+    },
+});
+
+const tableFocusEffect = StateEffect.define<boolean>();
+
+/** Splits a single GFM pipe-table line into trimmed cell strings. */
+const splitGfmTableCells = (line: string): string[] => {
+    const trimmed = line.trim();
+    const withoutLead = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+    const withoutEdges = withoutLead.endsWith("|") && !withoutLead.endsWith("\\|")
+        ? withoutLead.slice(0, -1)
+        : withoutLead;
+    return withoutEdges
+        .split(/(?<!\\)\|/u)
+        .map((cell) => cell.replaceAll("\\|", "|").trim());
+};
+
+/** Appends plain text and inline `` `code` `` `<code>` nodes safely onto `cellEl`. */
+const populateTableCellDom = (cellEl: HTMLTableCellElement, rawCell: string): void => {
+    let cursor = 0;
+    for (const match of rawCell.matchAll(/`([^`]+)`/gu)) {
+        const start = match.index ?? 0;
+        if (start > cursor) {
+            cellEl.appendChild(document.createTextNode(rawCell.slice(cursor, start)));
+        }
+        const codeEl = document.createElement("code");
+        codeEl.textContent = match[1] ?? "";
+        cellEl.appendChild(codeEl);
+        cursor = start + match[0].length;
+    }
+    if (cursor < rawCell.length) {
+        cellEl.appendChild(document.createTextNode(rawCell.slice(cursor)));
+    }
+};
+
+/** Appends a single `<tr>` of `<th>` or `<td>` cells onto `section`. */
+const appendDomTableRow = (
+    section: HTMLTableSectionElement,
+    cells: string[],
+    colCount: number,
+    cellTag: "th" | "td",
+): void => {
+    const rowEl = document.createElement("tr");
+    for (let idx = 0; idx < colCount; idx += 1) {
+        const cellEl = document.createElement(cellTag);
+        populateTableCellDom(cellEl, cells[idx] ?? "");
+        rowEl.appendChild(cellEl);
+    }
+    section.appendChild(rowEl);
+};
+
+class TableBlockWidget extends WidgetType {
+    constructor(
+        readonly rawSource: string,
+        readonly fromPos: number,
+    ) {
+        super();
+    }
+    eq(other: TableBlockWidget): boolean {
+        return other.rawSource === this.rawSource && other.fromPos === this.fromPos;
+    }
+    toDOM(view: EditorView): HTMLElement {
+        const wrap = document.createElement("div");
+        wrap.className = "cm-md-table-wrap custom-scrollbar overflow-x-auto overflow-y-hidden";
+        const lines = this.rawSource.split("\n").filter((line) => line.trim().length > 0);
+        const headers = splitGfmTableCells(lines[0] ?? "");
+        const bodyRows = lines.slice(2).map(splitGfmTableCells);
+        const colCount = Math.max(
+            headers.length,
+            bodyRows.reduce((max, row) => Math.max(max, row.length), 0),
+        );
+        const table = document.createElement("table");
+        table.className = "cm-md-table";
+        const thead = document.createElement("thead");
+        appendDomTableRow(thead, headers, colCount, "th");
+        table.appendChild(thead);
+        if (bodyRows.length > 0) {
+            const tbody = document.createElement("tbody");
+            for (const row of bodyRows) {
+                appendDomTableRow(tbody, row, colCount, "td");
+            }
+            table.appendChild(tbody);
+        }
+        wrap.appendChild(table);
+        wrap.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            view.dispatch({ selection: { anchor: this.fromPos } });
+            view.focus();
+        });
+        return wrap;
+    }
+}
+
+/** Checks whether any selection range overlaps the lines spanned by `[from, to]`. */
+const selectionTouchesLines = (
+    state: EditorState,
+    from: number,
+    to: number,
+): boolean => {
+    const startLine = state.doc.lineAt(from).from;
+    const endLine = state.doc.lineAt(Math.max(from, to - 1)).to;
+    return state.selection.ranges.some(
+        (range) => range.from <= endLine && range.to >= startLine,
+    );
+};
+
+/** Builds block-level `Table` replace decorations when not actively editing a table. */
+const computeTableBlockDecorations = (
+    state: EditorState,
+    focused: boolean,
+): DecorationSet => {
+    const ranges: Range<Decoration>[] = [];
+    syntaxTree(state).iterate({
+        enter: (node) => {
+            if (node.name !== "Table") return;
+            if (focused && selectionTouchesLines(state, node.from, node.to)) return;
+            const rawSource = state.doc.sliceString(node.from, node.to);
+            if (!rawSource.includes("|")) return;
+            ranges.push(
+                Decoration.replace({
+                    widget: new TableBlockWidget(rawSource, node.from),
+                    block: true,
+                }).range(node.from, node.to),
+            );
+        },
+    });
+    return Decoration.set(ranges, true);
+};
+
+/** Resolves updated `focused` state from transaction effects. */
+const resolveTableFocusFromEffects = (
+    prevFocused: boolean,
+    effects: readonly StateEffect<unknown>[],
+): boolean => {
+    let nextFocused = prevFocused;
+    for (const effect of effects) {
+        if (effect.is(tableFocusEffect)) {
+            nextFocused = effect.value;
+        }
+    }
+    return nextFocused;
+};
+
+/** Checks whether `tr` requires recomputing table block decorations. */
+const shouldRecomputeTableBlocks = (
+    docChanged: boolean,
+    hasSelection: boolean,
+    focusChanged: boolean,
+): boolean => docChanged || hasSelection || focusChanged;
+
+const tableBlockField = StateField.define<{ focused: boolean; decos: DecorationSet }>({
+    create: (state) => ({
+        focused: false,
+        decos: computeTableBlockDecorations(state, false),
+    }),
+    update: (prev, tr) => {
+        const focused = resolveTableFocusFromEffects(prev.focused, tr.effects);
+        if (!shouldRecomputeTableBlocks(tr.docChanged, Boolean(tr.selection), focused !== prev.focused)) {
+            return prev;
+        }
+        return {
+            focused,
+            decos: computeTableBlockDecorations(tr.state, focused),
+        };
+    },
+    provide: (field) => EditorView.decorations.from(field, (val) => val.decos),
+});
+
+const tableFocusTracker = EditorView.domEventHandlers({
+    focus: (_event, view) => {
+        view.dispatch({ effects: tableFocusEffect.of(true) });
+    },
+    blur: (_event, view) => {
+        view.dispatch({ effects: tableFocusEffect.of(false) });
+    },
 });
 
 function wrapSelection(view: EditorView, mark: string, end = mark): boolean {
@@ -368,7 +599,9 @@ function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): 
         history(),
         drawSelection({ cursorBlinkRate: 1100 }),
         EditorView.lineWrapping,
-        ...(raw ? betterShapeEditorChrome() : [livePreview, proseTheme, syntaxHighlighting(proseHighlight)]),
+        ...(raw
+            ? betterShapeEditorChrome()
+            : [livePreview, tableBlockField, tableFocusTracker, proseTheme, syntaxHighlighting(proseHighlight)]),
         keymap.of([
             ...markdownKeymap,
             ...defaultKeymap,

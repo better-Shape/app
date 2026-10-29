@@ -2,27 +2,42 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { EditorSplitProvider, EditorViewProvider } from "@/core/providers/editor";
 import { commands } from "@/lib/backend";
 import FileViewer from "@/features/editor/ui/main/editor";
 
-function readSeededPath(): string | null {
-    if (typeof window === "undefined") return null;
-    try {
-        const params = new URLSearchParams(window.location.search);
-        const fromQuery = params.get("file");
-        if (fromQuery) return fromQuery;
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key?.startsWith("bettershape-popout-file:")) {
-                const value = localStorage.getItem(key);
-                if (value) return value;
-            }
-        }
-    } catch {
-        /* ignore */
+/** Scans `localStorage` for a seeded `bettershape-popout-file:*` entry when `?file=` is absent. */
+const readStoredPopoutPath = (): string | null => {
+    for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key?.startsWith("bettershape-popout-file:")) continue;
+        const value = localStorage.getItem(key);
+        if (value) return value;
     }
     return null;
-}
+};
+
+/** Resolves the initial popout file path from the URL query string or `localStorage`. */
+const readSeededPath = (): string | null => {
+    if (typeof window === "undefined") return null;
+    try {
+        const fromQuery = new URLSearchParams(window.location.search).get("file");
+        return fromQuery || readStoredPopoutPath();
+    } catch {
+        return null;
+    }
+};
+
+/** Wraps `FileViewer` in the required editor view and split context providers for `/popout`. */
+const PopoutEditorViewport = ({ file, title }: { file: string; title: string }) => (
+    <EditorViewProvider>
+        <EditorSplitProvider>
+            <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-popout-title={title}>
+                <FileViewer path={file} group="left" />
+            </div>
+        </EditorSplitProvider>
+    </EditorViewProvider>
+);
 
 export default function PopoutPage() {
     const searchParams = useSearchParams();
@@ -38,7 +53,7 @@ export default function PopoutPage() {
     useEffect(() => {
         if (!file) return;
         const name = file.split(/[\\/]/).pop() || file;
-        void commands.openFile(file, name);
+        commands.openFile(file, name).catch(() => undefined);
     }, [file]);
 
     const title = useMemo(() => file?.split(/[\\/]/).pop() || "Editor", [file]);
@@ -51,9 +66,5 @@ export default function PopoutPage() {
         );
     }
 
-    return (
-        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-popout-title={title}>
-            <FileViewer path={file} group="left" />
-        </div>
-    );
+    return <PopoutEditorViewport file={file} title={title} />;
 }
