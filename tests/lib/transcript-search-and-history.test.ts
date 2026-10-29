@@ -34,10 +34,10 @@ describe("transcript-search", () => {
         expect(searchable).toContain("src/lib/auth.ts");
 
         const sentFileMsg =
-            '<sent_file name="quarterly-report.pdf" title="Quarterly &amp; Annual Summary" type="application/pdf">data:application/pdf;base64,SECRET_BASE64_PAYLOAD</sent_file>';
+            '<sent_file name="quarterly-&gt;report.pdf" title="Quarterly -&gt; Annual &amp;gt; Summary" type="application/pdf">data:application/pdf;base64,SECRET_BASE64_PAYLOAD</sent_file>';
         const sentSearchable = extractSearchableMessageText(sentFileMsg);
-        expect(sentSearchable).toContain("Quarterly & Annual Summary");
-        expect(sentSearchable).toContain("quarterly-report.pdf");
+        expect(sentSearchable).toContain("Quarterly -> Annual &gt; Summary");
+        expect(sentSearchable).toContain("quarterly->report.pdf");
         expect(sentSearchable).not.toContain("SECRET_BASE64_PAYLOAD");
     });
 
