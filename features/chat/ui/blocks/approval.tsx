@@ -153,7 +153,7 @@ const ApprovalActionButtons = ({
     onSkip: () => void;
     onAccept: () => void;
 }) => (
-    <div data-find-skip className="flex shrink-0 items-center gap-1.5">
+    <div data-find-skip className="ml-auto flex shrink-0 items-center gap-1.5">
         <Tooltip content={skipLabel} shortcut="Esc">
             <Button type="button" variant="ghost" size="sm" disabled={isProcessing || isDisabled} onClick={onSkip}>
                 <span>{skipLabel}</span>
@@ -246,8 +246,8 @@ export const ApprovalCard = (props: {
                 isProcessing={isProcessing}
             />
             {children}
-            <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-                <div className="min-w-0">{footerLeft}</div>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-2.5 py-2">
+                {footerLeft ? <div className="min-w-0 shrink">{footerLeft}</div> : null}
                 <ApprovalActionButtons
                     skipLabel={labels.skipLabel}
                     acceptLabel={labels.acceptLabel}

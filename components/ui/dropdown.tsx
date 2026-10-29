@@ -93,13 +93,13 @@ const DropdownScrollArea = ({
     }, [update, children]);
 
     return (
-        <div className="relative min-h-0">
+        <div className="relative flex min-h-0 flex-1 flex-col">
             <DropdownScrollScrim side="up" visible={canUp && !hasStickySearch} />
             <div
                 ref={ref}
                 onScroll={update}
                 className={cn(
-                    "overflow-y-auto no-scrollbar",
+                    "min-h-0 flex-1 overflow-y-auto no-scrollbar",
                     className,
                     menuInsetClasses,
                 )}
@@ -171,13 +171,13 @@ const DropdownMenuSubContent = React.forwardRef<
             collisionPadding={collisionPadding}
             className={cn(
                 containerClasses,
-                "min-w-32 max-h-[var(--radix-dropdown-menu-sub-content-available-height,_80vh)] p-0",
+                "flex min-w-32 max-w-[calc(100vw-16px)] max-h-[min(var(--radix-dropdown-menu-sub-content-available-height,_80vh),calc(100vh-16px))] flex-col p-0",
             )}
             {...props}
         >
             <DropdownScrollArea
                 className={cn(
-                    "max-h-[var(--radix-dropdown-menu-sub-content-available-height,_80vh)]",
+                    "max-h-[min(var(--radix-dropdown-menu-sub-content-available-height,_80vh),calc(100vh-16px))]",
                     className,
                 )}
             >
@@ -204,13 +204,13 @@ const DropdownMenuContent = React.forwardRef<
             collisionPadding={collisionPadding}
             className={cn(
                 containerClasses,
-                "min-w-32 max-h-[var(--radix-dropdown-menu-content-available-height,_80vh)] p-0",
+                "flex min-w-32 max-w-[calc(100vw-16px)] max-h-[min(var(--radix-dropdown-menu-content-available-height,_80vh),calc(100vh-16px))] flex-col p-0",
             )}
             {...props}
         >
             <DropdownScrollArea
                 className={cn(
-                    "max-h-[var(--radix-dropdown-menu-content-available-height,_80vh)]",
+                    "max-h-[min(var(--radix-dropdown-menu-content-available-height,_80vh),calc(100vh-16px))]",
                     className,
                 )}
             >

@@ -32,6 +32,7 @@ const MIN_WORKSPACE = 360;
 const MIN_WORKSPACE_SOFT = 280;
 const MIN_CHAT = 380;
 const SIDEBAR_EXPANDED = 304;
+const MIN_SIDEBAR_WINDOW = 640;
 const WORKSPACE_GUTTER = 12;
 const WINDOW_MIN_HEIGHT = 500;
 const WINDOW_MIN_WIDTH = 1000;
@@ -470,6 +471,7 @@ const useAgentWorkspaceGeometry = ({
     draggingRef,
     widthRef,
     setIsResizing,
+    setSidebarFits,
     setWorkspaceFits,
     setDesiredWorkspaceWidth,
     setWorkspaceWidth,
@@ -481,6 +483,7 @@ const useAgentWorkspaceGeometry = ({
     draggingRef: React.MutableRefObject<boolean>;
     widthRef: React.MutableRefObject<number>;
     setIsResizing: React.Dispatch<React.SetStateAction<boolean>>;
+    setSidebarFits: React.Dispatch<React.SetStateAction<boolean>>;
     setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
     setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
@@ -517,8 +520,9 @@ const useAgentWorkspaceGeometry = ({
     }, [clampWorkspace, draggingRef, setDesiredWorkspaceWidth, setIsResizing, setWorkspaceWidth, widthRef]);
 
     useEffect(() => {
-        /** Clamps workspace width whenever the viewport or native window resizes. */
+        /** Clamps workspace width and sidebar fit whenever the viewport or native window resizes. */
         const apply = () => {
+            setSidebarFits(window.innerWidth >= MIN_SIDEBAR_WINDOW);
             const next = clampWorkspace(widthRef.current);
             setWorkspaceFits(next > 0);
             if (next > 0) setWorkspaceWidth((prev) => (prev === next ? prev : next));
@@ -539,7 +543,7 @@ const useAgentWorkspaceGeometry = ({
             window.removeEventListener("resize", apply);
             unlisten?.();
         };
-    }, [clampWorkspace, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
+    }, [clampWorkspace, setSidebarFits, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
 
     useEffect(() => {
         const minWidth = layoutMinWidth(sidebarOpen, workspaceOpen && Boolean(projectPath));
@@ -768,6 +772,12 @@ const isWorkspacePaneAvailable = (workspaceOpen: boolean, workspaceFits: boolean
     return workspaceFits;
 };
 
+/** Checks whether the left-hand sidebar fits and is unhidden by Zen mode. */
+const isSidebarPaneAvailable = (sidebarOpen: boolean, sidebarFits: boolean, zenMode: boolean): boolean => {
+    if (zenMode || !sidebarOpen) return false;
+    return sidebarFits;
+};
+
 /** Computes boolean pane visibility flags for `AgentLayout`. */
 const deriveAgentLayoutFlags = ({
     projectPath,
@@ -775,6 +785,7 @@ const deriveAgentLayoutFlags = ({
     workspaceOpen,
     workspaceFits,
     sidebarOpen,
+    sidebarFits,
     zenMode,
 }: {
     projectPath: string | null;
@@ -782,6 +793,7 @@ const deriveAgentLayoutFlags = ({
     workspaceOpen: boolean;
     workspaceFits: boolean;
     sidebarOpen: boolean;
+    sidebarFits: boolean;
     zenMode: boolean;
 }) => {
     const overlayOpen = overlay != null;
@@ -793,7 +805,7 @@ const deriveAgentLayoutFlags = ({
         hasProject,
         showWorkspace,
         rightExpanded: showWorkspace && available,
-        sidebarShown: sidebarOpen && !zenMode,
+        sidebarShown: isSidebarPaneAvailable(sidebarOpen, sidebarFits, zenMode),
     };
 };
 
@@ -801,12 +813,14 @@ const deriveAgentLayoutFlags = ({
 const useAgentLayoutPaneControllers = ({
     projectPath,
     sidebarOpen,
+    sidebarFits,
     setSidebarOpen,
     setSidebarFlyout,
     setWorkspaceOpen,
 }: {
     projectPath: string | null;
     sidebarOpen: boolean;
+    sidebarFits: boolean;
     setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setSidebarFlyout: React.Dispatch<React.SetStateAction<boolean>>;
     setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -823,7 +837,7 @@ const useAgentLayoutPaneControllers = ({
 
     const clampWorkspace = useCallback(
         (x: number, winW = typeof window === "undefined" ? 1280 : window.innerWidth) => {
-            const sidebar = sidebarOpen ? SIDEBAR_EXPANDED : 0;
+            const sidebar = sidebarOpen && winW >= MIN_SIDEBAR_WINDOW ? SIDEBAR_EXPANDED : 0;
             const maxByChat = Math.max(0, winW - sidebar - MIN_CHAT - WORKSPACE_GUTTER);
             const maxByRatio = Math.min(MAX_WORKSPACE_PX, Math.floor(winW * MAX_WORKSPACE_RATIO));
             const max = Math.min(maxByChat, maxByRatio);
@@ -833,6 +847,10 @@ const useAgentLayoutPaneControllers = ({
     );
 
     const toggleSidebar = useCallback(() => {
+        if (!sidebarFits) {
+            setSidebarFlyout((prev) => !prev);
+            return;
+        }
         setSidebarFlyout(false);
         setSidebarOpen((prev) => {
             const next = !prev;
@@ -843,7 +861,7 @@ const useAgentLayoutPaneControllers = ({
             }
             return next;
         });
-    }, [setSidebarFlyout, setSidebarOpen]);
+    }, [sidebarFits, setSidebarFlyout, setSidebarOpen]);
 
     const openSidebarFlyout = useCallback(() => {
         if (flyoutTimerRef.current) window.clearTimeout(flyoutTimerRef.current);
@@ -966,6 +984,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const [desiredWorkspaceWidth, setDesiredWorkspaceWidth] = useState(560);
     const [workspaceWidth, setWorkspaceWidth] = useState(560);
     const [workspaceFits, setWorkspaceFits] = useState(true);
+    const [sidebarFits, setSidebarFits] = useState(true);
     const [splash, setSplash] = useState(false);
     const [splashVisible, setSplashVisible] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -977,6 +996,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const controllers = useAgentLayoutPaneControllers({
         projectPath: project_path,
         sidebarOpen,
+        sidebarFits,
         setSidebarOpen,
         setSidebarFlyout,
         setWorkspaceOpen,
@@ -1032,6 +1052,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         draggingRef,
         widthRef,
         setIsResizing,
+        setSidebarFits,
         setWorkspaceFits,
         setDesiredWorkspaceWidth,
         setWorkspaceWidth,
@@ -1043,6 +1064,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         workspaceOpen,
         workspaceFits,
         sidebarOpen,
+        sidebarFits,
         zenMode,
     });
     const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
@@ -1096,7 +1118,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
                 projectPath={project_path}
                 overlay={overlay}
                 navSlot={navSlot}
-                sidebarOpen={sidebarOpen}
+                sidebarOpen={flags.sidebarShown}
                 isResizing={isResizing}
                 workspaceWidth={workspaceWidth}
                 onStartResize={startWorkspaceResize}

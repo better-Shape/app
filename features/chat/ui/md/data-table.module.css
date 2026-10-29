@@ -1,13 +1,22 @@
 .wrap {
-    overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     border-radius: var(--radius-xl);
     border: 1px solid var(--border-subtle);
     background: var(--surface-2, transparent);
 }
 
-.table {
+.scroller {
     width: 100%;
-    min-width: 12rem;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.table {
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     text-align: start;
 }
@@ -18,14 +27,25 @@
     font-weight: 500;
     color: var(--text-primary);
     text-align: start;
+    white-space: nowrap;
     background: var(--surface-3);
     border-bottom: 1px solid var(--border-subtle);
 }
 
 .td {
     padding: 0.5rem 0.85rem;
+    max-width: 24rem;
     color: var(--text-secondary);
     vertical-align: middle;
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.th code,
+.td code {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
 }
 
 .tr + .tr .td {

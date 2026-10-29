@@ -34,21 +34,115 @@ export function changedDiffLines(original: string, replacement: string): DiffRow
     return out;
 }
 
-/** Unified diff with a few context lines around each change. */
-export function unifiedDiffRows(
-    original: string,
-    replacement: string,
-    context = 2,
-): UnifiedDiffRow[] {
-    const changes = diffLines(original || "", replacement || "");
-    type Raw = { type: "add" | "remove" | "same"; line: string; oldNum?: number; newNum?: number };
-    const raw: Raw[] = [];
+type RawDiffLine = {
+    type: "add" | "remove" | "same";
+    line: string;
+    oldNum?: number;
+    newNum?: number;
+};
+
+/** Collects raw line indices within `context` lines of any added or removed line. */
+const collectKeptDiffIndices = (raw: readonly RawDiffLine[], context: number): Set<number> => {
+    const keep = new Set<number>();
+    for (const [idx, entry] of raw.entries()) {
+        if (entry.type === "same") continue;
+        const start = Math.max(0, idx - context);
+        const end = Math.min(raw.length - 1, idx + context);
+        for (let neighbor = start; neighbor <= end; neighbor += 1) {
+            keep.add(neighbor);
+        }
+    }
+    return keep;
+};
+
+/** Groups kept line indices into contiguous `[startIdx, endIdx]` hunks. */
+const groupContiguousHunks = (
+    total: number,
+    keep: ReadonlySet<number>,
+): Array<readonly [number, number]> => {
+    const hunks: Array<readonly [number, number]> = [];
+    let start = -1;
+    let prev = -2;
+    for (let idx = 0; idx < total; idx += 1) {
+        if (!keep.has(idx)) continue;
+        if (idx - prev > 1) {
+            if (start !== -1) hunks.push([start, prev]);
+            start = idx;
+        }
+        prev = idx;
+    }
+    if (start !== -1) hunks.push([start, prev]);
+    return hunks;
+};
+
+/** Counts old/new lines and earliest line numbers across `[startIdx, endIdx]`. */
+const measureHunkBounds = (
+    raw: readonly RawDiffLine[],
+    startIdx: number,
+    endIdx: number,
+): { oldStart: number; oldCount: number; newStart: number; newCount: number } => {
+    const slice = raw.slice(startIdx, endIdx + 1);
+    const oldLines = slice.filter((entry) => entry.oldNum !== undefined);
+    const newLines = slice.filter((entry) => entry.newNum !== undefined);
+    return {
+        oldStart: oldLines[0]?.oldNum ?? 1,
+        oldCount: oldLines.length,
+        newStart: newLines[0]?.newNum ?? 1,
+        newCount: newLines.length,
+    };
+};
+
+/** Formats a real unified diff hunk header (`@@ -oldStart,oldCount +newStart,newCount @@`). */
+const formatUnifiedHunkHeader = (
+    raw: readonly RawDiffLine[],
+    startIdx: number,
+    endIdx: number,
+): string => {
+    const bounds = measureHunkBounds(raw, startIdx, endIdx);
+    return `@@ -${bounds.oldStart},${bounds.oldCount} +${bounds.newStart},${bounds.newCount} @@`;
+};
+
+/** Maps a `RawDiffLine` into a renderable `UnifiedDiffRow`. */
+const toUnifiedContentRow = (entry: RawDiffLine): UnifiedDiffRow => {
+    if (entry.type === "same") {
+        return { type: "context", line: entry.line, oldNum: entry.oldNum, newNum: entry.newNum };
+    }
+    if (entry.type === "add") {
+        return { type: "add", line: entry.line, newNum: entry.newNum };
+    }
+    return { type: "remove", line: entry.line, oldNum: entry.oldNum };
+};
+
+/** Appends a single hunk's rows (with header when multi-hunk or offset past line 1) onto `out`. */
+const appendUnifiedHunkRows = (
+    out: UnifiedDiffRow[],
+    raw: readonly RawDiffLine[],
+    hunk: readonly [number, number],
+    emitHeader: boolean,
+): void => {
+    const [startIdx, endIdx] = hunk;
+    if (emitHeader) {
+        out.push({ type: "hunk", line: formatUnifiedHunkHeader(raw, startIdx, endIdx) });
+    }
+    for (const entry of raw.slice(startIdx, endIdx + 1)) {
+        out.push(toUnifiedContentRow(entry));
+    }
+};
+
+/** Splits a `diffLines` chunk value into lines without trailing empty split element. */
+const splitDiffPartLines = (value: string): string[] => {
+    const lines = value.split("\n");
+    if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    return lines;
+};
+
+/** Builds numbered `RawDiffLine` entries from `original` and `replacement`. */
+const buildRawDiffLines = (original: string, replacement: string): RawDiffLine[] => {
+    const raw: RawDiffLine[] = [];
     let oldNum = 1;
     let newNum = 1;
-    for (const part of changes) {
-        const lines = part.value.split("\n");
-        if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-        for (const line of lines) {
+    for (const part of diffLines(original, replacement)) {
+        for (const line of splitDiffPartLines(part.value)) {
             if (part.added) {
                 raw.push({ type: "add", line, newNum });
                 newNum += 1;
@@ -62,36 +156,23 @@ export function unifiedDiffRows(
             }
         }
     }
+    return raw;
+};
 
-    const keep = new Set<number>();
-    for (let i = 0; i < raw.length; i++) {
-        if (raw[i]!.type === "same") continue;
-        for (let j = Math.max(0, i - context); j <= Math.min(raw.length - 1, i + context); j++) {
-            keep.add(j);
-        }
-    }
+/** Unified diff with a few context lines around each change. */
+export function unifiedDiffRows(
+    original: string,
+    replacement: string,
+    context = 2,
+): UnifiedDiffRow[] {
+    const raw = buildRawDiffLines(original || "", replacement || "");
+    const keep = collectKeptDiffIndices(raw, context);
     if (keep.size === 0) return [];
-
+    const hunks = groupContiguousHunks(raw.length, keep);
+    const emitHeaders = hunks.length > 1 || (hunks[0]?.[0] ?? 0) > 0;
     const out: UnifiedDiffRow[] = [];
-    let lastKept = -2;
-    for (let i = 0; i < raw.length; i++) {
-        if (!keep.has(i)) continue;
-        if (i - lastKept > 1) {
-            const r = raw[i]!;
-            out.push({
-                type: "hunk",
-                line: `@@ -${r.oldNum ?? r.newNum ?? 0},… +${r.newNum ?? r.oldNum ?? 0},… @@`,
-            });
-        }
-        lastKept = i;
-        const r = raw[i]!;
-        if (r.type === "same") {
-            out.push({ type: "context", line: r.line, oldNum: r.oldNum, newNum: r.newNum });
-        } else if (r.type === "add") {
-            out.push({ type: "add", line: r.line, newNum: r.newNum });
-        } else {
-            out.push({ type: "remove", line: r.line, oldNum: r.oldNum });
-        }
+    for (const hunk of hunks) {
+        appendUnifiedHunkRows(out, raw, hunk, emitHeaders);
     }
     return out;
 }

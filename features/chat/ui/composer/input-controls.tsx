@@ -1513,7 +1513,7 @@ export const ComposerFooterBar = ({
   needsSignIn: boolean;
   setupGap: string | null;
 }) => (
-  <div className="flex min-w-0 items-center justify-between gap-1.5 px-1">
+  <div className="@container/footer flex min-w-0 items-center justify-between gap-1.5 px-1">
     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
       {hideModeSelect ? null : (
         <ModeMenu
@@ -1521,7 +1521,9 @@ export const ComposerFooterBar = ({
           setSelectedMode={setSelectedMode}
         />
       )}
-      <WorkspaceBranchSwitch />
+      <div className="hidden min-w-0 shrink @[300px]/footer:flex">
+        <WorkspaceBranchSwitch />
+      </div>
     </div>
 
     <div className="flex min-w-0 shrink items-center gap-0.5">

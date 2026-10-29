@@ -79,8 +79,8 @@ export function SettingSection({
 }) {
     return (
         <div id={id} className="mb-8 last:mb-0 scroll-mt-3">
-            <div className="mb-2 flex items-start justify-between gap-4 px-1">
-                <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-1">
+                <div className="min-w-[10rem] flex-1">
                     <h2 className="text-xs font-normal text-text-muted">{title}</h2>
                     {description ? <p className="mt-1 max-w-xl text-sm font-normal leading-4 text-text-muted">{description}</p> : null}
                 </div>

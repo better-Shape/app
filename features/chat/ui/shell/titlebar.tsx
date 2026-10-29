@@ -222,11 +222,12 @@ export const ChatTitlebar = memo(function ChatTitlebar({
     );
 
     return (
-        <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden pl-1">
-            <Breadcrumb className="hidden min-[440px]:flex w-auto min-w-0 max-w-full flex-1 overflow-hidden" aria-label="Project">
+        <div className="@container/titlebar flex h-full min-w-0 flex-1 items-center overflow-hidden pl-1">
+            <Breadcrumb className="hidden @[110px]/titlebar:flex w-auto min-w-0 max-w-full flex-1 overflow-hidden" aria-label="Project">
                 {repo ? (
                     <BreadcrumbItem
                         onClick={() => window.dispatchEvent(new Event("bettershape-open-project-pick"))}
+                        collapseClassName="hidden @[310px]/titlebar:flex"
                         className="min-w-0 max-w-28 shrink sm:max-w-48"
                     >
                         <span className="min-w-0 truncate">{repo}</span>
