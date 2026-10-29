@@ -810,6 +810,44 @@ const deriveAgentLayoutFlags = ({
 };
 
 /** Encapsulates sidebar, flyout, and workspace toggle callbacks plus clamping math for `AgentLayout`. */
+/** Clears any pending narrow-flyout close timer. */
+const clearFlyoutTimer = (timerRef: React.MutableRefObject<number | null>) => {
+    if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+    }
+};
+
+/** Toggles the narrow sidebar flyout while keeping the first click after hover open. */
+const toggleNarrowSidebarFlyout = (
+    timerRef: React.MutableRefObject<number | null>,
+    hoverLatchedRef: React.MutableRefObject<boolean>,
+    setSidebarFlyout: React.Dispatch<React.SetStateAction<boolean>>,
+) => {
+    clearFlyoutTimer(timerRef);
+    if (hoverLatchedRef.current) {
+        hoverLatchedRef.current = false;
+        setSidebarFlyout(true);
+        return;
+    }
+    setSidebarFlyout((prev) => !prev);
+};
+
+/** Dismisses the narrow sidebar flyout when Escape is pressed. */
+const useNarrowFlyoutEscapeDismiss = (
+    active: boolean,
+    onDismiss: () => void,
+) => {
+    useEffect(() => {
+        if (!active) return undefined;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") onDismiss();
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [active, onDismiss]);
+};
+
 const useAgentLayoutPaneControllers = ({
     projectPath,
     sidebarOpen,
@@ -826,6 +864,7 @@ const useAgentLayoutPaneControllers = ({
     setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) => {
     const flyoutTimerRef = useRef<number | null>(null);
+    const flyoutHoverLatchedRef = useRef(false);
     const persistWorkspace = useCallback((next: boolean) => {
         setWorkspaceOpen(next);
         try {
@@ -848,9 +887,10 @@ const useAgentLayoutPaneControllers = ({
 
     const toggleSidebar = useCallback(() => {
         if (!sidebarFits) {
-            setSidebarFlyout(true);
+            toggleNarrowSidebarFlyout(flyoutTimerRef, flyoutHoverLatchedRef, setSidebarFlyout);
             return;
         }
+        flyoutHoverLatchedRef.current = false;
         setSidebarFlyout(false);
         setSidebarOpen((prev) => {
             const next = !prev;
@@ -864,14 +904,23 @@ const useAgentLayoutPaneControllers = ({
     }, [sidebarFits, setSidebarFlyout, setSidebarOpen]);
 
     const openSidebarFlyout = useCallback(() => {
-        if (flyoutTimerRef.current) window.clearTimeout(flyoutTimerRef.current);
-        flyoutTimerRef.current = null;
-        setSidebarFlyout(true);
+        clearFlyoutTimer(flyoutTimerRef);
+        setSidebarFlyout((prev) => {
+            if (!prev) flyoutHoverLatchedRef.current = true;
+            return true;
+        });
     }, [setSidebarFlyout]);
 
     const closeSidebarFlyout = useCallback(() => {
-        if (flyoutTimerRef.current) window.clearTimeout(flyoutTimerRef.current);
+        flyoutHoverLatchedRef.current = false;
+        clearFlyoutTimer(flyoutTimerRef);
         flyoutTimerRef.current = window.setTimeout(() => setSidebarFlyout(false), 180);
+    }, [setSidebarFlyout]);
+
+    const dismissSidebarFlyout = useCallback(() => {
+        flyoutHoverLatchedRef.current = false;
+        clearFlyoutTimer(flyoutTimerRef);
+        setSidebarFlyout(false);
     }, [setSidebarFlyout]);
 
     const toggleWorkspace = useCallback(() => {
@@ -893,6 +942,7 @@ const useAgentLayoutPaneControllers = ({
         toggleSidebar,
         openSidebarFlyout,
         closeSidebarFlyout,
+        dismissSidebarFlyout,
         toggleWorkspace,
     };
 };
@@ -1067,6 +1117,7 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         sidebarFits,
         zenMode,
     });
+    useNarrowFlyoutEscapeDismiss(!flags.sidebarShown && sidebarFlyout, controllers.dismissSidebarFlyout);
     const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
     const isMac = usePlatform() === "macos";
     const winControls = {

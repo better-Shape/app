@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Breadcrumb, BreadcrumbItem } from "@/components/ui/breadcrumb";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
+import Status from "@/features/agent/workbench/status/ui/status";
 import { ChatDataTable, MarkdownTableShell } from "@/features/chat/ui/md/data-table";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
@@ -272,5 +273,15 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
         expect(isFileResolved("constructor", "__proto__", "b")).toBe(true);
         clearProposedEdit("__proto__");
         setCurrentConversationId(null);
+    });
+
+    it("declares @container/status on an ancestor wrapper around the @[760px]/status:grid row", () => {
+        const container = mountInTooltipProvider(<Status />);
+        const outer = container.querySelector(".status-bar");
+        const inner = outer?.firstElementChild;
+
+        expect(outer?.className).toContain("@container/status");
+        expect(outer?.className).not.toContain("@[760px]/status:grid");
+        expect(inner?.className).toContain("@[760px]/status:grid");
     });
 });

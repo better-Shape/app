@@ -246,30 +246,32 @@ const Status = () => {
     };
 
     return (
-        <div className="status-bar @container/status relative flex @[760px]/status:grid @[760px]/status:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] h-statusbar w-full select-none items-center justify-between overflow-hidden bg-background text-text-muted text-xs font-light font-sans px-1 shrink-0">
-            <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
-                <GitStatusButton />
+        <div className="status-bar @container/status h-statusbar w-full select-none overflow-hidden bg-background text-text-muted text-xs font-light font-sans shrink-0">
+            <div className="relative flex @[760px]/status:grid @[760px]/status:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] h-full w-full items-center justify-between overflow-hidden px-1">
+                <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
+                    <GitStatusButton />
 
-                {latestProgressMessage && (
-                    <ProgressIndicator messages={progressMessages} latest={latestProgressMessage} />
-                )}
-            </div>
+                    {latestProgressMessage && (
+                        <ProgressIndicator messages={progressMessages} latest={latestProgressMessage} />
+                    )}
+                </div>
 
-            <div className="hidden @[760px]/status:flex h-full min-w-0 items-center justify-center overflow-hidden px-2">
-                {statusFile && <StatusFileCrumb statusFile={statusFile} relativePath={relativePath} />}
-            </div>
+                <div className="hidden @[760px]/status:flex h-full min-w-0 items-center justify-center overflow-hidden px-2">
+                    {statusFile && <StatusFileCrumb statusFile={statusFile} relativePath={relativePath} />}
+                </div>
 
-            <div className="relative z-30 ml-auto flex items-center justify-end h-full shrink-0 min-w-0">
-                {hasEditor ? (
-                    <EditorStatusItems
-                        statusFile={statusFile as string}
-                        projectPath={project_path}
-                        languageLabel={languageLabel}
-                        typescriptVersion={typescriptVersion}
-                        onIndentation={openIndentationPicker}
-                        onEol={openEolPicker}
-                    />
-                ) : null}
+                <div className="relative z-30 ml-auto flex items-center justify-end h-full shrink-0 min-w-0">
+                    {hasEditor ? (
+                        <EditorStatusItems
+                            statusFile={statusFile as string}
+                            projectPath={project_path}
+                            languageLabel={languageLabel}
+                            typescriptVersion={typescriptVersion}
+                            onIndentation={openIndentationPicker}
+                            onEol={openEolPicker}
+                        />
+                    ) : null}
+                </div>
             </div>
         </div>
     );

@@ -31,6 +31,14 @@ test.describe("responsive workbench, popout, git, and settings resilience", () =
         const peekToggle = page.locator("[data-sidebar-peek-toggle]");
         await expect(peekToggle).toBeVisible();
 
+        const sidebarButton = peekToggle.locator("button[data-panel-toggle='sidebar']");
+        const sidebarPeek = page.locator("[data-sidebar-peek]");
+        await sidebarButton.focus();
+        await page.keyboard.press("Enter");
+        await expect(sidebarPeek).toHaveAttribute("aria-hidden", "false");
+        await page.keyboard.press("Enter");
+        await expect(sidebarPeek).toHaveAttribute("aria-hidden", "true");
+
         const workspaceToggle = page.locator("button[data-panel-toggle='workspace']");
         await expect(workspaceToggle).toBeVisible();
         const toggleBox = await workspaceToggle.boundingBox();
