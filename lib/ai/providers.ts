@@ -1966,14 +1966,34 @@ const selectOpenEndedEmbeddingWire = (
     );
   }) ?? wireIds.find((id) => providerPreset(id).models.length === 0);
 
+/** True when `pid` advertises `chosen` verbatim as its wire slug (e.g. OpenRouter `openai/...`). */
+const providerServesVerbatimEmbeddingSlug = (
+  settings: ProvidersSettings,
+  pid: ProviderId,
+  chosen: string,
+): boolean =>
+  embeddingSlugFor(pid, chosen) === chosen &&
+  providerOffersEmbeddingModel(settings, pid, chosen);
+
+/** Resolves an owner that advertises `chosen` verbatim, matches a `provider/` prefix, or offers its stripped slug. */
+const selectAdvertisedOrPrefixedWireOwner = (
+  settings: ProvidersSettings,
+  wireIds: ProviderId[],
+  chosen: string,
+): ProviderId | undefined =>
+  wireIds.find((pid) =>
+    providerServesVerbatimEmbeddingSlug(settings, pid, chosen),
+  ) ??
+  resolveExplicitPrefixedWireOwner(chosen, wireIds) ??
+  wireIds.find((pid) => providerOffersEmbeddingModel(settings, pid, chosen));
+
 /** Selects the best wire owner for `chosen` across explicit prefix, catalog, open runtime, and fallback. */
 const selectEmbeddingWireOwner = (
   settings: ProvidersSettings,
   wireIds: ProviderId[],
   chosen: string,
 ): ProviderId | undefined =>
-  resolveExplicitPrefixedWireOwner(chosen, wireIds) ??
-  wireIds.find((pid) => providerOffersEmbeddingModel(settings, pid, chosen)) ??
+  selectAdvertisedOrPrefixedWireOwner(settings, wireIds, chosen) ??
   selectOpenEndedEmbeddingWire(wireIds) ??
   selectPreferredEmbeddingProvider(wireIds);
 

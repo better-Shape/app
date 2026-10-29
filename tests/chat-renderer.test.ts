@@ -707,3 +707,16 @@ it("parses spaceless URL: entries consistently across parseWebResults and parseW
     ]);
 });
 
+it("preserves multiple blank lines inside fenced code and --- inside multiline inline code", () => {
+    const fenced = "Intro\n\n\n\n```py\ndef first():\n    pass\n\n\ndef second():\n    pass\n```\n\n\n\nOutro";
+    expect(preprocessChatMarkdown(fenced)).toBe(
+        "Intro\n\n```py\ndef first():\n    pass\n\n\ndef second():\n    pass\n```\n\nOutro",
+    );
+
+    const multilineInline = "Keep `line1\n---\n• item\nline4` intact\n\n---\n\n• real bullet";
+    expect(preprocessChatMarkdown(multilineInline)).toBe(
+        "Keep `line1\n---\n• item\nline4` intact\n\n- real bullet",
+    );
+});
+
+

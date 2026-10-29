@@ -148,6 +148,31 @@ const collectReferenceProseInlineSpans = (text: string): Array<[number, number]>
     return spans;
 };
 
+const detectTrailingLineBreak = (fenceSlice: string): string => {
+    if (fenceSlice.endsWith("\r\n")) return "\r\n";
+    if (fenceSlice.endsWith("\r")) return "\r";
+    return fenceSlice.endsWith("\n") ? "\n" : "";
+};
+
+const collapseReferenceNewlinesOutsideFences = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    let out = "";
+    let cursor = 0;
+    for (let idx = 0; idx < state.ranges.length; idx += 1) {
+        const [start, end] = state.ranges[idx];
+        const isUnclosedTail =
+            Boolean(state.fenceChar) && idx === state.ranges.length - 1;
+        const suffixBreak = isUnclosedTail
+            ? ""
+            : detectTrailingLineBreak(text.slice(start, end));
+        const fenceEnd = end - suffixBreak.length;
+        out += text.slice(cursor, start).replace(/\n{3,}/gu, "\n\n");
+        out += text.slice(start, fenceEnd);
+        cursor = fenceEnd;
+    }
+    return out + text.slice(cursor).replace(/\n{3,}/gu, "\n\n");
+};
+
 /** Behavioural reference for `stripLeakedToolMarkup`. */
 const referenceMarkup = (inputText: string): string => {
     let working = inputText;
@@ -160,12 +185,7 @@ const referenceMarkup = (inputText: string): string => {
     working = mapOutsideReferenceFences(working, (prose) =>
         mapOutsideReferenceInlineCode(prose, stripReferenceSentinelsInProse),
     );
-    return working.replace(/\n{3,}/gu, "\n\n");
-};
-
-const detectTrailingLineBreak = (fenceSlice: string): string => {
-    if (fenceSlice.endsWith("\r\n")) return "\r\n";
-    return fenceSlice.endsWith("\n") ? "\n" : "";
+    return collapseReferenceNewlinesOutsideFences(working);
 };
 
 const unquoteRef = (raw: string): string =>
@@ -262,7 +282,7 @@ const referenceCode = (inputText: string): string => {
             .replace(fnTail, "\n");
     });
     working = referenceMarkup(working);
-    return working.replace(/\n{3,}/gu, "\n\n");
+    return collapseReferenceNewlinesOutsideFences(working);
 };
 
 const cases: string[] = [

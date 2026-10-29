@@ -200,14 +200,21 @@ describe("embeddings routing", () => {
         expect(payload.embeddingModel).toBe("mistral-embed");
     });
 
-    it("keeps a shared model on the preferred provider", () => {
+    it("keeps a shared model on the preferred provider while routing gateway-prefixed options to the gateway", () => {
         // text-embedding-3-small is advertised by OpenAI and OpenRouter. With
-        // both usable the pick stays OpenAI, which is the cheaper direct route.
+        // both usable the unprefixed pick stays OpenAI, whereas OpenRouter's
+        // verbatim openai/text-embedding-3-small option routes to OpenRouter.
         const settings = withKey("openai", "sk-live");
         settings.connections.openrouter = { ...settings.connections.openrouter, apiKey: "sk-or-live" };
         settings.featureModels = withFeatureModel(settings, "embeddings", "text-embedding-3-small").featureModels;
 
         expect(embeddingsTarget(settings)).toEqual({ id: "openai", model: "text-embedding-3-small" });
+
+        const openrouterPick = withFeatureModel(settings, "embeddings", "openai/text-embedding-3-small");
+        expect(embeddingsTarget(openrouterPick)).toEqual({
+            id: "openrouter",
+            model: "openai/text-embedding-3-small",
+        });
     });
 });
 

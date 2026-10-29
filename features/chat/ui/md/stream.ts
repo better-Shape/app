@@ -858,9 +858,52 @@ const DSML_PAIRED_RE =
 const DSML_OPEN_TAIL_RE = /<\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>[\s\S]*$/giu;
 const DSML_STRAY_RE = /<\/?\uFF5C{0,2}DSML\uFF5C{1,2}[\w.]*?>/giu;
 
-/** Collapses runs of 3+ consecutive newlines down to paragraph-break pairs. */
-const collapseExcessNewlines = (text: string): string =>
-    text.includes("\n\n\n") ? text.replace(/\n{3,}/g, "\n\n") : text;
+/** Trims a single trailing CommonMark line break (`\r\n`, `\n`, or `\r`) from `rangeEnd`. */
+const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
+    const last = text.charCodeAt(rangeEnd - 1);
+    if (last === 0x0d) return rangeEnd - 1;
+    if (last !== 0x0a) return rangeEnd;
+    return text.charCodeAt(rangeEnd - 2) === 0x0d ? rangeEnd - 2 : rangeEnd - 1;
+};
+
+/** Collapses runs of 3+ consecutive newlines inside a single prose slice. */
+const collapseProseNewlineRuns = (prose: string): string =>
+    prose.includes("\n\n\n") ? prose.replace(/\n{3,}/g, "\n\n") : prose;
+
+/** Resolves the protected end index of a fence range (preserving open fences through EOF). */
+const resolveProtectedFenceEnd = (
+    text: string,
+    end: number,
+    isUnclosedTail: boolean,
+): number => (isUnclosedTail ? end : trimFenceRangeBreakEnd(text, end));
+
+/** Collapses runs of 3+ newlines in prose gaps while keeping closed and open fences intact. */
+const collapseNewlinesOutsideFences = (text: string): string => {
+    const state = scanMarkdownCodeFences(text, 0);
+    let out = "";
+    let cursor = 0;
+    for (let idx = 0; idx < state.ranges.length; idx += 1) {
+        const [start, end] = state.ranges[idx];
+        const isUnclosedTail =
+            Boolean(state.fenceChar) && idx === state.ranges.length - 1;
+        const fenceEnd = resolveProtectedFenceEnd(text, end, isUnclosedTail);
+        out += collapseProseNewlineRuns(text.slice(cursor, start));
+        out += text.slice(start, fenceEnd);
+        cursor = fenceEnd;
+    }
+    return out + collapseProseNewlineRuns(text.slice(cursor));
+};
+
+/** Collapses runs of 3+ consecutive newlines in prose while preserving fenced code blocks verbatim. */
+const collapseExcessNewlines = (
+    text: string,
+    includeFencedCode = false,
+): string => {
+    if (!text.includes("\n\n\n")) return text;
+    return includeFencedCode
+        ? text.replace(/\n{3,}/g, "\n\n")
+        : collapseNewlinesOutsideFences(text);
+};
 
 /** Checks whether `text` contains any sentinel token that could represent leaked tool markup. */
 const hasAnyToolMarkupSentinel = (text: string): boolean =>
@@ -1246,10 +1289,10 @@ export const stripLeakedToolMarkup = (
     text: string,
     options?: { includeFencedCode?: boolean },
 ): string => {
-    if (!hasAnyToolMarkupSentinel(text)) {
-        return collapseExcessNewlines(text);
-    }
     const includeFencedCode = Boolean(options?.includeFencedCode);
+    if (!hasAnyToolMarkupSentinel(text)) {
+        return collapseExcessNewlines(text, includeFencedCode);
+    }
     let out = text.includes("<")
         ? stripAcrossFenceWrappers(text, !includeFencedCode)
         : text;
@@ -1258,21 +1301,13 @@ export const stripLeakedToolMarkup = (
         : mapOutsideCodeFences(out, (prose) =>
               mapOutsideInlineCodeSpans(prose, sanitizeProseToolMarkup),
           );
-    return collapseExcessNewlines(out);
+    return collapseExcessNewlines(out, includeFencedCode);
 };
 
 const BARE_TOOL_CODE_TRIGGER_RE =
     /print\s*\(|render_design_previews|concepts\s*=/u;
 const LEAKED_FENCE_HEAD_RE = /^(?:`{3,}|~{3,})[\w-]*[ \t\f\v]*$/u;
 const BARE_TOOL_CODE_OPEN_RE = /\{[ \t\r\n]*"tool_code"[ \t\r\n]*:/gu;
-
-/** Trims a single trailing CommonMark line break (`\r\n`, `\n`, or `\r`) from `rangeEnd`. */
-const trimFenceRangeBreakEnd = (text: string, rangeEnd: number): number => {
-    const last = text.charCodeAt(rangeEnd - 1);
-    if (last === 0x0d) return rangeEnd - 1;
-    if (last !== 0x0a) return rangeEnd;
-    return text.charCodeAt(rangeEnd - 2) === 0x0d ? rangeEnd - 2 : rangeEnd - 1;
-};
 
 /** Resolves `{ body, dropEnd }` for a closed CommonMark fence `[rangeStart, rangeEnd)`. */
 const resolveClosedFenceCandidate = (
@@ -1416,13 +1451,15 @@ export const stripLeakedToolCode = (
     text: string,
     options?: { includeFencedCode?: boolean },
 ): string => {
+    const includeFencedCode = Boolean(options?.includeFencedCode);
     if (!hasToolCodeMarker(text) && !hasAnyToolMarkupSentinel(text)) {
-        return collapseExcessNewlines(text);
+        return collapseExcessNewlines(text, includeFencedCode);
     }
     const withoutFences = stripLeakedFencedToolBlocks(text);
     const withoutInvocations = stripBareToolInvocations(withoutFences);
     return collapseExcessNewlines(
         stripLeakedToolMarkup(withoutInvocations, options),
+        includeFencedCode,
     );
 };
 
@@ -2371,16 +2408,27 @@ const normalizeSingleProseLine = (line: string): string => {
     return afterWs > 1 ? `- ${line.slice(afterWs)}` : line;
 };
 
-/** Normalizes Unicode bullet glyphs and standalone horizontal rules across LF, CRLF, and CR lines. */
+/** Normalizes Unicode bullet glyphs and standalone horizontal rules outside inline code spans. */
 const normalizeProseBulletsAndRules = (prose: string): string => {
-    if (!prose) return prose;
+    const codeRanges = prose.includes("`")
+        ? collectInlineCodeRanges(prose)
+        : [];
+    let rangeIndex = 0;
     let out = "";
     let cursor = 0;
     while (cursor < prose.length) {
         const { lineText, afterLine } = readLineSliceAt(prose, cursor);
         const lineEnd = cursor + lineText.length;
-        out +=
-            normalizeSingleProseLine(lineText) + prose.slice(lineEnd, afterLine);
+        const rangeCheck = advanceInlineCodeRange(
+            codeRanges,
+            rangeIndex,
+            cursor,
+        );
+        rangeIndex = rangeCheck.nextRangeIndex;
+        const normalizedLine = rangeCheck.insideCode
+            ? lineText
+            : normalizeSingleProseLine(lineText);
+        out += normalizedLine + prose.slice(lineEnd, afterLine);
         cursor = afterLine;
     }
     return out;
