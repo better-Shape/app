@@ -16,6 +16,7 @@ import {
     slugifyTranscriptFilename,
 } from "@/lib/chat/export-markdown";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
+import { canonicalProviderId, translateModelId } from "@/lib/ai/providers";
 
 describe("transcript-search", () => {
     it("strips internal agent XML tags while keeping prose, code, and edited file paths searchable", () => {
@@ -78,12 +79,20 @@ describe("transcript-search", () => {
         ].join("\n");
         const crossFenceSearchable = extractSearchableMessageText(crossFenceHidden);
         expect(crossFenceSearchable).toContain("Working on styles.");
+        expect(crossFenceSearchable).toContain("guide.md");
         expect(crossFenceSearchable).toContain("Retrying the edit.");
         expect(crossFenceSearchable).toContain("visible_fenced_tool_sample");
         expect(crossFenceSearchable).not.toContain("leaked_cross_fence_selector");
         expect(crossFenceSearchable).not.toContain("nested_inner_payload");
         expect(crossFenceSearchable).not.toContain("trailing_hidden_tool_note");
         expect(crossFenceSearchable).not.toContain("hidden_attachment_symbol");
+        expect(
+            extractSearchableMessageText(
+                '<attached_image name="photo.png" type="image/png">data:image/png;base64,aGVsbG8=</attached_image>\nCaption',
+            ),
+        ).not.toContain("photo.png");
+        expect(canonicalProviderId("constructor")).toBeNull();
+        expect(translateModelId("constructor/gpt-4")).toBe("constructor/gpt-4");
     });
 
     it("indexes multiple case-insensitive matches across user and assistant messages", () => {

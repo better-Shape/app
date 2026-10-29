@@ -191,6 +191,9 @@ const referenceMarkup = (inputText: string): string => {
 const unquoteRef = (raw: string): string =>
     raw.replace(/^[ \t>]*/gmu, "");
 
+const unquoteRef = (raw: string): string =>
+    raw.replace(/^[ \t>]*/gmu, "");
+
 const filterClosedReferenceFence = (
     fenceSlice: string,
     nlPos: number,

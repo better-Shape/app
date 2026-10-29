@@ -466,7 +466,6 @@ const useAgentWorkspaceGeometry = ({
     projectPath,
     sidebarOpen,
     workspaceOpen,
-    desiredWorkspaceWidth,
     clampWorkspace,
     draggingRef,
     widthRef,
@@ -478,7 +477,6 @@ const useAgentWorkspaceGeometry = ({
     projectPath: string | null;
     sidebarOpen: boolean;
     workspaceOpen: boolean;
-    desiredWorkspaceWidth: number;
     clampWorkspace: (x: number, winW?: number) => number;
     draggingRef: React.MutableRefObject<boolean>;
     widthRef: React.MutableRefObject<number>;
@@ -541,7 +539,7 @@ const useAgentWorkspaceGeometry = ({
             window.removeEventListener("resize", apply);
             unlisten?.();
         };
-    }, [clampWorkspace, desiredWorkspaceWidth, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
+    }, [clampWorkspace, setWorkspaceFits, setWorkspaceWidth, sidebarOpen, widthRef]);
 
     useEffect(() => {
         const minWidth = layoutMinWidth(sidebarOpen, workspaceOpen && Boolean(projectPath));
@@ -705,17 +703,42 @@ const AgentWorkspaceDock = ({
     );
 };
 
-/** Hydrates saved layout preferences once on the client without hydration mismatch. */
-const useHydratedAgentLayoutPrefs = ({
+/** Applies a hydrated workspace width to both desired width and viewport-clamped active width. */
+const applyHydratedWorkspaceWidth = ({
+    storedWidth,
+    clampWorkspace,
     setDesiredWorkspaceWidth,
     setWorkspaceWidth,
+    setWorkspaceFits,
+}: {
+    storedWidth: number | undefined;
+    clampWorkspace: (x: number, winW?: number) => number;
+    setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+    setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+    setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+    if (storedWidth === undefined) return;
+    setDesiredWorkspaceWidth(storedWidth);
+    const clamped = clampWorkspace(storedWidth);
+    setWorkspaceFits(clamped > 0);
+    if (clamped > 0) setWorkspaceWidth(clamped);
+};
+
+/** Hydrates saved layout preferences once on the client without hydration mismatch. */
+const useHydratedAgentLayoutPrefs = ({
+    clampWorkspace,
+    setDesiredWorkspaceWidth,
+    setWorkspaceWidth,
+    setWorkspaceFits,
     setWorkspaceOpen,
     setSidebarOpen,
     setZenMode,
     setSplash,
 }: {
+    clampWorkspace: (x: number, winW?: number) => number;
     setDesiredWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
     setWorkspaceWidth: React.Dispatch<React.SetStateAction<number>>;
+    setWorkspaceFits: React.Dispatch<React.SetStateAction<boolean>>;
     setWorkspaceOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
     setZenMode: React.Dispatch<React.SetStateAction<boolean>>;
@@ -726,10 +749,13 @@ const useHydratedAgentLayoutPrefs = ({
     if (!hydrated || restoredPreferences) return;
     setRestoredPreferences(true);
     const prefs = readStoredAgentLayoutPrefs();
-    if (prefs.workspaceWidth !== undefined) {
-        setDesiredWorkspaceWidth(prefs.workspaceWidth);
-        setWorkspaceWidth(prefs.workspaceWidth);
-    }
+    applyHydratedWorkspaceWidth({
+        storedWidth: prefs.workspaceWidth,
+        clampWorkspace,
+        setDesiredWorkspaceWidth,
+        setWorkspaceWidth,
+        setWorkspaceFits,
+    });
     setWorkspaceOpen(prefs.workspaceOpen);
     setSidebarOpen(prefs.sidebarOpen);
     setZenMode(prefs.zenMode);
@@ -948,9 +974,19 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     const widthRef = useRef(560);
     useLayoutEffect(() => { widthRef.current = desiredWorkspaceWidth; }, [desiredWorkspaceWidth]);
 
+    const controllers = useAgentLayoutPaneControllers({
+        projectPath: project_path,
+        sidebarOpen,
+        setSidebarOpen,
+        setSidebarFlyout,
+        setWorkspaceOpen,
+    });
+
     useHydratedAgentLayoutPrefs({
+        clampWorkspace: controllers.clampWorkspace,
         setDesiredWorkspaceWidth,
         setWorkspaceWidth,
+        setWorkspaceFits,
         setWorkspaceOpen,
         setSidebarOpen,
         setZenMode,
@@ -968,13 +1004,6 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
     useAgentSplashLifecycle(splash, setSplash, setSplashVisible);
 
     const navSlot = useElementById(AGENT_SIDEBAR_NAV_SLOT, Boolean(overlay));
-    const controllers = useAgentLayoutPaneControllers({
-        projectPath: project_path,
-        sidebarOpen,
-        setSidebarOpen,
-        setSidebarFlyout,
-        setWorkspaceOpen,
-    });
 
     useAgentOverlaySync({
         activeFile: active_file,
@@ -999,7 +1028,6 @@ export const AgentLayout = ({ children }: { children: React.ReactNode }) => {
         projectPath: project_path,
         sidebarOpen,
         workspaceOpen,
-        desiredWorkspaceWidth,
         clampWorkspace: controllers.clampWorkspace,
         draggingRef,
         widthRef,

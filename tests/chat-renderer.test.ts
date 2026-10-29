@@ -595,6 +595,49 @@ describe("preprocessChatMarkdown", () => {
             },
         ]);
     });
+
+    it("preserves exact closing offsets on Turkish İ inside structural tags and ignores inline-code <terminal_command> before openui-lang", () => {
+        const turkishChunks = parseMessageContent(
+            '<think>İstanbul</think>Next<edit file="src/tr.ts"><original>İstanbul</original><replacement>İzmir</replacement></edit>Tail',
+        );
+        expect(turkishChunks).toEqual([
+            {
+                type: "think",
+                content: "İstanbul",
+                isGenerating: false,
+                sourceStart: 0,
+            },
+            { type: "text", content: "Next", sourceStart: 23 },
+            {
+                type: "edit",
+                file: "src/tr.ts",
+                original: "İstanbul",
+                replacement: "İzmir",
+                isGenerating: false,
+                sourceStart: 27,
+            },
+            { type: "text", content: "Tail", sourceStart: 118 },
+        ]);
+
+        const openuiWithInlineTag = parseMessageContent(
+            "Use `<terminal_command>` for shell steps.\n\n```openui-lang\nroot = Card([])\n```",
+        );
+        expect(
+            openuiWithInlineTag.some((chunk) => chunk.type === "openui"),
+        ).toBe(true);
+
+        expect(
+            preprocessChatMarkdown(
+                "Intro\n  _execute\n  tool_name: read_file\n  path: src/a.ts\nAfter",
+            ),
+        ).not.toContain("_execute");
+        expect(
+            preprocessChatMarkdown(
+                '> ```python\n> print(default_api.read_file("a.ts"))\n> ```\nVisible summary',
+            ),
+        ).not.toContain("default_api");
+        expect(preprocessChatMarkdown("• one\r• two")).toBe("- one\r- two");
+    });
 });
 
 it("renders the submitted image body when a filename contains a tag delimiter", async () => {
