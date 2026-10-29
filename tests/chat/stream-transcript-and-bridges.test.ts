@@ -732,5 +732,47 @@ describe("chat stream sanitization, transcript utilities, and workbench bridges"
         unregister();
         window.removeEventListener("bettershape-center-view", onCenter);
         expect(centerViews).toContain("chat");
+
+        const host = document.createElement("div");
+        const msgEl = document.createElement("div");
+        msgEl.setAttribute("data-chat-message-index", "0");
+        const rows = Array.from({ length: 504 }, (_, idx) => `row-${idx} needle`);
+        const domParagraph = document.createElement("p");
+        domParagraph.textContent = `Jump ${rows.join(" | ")}`;
+        const trailingChip = document.createElement("button");
+        trailingChip.setAttribute("data-chat-find-text", "");
+        trailingChip.textContent = "chip needle";
+        msgEl.append(domParagraph, trailingChip);
+        host.appendChild(msgEl);
+        document.body.appendChild(host);
+
+        const sourceText = `[Jump](https://needle.dev/docs) ${rows.join(" | ")}`;
+        const aligned = syncChatDomHighlights(host, "needle", {
+            targetMessageIndex: 0,
+            targetOccurrenceInMessage: 500,
+            targetMessageSearchText: sourceText,
+        });
+        expect(aligned.activeRange).not.toBeNull();
+        const activeStart = aligned.activeRange?.startOffset ?? 0;
+        const domSliceAroundActive = (domParagraph.firstChild?.textContent ?? "").slice(
+            Math.max(0, activeStart - 10),
+            activeStart + 6,
+        );
+        expect(domSliceAroundActive).toContain("row-499 needle");
+
+        msgEl.replaceChildren();
+        const singleLink = document.createElement("a");
+        singleLink.href = "https://very-long-domain-for-context-window-test.example.com/guide";
+        singleLink.textContent = "hello";
+        msgEl.appendChild(singleLink);
+        const singleAligned = syncChatDomHighlights(host, "hello", {
+            targetMessageIndex: 0,
+            targetOccurrenceInMessage: 0,
+            targetMessageSearchText:
+                "[hello](https://very-long-domain-for-context-window-test.example.com/guide)",
+        });
+        expect(singleAligned.activeRange?.toString()).toBe("hello");
+        host.remove();
     });
 });
+

@@ -33,6 +33,22 @@ describe("transcript-search", () => {
         expect(searchable).toContain("refreshSession");
         expect(searchable).toContain("src/lib/auth.ts");
 
+        const turkishRaw = [
+            "İstanbul İETT İnceleme:",
+            "<TOOL_RESULT>hidden_payload_alpha</TOOL_RESULT>",
+            '<SENT_FILE name="ozet.pdf" title="İzmir Özeti">base64_blob_xyz</SENT_FILE>',
+            "```xml\r<thinking>cr_fenced_example</thinking>\r```",
+            "Final visible conclusion.",
+        ].join("\n");
+        const turkishSearchable = extractSearchableMessageText(turkishRaw);
+        expect(turkishSearchable).toContain("İstanbul İETT İnceleme:");
+        expect(turkishSearchable).not.toContain("hidden_payload_alpha");
+        expect(turkishSearchable).not.toContain("base64_blob_xyz");
+        expect(turkishSearchable).toContain("İzmir Özeti ozet.pdf");
+        expect(turkishSearchable).toContain("cr_fenced_example");
+        expect(turkishSearchable).toContain("Final visible conclusion.");
+
+
         const sentFileMsg =
             '<sent_file name="quarterly-&gt;report.pdf" title="Quarterly -&gt; Annual &amp;gt; Summary" type="application/pdf">data:application/pdf;base64,SECRET_BASE64_PAYLOAD</sent_file>';
         const sentSearchable = extractSearchableMessageText(sentFileMsg);

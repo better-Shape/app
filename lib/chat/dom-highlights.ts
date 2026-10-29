@@ -395,6 +395,7 @@ const buildQueryMatcher = (trimmed: string, caseSensitive: boolean): RegExp => {
 };
 
 const CONTEXT_WINDOW_CHARS = 32;
+const MAX_TARGET_ALIGNMENT_MATCHES = 2_048;
 
 type TextSpan = { start: number; end: number };
 type RunRangeHit = { range: Range; start: number; end: number };
@@ -446,9 +447,27 @@ const getHitRangeAtIndex = (
 ): Range | null =>
     index >= 0 && index < hits.length ? hits[index].range : null;
 
-/** Strips inline Markdown emphasis/code delimiters and collapses whitespace for context alignment. */
+/** Strips `](url)` or window-truncated `](url...` Markdown link targets from `value`. */
+const stripMarkdownLinkTargets = (value: string): string => {
+    let idx = value.indexOf("](");
+    if (idx === -1) return value;
+    const out: string[] = [];
+    let cursor = 0;
+    while (idx !== -1) {
+        out.push(value.slice(cursor, idx));
+        const closeParen = value.indexOf(")", idx + 2);
+        cursor = closeParen === -1 ? value.length : closeParen + 1;
+        idx = value.indexOf("](", cursor);
+    }
+    out.push(value.slice(cursor));
+    return out.join("");
+};
+
+/** Strips inline Markdown link targets/delimiters and collapses whitespace for context alignment. */
 const collapseContextSpaces = (value: string): string =>
-    value.replace(/[*_`~]+/gu, "").replace(/\s+/gu, " ");
+    stripMarkdownLinkTargets(value)
+        .replace(/[*_`~[\]]+/gu, "")
+        .replace(/\s+/gu, " ");
 
 /** Extracts normalized `(before, after)` windows around `span` in `text`. */
 const extractSpanContext = (text: string, span: TextSpan): SpanContext => ({
@@ -812,6 +831,14 @@ const canReuseAlignmentCache = (
     cachedOccurrenceAlignment.matcherKey === matcherKey &&
     hasMatchingCachedTexts(cachedOccurrenceAlignment, runText, sourceText, domCount);
 
+/** Checks whether `runText` and `sourceText` are identical with matching span counts. */
+const canUseIdentityOccurrenceMap = (
+    runText: string,
+    sourceText: string,
+    domLen: number,
+    srcLen: number,
+): boolean => domLen === srcLen && runText === sourceText;
+
 /** Returns a memoized `srcToDom` occurrence lookup table for `(messageIndex, matcher)`. */
 const resolveSourceToDomMap = (
     messageIndex: number,
@@ -833,11 +860,19 @@ const resolveSourceToDomMap = (
     ) {
         return cachedOccurrenceAlignment.srcToDom;
     }
-    const srcSpans = collectNonEmptyMatchSpans(sourceText, matcher, 500);
-    const srcToDom =
-        runHits.length === srcSpans.length
-            ? buildIdentityOccurrenceMap(srcSpans.length)
-            : computeSourceToDomMap(runText, runHits, sourceText, srcSpans);
+    const srcSpans = collectNonEmptyMatchSpans(
+        sourceText,
+        matcher,
+        MAX_TARGET_ALIGNMENT_MATCHES,
+    );
+    const srcToDom = canUseIdentityOccurrenceMap(
+        runText,
+        sourceText,
+        runHits.length,
+        srcSpans.length,
+    )
+        ? buildIdentityOccurrenceMap(srcSpans.length)
+        : computeSourceToDomMap(runText, runHits, sourceText, srcSpans);
     cachedOccurrenceAlignment = {
         messageIndex,
         matcherKey,
@@ -909,7 +944,9 @@ const collectMatchesInSingleRun = (
     const isTargetRun = options.targetMessageIndex === run.messageIndex;
     const remaining = maxRanges - collected.length;
     if (remaining <= 0 && !isTargetRun) return null;
-    const scanBudget = isTargetRun ? Math.max(remaining, 500) : remaining;
+    const scanBudget = isTargetRun
+        ? Math.max(remaining, MAX_TARGET_ALIGNMENT_MATCHES)
+        : remaining;
     const runHits = collectRunRangeHits(run, matcher, scanBudget);
     appendCappedRunHits(collected, runHits, run.messageIndex, remaining);
     return resolveTargetRangeInRun(run, runHits, matcher, options);
