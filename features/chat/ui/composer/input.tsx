@@ -1630,6 +1630,7 @@ const ComposerVesselCard = ({
       />
       <HiddenComposerFileInputs onChange={onFileInputChange} />
       <div
+        data-composer-row
         className={cn(
           "relative flex w-full px-0.5",
           isExpandedLayout

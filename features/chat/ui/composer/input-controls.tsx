@@ -717,7 +717,10 @@ export const ComposerPlusMenu = ({
   appendToken: (token: string) => void;
   stacked?: boolean;
 }) => (
-  <div className={cn("flex shrink-0 items-center self-end", stacked && "order-2")}>
+  <div
+    data-composer-left-action
+    className={cn("flex shrink-0 items-center self-end", stacked && "order-2")}
+  >
     <DropdownMenu
       open={open}
       onOpenChange={(nextOpen) => {
@@ -1079,6 +1082,7 @@ export const ComposerRightActions = ({
   const actionLabel = resolveSendButtonLabel(canStop, isLoading);
   return (
     <div
+      data-composer-right-actions
       className={cn(
         "relative flex shrink-0 flex-col items-end justify-end",
         stacked ? "order-3 ml-auto" : "self-stretch",
