@@ -177,7 +177,7 @@ describe("PendingEditsPanel", () => {
         }
     });
 
-    it("renders explicit + and - non-color diff markers in ChatEditDiff", () => {
+    it("renders explicit + and - non-color diff markers and screen-reader labels in ChatEditDiff", () => {
         const diff = mount(
             createElement(ChatEditDiff, {
                 original: "const oldVal = 1;\n",
@@ -190,6 +190,11 @@ describe("PendingEditsPanel", () => {
             expect(text).toContain("+");
             expect(text).toContain("oldVal");
             expect(text).toContain("newVal");
+            const srLabels = Array.from(
+                diff.host.querySelectorAll(".sr-only"),
+                (node) => node.textContent?.trim(),
+            );
+            expect(srLabels).toEqual(["Removed line", "Added line"]);
         } finally {
             unmount(diff.root, diff.host);
         }
