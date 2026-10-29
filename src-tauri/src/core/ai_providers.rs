@@ -112,6 +112,12 @@ pub struct AiProviderConfig {
     /// Model used for `auto` (titles, captions, subagents, quick decisions).
     #[serde(default)]
     pub default_model: String,
+    /// Optional model override for agentic tool-use turns (`agent` feature slot).
+    #[serde(default)]
+    pub agent_model: String,
+    /// Optional model override for generated commit messages (`commits` feature slot).
+    #[serde(default)]
+    pub commit_model: String,
     /// Embedding model for the semantic codebase index (OpenAI wire only).
     #[serde(default)]
     pub embedding_model: String,
@@ -178,6 +184,22 @@ pub fn default_model() -> String {
     get_config()
         .map(|c| c.default_model.trim().to_string())
         .unwrap_or_default()
+}
+
+/// Model id assigned to the `agent` feature slot, falling back to [`default_model`].
+pub fn agent_model() -> String {
+    get_config()
+        .map(|c| c.agent_model.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(default_model)
+}
+
+/// Model id assigned to the `commits` feature slot, falling back to [`default_model`].
+pub fn commit_model() -> String {
+    get_config()
+        .map(|c| c.commit_model.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(default_model)
 }
 
 /// Ids of the providers the app can route to right now, in configuration order.

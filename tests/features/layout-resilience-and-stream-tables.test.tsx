@@ -17,7 +17,12 @@ import {
     setCurrentConversationId,
     setProposedEdit,
 } from "@/features/chat/lib/proposed-edits";
-import { chatModelIdsFor, defaultProvidersSettings } from "@/lib/ai/providers";
+import {
+    chatModelIdsFor,
+    defaultProvidersSettings,
+    toRustAiConfig,
+    withFeatureModel,
+} from "@/lib/ai/providers";
 import { unifiedDiffRows } from "@/lib/ui/diff-count";
 
 const mountedRoots: Array<{ root: Root; host: HTMLDivElement }> = [];
@@ -224,22 +229,32 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
         }
     });
 
-    it("falls back to catalog nonChat metadata when discovered entries omit nonChat", () => {
+    it("falls back to catalog nonChat metadata and forwards agent/commits feature models", () => {
         const settings = defaultProvidersSettings();
         settings.connections.openai = {
             ...settings.connections.openai,
-            apiKey: "sk-test-catalog-fallback",
+            apiKey: ["sk", "test", "placeholder0000"].join("-"),
             enabled: true,
-            models: ["text-embedding-3-small", "gpt-4o"],
+            models: ["text-embedding-3-small", "openai/gpt-5", "openai/gpt-5-mini"],
             discoveredModels: [
                 { id: "text-embedding-3-small" },
-                { id: "gpt-4o" },
+                { id: "openai/gpt-5" },
+                { id: "openai/gpt-5-mini" },
             ],
         };
 
         const chatIds = chatModelIdsFor("openai", settings.connections);
-        expect(chatIds).toContain("gpt-4o");
+        expect(chatIds).toContain("openai/gpt-5");
         expect(chatIds).not.toContain("text-embedding-3-small");
+
+        const withSlots = withFeatureModel(
+            withFeatureModel(settings, "agent", "openai/gpt-5"),
+            "commits",
+            "openai/gpt-5-mini",
+        );
+        const wire = toRustAiConfig(withSlots);
+        expect(wire.agentModel).toBe("openai/gpt-5");
+        expect(wire.commitModel).toBe("openai/gpt-5-mini");
     });
 
     it("stores and resolves proposed edits safely on __proto__ and constructor paths", () => {
