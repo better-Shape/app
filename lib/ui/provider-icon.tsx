@@ -184,8 +184,31 @@ const providerFromModelId = (modelId: string): Provider => {
     return lookupBrandPrefix(prefix) ?? "bettershape";
 };
 
-function BrandIcon({ icon, size }: { icon: IconModule; size: number }) {
-    const html = icon.variants.dark || icon.variants.default || icon.svg;
+/** Rewrites inline SVG `id` defs and `#id` references with `prefix` so co-mounted brand icons never collide. */
+const scopeSvgIds = (svg: string, prefix: string): string => {
+    if (!svg.includes('id="')) return svg;
+    return svg
+        .replace(/\bid="([A-Za-z0-9_-]+)"/g, `id="${prefix}-$1"`)
+        .replace(/url\(#([A-Za-z0-9_-]+)\)/g, `url(#${prefix}-$1)`)
+        .replace(/\b(xlink:)?href="#([A-Za-z0-9_-]+)"/g, `$1href="#${prefix}-$2"`);
+};
+
+/** Normalizes upstream `thesvg` artboard quirks (decorative `<title>`, missing root fill, or clipped viewBox). */
+const normalizeBrandSvg = (brand: BrandKey, rawSvg: string, idPrefix: string): string => {
+    let svg = rawSvg.replace(/<title>[^<]*<\/title>/gi, "");
+    if (brand === "zenmux") {
+        svg = svg.replace('viewBox="0 0 24 24"', 'viewBox="16 8 128 148"');
+    }
+    if (!svg.includes("fill=") && !svg.includes("fill:")) {
+        svg = svg.replace("<svg ", '<svg fill="currentColor" ');
+    }
+    return scopeSvgIds(svg, idPrefix);
+};
+
+function BrandIcon({ brand, icon, size }: { brand: BrandKey; icon: IconModule; size: number }) {
+    const reactId = React.useId().replace(/[^A-Za-z0-9_-]/g, "");
+    const raw = icon.variants.dark || icon.variants.default || icon.svg;
+    const html = normalizeBrandSvg(brand, raw, `p-${brand}-${reactId}`);
     return (
         <span
             aria-hidden
@@ -209,8 +232,12 @@ export const BetterShapeAutoIcon = ({
     return <BetterShapeLogo size={size} marquee={marquee} className={className} />;
 };
 
+/** Checks whether `modelId` maps to a dedicated vendor brand icon rather than the BetterShape fallback. */
+export const hasProviderBrandIcon = (modelId: string): boolean =>
+    providerFromModelId(modelId) !== "bettershape";
+
 export function providerIcon(modelId: string, size = 16): React.ReactNode {
     const provider = providerFromModelId(modelId);
     if (provider === "bettershape") return <BetterShapeAutoIcon size={size} />;
-    return <BrandIcon icon={BRANDS[provider]} size={size} />;
+    return <BrandIcon brand={provider} icon={BRANDS[provider]} size={size} />;
 }

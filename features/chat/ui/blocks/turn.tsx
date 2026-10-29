@@ -581,7 +581,7 @@ function EditApprovalRow({ block }: { block: Chunk }) {
         : null;
     const status = terminalStatus ?? localStatus ?? block.commandStatus ?? "pending";
     if (status === "approved") {
-        return <ActionLine action="Approved" detail={`${fileName(file)} · Applying…`} />;
+        return <ActionLine action="Approved" detail={`${fileName(file)} · Applying...`} />;
     }
     if (status === "failed") {
         return <ActionLine action="Edit failed" detail={fileName(file)} />;
@@ -655,10 +655,12 @@ function EditApprovalRow({ block }: { block: Chunk }) {
             acceptLabel="Accept"
         >
             <Collapse id={diffId} open={diffOpen}>
-                <WorkflowEditPreview
-                    original={block.original || ""}
-                    replacement={block.replacement || ""}
-                />
+                <div className="px-2.5 pb-1.5">
+                    <WorkflowEditPreview
+                        original={block.original || ""}
+                        replacement={block.replacement || ""}
+                    />
+                </div>
             </Collapse>
         </ApprovalCard>
     );

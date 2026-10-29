@@ -1,6 +1,5 @@
 "use client";
 
-import { ArrowEnter20Filled } from "@fluentui/react-icons/headless/svg/arrow-enter";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
@@ -167,10 +166,8 @@ const ApprovalActionButtons = ({
                 size="sm"
                 disabled={isProcessing || isDisabled}
                 onClick={onAccept}
-                className="gap-1.5"
             >
                 <span>{acceptLabel}</span>
-                <Icon icon={ArrowEnter20Filled} />
             </Button>
         </Tooltip>
     </div>

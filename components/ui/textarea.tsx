@@ -39,7 +39,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
                 }}
                 onInput={handleInput}
                 className={cn(
-                    "w-full squircle-2xl border border-border-secondary bg-input-bg px-sm py-xs text-sm text-text-primary",
+                    "w-full squircle-2xl border border-border-secondary bg-input-bg px-2.5 py-1.5 text-sm text-text-primary",
                     "placeholder:text-input-placeholder outline-none ring-0 focus:ring-0 focus:border-border-focus",
                     "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                     "resize-none overflow-hidden block custom-scrollbar",

@@ -77,7 +77,11 @@ export function KeyInput({
                     <input
                         type={visible ? "text" : "password"}
                         value={value}
-                        placeholder={savedInVault && !value ? "•••••••• key saved in keychain" : placeholder}
+                        placeholder={
+                            savedInVault && !value
+                                ? "•••••••• key saved in keychain"
+                                : placeholder.replaceAll("\u2026", "...")
+                        }
                         disabled={disabled}
                         spellCheck={false}
                         autoComplete="off"
@@ -86,7 +90,7 @@ export function KeyInput({
                         className={cn(inputClass, savedInVault && !value && "pr-16 text-text-muted")}
                     />
                     {savedInVault && !value ? (
-                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-sm bg-success/15 px-1 py-px text-[10px] font-medium tracking-wide text-success">
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-sm bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success">
                             Saved
                         </span>
                     ) : null}

@@ -223,7 +223,7 @@ const pickDefined = <T>(primary: T | undefined, secondary: T | undefined, fallba
 
 /** Resolves activity text, phase, and parsed file reads for an upserted subagent card. */
 const resolveSubagentActivity = (next: SubagentUpsertInput, existing: SubagentCard | undefined) => {
-    const activity = pickDefined(next.activity || undefined, existing?.activity || undefined, "Working…") ?? "Working…";
+    const activity = pickDefined(next.activity || undefined, existing?.activity || undefined, "Working...") ?? "Working...";
     const priorPhase = pickDefined(next.phase, existing?.phase);
     const priorReads = pickDefined(next.reads, existing?.reads);
     return {

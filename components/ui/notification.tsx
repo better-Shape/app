@@ -77,7 +77,7 @@ const liveMode = (type: Notification["type"]): "assertive" | "polite" =>
 /** Builds the surface class string for a static or navigable toast card. */
 const cardClasses = ({ clickable }: { clickable: boolean }) =>
     cn(
-        "bettershape-toast pointer-events-auto relative w-full overflow-hidden rounded-xl border border-border-subtle bg-surface-3 px-3.5 py-2.5 text-left shadow-md",
+        "bettershape-toast pointer-events-auto relative w-full overflow-hidden rounded-xl squircle-xl border border-border-subtle bg-surface-3 px-3.5 py-2.5 text-left shadow-[var(--menu-shadow)]",
         clickable && "cursor-pointer hover:border-border-secondary",
     );
 

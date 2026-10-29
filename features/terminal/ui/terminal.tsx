@@ -740,7 +740,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         )
                     }
                 >
-                    Find…
+                    Find...
                     <ContextMenuShortcut>Ctrl+F</ContextMenuShortcut>
                 </ContextMenuItem>
             </ContextMenuContent>

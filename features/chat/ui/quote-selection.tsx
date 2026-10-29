@@ -236,10 +236,18 @@ export const ChatSelectionQuoteToolbar = ({
             clearSelectionState();
             return;
         }
+        const containerRect = container.getBoundingClientRect();
+        if (
+            containerRect.height > 0 &&
+            (rect.bottom <= containerRect.top + 4 || rect.top >= containerRect.bottom - 4)
+        ) {
+            clearSelectionState();
+            return;
+        }
         setActive({
             text,
-            anchorTop: rect.top,
-            anchorBottom: rect.bottom,
+            anchorTop: Math.max(rect.top, containerRect.top),
+            anchorBottom: Math.min(rect.bottom, containerRect.bottom),
             anchorCenterX: rect.left + rect.width / 2,
         });
     }, [containerRef, clearSelectionState]);
@@ -354,7 +362,7 @@ export const ChatSelectionQuoteToolbar = ({
         const top =
             aboveTop >= 8
                 ? aboveTop
-                : belowTop + h <= vh - 8
+                : belowTop >= 8 && belowTop + h <= vh - 8
                   ? belowTop
                   : Math.max(8, Math.min(aboveTop, vh - h - 8));
         el.style.left = `${left}px`;
@@ -384,12 +392,12 @@ export const ChatSelectionQuoteToolbar = ({
             }}
             style={{ left: -9999, top: -9999, visibility: "hidden" }}
             className={cn(
-                "fixed z-dropdown inline-flex h-7 items-center gap-1.5 rounded-lg border border-border-secondary bg-surface-3 px-2.5 text-xs font-medium text-text-primary shadow-md select-none",
+                "fixed z-dropdown inline-flex h-7 items-center gap-1.5 squircle-lg border border-border-secondary bg-surface-4 px-2.5 text-xs font-medium text-text-primary shadow-[var(--menu-shadow)] select-none",
                 "transition-[background-color,border-color,transform,opacity] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] motion-reduce:transform-none motion-reduce:transition-none",
                 "hover:bg-[var(--btn-hover)] active:scale-[0.96]",
             )}
         >
-            <Icon icon={TextQuote16Regular} className="size-3.5 text-text-muted" />
+            <Icon icon={TextQuote16Regular} className="icon-sm size-3.5 text-text-muted" />
             <span>Quote</span>
         </button>,
         document.body,

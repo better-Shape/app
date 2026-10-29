@@ -76,7 +76,6 @@ import {
     formatModelsDisclosureHint,
     formatModelSourceSuffix,
     formatRefreshAgeLabel,
-    groupLabel,
     isNewExtraModelId,
     normalizeExtraModelId,
     resolveCheckModelId,
@@ -174,7 +173,7 @@ const ModelBadgePill = ({ badge }: { badge: ModelBadge }) => {
     return (
         <span
             className={cn(
-                "shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide",
+                "shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium",
                 toneClass,
             )}
         >
@@ -372,15 +371,15 @@ const HiddenModelsBadge = ({ hiddenCount }: { hiddenCount: number }) => {
     const noun = hiddenCount === 1 ? "model" : "models";
     return (
         <Tooltip content={`${hiddenCount} ${noun} hidden from pickers`} side="top">
-            <span className="inline-flex items-center gap-0.5 rounded-sm bg-surface-3 px-1 py-px text-[10px] font-normal text-text-muted">
-                <Icon icon={Eye20Regular} className="size-2.5" />
+            <span className="inline-flex items-center gap-1 rounded-sm bg-surface-3 px-1.5 py-0.5 text-2xs font-normal tabular-nums text-text-muted">
+                <Icon icon={Eye20Regular} className="icon-sm size-3" />
                 {hiddenCount} hidden
             </span>
         </Tooltip>
     );
 };
 
-/** Renders the title, group badge, status dot, and protocol subtitle inside a card header. */
+/** Renders the title, status dot, and protocol subtitle inside a card header. */
 const ProviderHeaderSummary = ({
     preset,
     hiddenCount,
@@ -393,9 +392,6 @@ const ProviderHeaderSummary = ({
     <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
             <span className="truncate">{preset.label}</span>
-            <span className="ml-1 rounded-sm bg-surface-3 px-1 py-px text-[10px] font-normal uppercase tracking-wide text-text-muted">
-                {groupLabel(preset.group)}
-            </span>
             <HiddenModelsBadge hiddenCount={hiddenCount} />
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-text-muted">
@@ -699,7 +695,7 @@ const ProviderDiagnosticsBar = ({
                 variant="secondary"
                 icon={PlugConnected20Regular}
                 idleLabel="Test connection"
-                loadingLabel="Testing…"
+                loadingLabel="Testing..."
                 loading={testing}
                 unavailable={!canTest}
                 onClick={onTest}
@@ -709,7 +705,7 @@ const ProviderDiagnosticsBar = ({
                 variant="ghost"
                 icon={Airplane20Regular}
                 idleLabel="Check chat"
-                loadingLabel="Checking…"
+                loadingLabel="Checking..."
                 loading={checking}
                 unavailable={!checkModel}
                 onClick={onCheck}

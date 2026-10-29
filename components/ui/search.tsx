@@ -80,14 +80,14 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
             <div
                 data-dropdown-search={fade ? "" : undefined}
                 className={cn(
-                    "relative flex min-w-0 items-center border-b border-border -mx-1.5 mb-1",
-                    !borderless && "h-chrome",
+                    "relative flex min-w-0 items-center",
+                    borderless ? "-mx-1.5 mb-1 border-b border-border" : "h-chrome",
                     className,
                 )}
             >
                 <Icon
                     icon={Search20Regular}
-                    className="pointer-events-none absolute left-2.5 mb-0.5 z-10 pr-0.5 text-input-placeholder!"
+                    className="icon-sm pointer-events-none absolute left-2.5 z-10 size-3.5 text-input-placeholder!"
                 />
                 <input
                     {...props}

@@ -11,10 +11,10 @@ import { isPerfHudEnabled, perfHud } from "./perf-hud";
 
 let unmountHud: (() => void) | null = null;
 
-/** Secondary text: 7.4:1 on the opaque panel background, so it clears AA at 11px. */
-const MUTED = "#a1a1aa";
+/** Secondary text: 7.3:1 on the opaque `--surface-0` panel background, clearing WCAG AA. */
+const MUTED = "var(--text-secondary)";
 /** Primary text: the measured values. */
-const PRIMARY = "#d4d4d8";
+const PRIMARY = "var(--text-primary)";
 
 /**
  * One shared style for the two header buttons: a 24px square is axe's minimum
@@ -56,15 +56,15 @@ export function mountPerfHud(): () => void {
         "z-index:9999",
         "width:264px",
         "padding:6px 8px 8px",
-        "border-radius:6px",
-        "border:1px solid rgba(255,255,255,0.15)",
+        "border-radius:var(--radius-md)",
+        "border:1px solid var(--border)",
         // Opaque on purpose: axe cannot composite a translucent panel over an
         // unknown backdrop, and a legible panel does not depend on what is
         // behind it. It also stops the app showing through the readout.
-        "background:#111113",
+        "background:var(--surface-0)",
         "color:" + PRIMARY,
-        "font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
-        "box-shadow:0 8px 24px rgba(0,0,0,0.45)",
+        "font:12px/16px var(--font-mono)",
+        "box-shadow:var(--menu-shadow)",
         // The readout never takes a click; only the header strip does, so a
         // HUD parked over the terminal or the status bar cannot eat input.
         "pointer-events:none",
@@ -84,7 +84,7 @@ export function mountPerfHud(): () => void {
     ].join(";");
     const title = document.createElement("span");
     title.textContent = "perf";
-    title.style.cssText = "color:#6ee7b7;font-weight:600";
+    title.style.cssText = "color:var(--accent-text);font-weight:600";
     const actions = document.createElement("span");
     actions.style.cssText = "display:flex;gap:4px";
     const resetButton = document.createElement("button");

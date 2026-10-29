@@ -93,14 +93,14 @@ export function KeyboardShortcutsCheatsheet() {
                             autoFocus
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
-                            placeholder="Filter shortcuts…"
+                            placeholder="Filter shortcuts..."
                             aria-label="Filter shortcuts"
                             borderless
                             onClear={() => setQuery("")}
                         />
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+                    <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar px-3 pt-1 pb-4">
                         {groups.length === 0 ? (
                             <p className="py-10 text-center text-sm text-text-muted">
                                 No shortcuts match {`"${query}"`}.
@@ -108,7 +108,7 @@ export function KeyboardShortcutsCheatsheet() {
                         ) : (
                             groups.map(({ category, list }) => (
                                 <section key={category} className="mb-4 last:mb-0">
-                                    <h3 className="mb-1 mt-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+                                    <h3 className="mb-1.5 mt-2 text-xs font-medium text-text-muted">
                                         {category}
                                     </h3>
                                     <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
@@ -130,10 +130,10 @@ export function KeyboardShortcutsCheatsheet() {
                         )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 border-t border-border-subtle px-3 py-2 text-[11px] text-text-muted">
+                    <div className="flex items-center justify-between gap-3 border-t border-border-subtle px-3 py-2 text-2xs text-text-muted">
                         <span>Shortcuts can be changed in Settings, under Keyboard Shortcuts.</span>
                         <span className="flex shrink-0 items-center gap-1">
-                            <kbd className="rounded-sm bg-input-bg px-1.5 py-0.5">Esc</kbd>
+                            <kbd className="rounded-sm border border-border-subtle bg-input-bg px-1.5 py-0.5 font-mono text-2xs">Esc</kbd>
                             to close
                         </span>
                     </div>
@@ -145,7 +145,7 @@ export function KeyboardShortcutsCheatsheet() {
 
 function KeyChord({ chord, source }: { chord: string; source: KeyBinding["source"] }) {
     if (!chord.trim()) {
-        return <span className="shrink-0 text-[11px] text-text-muted">Unassigned</span>;
+        return <span className="shrink-0 text-2xs text-text-muted">Unassigned</span>;
     }
     // "Ctrl+K Ctrl+S" is two chords: render each group, separated by a gap.
     const chords = chord.trim().split(/\s+/).map(splitKeyChord);
@@ -161,7 +161,7 @@ function KeyChord({ chord, source }: { chord: string; source: KeyBinding["source
                         <kbd
                             key={`${token}-${index}`}
                             className={cn(
-                                "min-w-6 rounded-sm border border-border-subtle bg-input-bg px-1.5 py-0.5 text-center font-sans text-[11px] leading-4 text-text-secondary",
+                                "min-w-6 rounded-sm border border-border-subtle bg-input-bg px-1.5 py-0.5 text-center font-mono text-2xs leading-4 text-text-secondary",
                                 source === "user" && "border-accent/40",
                             )}
                         >
