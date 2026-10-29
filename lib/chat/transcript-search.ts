@@ -46,10 +46,11 @@ const SENT_FILE_NAME_ATTR_RE = /\bname=(["'])([^"']*)\1/i;
 const TAG_BOUNDARY_CHARS = new Set([">", " ", "\t", "\n", "\r", "/"]);
 
 /** Decodes basic XML entities inside an extracted tag attribute value. */
-const decodeBasicXmlEntities = (raw: string): string =>
+export const decodeBasicXmlEntities = (raw: string): string =>
     raw
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&amp;/g, "&");

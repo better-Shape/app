@@ -160,32 +160,32 @@ async function binaryBlock(file: ComposerAttachment, signal: AbortSignal): Promi
 }
 
 /** Extracts the lowercase basename from a filename or relative path. */
-function getLowerBaseName(name: string): string {
+const getLowerBaseName = (name: string): string => {
     const slashIdx = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
     return (slashIdx >= 0 ? name.slice(slashIdx + 1) : name).toLowerCase();
-}
+};
 
 /** Extracts the lowercase dot-extension from `name`, or `""` when extensionless. */
-function getDotExtension(name: string): string {
+const getDotExtension = (name: string): string => {
     const base = getLowerBaseName(name);
     const dotIdx = base.lastIndexOf(".");
     return dotIdx >= 0 ? base.slice(dotIdx + 1) : "";
-}
+};
 
 /** Returns true when `name` matches a supported text/code extension or basename (such as `Dockerfile` or `Makefile`). */
-export function isSupportedTextFileName(name: string): boolean {
+export const isSupportedTextFileName = (name: string): boolean => {
     return CODE_EXTENSIONS.has(getDotExtension(name)) || CODE_EXTENSIONS.has(getLowerBaseName(name));
-}
+};
 
 /** Accept either a `text/` MIME prefix or a supported text/code extension or basename. */
-function isSupportedTextAttachment(file: ComposerAttachment): boolean {
+const isSupportedTextAttachment = (file: ComposerAttachment): boolean => {
     return file.mimeType.startsWith("text/") || isSupportedTextFileName(file.name);
-}
+};
 
 /** Accept either a `font/` MIME prefix or a known binary asset extension. */
-function isSupportedBinaryAttachment(file: ComposerAttachment): boolean {
+const isSupportedBinaryAttachment = (file: ComposerAttachment): boolean => {
     return file.mimeType.startsWith("font/") || BINARY_EXTENSIONS.has(getDotExtension(file.name));
-}
+};
 
 /** Serialize supported text/binary files and fail unsupported formats explicitly. */
 function fileBlock(file: ComposerAttachment, signal: AbortSignal): Promise<string> {

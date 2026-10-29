@@ -34,6 +34,7 @@ import {
     type QuestionAnswers,
 } from "../blocks/questions";
 import { hostnameOf } from "@/lib/ui/favicon";
+import { decodeBasicXmlEntities } from "@/lib/chat/transcript-search";
 
 export type Chunk = {
     type:
@@ -277,13 +278,6 @@ const parseCardJson = <T,>(raw: string | undefined): T | null => {
     }
 };
 
-/** Decodes basic XML character entities (`&quot;`, `&lt;`, `&amp;`) inside card attributes. */
-const decodeXml = (value: string): string =>
-    value
-        .replace(/&quot;/g, '"')
-        .replace(/&lt;/g, "<")
-        .replace(/&amp;/g, "&");
-
 /** Unescapes XML character entities including `&gt;` in serialized preview markup. */
 const unescapeXml = (value: string): string =>
     value
@@ -292,14 +286,11 @@ const unescapeXml = (value: string): string =>
         .replace(/&quot;/g, '"')
         .replace(/&amp;/g, "&");
 
-/** Decodes XML attribute entities including `&apos;` and `&gt;` in command tags. */
-const decodeXmlAttr = (raw: string): string =>
-    raw
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&");
+/** Decodes XML attribute entities (`&quot;`, `&#39;`, `&apos;`, `&lt;`, `&gt;`, `&amp;`) in card and command tags. */
+const decodeXmlAttr = decodeBasicXmlEntities;
+
+/** Decodes XML character entities inside card attributes. */
+const decodeXml = decodeBasicXmlEntities;
 
 /** Checks whether `tagText[pos]` sits on an attribute-name boundary. */
 const isAttrNameStartAt = (tagText: string, pos: number): boolean =>

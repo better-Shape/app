@@ -193,6 +193,13 @@ describe("list-indented fences and surrogate-safe terminal cap", () => {
         );
         expect(planChunks.find((c) => c.type === "plan")?.file).toBe("Auth & Rollout");
 
+        const sentChunks = parseMessageContent(
+            '<sent_file name="quarterly-&gt;report.pdf" title="Quarterly -&gt; Annual &amp;gt; Summary" type="application/pdf">data:application/pdf;base64,AA==</sent_file>',
+        );
+        const sentChunk = sentChunks.find((c) => c.type === "sent_file");
+        expect(sentChunk?.file).toBe("quarterly->report.pdf");
+        expect(sentChunk?.mediaPrompt).toBe("Quarterly -> Annual &gt; Summary");
+
         const inlineSample = "Use `foo <edit> \\` end";
         const spans: Array<[number, number]> = [];
         appendInlineCodeSpansInRange(inlineSample, 0, inlineSample.length, spans);
