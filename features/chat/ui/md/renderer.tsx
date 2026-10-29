@@ -597,6 +597,10 @@ type ChildXmlScanInput = {
 
 const XML_CHILD_BOUNDARY_CODES = new Set([9, 10, 13, 32, 47, 62]);
 
+/** Converts ASCII uppercase `A-Z` to `a-z` while preserving exact UTF-16 code-unit indices. */
+const toAsciiLower = (text: string): string =>
+    text.replace(/[A-Z]/gu, (ch) => ch.toLowerCase());
+
 /** Reads body and closing tag of a non-self-closing child XML element after `gtIdx`. */
 const readPairedChildXmlBody = (
     scan: ChildXmlScanInput,

@@ -578,6 +578,23 @@ describe("preprocessChatMarkdown", () => {
         expect(scriptx).not.toContain("leaked");
         expect(scriptx).not.toContain("still secret");
     });
+
+    it("parses mixed-case and uppercase <TODOS>/<TODO> and <PLAN>/<STEP> child elements without dropping items", () => {
+        const chunks = parseMessageContent(
+            '<TODOS TITLE="Sprint &amp; Release"><TODO ID="t1" STATUS="completed">Ship parser</TODO><Todo id="t2" status="in_progress">Verify İ</Todo></TODOS>',
+        );
+        expect(chunks).toEqual([
+            {
+                type: "todos",
+                content: "Sprint & Release",
+                todos: [
+                    { id: "t1", label: "Ship parser", status: "done" },
+                    { id: "t2", label: "Verify İ", status: "active" },
+                ],
+                sourceStart: 0,
+            },
+        ]);
+    });
 });
 
 it("renders the submitted image body when a filename contains a tag delimiter", async () => {

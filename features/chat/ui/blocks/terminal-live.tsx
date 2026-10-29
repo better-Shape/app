@@ -6,9 +6,23 @@ import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-c
 import { Info20Regular } from "@fluentui/react-icons/headless/svg/info";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useId,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
+import {
+    clearAgentCommandStart,
+    ensureAgentCommandStart,
+    getAgentCommandStartedAt,
+    syncTerminalEventStartTime,
+} from "@/features/chat/lib/agent-terminal-notify";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -272,6 +286,7 @@ export const stripAnsi = (input: string): string =>
 export type TerminalStreamBuffer = {
     output: string;
     carry: string;
+    sessionId?: number | null;
 };
 
 /** Splits any trailing `\r` run off `text` so split `\r\n` or `\r\x1b[2K` across PTY chunks stays intact. */
@@ -419,17 +434,39 @@ export const appendStreamAnsiChunk = (
 const activeOrCurrentPhase = (phase: StreamPhase): StreamPhase =>
     phase === "idle" ? "running" : phase;
 
-/** Reduces a `"start"` terminal event into a fresh running `StreamState`. */
+/** Checks whether an incoming `"start"` event belongs to a newly spawned session that should clear buffered output. */
+const shouldResetBufferOnStart = (
+    buffer: TerminalStreamBuffer,
+    nextSessionId: number | null,
+): boolean => {
+    if (!buffer.output && !buffer.carry) return true;
+    const prevSessionId = buffer.sessionId ?? null;
+    return (
+        nextSessionId !== null &&
+        prevSessionId !== null &&
+        nextSessionId !== prevSessionId
+    );
+};
+
+/** Reduces a `"start"` terminal event into a running `StreamState`, preserving early stdout from the same session. */
 const reduceStreamStartEvent = (
     payload: AgentTerminalEvent,
     bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
 ): StreamState => {
-    bufferRef.current = { output: "", carry: "" };
+    const nextSessionId = payload.sessionId ?? null;
+    const reset = shouldResetBufferOnStart(bufferRef.current, nextSessionId);
+    const nextBuffer: TerminalStreamBuffer = reset
+        ? { output: "", carry: "", sessionId: nextSessionId }
+        : {
+              ...bufferRef.current,
+              sessionId: nextSessionId ?? bufferRef.current.sessionId ?? null,
+          };
+    bufferRef.current = nextBuffer;
     return {
         phase: "running",
-        output: "",
+        output: nextBuffer.output,
         exitCode: null,
-        sessionId: payload.sessionId ?? null,
+        sessionId: nextSessionId ?? nextBuffer.sessionId ?? null,
         cancelled: false,
         waitingForInput: false,
     };
@@ -476,11 +513,16 @@ const TERMINAL_EVENT_HANDLERS: Partial<
     },
     data: (payload, bufferRef, setState) => {
         if (!payload.data) return;
-        bufferRef.current = appendStreamAnsiChunk(
+        const nextBuffer = appendStreamAnsiChunk(
             bufferRef.current,
             payload.data,
             false,
         );
+        bufferRef.current = {
+            ...nextBuffer,
+            sessionId:
+                payload.sessionId ?? bufferRef.current.sessionId ?? null,
+        };
         const output = bufferRef.current.output;
         setState((prev) => reduceStreamDataEvent(prev, payload, output));
     },
@@ -512,6 +554,7 @@ const dispatchTerminalStreamPayload = (
     bufferRef: React.MutableRefObject<TerminalStreamBuffer>,
     setState: React.Dispatch<React.SetStateAction<StreamState>>,
 ): void => {
+    syncTerminalEventStartTime(payload);
     const handler = payload.kind
         ? TERMINAL_EVENT_HANDLERS[payload.kind]
         : undefined;
@@ -711,7 +754,7 @@ const TerminalCommandMenu = ({ command }: { command: string }) => {
                     <Icon icon={MoreHorizontal20Regular} />
                 </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-76">
+            <DropdownMenuContent align="end" className="w-76 max-w-[calc(100vw-1rem)]">
                 <div className="px-2 py-1.5 text-sm font-medium text-text-muted">
                     Auto-run
                 </div>
@@ -737,9 +780,11 @@ const TerminalCommandMenu = ({ command }: { command: string }) => {
                 })}
                 <DropdownMenuItem
                     onClick={() => {
-                        navigator.clipboard
-                            .writeText(command)
-                            .catch(() => undefined);
+                        if (navigator.clipboard) {
+                            navigator.clipboard
+                                .writeText(command)
+                                .catch(() => undefined);
+                        }
                     }}
                 >
                     Copy command
@@ -833,20 +878,68 @@ const shouldAutoExpandRow = (
     hasOutput: boolean,
 ): boolean => Boolean((isRunning || failed) && hasOutput);
 
-/** Tracks elapsed seconds once per second while `isRunning` is true. */
-const useRunningCommandElapsed = (isRunning: boolean | undefined): number => {
-    const [elapsedSec, setElapsedSec] = useState(0);
-    useEffect(() => {
-        if (!isRunning) return undefined;
-        const startedAt = Date.now();
-        const interval = window.setInterval(() => {
-            setElapsedSec(
-                Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
-            );
-        }, 1000);
-        return () => window.clearInterval(interval);
-    }, [isRunning]);
-    return elapsedSec;
+/** Computes whole elapsed seconds since `originMs`, clamped to `>= 0`. */
+const elapsedSecondsSince = (originMs: number): number =>
+    Math.max(0, Math.floor((Date.now() - originMs) / 1000));
+
+/** Reads the current elapsed seconds snapshot for `useRunningCommandElapsed`. */
+const readRunningCommandElapsed = (
+    isRunning: boolean | undefined,
+    timerKey: string,
+): number => {
+    if (!isRunning) return 0;
+    const originMs = getAgentCommandStartedAt(timerKey);
+    return originMs === null ? 0 : elapsedSecondsSince(originMs);
+};
+
+/** Subscribes to 1s wall-clock ticks aligned to `originMs` for an active terminal row. */
+const subscribeRunningCommandClock = (
+    timerKey: string,
+    keepAfterUnmount: boolean,
+    onTick: () => void,
+): (() => void) => {
+    const originMs = ensureAgentCommandStart(timerKey);
+    const elapsedMs = Math.max(0, Date.now() - originMs);
+    const delayMs = 1000 - (elapsedMs % 1000);
+    let intervalId: number | null = null;
+    const timeoutId = window.setTimeout(() => {
+        onTick();
+        intervalId = window.setInterval(onTick, 1000);
+    }, delayMs);
+    return () => {
+        window.clearTimeout(timeoutId);
+        if (intervalId !== null) window.clearInterval(intervalId);
+        if (!keepAfterUnmount) clearAgentCommandStart(timerKey);
+    };
+};
+
+const subscribeIdleCommandClock = (): (() => void) => () => undefined;
+const readServerElapsedZero = (): number => 0;
+
+/** Tracks elapsed seconds once per second while `isRunning` is true, preserving pre-mount runtime. */
+const useRunningCommandElapsed = (
+    isRunning: boolean | undefined,
+    commandId?: string,
+): number => {
+    const instanceKey = useId();
+    const timerKey = commandId ?? instanceKey;
+    const keepAfterUnmount = Boolean(commandId);
+    const subscribe = useCallback(
+        (onTick: () => void) =>
+            isRunning
+                ? subscribeRunningCommandClock(
+                      timerKey,
+                      keepAfterUnmount,
+                      onTick,
+                  )
+                : subscribeIdleCommandClock(),
+        [isRunning, keepAfterUnmount, timerKey],
+    );
+    const getSnapshot = useCallback(
+        () => readRunningCommandElapsed(isRunning, timerKey),
+        [isRunning, timerKey],
+    );
+    return useSyncExternalStore(subscribe, getSnapshot, readServerElapsedZero);
 };
 
 /** Renders the leading console or error icon for `TerminalCommandRow`. */
@@ -951,6 +1044,7 @@ const renderTerminalActionLine = ({
 /** Inline text row matching staged/checked arrow UI, action bright, detail muted; expand shows output only. */
 const TerminalCommandRow = ({
     command,
+    commandId,
     statusLabel,
     output,
     isRunning,
@@ -960,6 +1054,7 @@ const TerminalCommandRow = ({
     notice,
 }: {
     command: string;
+    commandId?: string;
     statusLabel: string;
     output: string;
     isRunning?: boolean;
@@ -979,7 +1074,7 @@ const TerminalCommandRow = ({
         flags.initialOpen,
         shouldAutoExpandRow(isRunning, failed, flags.hasOutput),
     );
-    const elapsedSec = useRunningCommandElapsed(isRunning);
+    const elapsedSec = useRunningCommandElapsed(isRunning, commandId);
     const summary = commandSummary(command);
 
     if (!summary && !statusLabel) return null;
@@ -1015,12 +1110,13 @@ const AutoRunModePicker = ({ disabled }: { disabled?: boolean }) => {
                     size="sm"
                     disabled={disabled}
                     aria-label="Approval mode for future agent commands"
+                    className="max-w-full whitespace-nowrap"
                 >
-                    {activeLabel}
-                    <Icon icon={ChevronDown20Regular} className="opacity-70" />
+                    <span className="truncate">{activeLabel}</span>
+                    <Icon icon={ChevronDown20Regular} className="shrink-0 opacity-70" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuContent align="start" className="w-64 max-w-[calc(100vw-1rem)]">
                 {AUTO_RUN_OPTIONS.map((opt) => {
                     const selected = settings.ai.autoRunMode === opt.value;
                     return (
@@ -1141,9 +1237,38 @@ const computeEffectiveCommandStatus = (
 const resolveBlockCommandText = (block: Chunk): string =>
     (block.command ?? block.content ?? "").trim();
 
-/** Resolves the visible output text from live stream output or persisted chunk body. */
-const resolveStepOutputText = (streamOutput: string, block: Chunk): string =>
-    streamOutput ? streamOutput : stripTerminalChunkOutput(block);
+/** Joins pre-remount transcript output with post-remount live stream output without duplicating overlap. */
+const joinDisjointTerminalOutputs = (
+    persisted: string,
+    streamOutput: string,
+): string => {
+    const separator =
+        persisted.endsWith("\n") || streamOutput.startsWith("\n") ? "" : "\n";
+    return sliceTrailingOutputCap(
+        `${persisted}${separator}${streamOutput}`,
+        OUTPUT_CAP,
+    );
+};
+
+/** Merges non-empty `persisted` and `streamOutput` without dropping pre-remount lines. */
+const mergeNonEmptyTerminalOutputs = (
+    persisted: string,
+    streamOutput: string,
+): string => {
+    if (streamOutput.startsWith(persisted)) return streamOutput;
+    return persisted.endsWith(streamOutput)
+        ? persisted
+        : joinDisjointTerminalOutputs(persisted, streamOutput);
+};
+
+/** Resolves the visible output text across live stream chunks and persisted transcript output. */
+const resolveStepOutputText = (streamOutput: string, block: Chunk): string => {
+    const persisted = stripTerminalChunkOutput(block);
+    if (!streamOutput) return persisted;
+    return persisted
+        ? mergeNonEmptyTerminalOutputs(persisted, streamOutput)
+        : streamOutput;
+};
 
 /** Resolves the human-readable row status label for a finished command step. */
 const resolveFinishedRowLabel = (
@@ -1190,14 +1315,22 @@ const usePendingCommandResolution = (
 };
 
 /** Renders a running or backgrounded `TerminalCommandRow` for `TerminalCommandStep`. */
-const renderLiveTerminalRow = (
-    command: string,
-    effectiveStatus: string,
-    output: string,
-    waitingForInput: boolean,
-): React.ReactElement => (
+const renderLiveTerminalRow = ({
+    command,
+    commandId,
+    effectiveStatus,
+    output,
+    waitingForInput,
+}: {
+    command: string;
+    commandId?: string;
+    effectiveStatus: string;
+    output: string;
+    waitingForInput: boolean;
+}): React.ReactElement => (
     <TerminalCommandRow
         command={command}
+        commandId={commandId}
         statusLabel={
             effectiveStatus === "background"
                 ? "Running in background"
@@ -1256,12 +1389,13 @@ const renderNonPendingCommandStep = (
 ): React.ReactElement => {
     const resolvedOutput = resolveStepOutputText(stream.output, block);
     if (ACTIVE_STEP_STATUSES.has(effectiveStatus)) {
-        return renderLiveTerminalRow(
+        return renderLiveTerminalRow({
             command,
+            commandId: block.commandId,
             effectiveStatus,
-            resolvedOutput,
-            stream.waitingForInput,
-        );
+            output: resolvedOutput,
+            waitingForInput: stream.waitingForInput,
+        });
     }
     return renderSettledTerminalRow(
         command,
