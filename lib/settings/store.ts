@@ -131,10 +131,6 @@ export interface BetterShapeSettings {
         reviewAdversarialEnabled: boolean;
         /** Trigger phrase → prompt (+ optional plugin tool) injected on send. */
         workflows: AgentWorkflow[];
-        /** Ask before the first Multiwork send. */
-        multiworkConfirm: boolean;
-        /** Show agent cards on the composer during Multiwork. */
-        multiworkShowChips: boolean;
         /** Terminal command approval mode (Cursor-style run modes). */
         autoRunMode: AutoRunModeSetting;
         /** Stage agent file edits for approval before they touch disk. */
@@ -172,23 +168,13 @@ export interface BetterShapeSettings {
         html: boolean;
         json: boolean;
         tailwindcss: boolean;
-        emmet: boolean;
     };
     node: {
-        interpreterPath: string;
         packageManager: "auto" | "npm" | "yarn" | "pnpm" | "bun";
-        codingAssistance: boolean;
     };
     python: {
         /** Absolute path, or `"auto"` to discover from PATH / venv. */
         interpreterPath: string;
-    };
-    designAutocomplete: {
-        enable: boolean;
-    };
-    designDiagnostics: {
-        enable: boolean;
-        level: "AA" | "AAA";
     };
     tailwindControls: {
         enable: boolean;
@@ -199,17 +185,10 @@ export interface BetterShapeSettings {
         /** Wheel over padding/gap inputs changes values (Figma-style) */
         wheelOnInputs: boolean;
     };
-    designBlame: {
-        enable: boolean;
-    };
-    spacingRefactor: {
-        enable: boolean;
-    };
     developer: {
         enableDevTools: boolean;
     };
     privacy: {
-        showLoginPromptOnLaunch: boolean;
         /** Show the welcome page when the main window opens with no editor. */
         showWelcomeOnStartup: boolean;
         /** Skip the confirm dialog when restoring a chat checkpoint (rolls back file edits). */
@@ -307,8 +286,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         mcpServers: [],
         reviewAdversarialEnabled: true,
         workflows: [],
-        multiworkConfirm: true,
-        multiworkShowChips: true,
         autoRunMode: "auto",
         requireEditApproval: false,
         protectDestructiveGit: true,
@@ -335,22 +312,12 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         html: true,
         json: true,
         tailwindcss: true,
-        emmet: true,
     },
     node: {
-        interpreterPath: "auto",
         packageManager: "auto",
-        codingAssistance: true,
     },
     python: {
         interpreterPath: "auto",
-    },
-    designAutocomplete: {
-        enable: true,
-    },
-    designDiagnostics: {
-        enable: true,
-        level: "AA",
     },
     tailwindControls: {
         enable: true,
@@ -358,17 +325,10 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         scrubDecorations: true,
         wheelOnInputs: true,
     },
-    designBlame: {
-        enable: true,
-    },
-    spacingRefactor: {
-        enable: true,
-    },
     developer: {
         enableDevTools: false,
     },
     privacy: {
-        showLoginPromptOnLaunch: true,
         showWelcomeOnStartup: true,
         skipCheckpointRestoreConfirm: false,
     },
@@ -567,11 +527,7 @@ let currentSettings: BetterShapeSettings = {
     lsp: { ...DEFAULT_SETTINGS.lsp },
     node: { ...DEFAULT_SETTINGS.node },
     python: { ...DEFAULT_SETTINGS.python },
-    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
-    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
     tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
-    designBlame: { ...DEFAULT_SETTINGS.designBlame },
-    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
     developer: { ...DEFAULT_SETTINGS.developer },
     privacy: { ...DEFAULT_SETTINGS.privacy },
     notifications: { ...DEFAULT_SETTINGS.notifications },
@@ -684,24 +640,12 @@ function mergeSettings(
         lsp: { ...DEFAULT_SETTINGS.lsp, ...base.lsp, ...patch.lsp },
         node: { ...DEFAULT_SETTINGS.node, ...base.node, ...patch.node },
         python: { ...DEFAULT_SETTINGS.python, ...base.python, ...patch.python },
-        designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete, ...base.designAutocomplete, ...patch.designAutocomplete },
-        designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics, ...base.designDiagnostics, ...patch.designDiagnostics },
         tailwindControls: {
             ...DEFAULT_SETTINGS.tailwindControls,
             ...(base as BetterShapeSettings & { inlinePickers?: { enable: boolean } }).tailwindControls,
             ...(base as BetterShapeSettings & { inlinePickers?: { enable: boolean } }).inlinePickers,
             ...patch.tailwindControls,
             ...(patch as Partial<BetterShapeSettings & { inlinePickers?: { enable: boolean } }>).inlinePickers,
-        },
-        designBlame: {
-            ...DEFAULT_SETTINGS.designBlame,
-            ...base.designBlame,
-            ...patch.designBlame,
-        },
-        spacingRefactor: {
-            ...DEFAULT_SETTINGS.spacingRefactor,
-            ...base.spacingRefactor,
-            ...patch.spacingRefactor,
         },
         privacy: { ...DEFAULT_SETTINGS.privacy, ...base.privacy, ...patch.privacy },
         notifications: {
