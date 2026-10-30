@@ -75,7 +75,7 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
             );
             return true;
         case "Toggle Design Mode":
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "browser" }));
+            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "design" }));
             window.dispatchEvent(
                 new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
             );

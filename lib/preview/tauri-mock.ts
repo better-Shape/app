@@ -618,6 +618,19 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         ensure_path_within: () => null,
         get_rust_deps: () => [],
 
+        // ── design mode ──────────────────────────────────────────────────
+        // The fixture has no React app to inspect, so the studio opens on its
+        // designed "unsupported project" state instead of crashing on null.
+        inspect_design_project: () => ({
+            projectRoot: PREVIEW_PROJECT_PATH,
+            framework: "unknown",
+            supported: false,
+        }),
+        list_design_assets: () => [],
+        remember_preview_url: () => null,
+        probe_preview_url: () => ({ url: "", reachable: false }),
+        design_mode_log: () => null,
+
         // ── git ──────────────────────────────────────────────────────────
         git_discover_repos: () => [{ path: PREVIEW_PROJECT_PATH, name: "bettershape-demo", isBare: false }],
         git_resolve_repo_for_file: () => PREVIEW_PROJECT_PATH,

@@ -237,3 +237,46 @@ the backlog for fixture fidelity.
    schema and the settings page.
 5. Grow the preview mock for chat send and git writes so the browser suite can
    catch a broken glue point in future.
+
+## Round 2, 2026-10-30: the fix pass
+
+Two tools now measure this class repeatably, so the numbers below are
+reproducible rather than claimed.
+
+| Tool | What it proves | Run |
+| --- | --- | --- |
+| `scripts/qa/audit-glue.mjs` | Orphan modules, one-sided event channels, settings keys with no reader, duplicate exports | `node scripts/qa/audit-glue.mjs` |
+| `scripts/qa/probe-mounted-surfaces.cjs` | The mounted surfaces render in Chromium with zero console errors, and writes a screenshot of each | `PLAYWRIGHT_SANDBOX_LIBS=/tmp/chrome-deps node scripts/qa/probe-mounted-surfaces.cjs` |
+
+Measurements, before and after the pass:
+
+| Metric | Audit head | After |
+| --- | --- | --- |
+| Orphan modules | 48 | 33 |
+| Event channels, listener only | 18 | 16 |
+| Event channels, dispatch only | 9 | 8 |
+| Settings keys with no reader | 34 | 28 |
+| Duplicate exported names | 15 | 15 |
+
+The orphan count fell by mounting the design studio, the all-changes view, the
+subagent cards, the chat overflow menu and hunk staging, and by deleting
+fourteen modules that a live surface had already superseded: `collapsible`,
+`disclosure`, `morph-menu`, `sorting`, `combobox`, `files-mode`,
+`workspace/preview`, `diff-hunks`, `chat/shell/home`, `open-branch-window`, the
+providers index barrel, and three unused barrels.
+
+The settings count fell because Format on save, autosave, Trim trailing
+whitespace, Insert final newline, Image preview, Compact tab bar and Terminal
+copy on select now have readers.
+
+### Defects the visual pass found, and the fixes
+
+1. The Voice page rendered a different device description on the server and
+   on the client, because `unavailable` read `navigator` during render. It now
+   reads the mount flag, and the probe asserts zero console errors.
+2. The design tab entered a crash path when the browser preview returned a
+   null project: the raw message `Cannot read properties of null` was on
+   screen. The mock now models `inspect_design_project`, and the studio guards
+   a null result with an actionable sentence.
+3. The all-changes view drew duplicate hover controls on top of the diff
+   text. The duplicate overlay is gone; the header controls remain.

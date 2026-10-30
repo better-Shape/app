@@ -823,18 +823,11 @@ const Terminal = ({
     }, []);
 
     useEffect(() => {
-// Pulls the browser tab module in on demand; the event fires once and the
-        // terminal does not need that module to render.
-        const handleOpenBrowser = () => {
-            import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab()).catch(() => undefined);
-        };
         const handleOpenWorkspaceTerminal = () => {
             setActiveView("terminal");
         };
-        window.addEventListener("bettershape-open-preview", handleOpenBrowser);
         window.addEventListener("bettershape-open-workspace-terminal", handleOpenWorkspaceTerminal);
         return () => {
-            window.removeEventListener("bettershape-open-preview", handleOpenBrowser);
             window.removeEventListener(
                 "bettershape-open-workspace-terminal",
                 handleOpenWorkspaceTerminal,

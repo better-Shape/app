@@ -72,7 +72,6 @@ function LazyFileDiff({
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
-    const [hover, setHover] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
     const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
     const dir = fileDir(file.path);
@@ -139,8 +138,6 @@ function LazyFileDiff({
             ref={hostRef}
             id={domId}
             role="presentation"
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
         >
             <div className="sticky top-1 z-[1] flex h-9 items-center gap-2 bg-panel pl-3 border-b border-border">
                 <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border-subtle">
@@ -186,28 +183,6 @@ function LazyFileDiff({
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
-                {hover ? (
-                    <div className="absolute right-3 top-2 z-[2] flex gap-1">
-                        <Button
-                            type="button"
-                            onClick={() => void toggleStage()}
-                            variant="ghost"
-                            className="bg-surface-4"
-                            size="xs"
-                        >
-                            {file.staged ? "Unstage" : "Stage"}
-                        </Button>
-                        <Button
-                            type="button"
-                            onClick={() => void discard()}
-                            variant="ghost"
-                            className="bg-surface-4"
-                            size="xs"
-                        >
-                            Restore
-                        </Button>
-                    </div>
-                ) : null}
                 {!visible ? (
                     <div className="flex h-[120px] items-center px-4 text-sm text-text-muted">
                         Scroll to load diff

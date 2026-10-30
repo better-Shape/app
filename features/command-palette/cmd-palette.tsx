@@ -550,6 +550,18 @@ export const CommandPalette = () => {
                     ),
             },
             {
+                id: "current-file:find",
+                label: "Find in File",
+                shortcut: "",
+                meta: name,
+                section: "Current File",
+                run: () => {
+                    window.dispatchEvent(
+                        new CustomEvent("bettershape-editor-search", { detail: { path } }),
+                    );
+                },
+            },
+            {
                 id: "current-file:popout",
                 label: "Open in New Window",
                 shortcut: "",
@@ -1037,6 +1049,23 @@ function getAppCommands(): EditorAction[] {
             label: "View: Show Git Graph",
             shortcut: shortcut("Git Graph"),
             run: () => showSidebarTab("graph"),
+        },
+        {
+            id: "app.design.open",
+            label: "Design: Open Design Mode",
+            shortcut: shortcut("Toggle Design Mode"),
+            run: () => {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+                );
+                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "design" }));
+            },
+        },
+        {
+            id: "app.design.inspect",
+            label: "Design: Toggle Element Inspector",
+            shortcut: "",
+            run: () => window.dispatchEvent(new Event("bettershape-toggle-browser-design-mode")),
         },
         {
             id: "app.git.allChanges",

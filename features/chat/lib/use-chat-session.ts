@@ -1747,25 +1747,6 @@ export const useChatSession = (
     );
 
     React.useEffect(() => {
-        const onFork = (event: Event) => {
-            const id = (event as CustomEvent<{ id?: string }>).detail?.id;
-            if (id && id !== conversationIdRef.current) return;
-            const msgs = messagesRef.current;
-            let idx = -1;
-            for (let i = msgs.length - 1; i >= 0; i--) {
-                if (msgs[i]?.role === "user") {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx < 0) return;
-            handleForkChat(idx).catch(() => undefined);
-        };
-        window.addEventListener("bettershape-chat-fork", onFork);
-        return () => window.removeEventListener("bettershape-chat-fork", onFork);
-    }, [handleForkChat]);
-
-    React.useEffect(() => {
         writeComposerPrefs({
             model: selectedModel,
             effort: reasoningEffort,

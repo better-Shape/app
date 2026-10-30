@@ -85,14 +85,12 @@ const EditorStatusItems = ({
     statusFile,
     projectPath,
     languageLabel,
-    typescriptVersion,
     onIndentation,
     onEol,
 }: {
     statusFile: string;
     projectPath: string | null;
     languageLabel: string;
-    typescriptVersion: string | null;
     onIndentation: () => void;
     onEol: () => void;
 }) => {
@@ -163,9 +161,6 @@ const EditorStatusItems = ({
                 className="hidden @[340px]/status:flex"
             >
                 <SwapText value={languageLabel} />
-                {typescriptVersion && editorStatus.language.includes("typescript") && (
-                    <span className="text-text-muted ml-1">TS {typescriptVersion}</span>
-                )}
             </StatusItem>
 
             <div className="hidden @[680px]/status:contents">
@@ -189,7 +184,7 @@ const Status = () => {
         ? pickStatusFile(split, active_file)
         : (splitFocusedFile ?? active_file ?? null);
     const progressMessages = useAllProgressMessages();
-    const { editorStatus, typescriptVersion } = useEditorStatus();
+    const { editorStatus } = useEditorStatus();
     const latestProgressMessage = progressMessages[progressMessages.length - 1] ?? null;
     const hasEditor = Boolean(statusFile);
 
@@ -268,7 +263,6 @@ const Status = () => {
                             statusFile={statusFile as string}
                             projectPath={project_path}
                             languageLabel={languageLabel}
-                            typescriptVersion={typescriptVersion}
                             onIndentation={openIndentationPicker}
                             onEol={openEolPicker}
                         />

@@ -300,22 +300,9 @@ const Chat = ({
         const onNewChat = () => {
             newChatRef.current().catch(() => undefined);
         };
-        const onRestoreLast = () => {
-            // Read the live transcript on demand: keeping `session.messages` in the
-            // dep list re-subscribed both listeners on every streamed token.
-            const msgs = session.messagesRef.current;
-            for (let i = msgs.length - 1; i >= 0; i--) {
-                if (msgs[i]?.role === "user") {
-                    restoreRef.current(i).catch(() => undefined);
-                    return;
-                }
-            }
-        };
         window.addEventListener("bettershape-chat-new", onNewChat);
-        window.addEventListener("bettershape-chat-restore-last", onRestoreLast);
         return () => {
             window.removeEventListener("bettershape-chat-new", onNewChat);
-            window.removeEventListener("bettershape-chat-restore-last", onRestoreLast);
         };
     }, [session.messagesRef]);
 

@@ -34,12 +34,14 @@ import {
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { cn } from "@/lib/utils";
+import { useSettings } from "@/lib/settings";
 import type { TabKind, WorkspaceTab } from "./model";
 import { iconFor } from "./model";
 
 function SortableWorkspaceTab({
     tab,
     isActive,
+    compact,
     canClose,
     onSelect,
     onClose,
@@ -48,6 +50,7 @@ function SortableWorkspaceTab({
 }: {
     tab: WorkspaceTab;
     isActive: boolean;
+    compact: boolean;
     canClose: boolean;
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
@@ -101,8 +104,9 @@ function SortableWorkspaceTab({
                         listeners?.onKeyDown?.(event);
                     }}
                     className={cn(
-                        workbenchTabItemClass(isActive, isDragging),
-                        "max-w-44 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
+                        workbenchTabItemClass(isActive, isDragging, compact),
+                        compact ? "max-w-28" : "max-w-44",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
                     )}
                 >
                     <div className={cn(WORKBENCH_TAB_CONTENT_CLASS, isActive && WORKBENCH_TAB_CONTENT_ACTIVE_CLASS)}>
@@ -216,6 +220,8 @@ export function WorkspaceTabs({
         });
     }, [tabs]);
 
+    const compact = useSettings().editor.compactTabs;
+
     const handleDragEnd = useCallback(
         (event: DragEndEvent) => {
             const { active, over } = event;
@@ -246,6 +252,8 @@ export function WorkspaceTabs({
                         ["files", "Files"],
                         ["graph", "Graph"],
                         ["all-changes", "All changes"],
+                        ["design", "Design"],
+                        ["agents", "Agents"],
                         ["prs", "Pull requests"],
                     ] as const
                 ).map(([kind, label]) => (
@@ -272,6 +280,7 @@ export function WorkspaceTabs({
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === activeId}
+                    compact={compact}
                     canClose={uniqueTabs.length > 1}
                     onSelect={onSelect}
                     onClose={onClose}

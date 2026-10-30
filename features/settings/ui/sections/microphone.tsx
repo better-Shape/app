@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useIsMounted } from "@/lib/ui/use-mounted";
 import { Button } from "@/components/ui/button";
 import { microphoneConstraints, microphoneErrorMessage, updateSettingSection, useSettings } from "@/lib/settings";
 import { SettingRow, SettingSection, SettingSelect } from "../shared/controls";
@@ -30,7 +31,10 @@ export function MicrophoneSettings() {
     const [listening, setListening] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const stopRef = useRef<(() => void) | null>(null);
-    const unavailable = typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia;
+    // Read after mount: the server has no navigator, so branching during render
+    // rendered one description on the server and another on the client.
+    const mounted = useIsMounted();
+    const unavailable = mounted && !navigator.mediaDevices?.getUserMedia;
 
     const refresh = useCallback(async () => {
         const next = await listMicrophones();

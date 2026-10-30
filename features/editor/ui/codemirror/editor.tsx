@@ -55,6 +55,9 @@ import {
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
+import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { getSettings } from "@/lib/settings";
+import { notify } from "@/features/notifications";
 import { getEditorOptionsFromSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
@@ -94,15 +97,6 @@ import {
  */
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
-
-// CodeMirror stores the document with `\n` breaks and `doc.toString()` always
-// emits `\n`, so a CRLF file would save as LF. Convert on the way out, and
-// compare against an LF-normalized baseline so a CRLF file is not reported
-// dirty the moment it opens.
-function toDiskText(text: string, eol: "LF" | "CRLF"): string {
-    const lf = text.replace(/\r\n/g, "\n");
-    return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
-}
 
 function sameIgnoringEol(a: string, b: string): boolean {
     return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
@@ -254,17 +248,25 @@ export function CodeMirrorEditor({
                 ...betterShapeEditorChrome(),
                 search({ top: false }),
                 lineNumbers(),
-                highlightActiveLineGutter(),
-                highlightActiveLine(),
+                ...(editorOptions.renderLineHighlight === "none"
+                    ? []
+                    : [
+                          ...(editorOptions.renderLineHighlight === "gutter" || editorOptions.renderLineHighlight === "all"
+                              ? [highlightActiveLineGutter()]
+                              : []),
+                          ...(editorOptions.renderLineHighlight === "line" || editorOptions.renderLineHighlight === "all"
+                              ? [highlightActiveLine()]
+                              : []),
+                      ]),
                 highlightSpecialChars(),
                 history(),
                 foldGutter({
                     openText: "▾",
                     closedText: "▸",
                 }),
-                drawSelection({ cursorBlinkRate: 1100 }),
+                drawSelection({ cursorBlinkRate: editorOptions.cursorBlinking === "solid" ? 0 : 1100 }),
                 dropCursor(),
-                scrollPastEnd(),
+                ...(editorOptions.scrollBeyondLastLine ? [scrollPastEnd()] : []),
                 EditorState.allowMultipleSelections.of(true),
                 indentCompartment.of([
                     EditorState.tabSize.of(tabSize),
@@ -282,18 +284,22 @@ export function CodeMirrorEditor({
                 rectangularSelection(),
                 crosshairCursor(),
                 highlightSelectionMatches({ highlightWordAroundCursor: true }),
-                indentationMarkers({
-                    highlightActiveBlock: true,
-                    markerType: "codeOnly",
-                    thickness: 1,
-                    activeThickness: 1.5,
-                    colors: {
-                        light: "rgba(0,0,0,0.08)",
-                        dark: "rgba(255,255,255,0.07)",
-                        activeLight: "rgba(0,0,0,0.18)",
-                        activeDark: "rgba(255,255,255,0.16)",
-                    },
-                }),
+                ...(editorOptions.guides.indentation
+                    ? [
+                          indentationMarkers({
+                              highlightActiveBlock: editorOptions.guides.highlightActiveIndentation,
+                              markerType: "codeOnly",
+                              thickness: 1,
+                              activeThickness: 1.5,
+                              colors: {
+                                  light: "rgba(0,0,0,0.08)",
+                                  dark: "rgba(255,255,255,0.07)",
+                                  activeLight: "rgba(0,0,0,0.18)",
+                                  activeDark: "rgba(255,255,255,0.16)",
+                              },
+                          }),
+                      ]
+                    : []),
                 keymap.of([
                     ...closeBracketsKeymap,
                     ...defaultKeymap,
@@ -333,6 +339,7 @@ export function CodeMirrorEditor({
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
                     void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
+                    scheduleAutosave(dirty);
                     scheduleBuffer(update.view);
                     if (update.view.hasFocus) publishStatus(update.view);
                     if (update.selectionSet || update.docChanged) publishSelection(update.view);
@@ -355,19 +362,13 @@ export function CodeMirrorEditor({
                     keydown(e) {
                         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
                             e.preventDefault();
-                            const view = viewRef.current;
-                            if (!view) return true;
-                            const text = view.state.doc.toString();
-                            void (async () => {
-                                try {
-                                    await commands.saveFile(pathRef.current, toDiskText(text, eol));
-                                } catch {
-                                    /* ignore */
-                                }
-                            })();
+                            void persistNow();
                             return true;
                         }
                         return false;
+                    },
+                    blur() {
+                        if (getSettings().editor.autoSave === "onFocusChange") void persistNow();
                     },
                 }),
             ],
@@ -376,6 +377,39 @@ export function CodeMirrorEditor({
         const view = new EditorView({ state, parent: host });
         viewRef.current = view;
         pathRef.current = path;
+
+        let autosaveTimer: number | null = null;
+        /** Writes the current buffer through the shared save pipeline. */
+        const persistNow = async () => {
+            const live = viewRef.current;
+            if (!live) return;
+            const doc = live.state.doc.toString();
+            try {
+                const written = await saveContents(pathRef.current, doc, eol);
+                if (written !== doc && viewRef.current === live && live.state.doc.toString() === doc) {
+                    live.dispatch({
+                        changes: { from: 0, to: doc.length, insert: written },
+                        annotations: externalContentUpdate.of(true),
+                    });
+                    setContentRef.current(written);
+                    publishBuffer(live);
+                }
+            } catch (error) {
+                notify.error("Save failed", error instanceof Error ? error.message : String(error));
+            }
+        };
+        const scheduleAutosave = (dirty: boolean) => {
+            if (autosaveTimer !== null) {
+                window.clearTimeout(autosaveTimer);
+                autosaveTimer = null;
+            }
+            const editorSettings = getSettings().editor;
+            if (!dirty || editorSettings.autoSave !== "afterDelay") return;
+            autosaveTimer = window.setTimeout(() => {
+                autosaveTimer = null;
+                void persistNow();
+            }, Math.max(250, editorSettings.autoSaveDelay));
+        };
         // Seed both consumers: the breadcrumb reads the buffer for its symbol
         // chain, and the status bar wants a caret position before the first key.
         publishBuffer(view);
@@ -408,14 +442,6 @@ export function CodeMirrorEditor({
             view.dispatch({ effects: setSearchQuery.of(query) });
             if (detail.nav === "next") findNext(view);
             if (detail.nav === "prev") findPrevious(view);
-            let count = 0;
-            if (detail.query && query.valid) {
-                const cursor = query.getCursor(view.state);
-                for (let step = cursor.next(); !step.done; step = cursor.next()) count += 1;
-            }
-            window.dispatchEvent(
-                new CustomEvent("bettershape-editor-search-count", { detail: { path: pathRef.current, count } }),
-            );
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
 
@@ -665,6 +691,7 @@ export function CodeMirrorEditor({
             view.dom.removeEventListener("pointerdown", markActive);
             if (activeView === view) activeView = null;
             if (bufferTimer !== null) window.clearTimeout(bufferTimer);
+            if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
             view.destroy();
             viewRef.current = null;
         };

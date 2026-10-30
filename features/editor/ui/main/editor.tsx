@@ -5,6 +5,8 @@ import { stageDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers
 import React, { useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
+import { useSettings } from "@/lib/settings";
+import { saveContents } from "@/lib/editor/save-pipeline";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -42,9 +44,10 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const isRasterImage = isImage && !isSvg;
     const isMarkdown = /\.(md|mdx|markdown)$/i.test(path);
     const isPlanFile = isPlanFilePath(path);
+    const imagePreviewEnabled = useSettings().editor.imagePreview;
     const defaultMode = isImage || isFont || isMarkdown ? "preview" : "raw";
-    const mode = getViewMode(path, defaultMode);
-    const showImagePreview = isImage && (mode === "preview" || mode === "split");
+    const mode = imagePreviewEnabled ? getViewMode(path, defaultMode) : getViewMode(path, "raw");
+    const showImagePreview = isImage && imagePreviewEnabled && (mode === "preview" || mode === "split");
     const showFontPreview = isFont && (mode === "preview" || mode === "split");
     const skipTextContent = isRasterImage || (isSvg && showImagePreview) || (isFont && showFontPreview);
 
@@ -282,7 +285,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
 
         const handleSave = async () => {
             try {
-                await commands.saveFile(path, content);
+                await saveContents(path, content);
             } catch (e) {
                 const { notify } = await import("@/features/notifications");
                 notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
@@ -346,6 +349,30 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
 
     if (showFontPreview) {
         return <FontView path={path.replace(/^diff:(un)?staged:/, "")} />;
+    }
+
+    if (isRasterImage && !imagePreviewEnabled) {
+        return (
+            <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 bg-editor px-6 text-center">
+                <p className="text-sm text-text-secondary">
+                    Image preview is off.
+                </p>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-settings-navigate", { detail: { category: "editor" } }),
+                        );
+                        void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
+                            openSettingsWindow({ category: "editor" }),
+                        );
+                    }}
+                >
+                    Open editor settings
+                </Button>
+            </div>
+        );
     }
 
     if (showImagePreview) {

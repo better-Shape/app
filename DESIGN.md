@@ -234,17 +234,15 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | Slider | `slider.tsx` | Radix slider |
 | Tabs | `tabs.tsx` | Radix tabs |
 | Dropdown, context | `dropdown.tsx`, `context.tsx` | Radix dropdown and context menus. Tokens `--menu-*` |
-| Morph menu | `morph-menu.tsx` | Legacy opt-in with no in-repo consumer. Do not use for command or keyboard menus. See `engineering/motion-design.md` |
 | Tooltip | `tooltip.tsx` | Radix tooltip, `--z-tooltip` 1200 |
 | Dialog and alert | `alert-dialog.tsx` | Radix alert dialog |
 | Notification | `notification.tsx` | Custom toast stack. `--z-notification` 1300 |
-| Search, combobox, quick pick | `search.tsx`, `combobox.tsx`, `quick-pick.tsx` | Command surfaces |
+| Search, quick pick | `search.tsx`, `quick-pick.tsx` | Command surfaces |
 | Scroll | `scroll.tsx` | Radix scroll area. Scrollbar `--scrollbar` |
-| Collapsible, disclosure | `collapsible.tsx`, `disclosure.tsx` | Expand and collapse |
 | Collapse | `collapse.tsx` | The container reveal. `0fr → 1fr` on `--reveal-dur`, closed branch `inert` |
 | Swap | `swap.tsx` | Cross-fades a value that was replaced in place, never a first render |
 | Copy | `copy-button.tsx` + `lib/ui/use-copy.ts` | The copy affordance. Awaits the write before it confirms, draws its check, and offers manual copy instead of a retry when the clipboard is denied |
-| Breadcrumb, sorting, checkmark | `breadcrumb.tsx`, `sorting.tsx`, `checkmark.tsx` | Small controls |
+| Breadcrumb, checkmark | `breadcrumb.tsx`, `checkmark.tsx` | Small controls |
 | Loading, shimmer text | `loading.tsx`, `shimmer-text.tsx` | Progress and pending states. `LoadingBar` waits out `useDelayedFlag` (200ms) so sub-200ms work shows nothing, then holds for 400ms |
 | Skeletons | `features/git/ui/shared/skeletons.tsx` | Placeholders read their row geometry from `row-shell.ts`, which the live rows import too |
 

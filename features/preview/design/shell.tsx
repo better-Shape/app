@@ -630,6 +630,11 @@ export function DesignStudio({
             try {
                 const info = await commands.inspectDesignProject(bootRoot);
                 if (cancelled) return;
+                if (!info) {
+                    setBootError("This project could not be inspected. Open a folder that contains a package.json, then try again.");
+                    setBooting(false);
+                    return;
+                }
                 setFramework(info.framework);
                 setDesignerRoot(info.projectRoot);
                 if (!info.supported) {

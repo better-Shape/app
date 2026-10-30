@@ -5,16 +5,7 @@ import { DEFAULT_EDITOR_STATUS, type EditorStatus } from "../types";
 
 export function useEditorStatus() {
     const [editorStatus, setEditorStatus] = useState<EditorStatus>(DEFAULT_EDITOR_STATUS);
-    const [typescriptVersion, setTypescriptVersion] = useState<string | null>(null);
 
-    useEffect(() => {
-        const onTs = (e: Event) => {
-            const version = (e as CustomEvent<string>).detail;
-            if (version) setTypescriptVersion(version);
-        };
-        window.addEventListener("bettershape-typescript-version", onTs as EventListener);
-        return () => window.removeEventListener("bettershape-typescript-version", onTs as EventListener);
-    }, []);
 
     useEffect(() => {
         const onUpdate = (event: Event) => {
@@ -25,7 +16,7 @@ export function useEditorStatus() {
         return () => window.removeEventListener("bettershape-editor-status", onUpdate as EventListener);
     }, []);
 
-    return { editorStatus, typescriptVersion };
+    return { editorStatus };
 }
 
 export function dispatchEditorAction(action: string, detail?: Record<string, unknown>) {
