@@ -71,6 +71,13 @@ export function getWorkspaceRoots(primaryPath: string | null): string[] {
     return roots;
 }
 
+/** True when two paths point at the same folder, ignoring separators, trailing slashes and case. */
+export function isSameWorkspacePath(a: string, b: string): boolean {
+    const left = normalizePath(a).toLowerCase();
+    const right = normalizePath(b).toLowerCase();
+    return left.length > 0 && left === right;
+}
+
 export function workspaceFolderLabel(path: string): string {
     const parts = normalizePath(path).split("/").filter(Boolean);
     return parts[parts.length - 1] || path;

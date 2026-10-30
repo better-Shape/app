@@ -70,7 +70,8 @@ import {
     type ReportCategory,
 } from "@/lib/feedback/report";
 
-function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
+/** Exported so the row wiring can be tested without mounting the whole settings shell. */
+export function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
     const e = settings.editor;
     const f = settings.files;
     return (
@@ -96,6 +97,23 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={e.fontLigatures}
                     onChange={(v) => updateSettingSection("editor", { fontLigatures: v })}
+                />
+            </SettingRow>
+            <SettingRow title="Render whitespace" description="Show spaces and tabs, so mixed indentation is visible.">
+                <SettingSelect
+                    value={e.renderWhitespace}
+                    options={[
+                        { value: "none", label: "None" },
+                        { value: "selection", label: "Selection" },
+                        { value: "trailing", label: "Trailing" },
+                        { value: "boundary", label: "Boundary" },
+                        { value: "all", label: "All" },
+                    ]}
+                    onChange={(v) =>
+                        updateSettingSection("editor", {
+                            renderWhitespace: v as BetterShapeSettings["editor"]["renderWhitespace"],
+                        })
+                    }
                 />
             </SettingRow>
             <SettingRow title="Word wrap">
@@ -166,6 +184,24 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={settings.prettier.enable}
                     onChange={(v) => updateSettingSection("prettier", { enable: v })}
+                />
+            </SettingRow>
+            <SettingRow
+                title="Missing tooling"
+                description="What to do when the project has no local Prettier."
+            >
+                <SettingSelect
+                    value={settings.workspace.toolingInstall}
+                    options={[
+                        { value: "prompt", label: "Ask" },
+                        { value: "auto", label: "Install automatically" },
+                        { value: "off", label: "Only report" },
+                    ]}
+                    onChange={(v) =>
+                        updateSettingSection("workspace", {
+                            toolingInstall: v as BetterShapeSettings["workspace"]["toolingInstall"],
+                        })
+                    }
                 />
             </SettingRow>
             <SettingRow title="Format on save">

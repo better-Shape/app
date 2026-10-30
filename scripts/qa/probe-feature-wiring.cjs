@@ -213,6 +213,49 @@ async function isSwitchOn(locator) {
   await page.locator("[role=menu]").getByText("Line", { exact: true }).first().click();
   await page.waitForTimeout(300);
 
+  // 8. Render whitespace: the row must reach the live editor's decorations,
+  //    not only the settings object. `highlightWhitespace` marks every space
+  //    and tab with `cm-highlightSpace`, so the count is the proof.
+  await page.goto(`${BASE_URL}/settings?category=editor`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: /^Render whitespace/ }).click();
+  await page.waitForTimeout(300);
+  await page.locator("[role=menu]").getByText("All", { exact: true }).first().click();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(SHOTS, "settings-render-whitespace.png"), fullPage: false });
+
+  await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(3000);
+  await page.getByRole("button", { name: "New tab" }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("menuitem", { name: "Files" }).first().click();
+  await page.waitForTimeout(1200);
+  await page.locator('[data-explorer-root="true"]').getByText("README.md", { exact: true }).first().click();
+  await page.waitForTimeout(1500);
+  const whitespace = await page.locator(".cm-highlightSpace").count();
+  assert.ok(whitespace > 0, `Render whitespace left the editor unchanged (${whitespace} markers)`);
+  await page.screenshot({ path: path.join(SHOTS, "editor-render-whitespace.png"), fullPage: false });
+
+  // 9. Bracket colors: typing nested brackets must produce a second colour
+  //    step on the inner pair. The edit is undone before the probe moves on.
+  await page.locator(".cm-line").last().click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" nested(call(inner(value))) ");
+  await page.waitForTimeout(600);
+  const bracketColors = await page.locator('[class*="cm-bracket-depth-"]').count();
+  assert.ok(bracketColors >= 2, `Bracket colors drew ${bracketColors} marks for nested brackets`);
+  await page.screenshot({ path: path.join(SHOTS, "editor-bracket-colors.png"), fullPage: false });
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(400);
+
+  // Leave Render whitespace as it was found.
+  await page.goto(`${BASE_URL}/settings?category=editor`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /^Render whitespace/ }).click();
+  await page.waitForTimeout(300);
+  await page.locator("[role=menu]").getByText("Selection", { exact: true }).first().click();
+  await page.waitForTimeout(300);
+
   // Leave the setting as it was found.
   await page.goto(`${BASE_URL}/settings?category=privacy`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(1500);
@@ -224,7 +267,7 @@ async function isSwitchOn(locator) {
 
   await browser.close();
   console.log(
-    `probe passed: linting switches, dependent disable state, welcome gating, extra workspace roots and inline blame (${SHOTS})`,
+    `probe passed: linting switches, dependent disable state, welcome gating, extra workspace roots, inline blame, render whitespace and bracket colors (${SHOTS})`,
   );
 })().catch((error) => {
   console.error(error);

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
     prettier: vi.fn(),
+    install: vi.fn(),
     eslint: vi.fn(),
     save: vi.fn(),
     project: "/project",
@@ -13,6 +14,7 @@ vi.mock("@/lib/backend", () => ({
         prettierFormatFile: backend.prettier,
         eslintLintFile: backend.eslint,
         saveFile: backend.save,
+        npmInstall: backend.install,
     },
 }));
 
@@ -23,6 +25,7 @@ const settings = vi.hoisted(() => ({
     prettier: true,
     eslint: false,
     eslintFix: false,
+    tooling: "off" as "off" | "prompt" | "auto",
 }));
 
 vi.mock("@/lib/settings", () => ({
@@ -30,6 +33,7 @@ vi.mock("@/lib/settings", () => ({
         editor: { ...settings },
         prettier: { enable: settings.prettier },
         eslint: { enable: settings.eslint, fixOnSave: settings.eslintFix },
+        workspace: { toolingInstall: settings.tooling },
     }),
 }));
 
@@ -52,6 +56,32 @@ describe("save pipeline", () => {
         backend.prettier.mockReset();
         backend.eslint.mockReset().mockResolvedValue({ diagnostics: [], content: null });
         backend.save.mockReset().mockResolvedValue(undefined);
+        settings.tooling = "off";
+        backend.install.mockReset().mockResolvedValue(undefined);
+    });
+
+    it("installs Prettier when the project has none and tooling install is automatic", async () => {
+        settings.formatOnSave = true;
+        settings.tooling = "auto";
+        backend.prettier.mockRejectedValue(
+            new Error("Prettier failed: npm error could not determine executable to run"),
+        );
+
+        await expect(formatForSave("src/a.ts", "const a = 1;")).resolves.toBe("const a = 1;");
+
+        await vi.waitFor(() => {
+            expect(backend.install).toHaveBeenCalledWith("/project", "prettier", true);
+        });
+    });
+
+    it("keeps a real formatting failure away from the installer", async () => {
+        settings.formatOnSave = true;
+        settings.tooling = "auto";
+        backend.prettier.mockRejectedValue(new Error("Prettier failed: SyntaxError: Unexpected token"));
+
+        await formatForSave("src/a.ts", "const a = ;");
+
+        expect(backend.install).not.toHaveBeenCalled();
     });
 
     it("adds the missing final newline", () => {

@@ -79,6 +79,35 @@ describe("explorer extra workspace roots", () => {
         expect(host.textContent).not.toContain("shared.ts");
     });
 
+    it("applies the file filter to folders added to the workspace", async () => {
+        localStorage.setItem(FOLDERS_KEY, JSON.stringify(["/shared"]));
+        await renderTree();
+        expect(host.textContent).toContain("shared.ts");
+
+        const filter = host.querySelector<HTMLInputElement>('input[aria-label="Filter files"]');
+        expect(filter).not.toBeNull();
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+                filter,
+                "zzz",
+            );
+            filter!.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+
+        expect(host.textContent).not.toContain("shared.ts");
+        // The root row stays so the folder is still visible and removable.
+        expect(host.textContent).toContain("shared");
+    });
+
+    it("does not draw the project folder again when it is added to the workspace", async () => {
+        localStorage.setItem(FOLDERS_KEY, JSON.stringify(["/repo/"]));
+        await renderTree();
+
+        expect(host.querySelector('button[aria-label="Remove repo from the workspace"]')).toBeNull();
+        expect(backend.lsDir).not.toHaveBeenCalledWith("/repo/");
+        expect(host.textContent).toContain("src");
+    });
+
     it("shows the reason a folder could not be read instead of failing the tree", async () => {
         localStorage.setItem(FOLDERS_KEY, JSON.stringify(["/broken"]));
         backend.lsDir.mockImplementationOnce(async (path: string) => {

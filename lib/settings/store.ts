@@ -84,7 +84,6 @@ export interface BetterShapeSettings {
         scrollBeyondLastLine: boolean;
         renderLineHighlight: "none" | "gutter" | "line" | "all";
         showIndentGuides: boolean;
-        showBracketGuides: boolean;
         imagePreview: boolean;
         compactTabs: boolean;
     };
@@ -248,7 +247,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         scrollBeyondLastLine: true,
         renderLineHighlight: "line",
         showIndentGuides: true,
-        showBracketGuides: true,
         imagePreview: true,
         compactTabs: false,
     },
@@ -1140,8 +1138,6 @@ export function getEditorOptionsFromSettings(settings: BetterShapeSettings = get
         guides: {
             indentation: settings.editor.showIndentGuides,
             highlightActiveIndentation: settings.editor.showIndentGuides,
-            bracketPairs: settings.editor.showBracketGuides,
-            bracketPairsHorizontal: settings.editor.showBracketGuides,
         },
     };
 }

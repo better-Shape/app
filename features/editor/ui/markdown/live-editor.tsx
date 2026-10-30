@@ -13,6 +13,7 @@ import { TextUnderline20Regular } from "@fluentui/react-icons/headless/svg/text-
 
 import { useEffect, useRef, useState } from "react";
 import {
+    Compartment,
     EditorSelection,
     EditorState,
     StateEffect,
@@ -28,7 +29,6 @@ import {
     ViewPlugin,
     type ViewUpdate,
     WidgetType,
-    drawSelection,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { openSearchPanel, search, searchKeymap, SearchQuery, setSearchQuery } from "@codemirror/search";
@@ -47,6 +47,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { betterShapeEditorChrome } from "../codemirror/theme";
+import { optionExtensions } from "../codemirror/options";
+import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
 
 /*
  * Markdown that reads like a document while you type: markup is hidden on
@@ -597,7 +599,6 @@ function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): 
     return [
         markdown({ base: markdownLanguage }),
         history(),
-        drawSelection({ cursorBlinkRate: 1100 }),
         EditorView.lineWrapping,
         ...(raw
             ? betterShapeEditorChrome()
@@ -653,10 +654,15 @@ export function MarkdownLiveEditor({
     useEffect(() => {
         const host = hostRef.current;
         if (!host) return;
+        // Settings -> Editor applies to this editor too: a font ligature or a
+        // whitespace marker that the code editor honours and the document
+        // editor ignores is a setting that works on some files only.
+        const optionCompartment = new Compartment();
         const view = new EditorView({
             state: EditorState.create({
                 doc: contentRef.current,
                 extensions: [
+                    optionCompartment.of(optionExtensions(getEditorOptionsFromSettings())),
                     ...liveMarkdownExtensions((doc) => {
                         lastEmitted.current = doc;
                         onChangeRef.current(doc);
@@ -716,7 +722,15 @@ export function MarkdownLiveEditor({
             openSearchPanel(view);
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
+        const unsubscribeSettings = subscribeSettings(() => {
+            view.dispatch({
+                effects: optionCompartment.reconfigure(
+                    optionExtensions(getEditorOptionsFromSettings()),
+                ),
+            });
+        });
         return () => {
+            unsubscribeSettings();
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             view.destroy();
             viewRef.current = null;

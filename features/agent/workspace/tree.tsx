@@ -16,6 +16,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
 import {
     getExtraWorkspaceFolders,
+    isSameWorkspacePath,
     removeWorkspaceFolder,
     workspaceFolderLabel,
 } from "@/lib/workspace/folders";
@@ -77,6 +78,16 @@ const trimTrailingSlashes = (value: string): string => {
     let end = value.length;
     while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
     return value.slice(0, end);
+};
+
+/**
+ * Applies the header filter to one level of the tree. Folders stay visible so a
+ * match deeper down can still be reached; files have to match by name.
+ */
+const filterEntries = (entries: FileEntry[], query: string): FileEntry[] => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return entries;
+    return entries.filter((entry) => entry.is_dir || entry.name.toLowerCase().includes(needle));
 };
 
 /** Resolves an explorer entry path relative to the workspace root when nested inside it. */
@@ -521,11 +532,7 @@ export const FileTree = ({
     const [query, setQuery] = useState("");
     const [statusByPath, setStatusByPath] = useState<Map<string, string>>(() => new Map());
     const title = projectPath.replace(/(?<![\\/])[\\/]+$/, "").split(/[\\/]/).pop() || projectPath;
-    const shown = useMemo(() => {
-        const needle = query.trim().toLowerCase();
-        if (!needle) return roots;
-        return roots.filter((entry) => entry.is_dir || entry.name.toLowerCase().includes(needle));
-    }, [query, roots]);
+    const shown = filterEntries(roots, query);
 
     const [refreshTick, setRefreshTick] = useState(0);
     useEffect(() => {
@@ -539,7 +546,9 @@ export const FileTree = ({
     }, []);
 
     useEffect(() => {
-        const paths = getExtraWorkspaceFolders();
+        // A folder the user adds twice, or the project folder itself, would draw a
+        // second tree for files that are already listed above it.
+        const paths = getExtraWorkspaceFolders().filter((path) => !isSameWorkspacePath(path, projectPath));
         let cancelled = false;
         void Promise.all(
             paths.map(async (path): Promise<ExtraRoot> => {
@@ -561,7 +570,7 @@ export const FileTree = ({
         return () => {
             cancelled = true;
         };
-    }, [refreshTick]);
+    }, [refreshTick, projectPath]);
 
     // The tree's own clipboard: which row the keyboard acts on, what is cut
     // (drawn dimmed), and the last refusal so it can be shown instead of
@@ -724,51 +733,56 @@ export const FileTree = ({
                             onClipboard={runClipboard}
                         />
                     ))}
-                    {extraRoots.map((root) => (
-                        <section key={root.path} aria-label={workspaceFolderLabel(root.path)} className="mt-3">
-                            <div className="group flex h-7 items-center gap-1.5 rounded-md pl-2 pr-1 text-text-muted hover:bg-[var(--row-hover)]">
-                                <Icon icon={Folder20Regular} className="icon-sm shrink-0" />
-                                <span
-                                    className="min-w-0 flex-1 truncate text-xs font-medium text-text-secondary"
-                                    title={root.path}
-                                >
-                                    {workspaceFolderLabel(root.path)}
-                                </span>
-                                <button
-                                    type="button"
-                                    aria-label={`Remove ${workspaceFolderLabel(root.path)} from the workspace`}
-                                    onClick={() => removeWorkspaceFolder(root.path)}
-                                    className="flex size-5 shrink-0 items-center justify-center rounded text-text-muted opacity-0 outline-none transition-opacity hover:text-text-primary focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-border-focus group-hover:opacity-100"
-                                >
-                                    <Icon icon={Dismiss20Regular} className="icon-sm" />
-                                </button>
-                            </div>
-                            {root.error ? (
-                                <div className="px-2 py-1 text-xs text-error">{root.error}</div>
-                            ) : root.entries.length === 0 ? (
-                                <div className="px-2 py-1 text-xs text-text-muted">Empty folder</div>
-                            ) : (
-                                root.entries.map((entry) => (
-                                    <TreeNode
-                                        key={entry.path}
-                                        entry={entry}
-                                        depth={0}
-                                        projectPath={root.path}
-                                        activePath={activePath}
-                                        query={query}
-                                        onOpenFile={onOpenFile}
-                                        statusFor={statusFor}
-                                        revealDir={revealDir}
-                                        revealPath={revealPath}
-                                        selectedPath={selected?.path ?? null}
-                                        cutPaths={cutPaths}
-                                        onSelect={select}
-                                        onClipboard={runClipboard}
-                                    />
-                                ))
-                            )}
-                        </section>
-                    ))}
+                    {extraRoots.map((root) => {
+                        const filtered = filterEntries(root.entries, query);
+                        return (
+                            <section key={root.path} aria-label={workspaceFolderLabel(root.path)} className="mt-3">
+                                <div className="group flex h-7 items-center gap-1.5 rounded-md pl-2 pr-1 text-text-muted hover:bg-[var(--row-hover)]">
+                                    <Icon icon={Folder20Regular} className="icon-sm shrink-0" />
+                                    <span
+                                        className="min-w-0 flex-1 truncate text-xs font-medium text-text-secondary"
+                                        title={root.path}
+                                    >
+                                        {workspaceFolderLabel(root.path)}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        aria-label={`Remove ${workspaceFolderLabel(root.path)} from the workspace`}
+                                        onClick={() => removeWorkspaceFolder(root.path)}
+                                        className="flex size-5 shrink-0 items-center justify-center rounded text-text-muted opacity-0 outline-none transition-opacity hover:text-text-primary focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-border-focus group-hover:opacity-100"
+                                    >
+                                        <Icon icon={Dismiss20Regular} className="icon-sm" />
+                                    </button>
+                                </div>
+                                {root.error ? (
+                                    <div className="px-2 py-1 text-xs text-error">{root.error}</div>
+                                ) : filtered.length === 0 ? (
+                                    query.trim() ? null : (
+                                        <div className="px-2 py-1 text-xs text-text-muted">Empty folder</div>
+                                    )
+                                ) : (
+                                    filtered.map((entry) => (
+                                        <TreeNode
+                                            key={entry.path}
+                                            entry={entry}
+                                            depth={0}
+                                            projectPath={root.path}
+                                            activePath={activePath}
+                                            query={query}
+                                            onOpenFile={onOpenFile}
+                                            statusFor={statusFor}
+                                            revealDir={revealDir}
+                                            revealPath={revealPath}
+                                            selectedPath={selected?.path ?? null}
+                                            cutPaths={cutPaths}
+                                            onSelect={select}
+                                            onClipboard={runClipboard}
+                                        />
+                                    ))
+                                )}
+                            </section>
+                        );
+                    })}
                 </div>
             </div>
         </div>

@@ -3,6 +3,7 @@
 import { commands, getProjectPath } from "@/lib/backend";
 import { notify } from "@/features/notifications";
 import { getSettings } from "@/lib/settings";
+import { isMissingPrettierFailure, offerPrettierInstall } from "@/lib/editor/tooling-install";
 
 /**
  * Editor settings that change the bytes a save writes.
@@ -70,6 +71,14 @@ export async function formatForSave(path: string, text: string): Promise<string>
         // like it worked. Report each distinct failure once: autosave repeats the
         // same broken file every few hundred milliseconds.
         const reason = error instanceof Error ? error.message : String(error);
+        if (isMissingPrettierFailure(reason)) {
+            // Not a formatting problem: the project has no Prettier. The tooling
+            // preference decides between installing it, offering to, or only
+            // saying so, and it dedupes the message per project.
+            void offerPrettierInstall(getProjectPath() ?? "");
+            lastFormatFailure = `${path}\u0000${reason}`;
+            return text;
+        }
         const signature = `${path}\u0000${reason}`;
         if (signature !== lastFormatFailure) {
             lastFormatFailure = signature;

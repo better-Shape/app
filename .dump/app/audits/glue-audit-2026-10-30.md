@@ -679,3 +679,95 @@ touched:
   thirteen samples before replacing them.
 
 The audit still reports 535 modules, 0 orphans, 3 test-only; full suite 2830.
+
+## Round 7 — features finished, and the bugs found while finishing them
+
+Each item states the defect found, the fix, and the evidence that fails before it
+and passes after it.
+
+### 7.1 `workspace.toolingInstall` had no reader (dead setting, silent failure)
+
+A project without a local Prettier made `prettier_format_file` fail, and
+`formatForSave` swallowed the cause into "Format on save skipped" with the raw
+`npx` error. The preference that exists for exactly this case was never read.
+
+Fix: `lib/editor/tooling-install.ts` classifies the `npx --no-install` failure
+narrowly (`isMissingPrettierFailure`), then `auto` installs `prettier` as a dev
+dependency, `prompt` offers the install as a toast action, and `off` reports the
+command to run. One install per project at a time; one offer per project.
+A real formatting error never reaches the installer, so a broken file cannot
+trigger a package install.
+
+Evidence: `tests/editor/tooling-install.test.ts` (7), two new cases in
+`tests/editor/save-pipeline.test.ts` proving delegation and non-delegation, and
+a new Settings row ("Missing tooling", Editor -> Saving) covered by the same
+component test harness as the rest of the editor page.
+
+### 7.2 `renderWhitespace` rendered a control nowhere
+
+The editor honoured `all`/`trailing`/`boundary`, but Settings had no row, so the
+only way to reach it was to hand-edit the settings file.
+
+Fix: an Editor -> Text row with the five modes the store defines (`selection` is
+listed honestly: CodeMirror has no selection-scoped decorator, so it draws
+nothing). Evidence: `tests/settings/editor-render-whitespace.test.tsx`
+(trigger wiring, menu pick, store write) and probe step 8, which picks All on the
+real settings page and then asserts `.cm-highlightSpace` on the live editor.
+
+### 7.3 The Markdown editor ignored every Editor setting
+
+`highlightWhitespace`, ligatures, cursor style, cursor blink, scroll-past-end,
+line highlight and indent guides were wired only into `editor.tsx`. Opening a
+Markdown file dropped all of them — the settings worked on some files only.
+
+Fix: `optionExtensions` and `cursorStyleFor` moved to
+`features/editor/ui/codemirror/options.ts` and used by both editors, each with
+its own compartment and a `subscribeSettings` reconfigure.
+Evidence: `tests/editor/markdown-editor-options.test.tsx` — marks appear on
+mount, stay absent when the setting is off, and appear on an already-open
+document when the setting flips; probe step 8 photographs the dots in the
+Markdown view.
+
+### 7.4 `editor.bracketPairColorization` was a switch that changed nothing
+
+The row ("Bracket colors") wrote a key nobody read, and the mapper advertised
+`guides.bracketPairs` for a renderer CodeMirror does not ship.
+
+Fix: a real depth coloriser (`features/editor/ui/codemirror/bracket-colors.ts`):
+`bracketMarks` computes depth per bracket, a `StateField` reindexes only when the
+document changes, a `ViewPlugin` decorates just the visible ranges, brackets
+inside strings/comments/regexps are skipped through the syntax tree, text over
+200k characters keeps the plain colour, and level 0 is left to the syntax
+highlight so a file without nesting looks exactly as it did before.
+The phantom `guides.bracketPairs` / `showBracketGuides` pair is gone; the mapper
+test now asserts the absence instead of the old dead key.
+
+Evidence: `tests/editor/bracket-colors.test.ts` (7 depth cases),
+two cases in `tests/editor/markdown-editor-options.test.tsx`, and probe step 9,
+which types nested brackets into the live editor, asserts a second colour step,
+and undoes the edit.
+
+### 7.5 The explorer's filter and multi-root listing disagreed
+
+Two real defects in the "Add Folder to Workspace" surface added earlier in this
+branch:
+
+- The header filter applied to the project tree only; typing a filter hid
+  project files and left every extra root fully expanded.
+- Adding the project folder itself listed the same files twice, under a second
+  heading, because nothing compared the extra root with the primary one.
+
+Fix: one `filterEntries` used for both levels; `isSameWorkspacePath` (new, in
+`lib/workspace/folders.ts`) drops an extra root that points at the project.
+Evidence: two new cases in `tests/workspace/explorer-extra-roots.test.tsx` and a
+new `tests/workspace/folders.test.ts` (10 cases) for normalisation, dedupe,
+primary-first ordering, corrupt storage, and path equality.
+
+### 7.6 Gates after Round 7
+
+`npm run lint:strict` clean, `npm run typecheck` clean, `npx vitest run`
+2865/2865 across 273 files, `npm run skills:verify` 53/53 locked skills,
+`npm audit --audit-level=high` 0 vulnerabilities, and
+`scripts/qa/probe-feature-wiring.cjs` green over nine steps on the browser
+preview build (`settings-render-whitespace.png`, `editor-render-whitespace.png`,
+`editor-bracket-colors.png`).

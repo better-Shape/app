@@ -8,16 +8,10 @@ import {
     EditorView,
     keymap,
     lineNumbers,
-    highlightActiveLine,
-    highlightActiveLineGutter,
     highlightSpecialChars,
-    highlightTrailingWhitespace,
-    highlightWhitespace,
-    drawSelection,
     dropCursor,
     rectangularSelection,
     crosshairCursor,
-    scrollPastEnd,
 } from "@codemirror/view";
 import {
     defaultKeymap,
@@ -54,7 +48,7 @@ import {
     closeBracketsKeymap,
     completionKeymap,
 } from "@codemirror/autocomplete";
-import { indentationMarkers } from "@replit/codemirror-indentation-markers";
+import { optionExtensions } from "@/features/editor/ui/codemirror/options";
 import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
@@ -99,77 +93,6 @@ import {
  * The most recently focused CodeMirror view. Menu/shortcut "editor actions"
  * target this one, so a split view never edits the wrong buffer.
  */
-
-/** Draws CodeMirror's caret element as the cursor style the setting names. */
-function cursorStyleFor(style: string): Record<string, string> {
-    switch (style) {
-        case "block":
-            return { borderLeftColor: "transparent", background: "currentColor", width: "0.65em", opacity: "0.55" };
-        case "block-outline":
-            return { border: "1px solid currentColor", borderLeftColor: "currentColor", width: "0.65em", opacity: "0.7" };
-        case "underline":
-            return { borderLeftColor: "transparent", borderBottom: "2px solid currentColor", height: "0" };
-        case "underline-thin":
-            return { borderLeftColor: "transparent", borderBottom: "1px solid currentColor", height: "0" };
-        case "line-thin":
-            return { borderLeftWidth: "1px" };
-        default:
-            return { borderLeftWidth: "2px" };
-    }
-}
-
-/**
- * Extensions that mirror Settings -> Editor and can change while a file is
- * open. They live in a compartment so a settings change reconfigures the live
- * editor instead of waiting for the file to be reopened.
- */
-const optionExtensions = (options: ReturnType<typeof getEditorOptionsFromSettings>) => [
-    // Render whitespace: CodeMirror has "all" and "trailing" decorators, and no
-    // selection-scoped one, so "selection" is the same as off rather than a lie
-    // about a decoration that does not exist.
-    ...(options.renderWhitespace === "all"
-        ? [highlightWhitespace()]
-        : options.renderWhitespace === "trailing" || options.renderWhitespace === "boundary"
-          ? [highlightTrailingWhitespace()]
-          : []),
-    // Font ligatures and the scroll feel come from the settings the font is
-    // drawn with, so they belong on the same compartment as the sizes.
-    EditorView.theme({
-        "&": { fontFeatureSettings: options.fontLigatures ? '"liga" 1, "calt" 1' : '"liga" 0, "calt" 0' },
-        ".cm-scroller": { scrollBehavior: options.smoothScrolling ? "smooth" : "auto" },
-        // The caret glyphs CodeMirror ships are a thin left border; a block and
-        // an underline are the same element drawn differently.
-        ".cm-cursor": cursorStyleFor(options.cursorStyle),
-    }),
-    ...(options.renderLineHighlight === "none"
-        ? []
-        : [
-              ...(options.renderLineHighlight === "gutter" || options.renderLineHighlight === "all"
-                  ? [highlightActiveLineGutter()]
-                  : []),
-              ...(options.renderLineHighlight === "line" || options.renderLineHighlight === "all"
-                  ? [highlightActiveLine()]
-                  : []),
-          ]),
-    drawSelection({ cursorBlinkRate: options.cursorBlinking === "solid" ? 0 : 1100 }),
-    ...(options.scrollBeyondLastLine ? [scrollPastEnd()] : []),
-    ...(options.guides.indentation
-        ? [
-              indentationMarkers({
-                  highlightActiveBlock: options.guides.highlightActiveIndentation,
-                  markerType: "codeOnly",
-                  thickness: 1,
-                  activeThickness: 1.5,
-                  colors: {
-                      light: "rgba(0,0,0,0.08)",
-                      dark: "rgba(255,255,255,0.07)",
-                      activeLight: "rgba(0,0,0,0.18)",
-                      activeDark: "rgba(255,255,255,0.16)",
-                  },
-              }),
-          ]
-        : []),
-];
 
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
