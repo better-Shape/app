@@ -48,7 +48,7 @@ Use the spatial token only when the view travels or changes a large region. Use 
 - During resize or drag, update directly. Do not put a transition on the value being controlled by the pointer. A short settle after release is optional only if it clarifies the final snapped state.
 - Tabs identify the selected location with the indicator. Do not animate the tab panel itself on each selection.
 
-Current examples include `features/agent/sidebar/index.tsx`, `features/agent/layout.tsx`, `features/agent/terminal-dock.tsx`, `features/chat/ui/blocks/carousel.module.css`, `features/chat/ui/blocks/browse-frame.tsx`, the live reduced-motion handling in `features/chat/ui/composer/input.tsx`, the empty-chat positioning in `features/chat/ui/chat.tsx`, and `components/ui/tabs.tsx`.
+Current examples include `features/agent/sidebar/index.tsx`, `features/agent/layout.tsx`, `features/agent/terminal-dock.tsx`, `features/chat/ui/blocks/browse-frame.tsx`, the live reduced-motion handling in `features/chat/ui/composer/input.tsx`, the empty-chat positioning in `features/chat/ui/chat.tsx`, and `components/ui/tabs.tsx`.
 
 ## Input, frequency, and interruption
 

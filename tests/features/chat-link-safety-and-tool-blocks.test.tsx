@@ -18,7 +18,6 @@ import { QuestionsCard } from "@/features/chat/ui/blocks/questions";
 import { PluginActivityCard } from "@/features/chat/ui/blocks/plugin-card";
 import { WebSearchBlock } from "@/features/chat/ui/blocks/search";
 import { ReviewDebatePanel } from "@/features/chat/ui/blocks/debate";
-import { CodebaseAnalysis } from "@/features/chat/ui/blocks/analysis";
 import { SentFileCard } from "@/features/chat/ui/blocks/sent-file";
 import { detectPendingHitl } from "@/features/chat/ui/chat";
 import { CHAT_EXPAND_FOR_FIND_EVENT } from "@/features/chat/ui/shell/find-bar";
@@ -244,7 +243,7 @@ describe("PluginActivityCard pending arg inspection, WebSearchBlock fallback, Re
         expect(allowSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("caches failed CDN brand icons in WebSearchBlock and wires ReviewDebatePanel, CodebaseAnalysis, and SentFileCard cleanly", () => {
+    it("caches failed CDN brand icons in WebSearchBlock and wires ReviewDebatePanel and SentFileCard cleanly", () => {
         const el = mount(
             <div data-chat-message-index={1}>
                 <WebSearchBlock
@@ -258,7 +257,6 @@ describe("PluginActivityCard pending arg inspection, WebSearchBlock fallback, Re
                     ]}
                 />
                 <ReviewDebatePanel content="### Verdict\nAll security and motion checks passed cleanly across blocks." />
-                <CodebaseAnalysis items={[{ type: "file", label: "features/chat/ui/chat.tsx" }]} />
                 <SentFileCard name="audit-report.md" mime="text/markdown" src="blob:test" />
             </div>,
         );
