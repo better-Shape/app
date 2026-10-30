@@ -122,7 +122,8 @@ const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
     });
 };
 
-function MentionRichText({ text }: { text: string }) {
+/** Renders the MentionRichText UI component. */
+const MentionRichText = ({ text }: { text: string }) => {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
     const slashRs = slashCommandRanges(text, workflows);
@@ -316,7 +317,7 @@ function parseForkedFrom(content: string): { id: string; title: string; rest: st
 }
 
 /** Extract display-only prefixes once so rendering and copying share the same message body. */
-function extractPresentationMetadata(content: string) {
+const extractPresentationMetadata = (content: string) => {
     let rest = content;
     let forked: ReturnType<typeof parseForkedFrom> = null;
     let renamed: ReturnType<typeof parseChatRenamed> = null;
@@ -336,26 +337,34 @@ function extractPresentationMetadata(content: string) {
         break;
     }
     return { content: rest, forked, renamed };
-}
+};
 
-/** Format user text and attachment names for the message copy action. */
-function userMessageCopyText(content: string): string {
+/** Formats user text and attachment names for the message copy action. */
+const userMessageCopyText = (content: string): string => {
     const parts = parseUserAttachments(content);
     const names = parts.attachments.map((attachment) => attachment.name).join(", ");
     if (names && parts.text) return `${parts.text}\n\n[${names}]`;
     if (names) return `[${names}]`;
     return parts.text || content;
-}
+};
 
-/** Copy rendered text for rich assistant chunks when its visible DOM is available. */
-function assistantMessageCopyText(content: string, body: HTMLDivElement | null): string {
+/** Checks whether rich assistant metadata or non-OpenUI blocks prefer live rendered DOM copy text. */
+const shouldPreferRenderedAssistantCopy = (
+    metadata: ReturnType<typeof extractPresentationMetadata>,
+    chunks: ReturnType<typeof parseMessageContent>,
+): boolean =>
+    Boolean(metadata.forked || metadata.renamed) ||
+    chunks.some((chunk) => chunk.type !== "text" && chunk.type !== "openui");
+
+/** Copies rendered text for rich assistant chunks when its visible DOM is available. */
+const assistantMessageCopyText = (
+    content: string,
+    body: HTMLDivElement | null,
+): string => {
     const metadata = extractPresentationMetadata(content);
     const chunks = parseMessageContent(metadata.content);
     const renderedText = body?.innerText || body?.textContent || undefined;
-    const hasRendererOnlyChunks = chunks.some(
-        (chunk) => chunk.type !== "text" && chunk.type !== "openui",
-    );
-    if ((metadata.forked || metadata.renamed || hasRendererOnlyChunks) && renderedText?.trim()) {
+    if (shouldPreferRenderedAssistantCopy(metadata, chunks) && renderedText?.trim()) {
         return renderedText;
     }
     const openUIText = Array.from(
@@ -363,12 +372,17 @@ function assistantMessageCopyText(content: string, body: HTMLDivElement | null):
         (element) => element.innerText || element.textContent || "",
     );
     return getMessageCopyText(chunks, openUIText, renderedText);
-}
+};
 
-/** Select the role-specific text fallback used by clipboard and context-menu actions. */
-function messageCopyText(role: string, content: string, body: HTMLDivElement | null): string {
-    return role === "user" ? userMessageCopyText(content) : assistantMessageCopyText(content, body);
-}
+/** Selects the role-specific text fallback used by clipboard and context-menu actions. */
+const messageCopyText = (
+    role: string,
+    content: string,
+    body: HTMLDivElement | null,
+): string =>
+    role === "user"
+        ? userMessageCopyText(content)
+        : assistantMessageCopyText(content, body);
 
 /** Render the user or assistant message body and its available actions. */
 const ChatMessageItemInner = ({

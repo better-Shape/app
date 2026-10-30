@@ -62,10 +62,10 @@ test.describe("workbench (seeded project)", () => {
         const editorBounds = await editorText.boundingBox();
         expect(editorBounds?.width ?? 0).toBeGreaterThan(200);
 
-        const filesTab = page.getByRole("button", { name: "Files", exact: true, pressed: false });
+        const filesTab = page.getByRole("tab", { name: "Files", exact: true, selected: false });
         await filesTab.focus();
         await page.keyboard.press("Enter");
-        const selectedFilesTab = page.getByRole("button", { name: "Files", exact: true, pressed: true });
+        const selectedFilesTab = page.getByRole("tab", { name: "Files", exact: true, selected: true });
         await expect(selectedFilesTab).toBeVisible();
         await expect(page.getByRole("textbox", { name: "Filter files" })).toBeVisible();
         await expect

@@ -109,7 +109,11 @@ const WorkspaceFileSplitBody = ({
             <div className="min-h-0 min-w-0 flex-1 bg-sidebar" style={SIDEBAR_SURFACE}>
                 <FileEditor path={path} />
             </div>
-            <div className="hidden w-44 shrink-0 border-l border-border-subtle @[440px]/workspace:block">
+            <div
+                role="region"
+                aria-label="File explorer"
+                className={`border-l border-border-subtle ${workspaceLayout.fileExplorer}`}
+            >
                 <FileTree projectPath={projectPath} activePath={path} onOpenFile={onOpenFile} />
             </div>
         </div>

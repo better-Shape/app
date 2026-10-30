@@ -289,13 +289,17 @@ const canonicalizeWantedModelId = (wanted: string): string => {
   return canonical ? `${canonical}/${wanted.slice(slash + 1)}` : wanted;
 };
 
+/** Checks whether a normalized chat-mode selector refers to a concrete model ID. */
+const isConcreteChatModeId = (wanted: string): boolean =>
+  Boolean(wanted) && wanted !== "auto" && wanted !== "ask";
+
 /** Finds an explicit non-auto default model when present in `concreteAllModels`. */
 const findWantedDefaultModel = (
   concreteAllModels: ModelInfo[],
   defaultModel: string | undefined,
 ): ModelInfo | undefined => {
   const wanted = canonicalizeWantedModelId((defaultModel ?? "").trim());
-  if (!wanted || wanted === "auto") return undefined;
+  if (!isConcreteChatModeId(wanted)) return undefined;
   return concreteAllModels.find((m) => m.id === wanted);
 };
 
