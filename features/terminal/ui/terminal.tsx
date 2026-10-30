@@ -301,17 +301,23 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
 
 // History on every selection change; the clipboard follows only when
             // Terminal → Copy on select is on, because a drag selects continuously.
+            // Each selection supersedes the one before it: a slow rejection from
+            // an older write must not put that older text back on the clipboard.
+            let clipboardSeq = 0;
             const publishSelection = () => {
                 if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 if (!getSettings().terminal.copyOnSelect) return;
+                const seq = ++clipboardSeq;
                 if (!navigator.clipboard) {
                     copySelected(selected);
                     return;
                 }
-                void navigator.clipboard.writeText(selected).catch(() => copySelected(selected));
+                void navigator.clipboard.writeText(selected).catch(() => {
+                    if (seq === clipboardSeq) copySelected(selected);
+                });
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;

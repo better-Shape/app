@@ -623,12 +623,12 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // designed "unsupported project" state instead of crashing on null.
         inspect_design_project: () => ({
             projectRoot: PREVIEW_PROJECT_PATH,
-            framework: "unknown",
+            framework: "unsupported" as const,
             supported: false,
         }),
         list_design_assets: () => [],
-        remember_preview_url: () => null,
-        probe_preview_url: () => ({ url: "", reachable: false }),
+        remember_preview_url_cmd: () => null,
+        probe_preview_url: () => false,
         design_mode_log: () => null,
 
         // ── git ──────────────────────────────────────────────────────────

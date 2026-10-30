@@ -31,6 +31,7 @@ import {
     drawSelection,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { openSearchPanel, search, searchKeymap, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
@@ -601,8 +602,10 @@ function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): 
         ...(raw
             ? betterShapeEditorChrome()
             : [livePreview, tableBlockField, tableFocusTracker, proseTheme, syntaxHighlighting(proseHighlight)]),
+        search({ top: false }),
         keymap.of([
             ...markdownKeymap,
+            ...searchKeymap,
             ...defaultKeymap,
             ...historyKeymap,
             indentWithTab,
@@ -624,12 +627,15 @@ export function MarkdownLiveEditor({
     onChange,
     className,
     raw = false,
+    path,
 }: {
     content: string;
     onChange: (next: string) => void;
     className?: string;
     /** Source view. The document view hides markdown marks until the line is edited. */
     raw?: boolean;
+    /** File this document edits, so editor-wide commands can address it. */
+    path?: string;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -682,12 +688,43 @@ export function MarkdownLiveEditor({
         });
         lastEmitted.current = contentRef.current;
         viewRef.current = view;
+        // The code editor answers "Find in File" for its documents; a Markdown
+        // file is edited here, so this editor has to answer for its own path.
+        const onSearch = (event: Event) => {
+            const detail = (event as CustomEvent<{
+                path?: string;
+                query?: string;
+                caseSensitive?: boolean;
+                regexp?: boolean;
+            }>).detail;
+            // Matches the code editor: answer only for the file this view edits,
+            // so two open documents do not both open a search panel.
+            if (!detail || !path || detail.path !== path) return;
+            if (detail.query === undefined) {
+                openSearchPanel(view);
+                return;
+            }
+            view.dispatch({
+                effects: setSearchQuery.of(
+                    new SearchQuery({
+                        search: detail.query,
+                        caseSensitive: Boolean(detail.caseSensitive),
+                        regexp: Boolean(detail.regexp),
+                    }),
+                ),
+            });
+            openSearchPanel(view);
+        };
+        window.addEventListener("bettershape-editor-search", onSearch as EventListener);
         return () => {
+            window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             view.destroy();
             viewRef.current = null;
             setBubble(null);
         };
-    }, [raw]);
+        // `path` is in the deps because it decides which search requests this
+        // editor answers; the document itself is synced by the effect below.
+    }, [raw, path]);
 
     // External updates (file reloaded, agent rewrote the plan) replace the doc
     // unless they merely echo what the user just typed.

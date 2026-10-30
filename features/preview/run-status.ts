@@ -8,9 +8,15 @@ type State = {
     status: DevRunStatus;
     command: string | null;
     ptyId: number | null;
+    /**
+     * Whether the process is still running. A compile error keeps the server
+     * alive, so the status can read `error` while there is still something to
+     * stop; the exit handlers are what clear this.
+     */
+    alive: boolean;
 };
 
-let state: State = { status: "idle", command: null, ptyId: null };
+let state: State = { status: "idle", command: null, ptyId: null, alive: false };
 const listeners = new Set<() => void>();
 let startingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -33,7 +39,7 @@ const ERR_RE =
 
 export function startDevRun(command: string, ptyId?: number | null) {
     clearStartingTimer();
-    state = { status: "starting", command, ptyId: ptyId ?? state.ptyId };
+    state = { status: "starting", command, ptyId: ptyId ?? state.ptyId, alive: true };
     emit();
     startingTimer = setTimeout(() => {
         if (state.status === "starting") {
@@ -72,16 +78,16 @@ export function noteDevRunExit(code: number | null) {
     clearStartingTimer();
     if (state.status === "idle") return;
     if (code === 0) {
-        state = { status: "idle", command: null, ptyId: null };
+        state = { status: "idle", command: null, ptyId: null, alive: false };
     } else {
-        state = { ...state, status: "error", ptyId: null };
+        state = { ...state, status: "error", ptyId: null, alive: false };
     }
     emit();
 }
 
 export function clearDevRun() {
     clearStartingTimer();
-    state = { status: "idle", command: null, ptyId: null };
+    state = { status: "idle", command: null, ptyId: null, alive: false };
     emit();
 }
 

@@ -56,10 +56,14 @@ export function MicrophoneSettings() {
         if (unavailable) return;
         setBusy(true);
         setError(null);
+        // Held outside the try so a failure after the device opened can still
+        // release it; otherwise a broken AudioContext leaves the mic live.
+        let opened: MediaStream | null = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            const stream = opened;
             stream.getTracks().forEach((track) => track.stop());
             await refresh();
         } catch (err) {
@@ -77,10 +81,14 @@ export function MicrophoneSettings() {
         if (unavailable) return;
         setBusy(true);
         setError(null);
+        // Held outside the try so a failure after the device opened can still
+        // release it; otherwise a broken AudioContext leaves the mic live.
+        let opened: MediaStream | null = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            const stream = opened;
             const ctx = new AudioContext();
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
@@ -114,6 +122,7 @@ export function MicrophoneSettings() {
             frame = requestAnimationFrame(tick);
             await refresh();
         } catch (err) {
+            opened?.getTracks().forEach((track) => track.stop());
             setListening(false);
             setError(microphoneErrorMessage(err));
         } finally {

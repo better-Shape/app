@@ -33,6 +33,7 @@ import {
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
+import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
 import { useProjectState } from "@/lib/backend";
 import { openSettingsWindow } from "@/lib/window/open-settings";
@@ -520,6 +521,9 @@ export const CommandPalette = () => {
         if (!browse || !activeFileBias) return [];
         const name = activeFileBias.split(/[\\/]/).pop() || activeFileBias;
         const path = activeFileBias;
+        // An image preview has no text to search, so offering Find there would
+        // only ever close the palette and do nothing.
+        const searchable = !isImageExtension(getFileExtension(path));
         return [
             {
                 id: `current-file:open:${path}`,
@@ -556,18 +560,20 @@ export const CommandPalette = () => {
                         }),
                     ),
             },
-            {
-                id: "current-file:find",
-                label: "Find in File",
-                shortcut: "",
-                meta: name,
-                section: "Current File",
-                run: () => {
-                    window.dispatchEvent(
-                        new CustomEvent("bettershape-editor-search", { detail: { path } }),
-                    );
-                },
-            },
+            ...(searchable
+                ? [{
+                    id: "current-file:find",
+                    label: "Find in File",
+                    shortcut: "",
+                    meta: name,
+                    section: "Current File",
+                    run: () => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-editor-search", { detail: { path } }),
+                        );
+                    },
+                }]
+                : []),
             {
                 id: "current-file:popout",
                 label: "Open in New Window",

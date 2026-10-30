@@ -45,7 +45,7 @@ export const DevRunStatusItem = () => {
                     <span className="max-w-40 truncate hover:text-text-primary">{label}</span>
                 </div>
             </Tooltip>
-            {run.status === "error" ? null : (
+            {run.alive ? (
                 <Tooltip content="Stop dev server">
                     <Button
                         type="button"
@@ -58,7 +58,7 @@ export const DevRunStatusItem = () => {
                         <Icon icon={Stop20Regular} />
                     </Button>
                 </Tooltip>
-            )}
+            ) : null}
             <Tooltip content="Restart dev server">
                 <Button
                     type="button"

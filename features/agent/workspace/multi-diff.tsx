@@ -17,7 +17,7 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 
-import { ALL_CHANGES_FOCUS_KEY, openAllChangesTab } from "@/lib/window/open-all-changes";
+import { ALL_CHANGES_FOCUS_EVENT, ALL_CHANGES_FOCUS_KEY, openAllChangesTab } from "@/lib/window/open-all-changes";
 
 export { openAllChangesTab };
 
@@ -64,16 +64,19 @@ function LazyFileDiff({
     file,
     split,
     focused,
+    revision,
 }: {
     repo: string;
     file: GitFileParams;
     split: boolean;
     focused: boolean;
+    /** Bumped by every refresh; a changed value drops the cached diff. */
+    revision: number;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
-    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
+    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key, revision], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
     const dir = fileDir(file.path);
     const name = fileName(file.path);
     const domId = `md-file-${file.path.replace(/[\\/]/g, "-")}`;
@@ -106,8 +109,8 @@ function LazyFileDiff({
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when path/stage flips
-    }, [visible, repo, key, setDiff]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when path/stage/revision flips
+    }, [visible, repo, key, revision, setDiff]);
 
     const toggleStage = async () => {
         try {
@@ -214,6 +217,9 @@ export function MultiDiffEditor({
     const [files, setFiles] = useState<GitFileParams[]>([]);
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
+    // The file list can be identical after a refresh while the contents moved,
+    // so every successful refresh also bumps a revision the diffs key on.
+    const [revision, setRevision] = useState(0);
 
     // Latest refresh wins: a status request for a previous project must not
     // replace the current project's repo or file list when it resolves late.
@@ -226,8 +232,12 @@ export function MultiDiffEditor({
             if (request !== requestRef.current) return;
             setRepo(path);
             setFiles(list);
+            setRevision((current) => current + 1);
         }).catch(() => {
-            if (request === requestRef.current) setFiles([]);
+            if (request === requestRef.current) {
+                setFiles([]);
+                setRevision((current) => current + 1);
+            }
         });
     }, [projectPath]);
 
@@ -364,6 +374,7 @@ export function MultiDiffEditor({
                                 file={file}
                                 split={split}
                                 focused={focused}
+                                revision={revision}
                             />
                         );
                     })}
@@ -379,7 +390,7 @@ export function MultiDiffEditor({
  * carries only its kind.
  */
 export function AllChangesTab({ projectPath }: { projectPath: string }) {
-    const [focusPath] = useState<string | undefined>(() => {
+    const [focusPath, setFocusPath] = useState<string | undefined>(() => {
         try {
             return sessionStorage.getItem(ALL_CHANGES_FOCUS_KEY) ?? undefined;
         } catch {
@@ -392,6 +403,13 @@ export function AllChangesTab({ projectPath }: { projectPath: string }) {
         } catch {
             /* ignore */
         }
+        // Opening the tab again while it is already mounted must move the view
+        // to the new file, so the request is also delivered as an event.
+        const onFocus = (event: Event) => {
+            setFocusPath((event as CustomEvent<string | undefined>).detail || undefined);
+        };
+        window.addEventListener(ALL_CHANGES_FOCUS_EVENT, onFocus);
+        return () => window.removeEventListener(ALL_CHANGES_FOCUS_EVENT, onFocus);
     }, []);
     return (
         <div className="h-full min-h-0 bg-sidebar">

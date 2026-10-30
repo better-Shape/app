@@ -58,7 +58,7 @@ import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { getSettings } from "@/lib/settings";
 import { notify } from "@/features/notifications";
-import { getEditorOptionsFromSettings } from "@/lib/settings";
+import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
@@ -95,6 +95,43 @@ import {
  * The most recently focused CodeMirror view. Menu/shortcut "editor actions"
  * target this one, so a split view never edits the wrong buffer.
  */
+
+/**
+ * Extensions that mirror Settings -> Editor and can change while a file is
+ * open. They live in a compartment so a settings change reconfigures the live
+ * editor instead of waiting for the file to be reopened.
+ */
+const optionExtensions = (options: ReturnType<typeof getEditorOptionsFromSettings>) => [
+    ...(options.renderLineHighlight === "none"
+        ? []
+        : [
+              ...(options.renderLineHighlight === "gutter" || options.renderLineHighlight === "all"
+                  ? [highlightActiveLineGutter()]
+                  : []),
+              ...(options.renderLineHighlight === "line" || options.renderLineHighlight === "all"
+                  ? [highlightActiveLine()]
+                  : []),
+          ]),
+    drawSelection({ cursorBlinkRate: options.cursorBlinking === "solid" ? 0 : 1100 }),
+    ...(options.scrollBeyondLastLine ? [scrollPastEnd()] : []),
+    ...(options.guides.indentation
+        ? [
+              indentationMarkers({
+                  highlightActiveBlock: options.guides.highlightActiveIndentation,
+                  markerType: "codeOnly",
+                  thickness: 1,
+                  activeThickness: 1.5,
+                  colors: {
+                      light: "rgba(0,0,0,0.08)",
+                      dark: "rgba(255,255,255,0.07)",
+                      activeLight: "rgba(0,0,0,0.18)",
+                      activeDark: "rgba(255,255,255,0.16)",
+                  },
+              }),
+          ]
+        : []),
+];
+
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
 
@@ -130,6 +167,9 @@ export function CodeMirrorEditor({
         const lang = languageForPath(path);
         const langCompartment = new Compartment();
         const wrapCompartment = new Compartment();
+        // Line highlight, cursor blink, scroll past end and indent guides are
+        // all read from settings, so they need to be reconfigurable too.
+        const optionsCompartment = new Compartment();
         // Indentation and line-separator are user-visible settings (Settings ->
         // Editor) and are also driven by the status bar's Indentation / EOL
         // pickers, so they live in compartments rather than being fixed at
@@ -248,25 +288,14 @@ export function CodeMirrorEditor({
                 ...betterShapeEditorChrome(),
                 search({ top: false }),
                 lineNumbers(),
-                ...(editorOptions.renderLineHighlight === "none"
-                    ? []
-                    : [
-                          ...(editorOptions.renderLineHighlight === "gutter" || editorOptions.renderLineHighlight === "all"
-                              ? [highlightActiveLineGutter()]
-                              : []),
-                          ...(editorOptions.renderLineHighlight === "line" || editorOptions.renderLineHighlight === "all"
-                              ? [highlightActiveLine()]
-                              : []),
-                      ]),
                 highlightSpecialChars(),
                 history(),
                 foldGutter({
                     openText: "▾",
                     closedText: "▸",
                 }),
-                drawSelection({ cursorBlinkRate: editorOptions.cursorBlinking === "solid" ? 0 : 1100 }),
+                optionsCompartment.of(optionExtensions(editorOptions)),
                 dropCursor(),
-                ...(editorOptions.scrollBeyondLastLine ? [scrollPastEnd()] : []),
                 EditorState.allowMultipleSelections.of(true),
                 indentCompartment.of([
                     EditorState.tabSize.of(tabSize),
@@ -284,22 +313,6 @@ export function CodeMirrorEditor({
                 rectangularSelection(),
                 crosshairCursor(),
                 highlightSelectionMatches({ highlightWordAroundCursor: true }),
-                ...(editorOptions.guides.indentation
-                    ? [
-                          indentationMarkers({
-                              highlightActiveBlock: editorOptions.guides.highlightActiveIndentation,
-                              markerType: "codeOnly",
-                              thickness: 1,
-                              activeThickness: 1.5,
-                              colors: {
-                                  light: "rgba(0,0,0,0.08)",
-                                  dark: "rgba(255,255,255,0.07)",
-                                  activeLight: "rgba(0,0,0,0.18)",
-                                  activeDark: "rgba(255,255,255,0.16)",
-                              },
-                          }),
-                      ]
-                    : []),
                 keymap.of([
                     ...closeBracketsKeymap,
                     ...defaultKeymap,
@@ -376,6 +389,12 @@ export function CodeMirrorEditor({
 
         const view = new EditorView({ state, parent: host });
         viewRef.current = view;
+        // A settings change reaches the open document, not only the next one.
+        const unsubscribeSettings = subscribeSettings(() => {
+            view.dispatch({
+                effects: optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings())),
+            });
+        });
         pathRef.current = path;
 
         let autosaveTimer: number | null = null;
@@ -674,7 +693,9 @@ export function CodeMirrorEditor({
             saveDirtyBuffer(pathRef.current, current, detail.content);
             const dirty = !sameIgnoringEol(savedForCompare, detail.content);
             isDirtyRef.current = dirty;
-            if (dirty) void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
+            // Always state the answer: the tab could have been dirty before this
+            // save, and skipping the false case leaves that marker behind.
+            void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
         };
         window.addEventListener("bettershape-file-saved", onFileSaved);
         const onFlushBuffer = (event: Event) => {
@@ -706,6 +727,7 @@ export function CodeMirrorEditor({
             if (activeView === view) activeView = null;
             if (bufferTimer !== null) window.clearTimeout(bufferTimer);
             if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
+            unsubscribeSettings();
             view.destroy();
             viewRef.current = null;
         };

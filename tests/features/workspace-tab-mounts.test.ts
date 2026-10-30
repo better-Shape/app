@@ -38,23 +38,7 @@ describe("design mode shortcut", () => {
     });
 });
 
-describe("hunk staging wiring", () => {
-    it("exposes the hunk commands the diff pane calls", async () => {
-        const { commands } = await import("@/lib/backend/commands");
-        expect(typeof commands.gitListHunks).toBe("function");
-        expect(typeof commands.gitStageHunk).toBe("function");
-        expect(typeof commands.gitUnstageHunk).toBe("function");
-        expect(typeof commands.gitRestoreHunk).toBe("function");
-    });
-});
-
-describe("settings readers", () => {
-    it("keeps the save settings out of the unread list", async () => {
-        const source = await import("node:fs").then((fs) =>
-            fs.readFileSync("lib/editor/save-pipeline.ts", "utf8"),
-        );
-        expect(source).toContain("formatOnSave");
-        expect(source).toContain("trimTrailingWhitespace");
-        expect(source).toContain("insertFinalNewline");
-    });
-});
+// Hunk staging (tests/features/hunk-commands.test.tsx) and the save settings
+// (tests/editor/save-formatting-settings.test.ts) both have behavioural tests:
+// asserting a command exists or a source mentions a key proves nothing about
+// whether the hunk or the setting is actually applied.

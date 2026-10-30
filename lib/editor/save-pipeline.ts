@@ -1,6 +1,7 @@
 "use client";
 
 import { commands, getProjectPath } from "@/lib/backend";
+import { notify } from "@/features/notifications";
 import { getSettings } from "@/lib/settings";
 
 /**
@@ -49,8 +50,19 @@ export async function formatForSave(path: string, text: string): Promise<string>
     if (!getSettings().editor.formatOnSave) return text;
     try {
         const formatted = await commands.prettierFormatFile(getProjectPath() ?? "", path, text);
+        lastFormatFailure = null;
         return typeof formatted === "string" && formatted.length > 0 ? formatted : text;
-    } catch {
+    } catch (error) {
+        // Saving the unformatted text is the right call — refusing to save would
+        // lose the user's work — but a silent fallback makes Format on save look
+        // like it worked. Report each distinct failure once: autosave repeats the
+        // same broken file every few hundred milliseconds.
+        const reason = error instanceof Error ? error.message : String(error);
+        const signature = `${path}\u0000${reason}`;
+        if (signature !== lastFormatFailure) {
+            lastFormatFailure = signature;
+            notify.warn("Format on save skipped", `${path}: ${reason}`);
+        }
         return text;
     }
 }
@@ -63,6 +75,9 @@ export async function formatForSave(path: string, text: string): Promise<string>
  * request as the last write.
  */
 const writeChains = new Map<string, Promise<void>>();
+
+/** Last reported formatting failure, so autosave does not repeat the toast. */
+let lastFormatFailure: string | null = null;
 
 /** Runs `run` after every earlier write for the same path, success or not. */
 const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => {

@@ -150,24 +150,37 @@ if (existsSync(storePath)) {
         if (section && keyMatch) settingsKeys.push({ section, key: keyMatch[1] });
     }
 }
-// A key is read when the settings adapter or any app code reads it. Only the
-// settings UI itself is excluded, because rendering a key is not consuming it.
-const settingsReaders = files.filter((file) => !file.startsWith(join(ROOT, "features/settings/ui")));
-// The defaults block defines every key, so including it would mark all of them read.
+// Three kinds of reader, because they prove different amounts:
+//   app     - a surface outside the settings system consumes the key
+//   mapping - only the settings layer reads it, e.g. getEditorOptionsFromSettings
+//   none    - nothing reads it
+// The settings UI itself is never a reader: rendering a key is not consuming it.
+const settingsUi = join(ROOT, "features/settings/ui");
+const settingsLayer = join(ROOT, "lib/settings");
 const withoutDefaults = (source) => {
     const start = source.indexOf("DEFAULT_SETTINGS");
     if (start < 0) return source;
     const end = source.indexOf("};", start);
     return end < 0 ? source : source.slice(0, start) + source.slice(end);
 };
-const readerSources = settingsReaders.map((file) => withoutDefaults(readFileSync(file, "utf8")));
-const unreadSettings = settingsKeys
-    .filter(({ section, key }) => {
-        const pattern = new RegExp(`\\b${section}\\.${key}\\b`);
-        const keyPattern = new RegExp(`\\b${key}\\b`);
-        return !readerSources.some((source) => pattern.test(source) || keyPattern.test(source));
-    })
-    .map(({ section, key }) => `${section}.${key}`);
+const readSources = (predicate) =>
+    files.filter(predicate).map((file) => ({ file: relative(ROOT, file), source: withoutDefaults(readFileSync(file, "utf8")) }));
+const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
+const mappingSources = readSources((file) => file.startsWith(settingsLayer));
+const mentions = (entry, section, key) => {
+    const pattern = new RegExp(`\\b${section}\\.${key}\\b`);
+    const keyPattern = new RegExp(`\\b${key}\\b`);
+    return pattern.test(entry.source) || keyPattern.test(entry.source);
+};
+const unreadSettings = [];
+const mappedOnlySettings = [];
+for (const { section, key } of settingsKeys) {
+    const name = `${section}.${key}`;
+    if (appSources.some((entry) => mentions(entry, section, key))) continue;
+    const mappers = mappingSources.filter((entry) => mentions(entry, section, key)).map((entry) => entry.file);
+    if (mappers.length > 0) mappedOnlySettings.push({ key: name, mappers });
+    else unreadSettings.push(name);
+}
 
 // Duplicate exported names
 const EXPORT_RE = /export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z_$][\w$]*)/g;
@@ -196,12 +209,14 @@ const summary = {
         duplicateExports: duplicates.length,
         settingsKeys: settingsKeys.length,
         unreadSettings: unreadSettings.length,
+        mappedOnlySettings: mappedOnlySettings.length,
     },
     orphans,
     testOnly,
     listenerOnly,
     dispatchOnly,
     unreadSettings,
+    mappedOnlySettings,
     duplicates,
 };
 
@@ -219,5 +234,10 @@ console.log(`\nevents: dispatch only (${dispatchOnly.length})`);
 for (const channel of dispatchOnly) console.log(`  ${channel.name}  <- ${channel.dispatchers.join(", ")}`);
 console.log(`\nsettings keys with no reader (${unreadSettings.length})`);
 for (const key of unreadSettings) console.log(`  ${key}`);
+// These are read only by the settings layer, which maps them into options that
+// some surface may or may not consume. The audit cannot see through the mapping,
+// so they are listed rather than counted as wired.
+console.log(`\nsettings keys read only by the settings layer (${mappedOnlySettings.length})`);
+for (const entry of mappedOnlySettings) console.log(`  ${entry.key}  <- ${entry.mappers.join(", ")}`);
 console.log(`\nduplicate exported names (${duplicates.length})`);
 for (const entry of duplicates) console.log(`  ${entry.name}: ${entry.owners.join(", ")}`);
