@@ -201,6 +201,26 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
             </SettingRow>
             </SettingCard>
         </SettingSection>
+        <SettingSection title="Linting">
+            <SettingCard>
+            <SettingRow
+                title="ESLint"
+                description="Shows ESLint problems for open files and runs it on save."
+            >
+                <SettingSwitch
+                    checked={settings.eslint.enable}
+                    onChange={(v) => updateSettingSection("eslint", { enable: v })}
+                />
+            </SettingRow>
+            <SettingRow title="Fix ESLint issues on save">
+                <SettingSwitch
+                    checked={settings.eslint.fixOnSave}
+                    disabled={!settings.eslint.enable}
+                    onChange={(v) => updateSettingSection("eslint", { fixOnSave: v })}
+                />
+            </SettingRow>
+            </SettingCard>
+        </SettingSection>
         <SettingSection title="Caret">
             <SettingCard>
             <SettingRow title="Cursor style">

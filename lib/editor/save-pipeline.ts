@@ -80,6 +80,25 @@ export async function formatForSave(path: string, text: string): Promise<string>
 }
 
 /**
+ * Applies ESLint's own fixes when Fix on save is on.
+ *
+ * ESLint writes its fixes into a temporary copy and hands the result back, so
+ * this never touches the file directly: a lint run that cannot start, or a file
+ * ESLint does not match, keeps the text it was given.
+ */
+export async function fixLintForSave(path: string, text: string): Promise<string> {
+    const settings = getSettings();
+    if (!settings.eslint.enable || !settings.eslint.fixOnSave) return text;
+    try {
+        const result = await commands.eslintLintFile(getProjectPath() ?? "", path, text, true);
+        return typeof result?.content === "string" && result.content.length > 0 ? result.content : text;
+    } catch {
+        // A missing ESLint install must not block saving.
+        return text;
+    }
+}
+
+/**
  * Writes per path, in the order they were requested.
  *
  * Formatting is asynchronous, so two saves of the same file can finish out of
@@ -112,7 +131,10 @@ const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => 
 export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF"): Promise<string> {
     const prepared = prepareDocForSave(doc);
     return serializeWrites(path, async () => {
-        const formatted = await formatForSave(path, prepared);
+        // Lint fixes first: they can introduce new line breaks, and Prettier
+        // running afterwards settles the result into the project's style.
+        const fixed = await fixLintForSave(path, prepared);
+        const formatted = await formatForSave(path, fixed);
         await commands.saveFile(path, toDiskText(formatted, eol));
         return formatted;
     });

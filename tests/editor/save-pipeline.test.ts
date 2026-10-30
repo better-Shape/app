@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const backend = vi.hoisted(() => ({ prettier: vi.fn(), save: vi.fn(), project: "/project" }));
+const backend = vi.hoisted(() => ({
+    prettier: vi.fn(),
+    eslint: vi.fn(),
+    save: vi.fn(),
+    project: "/project",
+}));
 
 vi.mock("@/lib/backend", () => ({
     getProjectPath: () => backend.project,
     commands: {
         prettierFormatFile: backend.prettier,
+        eslintLintFile: backend.eslint,
         saveFile: backend.save,
     },
 }));
@@ -15,13 +21,25 @@ const settings = vi.hoisted(() => ({
     trimTrailingWhitespace: false,
     insertFinalNewline: true,
     prettier: true,
+    eslint: false,
+    eslintFix: false,
 }));
 
 vi.mock("@/lib/settings", () => ({
-    getSettings: () => ({ editor: { ...settings }, prettier: { enable: settings.prettier } }),
+    getSettings: () => ({
+        editor: { ...settings },
+        prettier: { enable: settings.prettier },
+        eslint: { enable: settings.eslint, fixOnSave: settings.eslintFix },
+    }),
 }));
 
-import { formatForSave, prepareDocForSave, saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import {
+    fixLintForSave,
+    formatForSave,
+    prepareDocForSave,
+    saveContents,
+    toDiskText,
+} from "@/lib/editor/save-pipeline";
 
 describe("save pipeline", () => {
     beforeEach(() => {
@@ -29,7 +47,10 @@ describe("save pipeline", () => {
         settings.trimTrailingWhitespace = false;
         settings.insertFinalNewline = true;
         settings.prettier = true;
+        settings.eslint = false;
+        settings.eslintFix = false;
         backend.prettier.mockReset();
+        backend.eslint.mockReset().mockResolvedValue({ diagnostics: [], content: null });
         backend.save.mockReset().mockResolvedValue(undefined);
     });
 
@@ -62,6 +83,31 @@ describe("save pipeline", () => {
         backend.prettier.mockResolvedValue("const a = 1;\n");
         await expect(formatForSave("/project/a.ts", "const a=1;\n")).resolves.toBe("const a = 1;\n");
         expect(backend.prettier).toHaveBeenCalledWith("/project", "/project/a.ts", "const a=1;\n");
+    });
+
+    it("applies ESLint fixes before writing when Fix on save is on", async () => {
+        settings.eslint = true;
+        settings.eslintFix = true;
+        backend.eslint.mockResolvedValue({ diagnostics: [], content: "const a: number = 1;\n" });
+        await saveContents("/project/a.ts", "const a:any=1");
+        expect(backend.eslint).toHaveBeenCalledWith("/project", "/project/a.ts", "const a:any=1\n", true);
+        expect(backend.save).toHaveBeenCalledWith("/project/a.ts", "const a: number = 1;\n");
+    });
+
+    it("does not run ESLint on save when Fix on save is off", async () => {
+        settings.eslint = true;
+        settings.eslintFix = false;
+        await saveContents("/project/a.ts", "const a=1");
+        expect(backend.eslint).not.toHaveBeenCalled();
+    });
+
+    it("keeps the text when ESLint cannot fix the file", async () => {
+        settings.eslint = true;
+        settings.eslintFix = true;
+        backend.eslint.mockResolvedValue({ diagnostics: [], content: null });
+        await expect(fixLintForSave("/project/a.ts", "x")).resolves.toBe("x");
+        backend.eslint.mockRejectedValue(new Error("no eslint installed"));
+        await expect(fixLintForSave("/project/a.ts", "x")).resolves.toBe("x");
     });
 
     it("does not format when Prettier is switched off", async () => {
