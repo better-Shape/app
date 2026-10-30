@@ -10,7 +10,7 @@ import {
     SettingSwitch,
 } from "@/features/settings/ui/shared/controls";
 import { KeyInput, TextInput } from "@/features/settings/ui/sections/providers/inputs";
-import { ProvidersSettingsView } from "@/features/settings/ui/sections/providers/providers-view";
+import { ProviderCard } from "@/features/settings/ui/sections/providers/provider-card";
 import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
 import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
@@ -199,32 +199,24 @@ describe("Settings row accessible labelling", () => {
         );
     });
 
-    it("exposes explicit provider-scoped aria-label attributes on standalone ProviderCard API key and base URL inputs", async () => {
+    it("exposes explicit provider-scoped aria-label attributes on standalone ProviderCard API key and base URL inputs", () => {
         const providers = defaultProvidersSettings();
         providers.connections.openai = {
             ...providers.connections.openai,
             enabled: true,
-            apiKey: "sk-test-openai-key",
+            apiKey: "placeholder-credential-for-unit-test",
             baseUrl: "https://api.openai.example/v1",
         };
-        updateSettingSection("ai", {
-            providers,
-            enabledModels: [],
-        });
 
-        await act(async () => {
-            root.render(
-                <TooltipProvider>
-                    <ProvidersSettingsView />
-                </TooltipProvider>,
-            );
-        });
+        render(<ProviderCard id="openai" providers={providers} defaultExpanded />);
 
         const apiKeyInput = container.querySelector('input[aria-label="OpenAI API key"]');
         const baseUrlInput = container.querySelector('input[aria-label="OpenAI base URL"]');
-        expect(apiKeyInput).toBeInstanceOf(HTMLInputElement);
-        expect(baseUrlInput).toBeInstanceOf(HTMLInputElement);
-        expect((baseUrlInput as HTMLInputElement).value).toBe("https://api.openai.example/v1");
+        if (!(apiKeyInput instanceof HTMLInputElement) || !(baseUrlInput instanceof HTMLInputElement)) {
+            throw new Error("Expected standalone ProviderCard API key and base URL inputs");
+        }
+        expect(apiKeyInput.type).toBe("password");
+        expect(baseUrlInput.value).toBe("https://api.openai.example/v1");
     });
 
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {

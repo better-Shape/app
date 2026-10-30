@@ -5,13 +5,9 @@
 
 const isPathSep = (char: string): boolean => char === "/" || char === "\\";
 
-const isAsciiLetter = (char: string): boolean => {
-    const lower = char.toLowerCase();
-    return lower >= "a" && lower <= "z";
-};
+const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
 
-const isDriveSpecifier = (value: string): boolean =>
-    value.length === 2 && value[1] === ":" && isAsciiLetter(value[0]);
+const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
 
 const trimLeadingSeparators = (value: string): string => {
     let start = 0;
