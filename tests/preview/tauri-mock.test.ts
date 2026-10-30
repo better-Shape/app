@@ -65,6 +65,59 @@ describe("preview invoke handler", () => {
         for (const file of status) expect(file.status).toMatch(/^[MACDUR?!]$/);
     });
 
+    it("blames a fixture file with the author the git log shows", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const regions = handle("git_blame_file", {
+            projectPath: PREVIEW_PROJECT_PATH,
+            filePath: `${PREVIEW_PROJECT_PATH}/README.md`,
+        }) as Array<{ line: number; line_count: number; author: string; summary: string }>;
+        expect(regions).toHaveLength(1);
+        expect(regions[0].line).toBe(1);
+        expect(regions[0].line_count).toBeGreaterThan(1);
+        expect(regions[0].author).toBe("Preview Fixture");
+        expect(regions[0].summary.length).toBeGreaterThan(0);
+    });
+
+    // Settings used to be answered from module memory that reset on every
+    // navigation, so a switch flipped in Settings was gone after a reload and
+    // every settings-gated feature looked broken in the preview.
+    it("writes settings through to a snapshot the next page can read", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        expect(handle("read_settings_file", { file: "preferences" })).toEqual({
+            record: null,
+            revision: "missing",
+        });
+        const revision = handle("write_settings_file", {
+            file: "preferences",
+            settings: { git: { blame: { enabled: true } } },
+            expected: "missing",
+        }) as string;
+        expect(revision).not.toBe("missing");
+        const snapshot = handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { git: { blame: { enabled: boolean } } } };
+            revision: string;
+        };
+        expect(snapshot.revision).toBe(revision);
+        // The file wraps preferences under `settings`; storing the bare object
+        // made the loader read a present-but-empty record and skip hydration.
+        expect(snapshot.record.settings.git.blame.enabled).toBe(true);
+    });
+
+    it("reloads the last written settings from session storage", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "preferences",
+            settings: { editor: { fontSize: 21 } },
+            expected: "missing",
+        });
+        const reopened = createPreviewInvokeHandler("project");
+        const snapshot = reopened.handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(snapshot.record?.settings.editor.fontSize).toBe(21);
+        window.sessionStorage.clear();
+    });
+
     it("never throws for unmocked commands, safe defaults by shape", () => {
         const { handle } = createPreviewInvokeHandler("welcome");
         expect(handle("get_unmocked_items")).toEqual([]);

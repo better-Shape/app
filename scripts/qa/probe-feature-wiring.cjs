@@ -123,6 +123,40 @@ async function isSwitchOn(locator) {
     "removing the folder did not persist",
   );
 
+  // 6. Settings -> Git -> Inline Git Blame reaches the editor: the annotation
+  //    is drawn from `git_blame_file`, is not part of the document text, and
+  //    disappears when the switch goes back off.
+  await page.goto(`${BASE_URL}/settings?category=git`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(2000);
+  const blameSwitch = rowSwitch(page, "Inline Git Blame");
+  assert.equal(await isSwitchOn(blameSwitch), false, "inline blame starts on");
+  await blameSwitch.click();
+  await page.waitForTimeout(500);
+  await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(3000);
+  await page.getByRole("button", { name: "New tab" }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("menuitem", { name: "Files" }).first().click();
+  await page.waitForTimeout(1500);
+  // Open a file first: the Files surface starts on the explorer.
+  await page.locator('[data-explorer-root="true"]').getByText("README.md", { exact: true }).first().click();
+  await page.waitForTimeout(2000);
+  // It opens in rendered mode; blame belongs to the source view.
+  const viewSource = page.getByRole("button", { name: /view source/i }).first();
+  assert.equal(await viewSource.count(), 1, "no way to reach the file source");
+  await viewSource.click();
+  await page.waitForTimeout(2500);
+  const blame = page.locator(".cm-inline-blame");
+  assert.equal(await blame.count(), 1, "the caret line has no blame annotation");
+  const blameText = (await blame.first().textContent()) ?? "";
+  assert.ok(blameText.includes("Preview Fixture"), `blame is not attributed: ${blameText}`);
+  await page.screenshot({ path: path.join(SHOTS, "inline-blame.png"), fullPage: false });
+
+  await page.goto(`${BASE_URL}/settings?category=git`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1500);
+  await rowSwitch(page, "Inline Git Blame").click();
+  await page.waitForTimeout(400);
+
   // Leave the setting as it was found.
   await page.goto(`${BASE_URL}/settings?category=privacy`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(1500);
@@ -134,7 +168,7 @@ async function isSwitchOn(locator) {
 
   await browser.close();
   console.log(
-    `probe passed: linting switches, dependent disable state, welcome gating and extra workspace roots (${SHOTS})`,
+    `probe passed: linting switches, dependent disable state, welcome gating, extra workspace roots and inline blame (${SHOTS})`,
   );
 })().catch((error) => {
   console.error(error);

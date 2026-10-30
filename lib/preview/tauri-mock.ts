@@ -163,6 +163,27 @@ export const MODELED_PLUGIN_COMMANDS = [
 /** Final segment of a slash-delimited preview path. */
 const fileNameOf = (path: string): string => path.split("/").pop() ?? path;
 
+const PREVIEW_SETTINGS_KEY = "bettershape:preview-settings";
+
+/** The last settings snapshot this tab wrote, so a reload reads it back. */
+function readSeededSettings(
+    fallback: { record: Record<string, unknown> | null; revision: string },
+): { record: Record<string, unknown> | null; revision: string } {
+    try {
+        const raw = window.sessionStorage.getItem(PREVIEW_SETTINGS_KEY);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw) as { record?: unknown; revision?: unknown };
+        if (typeof parsed?.revision !== "string") return fallback;
+        const record = parsed.record;
+        return {
+            record: record && typeof record === "object" ? (record as Record<string, unknown>) : null,
+            revision: parsed.revision,
+        };
+    } catch {
+        return fallback;
+    }
+}
+
 /** Accept only the two supported preview seed modes. */
 const asSeedMode = (value: string | null | undefined): PreviewSeedMode | null =>
     value === "project" || value === "welcome" ? value : null;
@@ -253,6 +274,14 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             { path: "README.md", status: "M", staged: true },
         ] as Array<{ path: string; status: string; staged: boolean }>,
         logStreamOffsets: new Map<string, number>(),
+        // Seeded empty, then written through by `write_settings_file`. Before
+        // this the preview always answered "no record", so every settings change
+        // was lost on the next navigation.
+        settingsFile: {
+            record: null as Record<string, unknown> | null,
+            revision: "missing",
+        },
+        settingsRevision: 0,
     };
     const listeners = new Map<string, Set<number>>();
     // `listen` records the callback id but returns a separate subscription
@@ -501,8 +530,28 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // revision it was given. Returning nothing left the app unable to tell
         // "never saved" from "the backend failed", and the QA crawl listed the
         // command as unmodelled.
-        read_settings_file: () => ({ record: null, revision: "missing" }),
-        write_settings_file: (args) => (typeof args.expected === "string" ? args.expected : "missing"),
+        // Backed by sessionStorage, not module state: the mock is reinstalled on
+        // every navigation, so an in-memory record made each settings change
+        // vanish on reload and every settings-gated surface look switched off.
+        read_settings_file: () => ({ ...readSeededSettings(state.settingsFile) }),
+        write_settings_file: (args) => {
+            // Round-trip like the real file store: the revision moves and the
+            // record reads back, so a switch flipped in Settings survives a
+            // reload and a settings-gated surface can be clicked through.
+            // The real file wraps the preferences under `settings`; storing the
+            // bare object made `get("settings")` return undefined, so a reload
+            // read the record as present but empty and fell back to defaults.
+            state.settingsFile = {
+                record: { settings: structuredClone(args.settings ?? null) },
+                revision: `preview-${++state.settingsRevision}`,
+            };
+            try {
+                window.sessionStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(state.settingsFile));
+            } catch {
+                /* a preview without session storage keeps the in-memory copy */
+            }
+            return state.settingsFile.revision;
+        },
 
         // ── indexing toggles ─────────────────────────────────────────────
         // Both return `Result<(), AppError>` natively, so the preview accepts
@@ -648,6 +697,23 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // Status codes match the Rust backend (single letters, e.g.
         // "M"/"A"/"C"); the Git UI keys colors and glyphs off them.
         git_status: () => state.gitChanges.map((c) => ({ ...c })),
+        // One region per file, attributed to the same fixture author as the log,
+        // so Settings -> Git -> Inline Git Blame has something real to draw.
+        git_blame_file: (args) => {
+            const file = String(args.filePath ?? "");
+            if (!file) return [];
+            const lines = (state.files[file] ?? "").split("\n").length;
+            return [
+                {
+                    line: 1,
+                    line_count: Math.max(1, lines),
+                    commit: "preview1",
+                    author: "Preview Fixture",
+                    date: String(Math.floor(Date.now() / 1000) - 86_400),
+                    summary: "preview: wire browser QA fixtures",
+                },
+            ];
+        },
         git_stage: (args) => {
             const change = state.gitChanges.find((c) => c.path === String(args.filePath ?? ""));
             if (change) change.staged = true;
