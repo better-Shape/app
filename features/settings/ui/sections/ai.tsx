@@ -259,11 +259,13 @@ function ModelRow({
     enabled,
     onToggle,
     unavailableReason,
+    switchDisabled = false,
 }: {
     model: ModelInfo;
     enabled: boolean;
     onToggle: (enabled: boolean) => void;
     unavailableReason?: string;
+    switchDisabled?: boolean;
 }) {
     return (
         <div className="flex items-start justify-between gap-4 px-4 py-3.5">
@@ -275,7 +277,12 @@ function ModelRow({
                     {unavailableReason ?? model.description}
                 </div>
             </div>
-            <SettingSwitch checked={enabled} onChange={onToggle} disabled={!!unavailableReason} />
+            <SettingSwitch
+                checked={enabled}
+                onChange={onToggle}
+                disabled={Boolean(unavailableReason) || switchDisabled}
+                aria-label={model.name}
+            />
         </div>
     );
 }
@@ -398,24 +405,38 @@ export function AiSettingsPanel({
         };
     }, []);
 
+    const concreteModels = allModels.filter((m) => m.id !== "auto");
+    const enabledConcreteIds =
+        enabledModels.length === 0
+            ? concreteModels.map((m) => m.id)
+            : enabledModels.filter((id) => id !== "auto");
+
     const setEnabledModels = (next: string[]) => {
         updateSettingSection("ai", { enabledModels: next });
     };
 
     const toggleModel = (modelId: string, enabled: boolean) => {
-        const current = enabledModels.length === 0 ? allModels.map((m) => m.id) : [...enabledModels];
-        let next: string[];
-        if (enabled) {
-            next = current.includes(modelId) ? current : [...current, modelId];
-        } else {
-            next = current.filter((id) => id !== modelId);
+        if (modelId === "auto") return;
+        const concreteIds = concreteModels.map((m) => m.id);
+        const currentConcrete =
+            enabledModels.length === 0
+                ? [...concreteIds]
+                : enabledModels.filter((id) => id !== "auto");
+        const nextConcrete = enabled
+            ? currentConcrete.includes(modelId)
+                ? currentConcrete
+                : [...currentConcrete, modelId]
+            : currentConcrete.filter((id) => id !== modelId);
+        if (nextConcrete.length === 0) return;
+        if (concreteIds.length > 0 && concreteIds.every((id) => nextConcrete.includes(id))) {
+            setEnabledModels([]);
+            return;
         }
-        const ids = allModels.map((m) => m.id);
-        if (ids.length > 0 && ids.every((id) => next.includes(id))) next = [];
-        setEnabledModels(next);
+        setEnabledModels(["auto", ...nextConcrete]);
     };
 
     const toggleSubagentModel = (modelId: string, enabled: boolean) => {
+        if (!enabled && subagentModels.length === 1 && subagentModels[0] === modelId) return;
         let next = enabled
             ? subagentModels.includes(modelId) ? subagentModels : [...subagentModels, modelId]
             : subagentModels.filter((id) => id !== modelId);
@@ -464,6 +485,9 @@ export function AiSettingsPanel({
                                     enabled={isSubagentModelEnabled(model.id, subagentModels)}
                                     onToggle={(on) => toggleSubagentModel(model.id, on)}
                                     unavailableReason={undefined}
+                                    switchDisabled={
+                                        subagentModels.length === 1 && subagentModels[0] === model.id
+                                    }
                                 />
                             ))}
                             <button
@@ -497,15 +521,22 @@ export function AiSettingsPanel({
                 <>
             <SettingSection id="settings-ai-models" title="Models">
                 <SettingCard>
-                {displayedModels.map((model) => (
-                    <ModelRow
-                        key={model.id}
-                        model={model}
-                        enabled={isModelEnabled(model.id, enabledModels)}
-                        onToggle={(on) => toggleModel(model.id, on)}
-                        unavailableReason={undefined}
-                    />
-                ))}
+                {displayedModels.map((model) => {
+                    const isLastConcrete =
+                        model.id !== "auto" &&
+                        enabledConcreteIds.length <= 1 &&
+                        enabledConcreteIds.includes(model.id);
+                    return (
+                        <ModelRow
+                            key={model.id}
+                            model={model}
+                            enabled={model.id === "auto" || isModelEnabled(model.id, enabledModels)}
+                            onToggle={(on) => toggleModel(model.id, on)}
+                            unavailableReason={undefined}
+                            switchDisabled={model.id === "auto" || isLastConcrete}
+                        />
+                    );
+                })}
                 <button
                     type="button"
                     className="px-3.5 py-2.5 text-left text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] hover:text-text-primary"

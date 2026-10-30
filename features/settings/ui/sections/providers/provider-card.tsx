@@ -3,6 +3,7 @@
 import React from "react";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { DrawnCheck } from "@/components/ui/checkmark";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -300,10 +301,11 @@ const CopyModelIdButton = ({
                 aria-label="Copy model id"
                 onClick={onCopy}
             >
-                <Icon
-                    icon={copied ? Checkmark20Regular : Copy20Regular}
-                    className="size-3"
-                />
+                {copied ? (
+                    <DrawnCheck className="size-3 text-success" motion="compact" />
+                ) : (
+                    <Icon icon={Copy20Regular} className="size-3" />
+                )}
             </Button>
         </Tooltip>
     );

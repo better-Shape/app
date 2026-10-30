@@ -3,12 +3,12 @@
 import React from "react";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { DrawnCheck } from "@/components/ui/checkmark";
 import { Tooltip } from "@/components/ui/tooltip";
 import { notify } from "@/features/notifications";
 import { cn } from "@/lib/utils";
 import {
     ArrowReset20Regular,
-    Checkmark20Regular,
     Clipboard20Regular,
     Eye20Regular,
     EyeOff20Regular,
@@ -104,7 +104,11 @@ export function KeyInput({
                             aria-label="Copy key"
                             onClick={() => void copyKey()}
                         >
-                            <Icon icon={copied ? Checkmark20Regular : Clipboard20Regular} />
+                            {copied ? (
+                                <DrawnCheck className="size-4 text-success" motion="compact" />
+                            ) : (
+                                <Icon icon={Clipboard20Regular} />
+                            )}
                         </Button>
                     </Tooltip>
                 ) : (

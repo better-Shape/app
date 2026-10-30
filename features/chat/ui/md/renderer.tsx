@@ -172,7 +172,8 @@ const EDIT_PENDING_STATUS_RANK: Partial<Record<string, number>> = {
     pending: 1,
     cancelled: 2,
     rejected: 3,
-    applied: 4,
+    approved: 4,
+    applied: 5,
 };
 
 const PLUGIN_STATUS_RANK: Partial<Record<string, number>> = {

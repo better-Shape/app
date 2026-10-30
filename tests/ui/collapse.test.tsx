@@ -87,4 +87,22 @@ describe("collapse", () => {
         // Reopening must not refetch or reset what is inside.
         expect(container.querySelector("p")?.textContent).toBe("body");
     });
+
+    it("supports spring and menu timing variants without duplicating track geometry", () => {
+        render(
+            <Collapse open variant="spring">
+                <p>spring body</p>
+            </Collapse>,
+        );
+        expect(track().className).toContain("duration-[var(--spring-quick-dur)]");
+        expect(track().className).toContain("ease-[var(--spring-quick)]");
+
+        render(
+            <Collapse open variant="menu">
+                <p>menu body</p>
+            </Collapse>,
+        );
+        expect(track().className).toContain("duration-[var(--transition-base)]");
+        expect(track().className).toContain("ease-[var(--ease-out)]");
+    });
 });

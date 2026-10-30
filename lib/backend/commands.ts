@@ -145,9 +145,9 @@ export const commands = {
         fileContentCache.delete(path);
         return invokeCommand<string>("read_file_within", { path, root });
     },
-    /** Reject a skill root whose canonical path leaves `root` (project symlink). */
+    /** Confirm `path` canonicalizes inside `root` and return that canonical path. */
     ensurePathWithin: (path: string, root: string) =>
-        invokeCommand<void>("ensure_path_within", { path, root }),
+        invokeCommand<string | null>("ensure_path_within", { path, root }),
     primeFileCache: (path: string, content: string) => {
         rememberFileContent(path, content);
     },

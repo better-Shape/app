@@ -179,24 +179,37 @@ impl ProxyContext {
     }
 }
 
+fn non_empty_label(payload: &serde_json::Value) -> Option<&str> {
+    match payload.get("label").and_then(Value::as_str) {
+        Some(text) if !text.trim().is_empty() => Some(text),
+        _ => None,
+    }
+}
+
+fn apply_chat_status_label(
+    app_handle: &tauri::AppHandle,
+    payload: &serde_json::Value,
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+) {
+    let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() else {
+        return;
+    };
+    let explicit_label = non_empty_label(payload);
+    let inferred_label = inferred_tool_activity_label(payload);
+    if let Some(label) = explicit_label.or(inferred_label.as_deref()) {
+        agent_state.set_in_flight_activity_label(conversation_id, turn_id, Some(label));
+    } else if payload.get("phase").and_then(Value::as_str) == Some("model")
+        && payload.get("label").is_none()
+    {
+        agent_state.set_in_flight_activity_label(conversation_id, turn_id, None);
+    }
+}
+
 pub(crate) fn emit_chat_status(app_handle: &tauri::AppHandle, payload: serde_json::Value) {
     let conversation_id = payload.get("conversationId").and_then(Value::as_str);
     let turn_id = payload.get("turnId").and_then(Value::as_str);
-    let explicit_label = payload
-        .get("label")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty());
-    let inferred_label = inferred_tool_activity_label(&payload);
-    let label = explicit_label.or(inferred_label.as_deref());
-    let reset_label = payload.get("phase").and_then(|v| v.as_str()) == Some("model")
-        && payload.get("label").is_none();
-    if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
-        if let Some(label) = label {
-            agent_state.set_in_flight_activity_label(conversation_id, turn_id, Some(label));
-        } else if reset_label {
-            agent_state.set_in_flight_activity_label(conversation_id, turn_id, None);
-        }
-    }
+    apply_chat_status_label(app_handle, &payload, conversation_id, turn_id);
     let _ = app_handle.emit("chat_status", payload);
 }
 
@@ -264,33 +277,9 @@ pub(crate) fn emit_chat_status_scoped(
     conversation_id: Option<&str>,
     payload: serde_json::Value,
 ) {
-    let explicit_label = payload
-        .get("label")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty());
-    let inferred_label = inferred_tool_activity_label(&payload);
-    let label = explicit_label.or(inferred_label.as_deref());
-    let reset_label = payload.get("phase").and_then(|v| v.as_str()) == Some("model")
-        && payload.get("label").is_none();
-
     if let (Some(turn_id), Some(conversation_id)) = (turn_id, conversation_id) {
-        if let Some(agent_state) = app_handle.try_state::<crate::agent::models::AgentState>() {
-            if let Some(label) = label {
-                agent_state.set_in_flight_activity_label(
-                    Some(conversation_id),
-                    Some(turn_id),
-                    Some(label),
-                );
-            } else if reset_label {
-                agent_state.set_in_flight_activity_label(
-                    Some(conversation_id),
-                    Some(turn_id),
-                    None,
-                );
-            }
-        }
+        apply_chat_status_label(app_handle, &payload, Some(conversation_id), Some(turn_id));
     }
-
     let payload = chat_status_payload(payload, turn_id, conversation_id);
     let _ = app_handle.emit("chat_status", payload);
 }

@@ -2106,18 +2106,25 @@ const ChatInputInner = ({
       [addUploadedFiles, inputValue, textCtrl],
     );
     const handleContextMenuPaste = React.useCallback(() => {
-      readComposerClipboardTextWithFeedback(textareaRef.current, (text) =>
-        pasteClipboardTextViaContextMenu({
-          text,
-          textarea: textareaRef.current,
-          inputValue: inputValueRef.current,
-          addUploadedFiles,
-          swapAttachmentInline: textCtrl.swapAttachmentInline,
-          clearHistoryCursor: () => {
-            historyCursorRef.current = null;
-          },
-          applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
-        }),
+      const targetTextarea = textareaRef.current;
+      const expectedValue = inputValueRef.current;
+      readComposerClipboardTextWithFeedback(
+        targetTextarea,
+        (text) =>
+          pasteClipboardTextViaContextMenu({
+            text,
+            textarea: targetTextarea,
+            inputValue: expectedValue,
+            addUploadedFiles,
+            swapAttachmentInline: textCtrl.swapAttachmentInline,
+            clearHistoryCursor: () => {
+              historyCursorRef.current = null;
+            },
+            applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+          }),
+        () =>
+          textareaRef.current !== targetTextarea ||
+          inputValueRef.current !== expectedValue,
       );
     }, [addUploadedFiles, textCtrl]);
 

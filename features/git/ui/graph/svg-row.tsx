@@ -55,15 +55,18 @@ export function curvePath(x0: number, y0: number, x1: number, y1: number): strin
 function GraphPath({
     d,
     color,
+    draw = false,
 }: {
     d: string;
     color: string;
+    draw?: boolean;
 }) {
     return (
         <>
             <path
                 d={d}
-                className="graph-line-shadow"
+                pathLength={draw ? 100 : undefined}
+                className={cn("graph-line-shadow", draw && "t-graph-line-draw")}
                 stroke="var(--graph-surface, var(--color-panel))"
                 strokeWidth={SHADOW_STROKE}
                 strokeOpacity={SHADOW_OPACITY}
@@ -73,7 +76,8 @@ function GraphPath({
             />
             <path
                 d={d}
-                className="graph-line"
+                pathLength={draw ? 100 : undefined}
+                className={cn("graph-line", draw && "t-graph-line-draw")}
                 stroke={color}
                 strokeWidth={STROKE}
                 fill="none"
@@ -92,6 +96,7 @@ export function GraphSvgRow({
     muted,
     avatarUrl,
     avatarKey,
+    arriving = false,
 }: {
     node: GraphNode;
     isFirst: boolean;
@@ -102,6 +107,8 @@ export function GraphSvgRow({
     avatarUrl?: string | null;
     /** Unique id fragment so clipPaths don't collide across rows. */
     avatarKey?: string;
+    /** One-shot branch-line draw when a brand-new commit lands at the head of an open graph. */
+    arriving?: boolean;
 }) {
     let rowMaxLane = node.lane;
     for (const p of node.paths) {
@@ -138,76 +145,78 @@ export function GraphSvgRow({
                 const fromX = p.fromX * LANE_WIDTH + OX;
                 const toX = p.toX * LANE_WIDTH + OX;
                 const y0 = !isFirst ? 0 : cy;
-                return <GraphPath key={`i-${i}`} d={curvePath(fromX, y0, toX, cy)} color={p.color} />;
+                return <GraphPath key={`i-${i}`} d={curvePath(fromX, y0, toX, cy)} color={p.color} draw={arriving} />;
             })}
 
             {node.paths.filter((p) => p.type === "outgoing").map((p, i) => {
                 const fromX = p.fromX * LANE_WIDTH + OX;
                 const toX = p.toX * LANE_WIDTH + OX;
                 const y1 = !isLast ? h : cy;
-                return <GraphPath key={`o-${i}`} d={curvePath(fromX, cy, toX, y1)} color={p.color} />;
+                return <GraphPath key={`o-${i}`} d={curvePath(fromX, cy, toX, y1)} color={p.color} draw={arriving} />;
             })}
 
-            {avatarUrl ? (
-                <>
-                    <defs>
-                        <clipPath id={clipId}>
-                            <circle cx={cx} cy={cy} r={avatarSize / 2} />
-                        </clipPath>
-                    </defs>
-                    <circle cx={cx} cy={cy} r={avatarSize / 2 + 1.25} fill={node.color} />
-                    <image
-                        key={avatarUrl}
-                        href={avatarUrl}
-                        xlinkHref={avatarUrl}
-                        x={cx - avatarSize / 2}
-                        y={cy - avatarSize / 2}
-                        width={avatarSize}
-                        height={avatarSize}
-                        clipPath={`url(#${clipId})`}
-                        preserveAspectRatio="xMidYMid slice"
-                    />
-                </>
-            ) : isHead ? (
-                <>
-                    {/* vscode-git-graph current: fill surface, coloured stroke */}
-                    <circle
-                        cx={cx}
-                        cy={cy}
-                        r={DOT_RADIUS + 1.5}
-                        fill="var(--graph-surface, var(--color-panel))"
-                        stroke={node.color}
-                        strokeWidth={2}
-                    />
-                    <circle cx={cx} cy={cy} r={DOT_RADIUS - 1} fill={node.color} />
-                </>
-            ) : node.isMerge ? (
-                <>
-                    <circle
-                        cx={cx}
-                        cy={cy}
-                        r={MERGE_DOT_RADIUS}
-                        fill="var(--graph-surface, var(--color-panel))"
-                        stroke={node.color}
-                        strokeWidth={2}
-                    />
-                    <circle cx={cx} cy={cy} r={2} fill={node.color} />
-                </>
-            ) : (
-                <>
-                    {/* Soft surface halo so lines don't cut through the dot */}
-                    <circle
-                        cx={cx}
-                        cy={cy}
-                        r={DOT_RADIUS + 0.75}
-                        fill="var(--graph-surface, var(--color-panel))"
-                        stroke="var(--graph-surface, var(--color-panel))"
-                        strokeWidth={1}
-                        strokeOpacity={0.75}
-                    />
-                    <circle cx={cx} cy={cy} r={DOT_RADIUS} fill={node.color} />
-                </>
-            )}
+            <g className={arriving ? "t-graph-node-arrive" : undefined}>
+                {avatarUrl ? (
+                    <>
+                        <defs>
+                            <clipPath id={clipId}>
+                                <circle cx={cx} cy={cy} r={avatarSize / 2} />
+                            </clipPath>
+                        </defs>
+                        <circle cx={cx} cy={cy} r={avatarSize / 2 + 1.25} fill={node.color} />
+                        <image
+                            key={avatarUrl}
+                            href={avatarUrl}
+                            xlinkHref={avatarUrl}
+                            x={cx - avatarSize / 2}
+                            y={cy - avatarSize / 2}
+                            width={avatarSize}
+                            height={avatarSize}
+                            clipPath={`url(#${clipId})`}
+                            preserveAspectRatio="xMidYMid slice"
+                        />
+                    </>
+                ) : isHead ? (
+                    <>
+                        {/* vscode-git-graph current: fill surface, coloured stroke */}
+                        <circle
+                            cx={cx}
+                            cy={cy}
+                            r={DOT_RADIUS + 1.5}
+                            fill="var(--graph-surface, var(--color-panel))"
+                            stroke={node.color}
+                            strokeWidth={2}
+                        />
+                        <circle cx={cx} cy={cy} r={DOT_RADIUS - 1} fill={node.color} />
+                    </>
+                ) : node.isMerge ? (
+                    <>
+                        <circle
+                            cx={cx}
+                            cy={cy}
+                            r={MERGE_DOT_RADIUS}
+                            fill="var(--graph-surface, var(--color-panel))"
+                            stroke={node.color}
+                            strokeWidth={2}
+                        />
+                        <circle cx={cx} cy={cy} r={2} fill={node.color} />
+                    </>
+                ) : (
+                    <>
+                        {/* Soft surface halo so lines don't cut through the dot */}
+                        <circle
+                            cx={cx}
+                            cy={cy}
+                            r={DOT_RADIUS + 0.75}
+                            fill="var(--graph-surface, var(--color-panel))"
+                            stroke="var(--graph-surface, var(--color-panel))"
+                            strokeWidth={1}
+                            strokeOpacity={0.75}
+                        />
+                        <circle cx={cx} cy={cy} r={DOT_RADIUS} fill={node.color} />
+                    </>
+                )}
+            </g>
         </svg>
     );
 }

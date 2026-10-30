@@ -50,7 +50,12 @@ import {
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
-import { terminalSessionStore, type TerminalTab as SessionTab } from "@/features/terminal/session";
+import {
+    lookupByProjectPath,
+    sameProjectPath,
+    terminalSessionStore,
+    type TerminalTab as SessionTab,
+} from "@/features/terminal/session";
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
@@ -89,7 +94,7 @@ const createPtyId = () => randomInt(100000, 2_000_099_999);
 
 const getNextTerminalName = (tabs: TerminalTab[], shell: TerminalShell, cwd: string): string => {
     const prefix = SHELL_DISPLAY_NAMES[shell];
-    const projectTabs = tabs.filter(t => t.cwd === cwd && t.shell === shell);
+    const projectTabs = tabs.filter((t) => sameProjectPath(t.cwd, cwd) && t.shell === shell);
     let num = 1;
     while (projectTabs.some(t => t.title === `${prefix} ${num}`)) num++;
     return `${prefix} ${num}`;
@@ -780,13 +785,13 @@ const Terminal = ({
     const [focusedGroups, setFocusedGroups] = useState<Record<string, TerminalGroupId>>(globalTerminalStore.focusedGroup);
     const [unreadTabs, setUnreadTabs] = useState<Set<string>>(new Set(globalTerminalStore.unreadTabs));
     const safeCwd = project_path || "global";
-    const currentTabs = terminalTabs.filter(t => t.cwd === safeCwd);
+    const currentTabs = terminalTabs.filter((t) => sameProjectPath(t.cwd, safeCwd));
     const leftTabs = currentTabs.filter((t) => (t.group ?? "left") === "left");
     const rightTabs = currentTabs.filter((t) => t.group === "right");
     const splitEnabled = rightTabs.length > 0;
-    const activeTerminalId = projectActiveTabs[safeCwd] || null;
-    const secondaryTerminalId = secondaryActiveTabs[safeCwd] || null;
-    const focusedGroup = focusedGroups[safeCwd] || "left";
+    const activeTerminalId = lookupByProjectPath(projectActiveTabs, safeCwd);
+    const secondaryTerminalId = lookupByProjectPath(secondaryActiveTabs, safeCwd);
+    const focusedGroup = lookupByProjectPath(focusedGroups, safeCwd) || "left";
     const [activeView, setActiveView] = useState<"terminal" | "tests">("terminal");
     const [availableShells, setAvailableShells] = useState<TerminalShellProfile[]>([]);
     const tabScrollRef = useRef<HTMLDivElement>(null);
@@ -933,7 +938,7 @@ const Terminal = ({
         globalTerminalStore.setTabs(prev => {
             const closing = prev.find((t) => t.id === id);
             const next = prev.filter(t => t.id !== id);
-            const projectTabs = next.filter(t => t.cwd === safeCwd);
+            const projectTabs = next.filter((t) => sameProjectPath(t.cwd, safeCwd));
             const left = projectTabs.filter((t) => (t.group ?? "left") === "left");
             const right = projectTabs.filter((t) => t.group === "right");
             const inst = globalTerminalStore.instances.get(id);
@@ -1050,7 +1055,9 @@ const Terminal = ({
                 case "open": {
                     ensurePanelOpen();
                     setActiveView("terminal");
-                    const existing = globalTerminalStore.tabs.filter(t => t.cwd === safeCwd);
+                    const existing = globalTerminalStore.tabs.filter((t) =>
+                        sameProjectPath(t.cwd, safeCwd),
+                    );
                     if (existing.length === 0) {
                         addTab(resolveAvailableDefaultShell());
                     } else if (activeTerminalId) {
@@ -1076,13 +1083,14 @@ const Terminal = ({
     useEffect(() => {
         if (!isOpen || activeView !== "terminal" || closingRef.current) return;
 
-        const projectTabs = terminalTabs.filter(t => t.cwd === safeCwd);
+        const projectTabs = terminalTabs.filter((t) => sameProjectPath(t.cwd, safeCwd));
         if (projectTabs.length === 0) {
             // Prefer a background Run tab registered under this cwd (or legacy "global").
             const bound = terminalTabs.find(
                 (t) =>
                     typeof t.boundPtyId === "number" &&
-                    (t.cwd === safeCwd || (safeCwd !== "global" && t.cwd === "global")),
+                    (sameProjectPath(t.cwd, safeCwd) ||
+                        (safeCwd !== "global" && t.cwd === "global")),
             );
             if (bound) {
                 if (bound.cwd !== safeCwd) {
@@ -1096,7 +1104,7 @@ const Terminal = ({
             const shell = resolveAvailableDefaultShell();
             const id = createTabId();
             globalTerminalStore.setTabs(tabs => {
-                if (tabs.filter(t => t.cwd === safeCwd).length !== 0) return tabs;
+                if (tabs.filter((t) => sameProjectPath(t.cwd, safeCwd)).length !== 0) return tabs;
                 const title = getNextTerminalName(tabs, shell, safeCwd);
                 return [...tabs, createTerminalTab(shell, title, safeCwd, id)];
             });
@@ -1115,7 +1123,9 @@ const Terminal = ({
     }, [activeTerminalId, secondaryTerminalId, activeView, isOpen, safeCwd, terminalTabs, resolveAvailableDefaultShell, setActiveTerminalId, setSecondaryTerminalId]);
 
     useEffect(() => {
-        const pt = terminalTabs.filter(t => t.cwd === safeCwd && (t.group ?? "left") === "left");
+        const pt = terminalTabs.filter(
+            (t) => sameProjectPath(t.cwd, safeCwd) && (t.group ?? "left") === "left",
+        );
         if (pt.length > 0 && (!activeTerminalId || !pt.some(t => t.id === activeTerminalId))) {
             setTimeout(() => setActiveTerminalId(pt[pt.length - 1].id), 0);
         }

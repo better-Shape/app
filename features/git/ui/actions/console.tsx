@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
+import { HoldButton } from "@/components/ui/hold-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll";
 import { commands, useProjectState } from "@/lib/backend";
@@ -425,22 +426,24 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
         return () => window.clearInterval(id);
     }, [live, loadRunDetail, loadRuns, selectedRunId]);
 
-    const runAction = async (kind: "rerun" | "rerun-failed" | "cancel") => {
-        if (!repo || !selectedRunId) return;
+    const runAction = async (kind: "rerun" | "rerun-failed" | "cancel"): Promise<boolean> => {
+        if (!repo || !selectedRunId) return false;
         setBusyAction(kind);
         try {
             const base = `/repos/${repo.owner}/${repo.repo}/actions/runs/${selectedRunId}`;
-            const path =
+            const suffix =
                 kind === "rerun"
-                    ? `${base}/rerun`
+                    ? "rerun"
                     : kind === "rerun-failed"
-                      ? `${base}/rerun-failed-jobs`
-                      : `${base}/cancel`;
-            await commands.githubApiRequest("POST", path);
+                      ? "rerun-failed-jobs"
+                      : "cancel";
+            await commands.githubApiRequest("POST", `${base}/${suffix}`);
             await loadRuns();
             await loadRunDetail(selectedRunId);
+            return true;
         } catch (e) {
             reportActionsError(e);
+            return false;
         } finally {
             setBusyAction(null);
         }
@@ -865,18 +868,19 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                 >
                                                     Run again…
                                                 </Button>
-                                                <Button
-                                                    variant="ghost"
+                                                <HoldButton
                                                     size="sm"
                                                     disabled={
                                                         !!busyAction ||
                                                         activeRun.status === "completed" ||
                                                         activeRun.status === "cancelled"
                                                     }
-                                                    onClick={() => void runAction("cancel")}
-                                                >
-                                                    Cancel
-                                                </Button>
+                                                    onConfirm={() => runAction("cancel")}
+                                                    ariaLabel="Cancel workflow run"
+                                                    label="Cancel run"
+                                                    armedLabel="Confirm"
+                                                    className="text-text-secondary"
+                                                />
                                                 <Button
                                                     variant="secondary"
                                                     size="sm"

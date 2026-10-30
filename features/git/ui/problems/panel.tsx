@@ -8,6 +8,7 @@ import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { Icon, type IconGlyph } from "@/components/ui/icon";
+import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
 import { stagePromptInChatComposer } from "@/features/chat/ui/shell/find-bar";
 import { cn } from "@/lib/utils";
@@ -36,15 +37,6 @@ const SEVERITY_CLASS: Record<ProblemSeverity, string> = {
     warning: "text-warning",
     info: "text-info",
 };
-
-function StateMessage({ title, detail }: { title: string; detail?: string }) {
-    return (
-        <div className="flex flex-col gap-1 px-3 py-4">
-            <p className="text-sm text-text-primary">{title}</p>
-            {detail ? <p className="text-xs text-text-muted">{detail}</p> : null}
-        </div>
-    );
-}
 
 function countLabel(count: number, noun: string): string | null {
     if (count <= 0) return null;
@@ -229,25 +221,41 @@ export const ProblemsPanel = ({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {state.kind === "no-project" ? (
-                    <StateMessage title="No project open" detail="Open a folder to lint its files." />
+                    <PanelStateMessage title="No project open" detail="Open a folder to lint its files." />
                 ) : state.kind === "off" ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title="ESLint is off"
                         detail="Turn on ESLint in Settings to lint open files."
                     />
                 ) : state.kind === "no-files" ? (
-                    <StateMessage title="Nothing to lint" detail={state.reason} />
+                    <PanelStateMessage
+                        title="Nothing to lint"
+                        detail={state.reason}
+                        actionLabel="Browse files"
+                        onAction={openWorkspaceFilesTab}
+                    />
                 ) : state.kind === "loading" ? (
-                    <StateMessage title="Running ESLint..." detail={state.detail} />
+                    <PanelStateMessage title="Running ESLint..." detail={state.detail} />
                 ) : state.kind === "failed" ? (
-                    <StateMessage title="ESLint didn't run" detail={state.message} />
+                    <PanelStateMessage
+                        title="ESLint didn't run"
+                        detail={state.message}
+                        tone="error"
+                        icon={ErrorCircle20Regular}
+                        actionLabel="Run again"
+                        onAction={onRerun}
+                        actionDisabled={busy}
+                    />
                 ) : (
                     <div className="problems-enter">
                         <PartialErrors errors={state.partialErrors} lintedCount={state.lintedCount} />
                         {state.groups.length === 0 ? (
-                            <StateMessage
+                            <PanelStateMessage
                                 title="No problems"
                                 detail={`ESLint reported nothing for ${pluralFiles(state.lintedCount)}.`}
+                                actionLabel="Run again"
+                                onAction={onRerun}
+                                actionDisabled={busy}
                             />
                         ) : (
                             state.groups.map((group) => (

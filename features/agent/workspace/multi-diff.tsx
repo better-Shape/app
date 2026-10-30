@@ -16,6 +16,9 @@ import { discoverGitRepos, pickDefaultRepo } from "@/lib/git/repos";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
+import { HoldButton } from "@/components/ui/hold-button";
+import { Tooltip } from "@/components/ui/tooltip";
+import { discardGitFileChange } from "./file-diff";
 
 import { ALL_CHANGES_FOCUS_EVENT, ALL_CHANGES_FOCUS_KEY, openAllChangesTab } from "@/lib/window/open-all-changes";
 
@@ -75,6 +78,7 @@ function LazyFileDiff({
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
+    const [hover, setHover] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
     const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key, revision], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
     const dir = fileDir(file.path);
@@ -122,14 +126,13 @@ function LazyFileDiff({
         }
     };
 
-    const discard = async () => {
-        try {
-            await commands.gitDiscardChanges(repo, file.path);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-        } catch (err) {
-            notify.error("Git", err instanceof Error ? err.message : String(err));
-        }
-    };
+    const discard = (): Promise<boolean> =>
+        discardGitFileChange({
+            repo,
+            path: file.path,
+            staged: file.staged,
+            status: file.status,
+        });
 
     const openFile = async () => {
         const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
@@ -141,6 +144,8 @@ function LazyFileDiff({
             ref={hostRef}
             id={domId}
             role="presentation"
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
         >
             <div className="sticky top-1 z-[1] flex h-9 items-center gap-2 bg-panel pl-3 border-b border-border">
                 <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border-subtle">
@@ -173,19 +178,38 @@ function LazyFileDiff({
                 >
                     Open File
                 </Button>
-                <Button
-                    type="button"
-                    onClick={() => void discard()}
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Restore"
-                    title="Restore"
-                >
-                    <Icon icon={ArrowUndo20Regular} />
-                </Button>
+                <Tooltip content="Hold to restore file">
+                    <HoldButton
+                        size="icon"
+                        onConfirm={() => discard()}
+                        ariaLabel="Restore file"
+                        icon={<Icon icon={ArrowUndo20Regular} />}
+                    />
+                </Tooltip>
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
+                {hover ? (
+                    <div className="absolute right-3 top-2 z-[2] flex gap-1">
+                        <Button
+                            type="button"
+                            onClick={() => void toggleStage()}
+                            variant="ghost"
+                            className="bg-surface-4"
+                            size="xs"
+                        >
+                            {file.staged ? "Unstage" : "Stage"}
+                        </Button>
+                        <HoldButton
+                            size="xs"
+                            onConfirm={() => discard()}
+                            ariaLabel="Restore file"
+                            label="Restore"
+                            armedLabel="Confirm"
+                            className="bg-surface-4 text-text-primary"
+                        />
+                    </div>
+                ) : null}
                 {!visible ? (
                     <div className="flex h-[120px] items-center px-4 text-sm text-text-muted">
                         Scroll to load diff

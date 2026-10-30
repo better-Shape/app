@@ -390,6 +390,14 @@ fn start_watcher(app: AppHandle, path: &str) {
     *watcher_guard = Some(WatchSession { tx: cmd_tx });
 }
 
+fn entry_is_dir(entry: &fs::DirEntry, path: &Path) -> bool {
+    match entry.file_type() {
+        Ok(ft) if ft.is_symlink() => fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false),
+        Ok(ft) => ft.is_dir(),
+        Err(_) => false,
+    }
+}
+
 pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     let path_clone = path.clone();
@@ -397,18 +405,15 @@ pub async fn ls_dir(path: String) -> Result<Vec<FileEntry>, AppError> {
         let entries = fs::read_dir(&path_clone).map_err(|e| AppError::Io(e))?;
         let mut result = Vec::with_capacity(128);
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let file_type = entry.file_type().ok();
-                let is_dir = file_type.map(|ft| ft.is_dir()).unwrap_or(false);
-                let path_buf = entry.path();
+        for entry in entries.flatten() {
+            let path_buf = entry.path();
+            let is_dir = entry_is_dir(&entry, &path_buf);
 
-                result.push(FileEntry {
-                    name: entry.file_name().to_string_lossy().into_owned(),
-                    path: path_buf.to_string_lossy().into_owned(),
-                    is_dir,
-                });
-            }
+            result.push(FileEntry {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                path: path_buf.to_string_lossy().into_owned(),
+                is_dir,
+            });
         }
 
         sort_entries(&mut result);
@@ -449,14 +454,15 @@ pub async fn read_file_within(path: String, root: String) -> Result<String, AppE
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Confirm a directory's canonical path stays inside `root`. Used to drop a
-/// project skill folder that is a symlink out of the project.
-pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+/// Confirm a directory's canonical path stays inside `root` and return that
+/// canonical path so callers can deduplicate symlinked skill folders.
+pub fn ensure_path_within(path: String, root: String) -> Result<String, AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     crate::agent::security::paths::assert_ipc_path_allowed(&root)?;
     let resolved_root = resolve_allowed_target(&root)?;
     let resolved = resolve_allowed_target(&path)?;
-    crate::agent::security::paths::assert_resolved_within(&resolved, &resolved_root)
+    crate::agent::security::paths::assert_resolved_within(&resolved, &resolved_root)?;
+    Ok(resolved.to_string_lossy().into_owned())
 }
 
 /// Read raw bytes for the IDE (images, previews) under the same path policy.
@@ -2024,5 +2030,39 @@ mod tests {
             &root.join("vendor"),
             MAX_RECURSIVE_WATCH_ROOTS
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn entry_is_dir_follows_directory_symlinks_and_rejects_file_or_broken_links() {
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("bettershape-ls-symlink-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let target_dir = root.join("shared").join("pdf-skill");
+        let target_file = target_dir.join("SKILL.md");
+        let skills_dir = root.join(".claude").join("skills");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::create_dir_all(&skills_dir).unwrap();
+        fs::write(&target_file, "# PDF").unwrap();
+
+        symlink(&target_dir, skills_dir.join("pdf")).unwrap();
+        symlink(&target_file, skills_dir.join("linked-file.md")).unwrap();
+        symlink(root.join("missing-dir"), skills_dir.join("broken")).unwrap();
+
+        let mut flags = HashMap::new();
+        for entry in fs::read_dir(&skills_dir).unwrap().flatten() {
+            let p = entry.path();
+            flags.insert(
+                entry.file_name().to_string_lossy().into_owned(),
+                entry_is_dir(&entry, &p),
+            );
+        }
+
+        assert_eq!(flags.get("pdf"), Some(&true));
+        assert_eq!(flags.get("linked-file.md"), Some(&false));
+        assert_eq!(flags.get("broken"), Some(&false));
+        let _ = fs::remove_dir_all(&root);
     }
 }

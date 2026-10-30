@@ -54,6 +54,189 @@ import { GraphLoadingStatus } from "./graph-loading-status";
 
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
 
+export type GraphHeadSnapshot = {
+    cacheKey: string | null;
+    topHash: string | null;
+    known: Set<string>;
+    headRef?: string | null;
+    logsRef?: GitLogEntry[] | null;
+    ignoredLogsRef?: GitLogEntry[] | null;
+};
+
+const parseSingleHeadRef = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    const match = /^head\s*->\s*(.+)$/i.exec(trimmed);
+    if (match) return `branch:${match[1].trim()}`;
+    return trimmed.toLowerCase() === "head" ? "detached" : null;
+};
+
+const extractEntryHeadRef = (refs: readonly string[] | undefined): string | null => {
+    if (!refs) return null;
+    for (const ref of refs) {
+        const parsed = parseSingleHeadRef(ref);
+        if (parsed) return parsed;
+    }
+    return null;
+};
+
+export const resolveGraphHeadRef = (
+    logs: readonly Pick<GitLogEntry, "refs">[],
+): string | null => {
+    for (const entry of logs) {
+        const found = extractEntryHeadRef(entry.refs);
+        if (found) return found;
+    }
+    return null;
+};
+
+type GraphCommitLineage = Pick<GitLogEntry, "hash" | "parents">;
+
+const isLineageList = (
+    value: GraphCommitLineage | readonly GraphCommitLineage[],
+): value is readonly GraphCommitLineage[] => Array.isArray(value);
+
+const normalizeLineageSlice = (
+    candidate: GraphCommitLineage | readonly GraphCommitLineage[] | undefined,
+): readonly GraphCommitLineage[] => {
+    if (!candidate) return EMPTY_ARRAY;
+    return isLineageList(candidate) ? candidate : [candidate];
+};
+
+const enqueueUnvisitedParents = (
+    parents: readonly string[] | undefined,
+    visited: Set<string>,
+    queue: string[],
+): void => {
+    if (!parents) return;
+    for (const parent of parents) {
+        if (visited.has(parent)) continue;
+        visited.add(parent);
+        queue.push(parent);
+    }
+};
+
+const reachesKnownHistory = (
+    commits: readonly GraphCommitLineage[],
+    known: ReadonlySet<string>,
+): boolean => {
+    const byHash = new Map<string, readonly string[]>();
+    for (const commit of commits) byHash.set(commit.hash, commit.parents);
+    const visited = new Set<string>([commits[0].hash]);
+    const queue: string[] = [];
+    enqueueUnvisitedParents(commits[0].parents, visited, queue);
+    for (let index = 0; index < queue.length; index += 1) {
+        const current = queue[index];
+        if (known.has(current)) return true;
+        enqueueUnvisitedParents(byHash.get(current), visited, queue);
+    }
+    return false;
+};
+
+const hasMatchingGraphContext = (
+    prev: GraphHeadSnapshot,
+    cacheKey: string | null,
+    nextHeadRef: string | null,
+): boolean => {
+    if (!cacheKey || prev.cacheKey !== cacheKey || !prev.topHash) return false;
+    return (prev.headRef ?? null) === nextHeadRef;
+};
+
+export const detectFreshGraphArrival = (
+    prev: GraphHeadSnapshot,
+    cacheKey: string | null,
+    candidate: GraphCommitLineage | readonly GraphCommitLineage[] | undefined,
+    nextHeadRef: string | null = null,
+): boolean => {
+    const commits = normalizeLineageSlice(candidate);
+    const topCommit = commits[0];
+    if (!topCommit || !hasMatchingGraphContext(prev, cacheKey, nextHeadRef)) return false;
+    if (prev.known.has(topCommit.hash)) return false;
+    return reachesKnownHistory(commits, prev.known);
+};
+
+const resolveIgnoredLogsRef = (
+    prev: GraphHeadSnapshot,
+    keyChanged: boolean,
+    gitLogs: GitLogEntry[],
+): GitLogEntry[] | null => {
+    if (!keyChanged) {
+        return prev.ignoredLogsRef === gitLogs ? prev.ignoredLogsRef : null;
+    }
+    const carriedOver = prev.cacheKey !== null && prev.logsRef === gitLogs && gitLogs.length > 0;
+    return carriedOver ? gitLogs : null;
+};
+
+const buildNextKnownSet = (
+    prevKnown: Set<string>,
+    keyChanged: boolean,
+    staleCarryOver: boolean,
+    gitLogs: GitLogEntry[],
+): Set<string> => {
+    const nextKnown = keyChanged ? new Set<string>() : new Set(prevKnown);
+    if (staleCarryOver) return nextKnown;
+    for (const entry of gitLogs) nextKnown.add(entry.hash);
+    return nextKnown;
+};
+
+/**
+ * Tracks a genuinely new head commit arriving in an already-loaded graph view.
+ * Keyed by `cacheKey` + checked-out `HEAD` ref and verified against parent lineage so
+ * cache switches, branch checkouts, and virtualized scroll recycling never replay the
+ * stroke draw on existing history.
+ */
+export const useArrivingCommitHash = (
+    cacheKey: string | null,
+    gitLogs: GitLogEntry[],
+): string | null => {
+    const [prev, setPrev] = useState<GraphHeadSnapshot>({
+        cacheKey: null,
+        topHash: null,
+        known: new Set(),
+        headRef: null,
+        logsRef: null,
+        ignoredLogsRef: null,
+    });
+    const [arrivingHash, setArrivingHash] = useState<string | null>(null);
+
+    const keyChanged = prev.cacheKey !== cacheKey;
+    const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
+    const staleCarryOver = nextIgnoredLogsRef !== null;
+    const effectiveLogs = staleCarryOver ? EMPTY_ARRAY : gitLogs;
+    const effectiveTopHash = effectiveLogs[0]?.hash ?? null;
+    const effectiveHeadRef = staleCarryOver ? null : resolveGraphHeadRef(gitLogs);
+
+    const snapshotChanged =
+        keyChanged ||
+        prev.logsRef !== gitLogs ||
+        prev.ignoredLogsRef !== nextIgnoredLogsRef;
+    if (snapshotChanged) {
+        const fresh = detectFreshGraphArrival(
+            prev,
+            cacheKey,
+            effectiveLogs,
+            effectiveHeadRef,
+        );
+        setPrev({
+            cacheKey,
+            topHash: effectiveTopHash,
+            known: buildNextKnownSet(prev.known, keyChanged, staleCarryOver, gitLogs),
+            headRef: effectiveHeadRef,
+            logsRef: gitLogs,
+            ignoredLogsRef: nextIgnoredLogsRef,
+        });
+        if (fresh) setArrivingHash(effectiveTopHash);
+        else if (keyChanged && arrivingHash !== null) setArrivingHash(null);
+    }
+
+    useEffect(() => {
+        if (!arrivingHash) return undefined;
+        const timer = window.setTimeout(() => setArrivingHash(null), 520);
+        return () => window.clearTimeout(timer);
+    }, [arrivingHash]);
+
+    return arrivingHash;
+};
+
 export default function Graph({
     className,
     surface = "panel",
@@ -206,6 +389,11 @@ export default function Graph({
         setCommitFilesLoaded({});
         setScrollTop(entry?.scrollTop ?? 0);
     }
+    const activeLogs =
+        cacheRestore !== null && cacheRestore.key === cacheKey
+            ? gitLogs
+            : (cached?.logs ?? []);
+    const arrivingHash = useArrivingCommitHash(cacheKey, activeLogs);
 
     useLayoutEffect(() => {
         scrollTopRef.current = cacheRestore?.scrollTop ?? 0;
@@ -712,6 +900,7 @@ export default function Graph({
                                     onSelect={handleSelectCommit}
                                     onRefActivate={rich ? handleRefActivate : undefined}
                                     compact={hideHeader}
+                                    arriving={arrivingHash === log.hash}
                                 />
                             </div>
                         );

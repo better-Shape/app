@@ -5,6 +5,7 @@ import { ArrowSync20Regular } from "@fluentui/react-icons/headless/svg/arrow-syn
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
 import { cn } from "@/lib/utils";
 import {
     DEFAULT_GROUP_LIMIT,
@@ -25,15 +26,6 @@ export type BlameCommitTarget = {
     from: number;
     to: number;
 };
-
-function StateMessage({ title, detail }: { title: string; detail?: string }) {
-    return (
-        <div className="flex flex-col gap-1 px-3 py-4">
-            <p className="text-sm text-text-primary">{title}</p>
-            {detail ? <p className="text-xs text-text-muted">{detail}</p> : null}
-        </div>
-    );
-}
 
 function BlameGroupRow({
     group,
@@ -142,17 +134,32 @@ export function BlamePanel({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {state.kind === "no-project" ? (
-                    <StateMessage title="No project open" detail="Open a git repository to blame its files." />
+                    <PanelStateMessage title="No project open" detail="Open a git repository to blame its files." />
                 ) : state.kind === "blocked" ? (
-                    <StateMessage title="No file to blame" detail={state.reason} />
+                    <PanelStateMessage
+                        title="No file to blame"
+                        detail={state.reason}
+                        actionLabel="Browse files"
+                        onAction={openWorkspaceFilesTab}
+                    />
                 ) : state.kind === "loading" ? (
-                    <StateMessage title="Running git blame..." />
+                    <PanelStateMessage title="Running git blame..." />
                 ) : state.kind === "failed" ? (
-                    <StateMessage title="Git blame did not run" detail={state.message} />
+                    <PanelStateMessage
+                        title="Git blame did not run"
+                        detail={state.message}
+                        tone="error"
+                        actionLabel="Try again"
+                        onAction={onRefresh}
+                        actionDisabled={busy}
+                    />
                 ) : ready && ready.groups.length === 0 ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title="Nothing to blame"
                         detail="Git returned no blame regions for this file."
+                        actionLabel="Run again"
+                        onAction={onRefresh}
+                        actionDisabled={busy}
                     />
                 ) : (
                     <ul className="flex flex-col">

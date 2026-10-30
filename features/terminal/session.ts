@@ -1,5 +1,6 @@
 import { randomSuffix } from "@/lib/utils";
 import { stripShellPromptPrefix } from "@/lib/chat/prompt-history";
+import { getPlatform } from "@/lib/platform";
 
 /**
  * Shared terminal session registration (used by the always-mounted DevRunHost
@@ -38,7 +39,50 @@ function createTabId() {
         : randomSuffix(9);
 }
 
-/** Exported for tests; the app uses the `terminalSessionStore` singleton. */
+const isWindowsProjectPath = (raw: string): boolean => {
+    if (raw.includes("\\") || /^[A-Za-z]:/.test(raw)) return true;
+    return raw.startsWith("//") && getPlatform() === "windows";
+};
+
+/** Exported so the Terminal UI and session store agree on project path identity. */
+export const projectPathKey = (raw: string): string => {
+    const isWindows = isWindowsProjectPath(raw);
+    const forward = raw.replaceAll("\\", "/");
+    let end = forward.length;
+    while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
+    const trimmed = forward.slice(0, end);
+    return isWindows ? trimmed.toLowerCase() : trimmed;
+};
+
+export const sameProjectPath = (a: string, b: string): boolean =>
+    a === b || projectPathKey(a) === projectPathKey(b);
+
+export const lookupByProjectPath = <T>(
+    map: Record<string, T | null | undefined>,
+    cwd: string,
+): T | null => {
+    if (Object.hasOwn(map, cwd)) return map[cwd] ?? null;
+    const target = projectPathKey(cwd);
+    for (const [key, value] of Object.entries(map)) {
+        if (projectPathKey(key) === target) return value ?? null;
+    }
+    return null;
+};
+
+const writeByProjectPath = <T>(
+    map: Record<string, T>,
+    cwd: string,
+    value: T,
+): Record<string, T> => {
+    const target = projectPathKey(cwd);
+    const next: Record<string, T> = {};
+    for (const [key, entry] of Object.entries(map)) {
+        if (projectPathKey(key) !== target) next[key] = entry;
+    }
+    next[cwd] = value;
+    return next;
+};
+
 export class TerminalSessionStore {
     tabs: TerminalTab[] = [];
     activeProjectTabs: Record<string, string | null> = {};
@@ -87,12 +131,12 @@ export class TerminalSessionStore {
         this.notify();
     }
     setActive(cwd: string, id: string | null) {
-        this.activeProjectTabs = { ...this.activeProjectTabs, [cwd]: id };
+        this.activeProjectTabs = writeByProjectPath(this.activeProjectTabs, cwd, id);
         if (id) this.clearUnread(id);
         this.notify();
     }
     setSecondaryActive(cwd: string, id: string | null) {
-        this.activeSecondaryTabs = { ...this.activeSecondaryTabs, [cwd]: id };
+        this.activeSecondaryTabs = writeByProjectPath(this.activeSecondaryTabs, cwd, id);
         if (id) this.clearUnread(id);
         this.notify();
     }
@@ -100,7 +144,23 @@ export class TerminalSessionStore {
     setPanel(next: { visible: boolean; cwd: string | null }) {
         if (this.panel.visible === next.visible && this.panel.cwd === next.cwd) return;
         this.panel = next;
+        for (const id of this.visibleTabIds()) {
+            this.unreadTabs.delete(id);
+        }
         this.notify();
+    }
+
+    /**
+     * Whether any terminal tab belonging to `cwd` carries unseen output.
+     * Used by the closed-dock toggle button so background builds and commands
+     * surface activity even while the terminal strip itself is hidden.
+     */
+    hasUnreadForProject(cwd: string | null | undefined): boolean {
+        if (!cwd || this.unreadTabs.size === 0) return false;
+        const norm = projectPathKey(cwd);
+        return this.tabs.some(
+            (tab) => this.unreadTabs.has(tab.id) && projectPathKey(tab.cwd) === norm,
+        );
     }
 
     /**
@@ -112,8 +172,8 @@ export class TerminalSessionStore {
         const ids = new Set<string>();
         const cwd = this.panel.cwd;
         if (!this.panel.visible || !cwd) return ids;
-        const project = this.activeProjectTabs[cwd];
-        const secondary = this.activeSecondaryTabs[cwd];
+        const project = lookupByProjectPath(this.activeProjectTabs, cwd);
+        const secondary = lookupByProjectPath(this.activeSecondaryTabs, cwd);
         if (project) ids.add(project);
         if (secondary) ids.add(secondary);
         return ids;
@@ -145,7 +205,7 @@ export class TerminalSessionStore {
         this.notify();
     }
     setFocusedGroup(cwd: string, group: TerminalGroupId) {
-        this.focusedGroup = { ...this.focusedGroup, [cwd]: group };
+        this.focusedGroup = writeByProjectPath(this.focusedGroup, cwd, group);
         this.notify();
     }
 
@@ -231,8 +291,8 @@ export const terminalSessionStore = new TerminalSessionStore();
 /** Selects the interactive shell tab belonging to the active project `cwd`, if any. */
 const findTargetProjectShellTab = (cwd: string | null): TerminalTab | undefined => {
     const isProjectShell = (tab: TerminalTab) =>
-        tab.shell !== "ai" && (!cwd || tab.cwd === cwd);
-    const preferredTabId = cwd ? terminalSessionStore.activeProjectTabs[cwd] : null;
+        tab.shell !== "ai" && (!cwd || sameProjectPath(tab.cwd, cwd));
+    const preferredTabId = cwd ? lookupByProjectPath(terminalSessionStore.activeProjectTabs, cwd) : null;
     const preferredTab = preferredTabId
         ? terminalSessionStore.tabs.find((tab) => tab.id === preferredTabId && isProjectShell(tab))
         : undefined;
@@ -291,7 +351,7 @@ export function registerBoundTerminalTab(opts: {
     boundPtyId: number;
 }): string {
     const existing = terminalSessionStore.tabs.find(
-        (t) => t.boundPtyId === opts.boundPtyId && t.cwd === opts.cwd,
+        (t) => t.boundPtyId === opts.boundPtyId && sameProjectPath(t.cwd, opts.cwd),
     );
     if (existing) {
         terminalSessionStore.setActive(opts.cwd, existing.id);
@@ -315,6 +375,9 @@ export function registerBoundTerminalTab(opts: {
 
 export function findActiveRunTab(cwd: string): TerminalTab | undefined {
     return terminalSessionStore.tabs.find(
-        (t) => t.cwd === cwd && typeof t.boundPtyId === "number" && t.title.startsWith("Run:"),
+        (t) =>
+            sameProjectPath(t.cwd, cwd) &&
+            typeof t.boundPtyId === "number" &&
+            t.title.startsWith("Run:"),
     );
 }

@@ -400,3 +400,19 @@ describe("git log streaming", () => {
         expect(new Set(hashes).size).toBe(hashes.length);
     });
 });
+
+describe("window and turn-journal preview commands", () => {
+    it("models get_open_turn_journals, ensure_path_within, and plugin:window geometry queries", () => {
+        const { handle, commands } = createPreviewInvokeHandler("project");
+        expect(commands).toContain("get_open_turn_journals");
+        expect(handle("get_open_turn_journals")).toEqual([]);
+        expect(handle("ensure_path_within", { path: `${PREVIEW_PROJECT_PATH}/.claude/skills` })).toBe(
+            `${PREVIEW_PROJECT_PATH}/.claude/skills`,
+        );
+        expect(MODELED_PLUGIN_COMMANDS).toContain("plugin:window|inner_size");
+        expect(MODELED_PLUGIN_COMMANDS).toContain("plugin:window|scale_factor");
+        expect(MODELED_PLUGIN_COMMANDS).toContain("plugin:window|set_min_size");
+        expect(handle("plugin:window|inner_size")).toEqual({ width: 1440, height: 900 });
+        expect(handle("plugin:window|scale_factor")).toBe(1);
+    });
+});

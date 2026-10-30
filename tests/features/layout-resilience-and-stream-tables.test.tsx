@@ -7,7 +7,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import Status from "@/features/agent/workbench/status/ui/status";
 import { MessageAttachmentPill } from "@/features/chat/ui/composer/attachments";
-import { ChatDataTable, MarkdownTableShell } from "@/features/chat/ui/md/data-table";
+import {
+    ChatDataTable,
+    ChatKeyedRowsTable,
+    MarkdownTableShell,
+} from "@/features/chat/ui/md/data-table";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
 import { ContextChip } from "@/features/chat/ui/message/context-chip";
@@ -326,5 +330,18 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
         const highlighted = syncChatDomHighlights(container, "@router.ts");
         expect(highlighted.ranges).toHaveLength(1);
         expect(highlighted.ranges.at(0)?.range.toString()).toBe("@router.ts");
+    });
+
+    it("ignores inherited Object.prototype properties when rendering sparse ChatKeyedRowsTable rows", () => {
+        const container = mountInTooltipProvider(
+            <ChatKeyedRowsTable
+                rows={[
+                    { constructor: "explicit", label: "first" },
+                    { label: "second" },
+                ]}
+            />,
+        );
+        const cells = Array.from(container.querySelectorAll("tbody td"), (td) => td.textContent);
+        expect(cells).toEqual(["explicit", "first", "", "second"]);
     });
 });

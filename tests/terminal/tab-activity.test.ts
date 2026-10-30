@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { terminalSessionStore, type TerminalTab } from "@/features/terminal/session";
+import {
+    lookupByProjectPath,
+    sameProjectPath,
+    terminalSessionStore,
+    type TerminalTab,
+} from "@/features/terminal/session";
 
 /**
  * The terminal strip's unread dot. The store sits on the pty output path, so the
@@ -155,5 +160,51 @@ describe("terminal tab activity", () => {
         // The pty keeps printing after its tab is gone.
         terminalSessionStore.noteOutput(2);
         expect(terminalSessionStore.unreadTabs.size).toBe(0);
+    });
+
+    it("clears newly visible tabs when the closed dock reopens while keeping background tabs unread", () => {
+        terminalSessionStore.setTabs(() => [tab("a", 1), tab("b", 2)]);
+        terminalSessionStore.setActive("/repo", "a");
+        terminalSessionStore.setPanel({ visible: false, cwd: "/repo" });
+
+        terminalSessionStore.noteOutput(1);
+        terminalSessionStore.noteOutput(2);
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/repo/")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/other")).toBe(false);
+
+        terminalSessionStore.setPanel({ visible: true, cwd: "/repo" });
+        expect(terminalSessionStore.unreadTabs.has("a")).toBe(false);
+        expect(terminalSessionStore.unreadTabs.has("b")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(true);
+
+        terminalSessionStore.setActive("/repo", "b");
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(false);
+    });
+
+    it("matches Windows project paths case-insensitively while keeping POSIX paths case-sensitive", () => {
+        terminalSessionStore.setTabs(() => [
+            { ...tab("win", 11), cwd: "C:\\Users\\Ada\\Repo" },
+            { ...tab("posix", 12), cwd: "/home/ada/Repo" },
+        ]);
+        terminalSessionStore.setActive("C:\\Users\\Ada\\Repo", "win");
+        terminalSessionStore.setPanel({ visible: false, cwd: "c:\\users\\ada\\repo" });
+
+        terminalSessionStore.noteOutput(11);
+        terminalSessionStore.noteOutput(12);
+
+        expect(terminalSessionStore.hasUnreadForProject("c:\\users\\ada\\repo\\")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/home/ada/Repo")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/home/ada/repo")).toBe(false);
+
+        terminalSessionStore.setPanel({ visible: true, cwd: "c:/users/ada/repo" });
+        expect(terminalSessionStore.unreadTabs.has("win")).toBe(false);
+        expect(sameProjectPath("C:\\Users\\Ada\\Repo", "c:/users/ada/repo/")).toBe(true);
+        expect(sameProjectPath("/home/ada/Repo", "/home/ada/repo")).toBe(false);
+        // POSIX double-leading-slash paths stay case-sensitive outside Windows.
+        expect(sameProjectPath("//Work/App", "//work/app")).toBe(false);
+
+        terminalSessionStore.setActive("c:/users/ada/repo", "win-next");
+        expect(lookupByProjectPath(terminalSessionStore.activeProjectTabs, "C:\\Users\\Ada\\Repo")).toBe("win-next");
     });
 });

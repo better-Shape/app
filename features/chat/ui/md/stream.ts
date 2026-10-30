@@ -767,9 +767,12 @@ const EXECUTE_DUMP_RE =
 /** Case-insensitive probe for leaked `_execute` + `tool_name:`/`name:` tool-dump blocks. */
 const hasExecuteDump = (text: string): boolean => EXECUTE_DUMP_RE.test(text);
 
-/** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
+const TOOL_CODE_JSON_KEY_RE = /^[{[][\s\S]*"tool_code"\s*:/u;
+const TOOL_CODE_JSON_TRIGGER_RE =
+    /\bprint\s*\(|\bfunctions\.[a-zA-Z_]\w*\s*\(|\b(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input|list_dir|codebase_overview|update_todos)\s*\(|concepts\s*=|"tool_name"\s*:|"arguments"\s*:/u;
+
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
-    /^[{[][\s\S]*"tool_code"\s*:/u.test(trimmed);
+    TOOL_CODE_JSON_KEY_RE.test(trimmed) && TOOL_CODE_JSON_TRIGGER_RE.test(trimmed);
 
 /** Checks whether `trimmed` starts with a root XML tool-call dump rather than sample code mentioning a tag. */
 const isLeakedXmlToolBlock = (trimmed: string): boolean => {

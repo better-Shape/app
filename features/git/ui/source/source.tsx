@@ -44,7 +44,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger
 } from "@/components/ui/context";
-import { Checkmark } from "@/components/ui/checkmark";
+import { Checkmark, DrawnCheck } from "@/components/ui/checkmark";
 import {
     commands,
     useProjectState,
@@ -1691,16 +1691,20 @@ const RemoteActionButton = ({
     icon,
     onClick,
     className = "h-6 w-6",
+    copied = false,
+    disabled = false,
 }: {
     content: string;
     label: string;
     icon: typeof Edit20Regular;
     onClick: () => void;
     className?: string;
+    copied?: boolean;
+    disabled?: boolean;
 }) => (
     <Tooltip content={content}>
-        <Button variant="ghost" size="icon" className={className} onClick={onClick} aria-label={label}>
-            <Icon icon={icon} />
+        <Button variant="ghost" size="icon" className={className} onClick={onClick} aria-label={label} disabled={disabled}>
+            {copied ? <DrawnCheck className="size-3.5 text-success" motion="compact" /> : <Icon icon={icon} />}
         </Button>
     </Tooltip>
 );
@@ -1722,7 +1726,10 @@ const RemoteRow = ({
     // Copying a remote URL used to give no sign at all that anything happened. The
     // button now holds its own confirmation: green glyph, "Copied" tooltip, and the
     // toast only fires once the write has landed.
-    const { copied, copy } = useCopyToClipboard({ silent: true, resetMs: 1200 });
+    const { copied, failed, copiedText, failedText, copy } = useCopyToClipboard({ resetMs: 1200 });
+    const urlCopied = Boolean(remote.url) && copied && copiedText === remote.url;
+    const urlFailed = Boolean(remote.url) && failed && failedText === remote.url;
+    const copyLabel = urlCopied ? "Copied" : urlFailed ? "Couldn't copy" : "Copy URL";
 
     return (
     <div key={remote.name} className="rounded-lg border border-border-subtle bg-panel-secondary p-2">
@@ -1748,11 +1755,13 @@ const RemoteRow = ({
                 <div className="flex gap-1 shrink-0">
                     <RemoteActionButton content="Edit URL" label="Edit URL" icon={Edit20Regular} onClick={() => setEditingRemote(remote)} />
                     <RemoteActionButton
-                        content={copied ? "Copied" : "Copy URL"}
-                        label={copied ? "Copied" : "Copy URL"}
+                        content={copyLabel}
+                        label={copyLabel}
                         icon={Clipboard20Regular}
                         onClick={() => copy(remote.url, "Remote URL copied")}
-                        className={cn("h-6 w-6", copied && "text-success")}
+                        className={cn("h-6 w-6", urlCopied && "text-success", urlFailed && "text-error")}
+                        copied={urlCopied}
+                        disabled={!remote.url}
                     />
                     <RemoteActionButton content="Remove" label="Remove remote" icon={Delete20Filled} onClick={() => handleRemoveRemote(remote.name)} className="h-6 w-6 text-error" />
                 </div>

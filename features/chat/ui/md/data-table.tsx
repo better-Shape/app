@@ -134,6 +134,12 @@ export const ChatDataTable = ({
     );
 };
 
+/** Reads an own stringified cell value from `row` without traversing `Object.prototype`. */
+const readOwnTableCell = (row: Record<string, unknown>, header: string): string => {
+    const value = Object.hasOwn(row, header) ? row[header] : undefined;
+    return value == null ? "" : String(value);
+};
+
 /** Renders the ChatKeyedRowsTable UI component. */
 export const ChatKeyedRowsTable = ({ rows }: { rows: Record<string, string>[] }) => {
     const headers = React.useMemo(() => {
@@ -145,7 +151,7 @@ export const ChatKeyedRowsTable = ({ rows }: { rows: Record<string, string>[] })
         }
         return keys;
     }, [rows]);
-    const body = rows.map((row) => headers.map((header) => row[header] ?? ""));
+    const body = rows.map((row) => headers.map((header) => readOwnTableCell(row, header)));
     return <ChatDataTable headers={headers} rows={body} />;
 };
 

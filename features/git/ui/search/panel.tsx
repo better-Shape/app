@@ -20,6 +20,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search";
+import { PanelStateMessage } from "@/components/ui/state-message";
 import { cn } from "@/lib/utils";
 import {
     limitGroups,
@@ -41,15 +42,6 @@ export type ReplaceScope =
 
 const MATCH_GROUP_LABEL = "Matching";
 const SCOPE_GROUP_LABEL = "Scope";
-
-function StateMessage({ title, detail }: { title: string; detail?: string }) {
-    return (
-        <div className="flex flex-col gap-1 px-3 py-4">
-            <p className="text-sm text-text-primary">{title}</p>
-            {detail ? <p className="text-xs text-text-muted">{detail}</p> : null}
-        </div>
-    );
-}
 
 function MatchRow({
     hit,
@@ -441,20 +433,24 @@ export function SearchPanel({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-busy={searching || undefined}>
                 {state.kind === "idle" ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title="Nothing searched yet"
                         detail="Type in the box above to search every file in the project."
+                        actionLabel="Focus search"
+                        onAction={() => queryRef.current?.focus()}
                     />
                 ) : state.kind === "blocked" ? (
-                    <StateMessage title="Search not started" detail={state.reason} />
+                    <PanelStateMessage title="Search not started" detail={state.reason} />
                 ) : state.kind === "failed" ? (
-                    <div className="flex flex-col gap-1 px-3 py-4">
-                        <p className="flex items-center gap-1.5 text-sm text-text-primary">
-                            <Icon icon={ErrorCircle20Regular} className="shrink-0 text-error" />
-                            Search didn&apos;t run
-                        </p>
-                        <p className="text-xs text-text-muted">{state.message}</p>
-                    </div>
+                    <PanelStateMessage
+                        title="Search didn't run"
+                        detail={state.message}
+                        icon={ErrorCircle20Regular}
+                        tone="error"
+                        actionLabel="Try again"
+                        onAction={onRerun}
+                        actionDisabled={searching}
+                    />
                 ) : state.kind === "loading" ? (
                     state.previous && state.previous.length > 0 ? (
                         <Results
@@ -465,12 +461,29 @@ export function SearchPanel({
                             onReplaceFile={requestFile}
                         />
                     ) : (
-                        <StateMessage title="Searching the project…" detail="This reads every file ripgrep is allowed to see." />
+                        <PanelStateMessage
+                            title="Searching the project…"
+                            detail="This reads every file ripgrep is allowed to see."
+                        />
                     )
                 ) : ready && ready.groups.length === 0 ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title={`No results for “${query.trim()}”`}
                         detail="The search ran across the project and matched nothing. Loosen the options if that seems wrong."
+                        actionLabel={
+                            settings.includePattern.trim() || settings.excludePattern.trim()
+                                ? "Clear file filters"
+                                : "Clear search"
+                        }
+                        onAction={() => {
+                            if (settings.includePattern.trim() || settings.excludePattern.trim()) {
+                                onPatternChange("include", "");
+                                onPatternChange("exclude", "");
+                            } else {
+                                onQueryChange("");
+                                queryRef.current?.focus();
+                            }
+                        }}
                     />
                 ) : shown ? (
                     <>

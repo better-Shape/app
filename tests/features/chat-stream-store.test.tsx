@@ -863,3 +863,18 @@ it("accepts an unscoped status only for the sole pending draft without adopting 
     act(() => { api.showConversation(null); });
     expect(api.turnPhase).toBe("editing");
 });
+
+it("ignores unscoped chat_complete events when idle or when a started turn owns a turnId", async () => {
+    await mount("A");
+    await answerMessages("A", [msg("user", "Question"), msg("assistant", "Settled answer")]);
+
+    // Idle conversation: unscoped chat_complete must not overwrite settled transcript.
+    emit("chat_complete", { conversationId: "A", content: "rogue unscoped overwrite" });
+    expect(api.messages.at(-1)?.content).toBe("Settled answer");
+
+    // Started live turn: unscoped chat_complete must not kill the turn.
+    emit("chat_started", { conversationId: "A", turnId: "live-turn", model: "m" });
+    emit("chat_complete", { conversationId: "A", content: "rogue mid-turn overwrite" });
+    expect(api.isLoading).toBe(true);
+    expect(api.turnId).toBe(nativeTurnId("live-turn"));
+});
