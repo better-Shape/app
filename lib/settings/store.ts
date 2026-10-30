@@ -194,8 +194,6 @@ export interface BetterShapeSettings {
         enable: boolean;
         /** Alt+drag / hover-wheel scrubbing on numeric design tokens */
         numberScrubbing: boolean;
-        /** Open flex/gap/padding panel when cursor rests on a token */
-        cursorBindPanel: boolean;
         /** Dashed underline on scrubbable numbers */
         scrubDecorations: boolean;
         /** Wheel over padding/gap inputs changes values (Figma-style) */
@@ -357,7 +355,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
     tailwindControls: {
         enable: true,
         numberScrubbing: true,
-        cursorBindPanel: true,
         scrubDecorations: true,
         wheelOnInputs: true,
     },
