@@ -540,3 +540,59 @@ static preview build (`npm run build:preview && npm run preview:browser`), not
 `next dev`: the mocked IPC bridge only exists in the preview bundle, so against
 `next dev` every route renders the welcome screen and the workbench assertions
 time out.
+
+## Round 4 — the four superseded blocks are gone, and so are five dead listeners
+
+The retarget the last round named is done. `analysis`, `style`, `thinking` and
+`carousel` are deleted, along with `carousel.module.css`:
+
+- the live-region rule (`role="status"` must not sit inside `[aria-busy]`) now
+  asserts against `ActionLine`, which is what `turn.tsx` renders for every
+  active step, and additionally pins that a finished step carries no live
+  region at all (`tests/features/generating-chats.test.ts`);
+- the no-remount slide rule moved to the gallery dialog, the only place arrow
+  keys exist, and gained the bounds check the carousel version never had
+  (`tests/features/design-gallery-keyboard.test.tsx`).
+
+That leaves **2 test-only modules**, both intentional: the design-authorization
+harness and the preview IPC mock. Orphans stay at 0 across 531 modules.
+
+Five events turned out to be listeners with no dispatcher anywhere. None was a
+missing feature: each was a second path to something the UI already reaches.
+
+| Event | Why it was dead |
+| --- | --- |
+| `bettershape-browser-focus-url` | the address bar focuses on click; no chord or menu item ever fired it |
+| `bettershape-open-pull-requests` | `bettershape-set-active-tab` with `prs` already opens the tab |
+| `bettershape-open-subagents-for` | the chat titlebar breadcrumb lists subagents and opens them |
+| `bettershape-terminal-view` | the terminal dock renders its own terminal/tests switch |
+| `open-folder-request` | the Open Folder action already dispatches the project picker |
+
+Listener-only events went 14 → 9, and the remaining nine are honest: native
+events (`abort`, `pagehide`, `mouseover`, `selectionchange`), the Tauri-side
+`mcp-servers-changed`, and this branch's own cross-window announcements, whose
+name reaches `dispatchEvent` through a variable and so is invisible to the
+audit's string match.
+
+The same check run over keybindings found no dead key: every label in
+`config/keybindings.json` (39 of them) has a case in `dispatchShortcutAction`
+except `Close Window`, which deliberately falls through to the Rust
+`handle_shortcut` so the window closes rather than the active tab.
+
+## Round 4 — the preview could not keep a setting, so nothing gated by one could be seen
+
+Found while trying to prove inline blame end to end. `read_settings_file`
+answered `{ record: null }` and `write_settings_file` kept the value in module
+memory, so every navigation re-installed the mock and every setting reverted.
+Two bugs, both fixed in `lib/preview/tauri-mock.ts`:
+
+1. the record has to be the real file shape (`{ settings }`); storing the bare
+   settings object made the loader read a present-but-empty record and skip
+   hydration altogether;
+2. the snapshot has to outlive the page, so writes go to `sessionStorage`.
+
+With that fixed, `git_blame_file` is seeded and the probe now flips
+Settings → Git → Inline Git Blame, opens the README source and asserts the
+annotation is drawn and attributed to the fixture author
+(`.qa-artifacts/feature-wiring/inline-blame.png`). This is the first proof that
+the setting reaches a live editor rather than only a unit test.
