@@ -445,6 +445,12 @@ const useEmbeddedDiffContent = (
     embedded: boolean,
     gitRepo: string | null,
     diffFile: { path: string; staged: boolean } | null,
+    /**
+     * Bumped by a Git mutation. The file can keep the same path and staged flag
+     * while its hunks change under it, and the object identity alone would keep
+     * the previous content on screen.
+     */
+    refreshToken: number,
     setDiffOriginal: (value: string) => void,
     setDiffModified: (value: string) => void,
     setDiffLoading: (value: boolean) => void,
@@ -454,9 +460,10 @@ const useEmbeddedDiffContent = (
         inputs === null ||
         !Object.is(inputs[0], embedded) ||
         !Object.is(inputs[1], gitRepo) ||
-        !Object.is(inputs[2], diffFile)
+        !Object.is(inputs[2], diffFile) ||
+        !Object.is(inputs[3], refreshToken)
     ) {
-        setInputs([embedded, gitRepo, diffFile]);
+        setInputs([embedded, gitRepo, diffFile, refreshToken]);
         setDiffOriginal("");
         setDiffModified("");
         setDiffLoading(embedded && gitRepo !== null && diffFile !== null);
@@ -484,7 +491,7 @@ const useEmbeddedDiffContent = (
         return () => {
             cancelled = true;
         };
-    }, [embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading]);
+    }, [embedded, gitRepo, diffFile, refreshToken, setDiffOriginal, setDiffModified, setDiffLoading]);
 };
 
 /** Whether a refresh has both a project and a repo to query. */
@@ -2730,6 +2737,7 @@ const Source = ({
     const [conflictHelp, setConflictHelp] = useState<string | null>(null);
     const [conflictHelpLoading, setConflictHelpLoading] = useState(false);
     const [diffFile, setDiffFile] = useState<{ path: string; staged: boolean } | null>(null);
+    const [diffRefreshToken, setDiffRefreshToken] = useState(0);
     const [diffOriginal, setDiffOriginal] = useState("");
     const [diffModified, setDiffModified] = useState("");
     const [diffLoading, setDiffLoading] = useState(false);
@@ -2808,7 +2816,12 @@ const Source = ({
 
     useEffect(() => {
         /** Refresh on the window-level git-refresh event (staging, discard, repo switch). */
-        const handleGitRefresh = () => { refresh().catch(() => undefined); };
+        const handleGitRefresh = () => {
+            // The open diff is re-read too: staging a hunk changes the diff that
+            // is on screen without changing its path or staged flag.
+            setDiffRefreshToken((token) => token + 1);
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", handleGitRefresh);
         return () => window.removeEventListener("bettershape-git-refresh", handleGitRefresh);
     }, [refresh]);
@@ -2836,7 +2849,15 @@ const Source = ({
     });
 
 
-    useEmbeddedDiffContent(embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading);
+    useEmbeddedDiffContent(
+        embedded,
+        gitRepo,
+        diffFile,
+        diffRefreshToken,
+        setDiffOriginal,
+        setDiffModified,
+        setDiffLoading,
+    );
 
     const handleCommit = useHandleCommit({
         gitRepo, commitTitle, commitDescription, lastCommit, hasRemote, changes,

@@ -406,6 +406,13 @@ export function AllChangesTab({ projectPath }: { projectPath: string }) {
         // Opening the tab again while it is already mounted must move the view
         // to the new file, so the request is also delivered as an event.
         const onFocus = (event: Event) => {
+            // The event has now been delivered, so the stored copy has to go: a
+            // later mount that reads it would focus a file nobody asked for.
+            try {
+                sessionStorage.removeItem(ALL_CHANGES_FOCUS_KEY);
+            } catch {
+                /* unavailable storage cannot hold a stale path either */
+            }
             setFocusPath((event as CustomEvent<string | undefined>).detail || undefined);
         };
         window.addEventListener(ALL_CHANGES_FOCUS_EVENT, onFocus);

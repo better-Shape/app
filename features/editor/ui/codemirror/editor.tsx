@@ -381,7 +381,12 @@ export function CodeMirrorEditor({
                         return false;
                     },
                     blur() {
-                        if (getSettings().editor.autoSave === "onFocusChange") void persistNow();
+                        // Saving a clean buffer would rewrite the file on every
+                        // focus change, and a trim or a formatter can turn that
+                        // into a content change nobody asked for.
+                        if (getSettings().editor.autoSave === "onFocusChange" && isDirtyRef.current) {
+                            void persistNow();
+                        }
                     },
                 }),
             ],
@@ -409,8 +414,12 @@ export function CodeMirrorEditor({
                 // buffer is clean whether or not the write changed the text.
                 if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
                 if (written !== doc) {
+                    // Replacing the whole document maps a cursor into the replaced
+                    // range back to its start, which jumps the caret to the top.
+                    const head = Math.min(live.state.selection.main.head, written.length);
                     live.dispatch({
                         changes: { from: 0, to: doc.length, insert: written },
+                        selection: EditorSelection.cursor(head),
                         annotations: externalContentUpdate.of(true),
                     });
                     setContentRef.current(written);

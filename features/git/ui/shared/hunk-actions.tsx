@@ -30,12 +30,23 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
  * list for a different target is never shown, because its index would address
  * a hunk in another diff and Stage or Restore would act on the wrong lines.
  */
-export function useFileHunks(repoPath: string | null, filePath: string, mode: HunkMode) {
+export const useFileHunks = (repoPath: string | null, filePath: string, mode: HunkMode) => {
     const targetKey = `${repoPath ?? ""}\u0000${filePath}\u0000${mode}`;
-    const [loaded, setLoaded] = useState<{ key: string; hunks: GitHunk[]; error: string | null }>({
+    const [loaded, setLoaded] = useState<{
+        key: string;
+        hunks: GitHunk[];
+        error: string | null;
+        /**
+         * Which reload produced this list. After a Git mutation the old list is
+         * still on screen, and its indexes address a diff that no longer exists,
+         * so the hook reports `loading` until the matching list arrives.
+         */
+        token: number;
+    }>({
         key: "",
         hunks: [],
         error: null,
+        token: -1,
     });
     const [index, setIndex] = useState(0);
     const [busy, setBusy] = useState(false);
@@ -46,17 +57,18 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
     useEffect(() => {
         if (!repoPath) return;
         let cancelled = false;
-        void commands
+        const token = reloadToken;
+        commands
             .gitListHunks(repoPath, filePath, mode === "staged")
             .then((list) => {
                 if (cancelled) return;
-                setLoaded({ key: targetKey, hunks: list.hunks, error: null });
+                setLoaded({ key: targetKey, hunks: list.hunks, error: null, token });
                 setIndex((current) => (list.hunks.length === 0 ? 0 : Math.min(current, list.hunks.length - 1)));
             })
             .catch((error: unknown) => {
                 if (cancelled) return;
                 const message = error instanceof Error ? error.message : String(error);
-                setLoaded({ key: targetKey, hunks: [], error: message });
+                setLoaded({ key: targetKey, hunks: [], error: message, token });
             });
         return () => {
             cancelled = true;
@@ -65,7 +77,8 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
 
     const current = loaded.key === targetKey;
     const hunks = useMemo(() => (current ? loaded.hunks : []), [current, loaded.hunks]);
-    const loading = Boolean(repoPath) && !current;
+    // The stale list stays visible, but nothing may act on it.
+    const loading = Boolean(repoPath) && (!current || loaded.token !== reloadToken);
     const error = current ? loaded.error : null;
 
     useEffect(() => {
@@ -111,7 +124,7 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
  * Hunk staging for the diff on screen. Ctrl+Y stages the current hunk and
  * Ctrl+Shift+Y unstages it, matching the editor diff conventions.
  */
-export function HunkActions({
+export const HunkActions = ({
     repoPath,
     filePath,
     mode,
@@ -121,7 +134,7 @@ export function HunkActions({
     filePath: string;
     mode: HunkMode;
     active: boolean;
-}) {
+}) => {
     const { hunks, index, busy, loading, error, step, apply } = useFileHunks(repoPath, filePath, mode);
     const hunk = hunks[index];
 
@@ -136,10 +149,10 @@ export function HunkActions({
             if (isEditableTarget(event.target)) return;
             if (event.shiftKey && mode === "staged") {
                 event.preventDefault();
-                void apply("unstage");
+                apply("unstage").catch(() => undefined);
             } else if (!event.shiftKey && mode === "unstaged") {
                 event.preventDefault();
-                void apply("stage");
+                apply("stage").catch(() => undefined);
             }
         };
         window.addEventListener("keydown", onKey);
@@ -194,7 +207,7 @@ export function HunkActions({
                             aria-label="Stage hunk"
                             className="h-6 w-6"
                             disabled={busy || loading}
-                            onClick={() => void apply("stage")}
+                            onClick={() => { apply("stage").catch(() => undefined); }}
                         >
                             <Icon icon={Add20Regular} />
                         </Button>
@@ -207,7 +220,7 @@ export function HunkActions({
                             aria-label="Restore hunk"
                             className="h-6 w-6"
                             disabled={busy || loading}
-                            onClick={() => void apply("restore")}
+                            onClick={() => { apply("restore").catch(() => undefined); }}
                         >
                             <Icon icon={ArrowUndo20Regular} />
                         </Button>
@@ -222,7 +235,7 @@ export function HunkActions({
                         aria-label="Unstage hunk"
                         className="h-6 w-6"
                         disabled={busy || loading}
-                        onClick={() => void apply("unstage")}
+                        onClick={() => { apply("unstage").catch(() => undefined); }}
                     >
                         <Icon icon={ArrowUndo20Regular} />
                     </Button>

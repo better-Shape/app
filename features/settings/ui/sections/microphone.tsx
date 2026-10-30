@@ -31,6 +31,9 @@ export function MicrophoneSettings() {
     const [listening, setListening] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const stopRef = useRef<(() => void) | null>(null);
+    // `getUserMedia` can resolve after the user has left the page; the resolved
+    // stream then has no `stopRef` to release it.
+    const disposedRef = useRef(false);
     // Read after mount: the server has no navigator, so branching during render
     // rendered one description on the server and another on the client.
     const mounted = useIsMounted();
@@ -38,7 +41,7 @@ export function MicrophoneSettings() {
 
     const refresh = useCallback(async () => {
         const next = await listMicrophones();
-        setOptions(next);
+        if (!disposedRef.current) setOptions(next);
         return next;
     }, []);
 
@@ -49,7 +52,11 @@ export function MicrophoneSettings() {
         }).catch(cause => {
             if (!disposed) setError(microphoneErrorMessage(cause));
         });
-        return () => { disposed = true; stopRef.current?.(); };
+        return () => {
+            disposed = true;
+            disposedRef.current = true;
+            stopRef.current?.();
+        };
     }, []);
 
     const allowAndRefresh = async () => {
@@ -63,6 +70,10 @@ export function MicrophoneSettings() {
             opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            if (disposedRef.current) {
+                opened.getTracks().forEach((track) => track.stop());
+                return;
+            }
             const stream = opened;
             stream.getTracks().forEach((track) => track.stop());
             await refresh();
@@ -88,6 +99,11 @@ export function MicrophoneSettings() {
             opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            if (disposedRef.current) {
+                // The section is gone; nothing would ever stop this stream.
+                opened.getTracks().forEach((track) => track.stop());
+                return;
+            }
             const stream = opened;
             const ctx = new AudioContext();
             const source = ctx.createMediaStreamSource(stream);

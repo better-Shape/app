@@ -74,9 +74,17 @@ export function noteDevRunOutput(chunk: string) {
     }
 }
 
-export function noteDevRunExit(code: number | null) {
+/**
+ * Records the end of the dev run.
+ *
+ * `ptyId` is the terminal that exited. Any terminal can report an exit, and an
+ * unrelated one saying "code 0" would otherwise clear a dev server that is
+ * still running, so a mismatch is ignored once the dev run's own PTY is known.
+ */
+export function noteDevRunExit(code: number | null, ptyId?: number | null) {
     clearStartingTimer();
     if (state.status === "idle") return;
+    if (ptyId != null && state.ptyId != null && ptyId !== state.ptyId) return;
     if (code === 0) {
         state = { status: "idle", command: null, ptyId: null, alive: false };
     } else {

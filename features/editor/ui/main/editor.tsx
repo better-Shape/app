@@ -6,7 +6,7 @@ import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallba
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
 import { getSettings, useSettings } from "@/lib/settings";
-import { saveContents } from "@/lib/editor/save-pipeline";
+import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -101,9 +101,19 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const currentContentRef = useRef(content);
     useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
     const previewAutosaveRef = useRef<number | null>(null);
-    useEffect(() => () => {
-        if (previewAutosaveRef.current !== null) window.clearTimeout(previewAutosaveRef.current);
-    }, []);
+    const pathRef = useRef(path);
+    useLayoutEffect(() => { pathRef.current = path; }, [path]);
+    useEffect(
+        () => () => {
+            // The viewer stays mounted while the path changes, so a timer
+            // scheduled for the previous file has to be dropped with it.
+            if (previewAutosaveRef.current !== null) {
+                window.clearTimeout(previewAutosaveRef.current);
+                previewAutosaveRef.current = null;
+            }
+        },
+        [path],
+    );
 
     /**
      * Writes the preview buffer through the shared save pipeline.
@@ -118,14 +128,18 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             window.clearTimeout(previewAutosaveRef.current);
             previewAutosaveRef.current = null;
         }
+        if (pathRef.current !== path) return;
         const doc = currentContentRef.current;
         const eol = lineEndingOf(savedContentRef.current || doc);
         try {
             const written = await saveContents(path, doc, eol);
-            // Typing during the write wins: the buffer on screen is newer.
-            if (currentContentRef.current !== doc) return;
+            // Typing during the write wins: the buffer on screen is newer. A
+            // path change means this text belongs to another file now.
+            if (pathRef.current !== path || currentContentRef.current !== doc) return;
             currentContentRef.current = written;
-            savedContentRef.current = written;
+            // Keep the on-disk line ending in the baseline: the next save reads
+            // the convention from it, and `written` is LF by construction.
+            savedContentRef.current = toDiskText(written, eol);
             setContent(written);
             clearDirtyBuffer(path);
             isDirtyRef.current = false;

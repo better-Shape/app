@@ -97,7 +97,7 @@ for (const file of files) {
     if (imported.has(file) || isRouteFile(file)) continue;
     (consumerImported.has(file) ? testOnly : orphans).push(relative(ROOT, file));
 }
-const byName = (a, b) => a.localeCompare(b);
+const byName = (left, right) => left.localeCompare(right);
 orphans.sort(byName);
 testOnly.sort(byName);
 
@@ -175,13 +175,47 @@ const withoutDefaults = (source) => {
     const end = source.indexOf("};", start);
     return end < 0 ? source : source.slice(0, start) + source.slice(end);
 };
+const SETTINGS_ROOT = "(?:getSettings\\(\\)|useSettings\\(\\)|settings)";
+/** `const alias = getSettings().terminal` — a local name for one section. */
+const aliasPattern = new RegExp(`(?:const|let|var)\\s+(\\w+)\\s*=\\s*${SETTINGS_ROOT}\\s*\\.\\s*([\\w.]+)`, "g");
+/** `const { fontFamily, fontSize } = getSettings().terminal` — section fields. */
+const destructuredPattern = new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${SETTINGS_ROOT}\\s*\\.\\s*([\\w.]+)`, "g");
+/**
+ * Aliases and destructuring per file.
+ *
+ * Code reads `const termSettings = getSettings().terminal` and then
+ * `termSettings.fontFamily`; matching only the literal `terminal.fontFamily`
+ * reported a wired setting as dead.
+ */
+const readSettingsShape = (source) => {
+    const aliases = new Map();
+    for (const match of source.matchAll(aliasPattern)) aliases.set(match[1], match[2]);
+    const destructured = new Map();
+    for (const match of source.matchAll(destructuredPattern)) {
+        const names = match[1]
+            .split(",")
+            .map((part) => part.split(/[:=]/)[0].trim())
+            .filter(Boolean);
+        const existing = destructured.get(match[2]) ?? new Set();
+        for (const name of names) existing.add(name);
+        destructured.set(match[2], existing);
+    }
+    return { aliases, destructured };
+};
 const readSources = (predicate) =>
     files
         .filter((file) => predicate(file))
-        .map((file) => ({ file: relative(ROOT, file), source: withoutDefaults(readFileSync(file, "utf8")) }));
+        .map((file) => {
+            const source = withoutDefaults(readFileSync(file, "utf8"));
+            return { file: relative(ROOT, file), source, ...readSettingsShape(source) };
+        });
 const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
 const mappingSources = readSources((file) => file.startsWith(settingsLayer));
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// `fontSize` and `enabled` exist in several sections, so a bare mention proves
+// nothing about which one is read. Only unique names may match unqualified.
+const keyNameCounts = new Map();
+for (const { key } of settingsKeys) keyNameCounts.set(key, (keyNameCounts.get(key) ?? 0) + 1);
 /**
  * True when `source` reads `section.key`.
  *
@@ -193,11 +227,21 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const mentions = (entry, section, key) => {
     const dotted = new RegExp(`\\b${escapeRegExp(`${section}.${key}`)}\\b`);
     if (dotted.test(entry.source)) return true;
+    // A local alias for the section: `const termSettings = getSettings().terminal`.
+    for (const [alias, path] of entry.aliases) {
+        if (path !== section) continue;
+        if (new RegExp(`\\b${escapeRegExp(alias)}[.?]*\\.${escapeRegExp(key)}\\b`).test(entry.source)) return true;
+    }
     const nested = section.split(".");
     if (nested.length > 1) {
+        // `const { blame } = settings.git` then `blame.enabled`.
         const qualified = new RegExp(`\\b${escapeRegExp(`${nested[nested.length - 1]}.${key}`)}\\b`);
         return qualified.test(entry.source);
     }
+    if (entry.destructured.get(section)?.has(key)) return true;
+    // A name that exists in one section only can be matched on its own, and as
+    // a property of anything; a repeated name can only be trusted qualified.
+    if ((keyNameCounts.get(key) ?? 0) > 1) return false;
     const bare = new RegExp(`\\b${escapeRegExp(key)}\\b`);
     return bare.test(entry.source);
 };
@@ -225,7 +269,7 @@ for (const file of files) {
 const duplicates = [...exportsByName.entries()]
     .filter(([, owners]) => owners.size > 1)
     .map(([name, owners]) => ({ name, owners: [...owners].sort(byName) }))
-    .sort((a, b) => byName(a.name, b.name));
+    .sort((left, right) => byName(left.name, right.name));
 
 const summary = {
     generatedAt: new Date().toISOString(),

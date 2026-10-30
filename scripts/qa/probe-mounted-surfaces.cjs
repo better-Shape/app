@@ -27,8 +27,8 @@ const BASE_URL = (process.env.PROBE_URL || "http://127.0.0.1:48921").replace(/\/
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
-  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  page.on("pageerror", (error) => errors.push(String(error)));
 
   // 1. Voice settings page
   await page.goto(`${BASE_URL}/settings?category=voice`, { waitUntil: "domcontentloaded", timeout: 120000 });
@@ -88,4 +88,4 @@ const BASE_URL = (process.env.PROBE_URL || "http://127.0.0.1:48921").replace(/\/
   assert.deepEqual(errors, [], `Console errors: ${JSON.stringify(errors.slice(0, 5))}`);
   console.log("probe passed: voice, design, all-changes and notifications surfaces render with no console errors");
   await browser.close();
-})().catch((e) => { console.error("FAILED", e.message); process.exit(1); });
+})().catch((error) => { console.error("FAILED", error.message); process.exit(1); });

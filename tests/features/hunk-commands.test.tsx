@@ -38,8 +38,8 @@ let api: Api;
 let root: Root | null = null;
 let host: HTMLDivElement;
 
-function Harness({ repoPath, filePath, mode = "unstaged", onApi }: Props) {
-    const value = useFileHooks(repoPath, filePath, mode);
+const Harness = ({ repoPath, filePath, mode = "unstaged", onApi }: Props) => {
+    const value = useFileHunks(repoPath, filePath, mode);
     // Publishing from an effect keeps the render pure and still runs inside act().
     useEffect(() => {
         onApi(value);
@@ -47,10 +47,7 @@ function Harness({ repoPath, filePath, mode = "unstaged", onApi }: Props) {
     return null;
 }
 
-const useFileHooks = (repoPath: string | null, filePath: string, mode: HunkMode) =>
-    useFileHunks(repoPath, filePath, mode);
-
-async function mount(props: Omit<Props, "onApi">) {
+const mount = async (props: Omit<Props, "onApi">) => {
     await act(async () => {
         root?.render(<Harness {...props} onApi={(value) => { api = value; }} />);
     });
@@ -95,6 +92,33 @@ describe("hunk actions", () => {
             await api.apply("restore");
         });
         expect(backend.gitRestoreHunk).toHaveBeenCalledWith("/repo", "a.ts", 7);
+    });
+
+    it("blocks actions until the list after a mutation has arrived", async () => {
+        let resolveRefresh = () => {};
+        backend.gitListHunks
+            .mockResolvedValueOnce(hunkList(3, 7))
+            .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = () => resolve(hunkList(7)); }));
+        await mount({ repoPath: "/repo", filePath: "a.ts" });
+        expect(api.hunks).toHaveLength(2);
+
+        await act(async () => {
+            await api.apply("stage");
+        });
+        // The old list is still on screen, but its indexes no longer address it.
+        expect(api.loading).toBe(true);
+        act(() => api.step(1));
+        await act(async () => {
+            await api.apply("stage");
+        });
+        expect(backend.gitStageHunk).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            resolveRefresh();
+            // Let the resolved list reach the state update before asserting.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(api.loading).toBe(false);
     });
 
     it("never shows or acts on a hunk list read for another file", async () => {
