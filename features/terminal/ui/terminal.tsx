@@ -307,7 +307,11 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 if (!getSettings().terminal.copyOnSelect) return;
-                void navigator.clipboard?.writeText(selected).catch(() => copySelected(selected));
+                if (!navigator.clipboard) {
+                    copySelected(selected);
+                    return;
+                }
+                void navigator.clipboard.writeText(selected).catch(() => copySelected(selected));
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;

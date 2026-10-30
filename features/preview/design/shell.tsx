@@ -18,6 +18,7 @@ import {
 } from "@/features/terminal/background-run";
 import { commands } from "@/lib/backend";
 import { insertCssVariableInContent } from "@/lib/ui/css-variables";
+import { takeSurfaceIntent } from "@/lib/window/workspace-intent";
 import { invalidateGlobalsCssCache, updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
 import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
@@ -190,7 +191,11 @@ export function DesignStudio({
     const [booting, setBooting] = useState(true);
     const [, setSaved] = useState(true);
     const [zoom, setZoom] = useState(100);
-    const [toolMode, setToolMode] = useState<DesignToolMode>("normal");
+    // A command issued while the tab was closed leaves an intent behind, so the
+    // studio opens with the inspector already selected.
+    const [toolMode, setToolMode] = useState<DesignToolMode>(() =>
+        takeSurfaceIntent("design-inspector") ? "select" : "normal",
+    );
     const [tabs, setTabs] = useState<BrowserTab[]>([]);
     const [activeTabId, setActiveTabId] = useState("tab-1");
     const [promptOpen, setPromptOpen] = useState(false);
@@ -1007,6 +1012,9 @@ export function DesignStudio({
 
     useEffect(() => {
         const onToggleInspect = () => {
+            // A queued request is satisfied by this toggle; drop it so the next
+            // mount does not flip the inspector again.
+            takeSurfaceIntent("design-inspector");
             setToolMode((mode) => (mode === "normal" ? "select" : "normal"));
         };
         // Closing the folder / leaving design mode drops the inspector tool.

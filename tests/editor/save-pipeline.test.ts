@@ -79,3 +79,20 @@ describe("save pipeline", () => {
         expect(toDiskText("a\r\nb", "LF")).toBe("a\nb");
     });
 });
+
+describe("save ordering", () => {
+    it("writes overlapping saves of one path in the order they were requested", async () => {
+        backend.save.mockReset();
+        const written: string[] = [];
+        // The first write is the slow one, so without per-path ordering the
+        // second snapshot would land first and the older text would survive.
+        backend.save.mockImplementation(async (_path: string, text: string) => {
+            if (text.startsWith("first")) await new Promise((resolve) => setTimeout(resolve, 20));
+            written.push(text);
+        });
+
+        await Promise.all([saveContents("/project/a.ts", "first"), saveContents("/project/a.ts", "second")]);
+
+        expect(written).toEqual(["first\n", "second\n"]);
+    });
+});

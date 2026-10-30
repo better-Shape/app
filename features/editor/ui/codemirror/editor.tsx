@@ -45,7 +45,7 @@ import {
     foldAll,
     unfoldAll,
 } from "@codemirror/language";
-import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious, selectMatches, getSearchQuery } from "@codemirror/search";
+import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious, selectMatches, getSearchQuery, openSearchPanel } from "@codemirror/search";
 import {
     autocompletion,
     closeBrackets,
@@ -392,6 +392,11 @@ export function CodeMirrorEditor({
                         annotations: externalContentUpdate.of(true),
                     });
                     setContentRef.current(written);
+                    // The prepared text is now what is on disk, so the buffer is
+                    // clean even when trimming or formatting changed it.
+                    savedContentRef.current = written;
+                    isDirtyRef.current = false;
+                    void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
                     publishBuffer(live);
                 }
             } catch (error) {
@@ -434,6 +439,12 @@ export function CodeMirrorEditor({
                 nav?: "next" | "prev";
             }>).detail;
             if (!detail || detail.path !== pathRef.current) return;
+            // "Find in File" sends no query: open and focus the panel instead of
+            // setting an empty search that shows nothing.
+            if (detail.query === undefined) {
+                openSearchPanel(view);
+                return;
+            }
             const query = new SearchQuery({
                 search: detail.query || "",
                 caseSensitive: Boolean(detail.caseSensitive),

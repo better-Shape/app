@@ -21,6 +21,7 @@ const DesignStudioSurface = dynamic(
 import { SearchTab } from "./search-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
+import { takeRequestedWorkspaceTab } from "@/lib/window/workspace-intent";
 import { WorkspaceTabs } from "./tabs";
 import { FileBar } from "./file-bar";
 import type { CSSProperties } from "react";
@@ -270,6 +271,8 @@ const useWorkspaceEventChannels = ({
     useEffect(() => {
         /** Maps named tab aliases to singleton workspace tabs. */
         const onTab = (e: Event) => {
+            // The event reached a mounted workspace, so nothing is pending.
+            takeRequestedWorkspaceTab();
             const tabId = (e as CustomEvent<string | null>).detail?.toLowerCase();
             const mapped = tabId ? WORKSPACE_TAB_ALIASES[tabId] : undefined;
             if (mapped) addTab(mapped, { expand: true });
@@ -295,6 +298,10 @@ const useWorkspaceEventChannels = ({
             const tab = (e as CustomEvent<FileDiffTabInfo | null>).detail;
             if (tab?.id && tab.path) openDiff(tab);
         };
+        // A command may have asked for a tab while this panel was closed.
+        const pendingTab = takeRequestedWorkspaceTab();
+        const pendingKind = pendingTab ? WORKSPACE_TAB_ALIASES[pendingTab.toLowerCase()] : undefined;
+        if (pendingKind) addTab(pendingKind, { expand: true });
         window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
         window.addEventListener("bettershape-set-panel-tab", onTab as EventListener);
         window.addEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);

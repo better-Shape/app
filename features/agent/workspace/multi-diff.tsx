@@ -215,14 +215,21 @@ export function MultiDiffEditor({
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
 
-    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
+    // Latest refresh wins: a status request for a previous project must not
+    // replace the current project's repo or file list when it resolves late.
+    const requestRef = useRef(0);
+    const refresh = useCallback(() => {
+        const request = ++requestRef.current;
+        return discoverGitRepos(projectPath).then(async repos => {
             const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
-            setRepo(path);
             const list = await commands.gitStatus(path);
+            if (request !== requestRef.current) return;
+            setRepo(path);
             setFiles(list);
-    }).catch(() => {
-            setFiles([]);
-    }), [projectPath]);
+        }).catch(() => {
+            if (request === requestRef.current) setFiles([]);
+        });
+    }, [projectPath]);
 
     useEffect(() => {
         void refresh();

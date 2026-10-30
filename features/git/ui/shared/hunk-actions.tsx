@@ -4,7 +4,7 @@ import { ChevronLeft20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -15,17 +15,33 @@ import { notify } from "@/features/notifications";
 
 export type HunkMode = "staged" | "unstaged";
 
-/** Loads the hunks of one file diff and refreshes them after any Git mutation. */
+/** True when a keystroke landed in a field that owns that key. */
+const isEditableTarget = (target: EventTarget | null): boolean => {
+    const element = target as HTMLElement | null;
+    if (!element || typeof element.tagName !== "string") return false;
+    const tag = element.tagName.toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" || element.isContentEditable === true;
+};
+
+/**
+ * Loads the hunks of one file diff and refreshes them after any Git mutation.
+ *
+ * The listing is keyed by the repository, file and mode it was read for. A
+ * list for a different target is never shown, because its index would address
+ * a hunk in another diff and Stage or Restore would act on the wrong lines.
+ */
 export function useFileHunks(repoPath: string | null, filePath: string, mode: HunkMode) {
-    const [hunks, setHunks] = useState<GitHunk[]>([]);
+    const targetKey = `${repoPath ?? ""}\u0000${filePath}\u0000${mode}`;
+    const [loaded, setLoaded] = useState<{ key: string; hunks: GitHunk[]; error: string | null }>({
+        key: "",
+        hunks: [],
+        error: null,
+    });
     const [index, setIndex] = useState(0);
     const [busy, setBusy] = useState(false);
     const [reloadToken, setReloadToken] = useState(0);
 
     const reload = useCallback(() => setReloadToken((token) => token + 1), []);
-
-    // Without a repository there is nothing to list; cleared during render, not in an effect.
-    if (!repoPath && hunks.length > 0) setHunks([]);
 
     useEffect(() => {
         if (!repoPath) return;
@@ -34,16 +50,23 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
             .gitListHunks(repoPath, filePath, mode === "staged")
             .then((list) => {
                 if (cancelled) return;
-                setHunks(list.hunks);
+                setLoaded({ key: targetKey, hunks: list.hunks, error: null });
                 setIndex((current) => (list.hunks.length === 0 ? 0 : Math.min(current, list.hunks.length - 1)));
             })
-            .catch(() => {
-                if (!cancelled) setHunks([]);
+            .catch((error: unknown) => {
+                if (cancelled) return;
+                const message = error instanceof Error ? error.message : String(error);
+                setLoaded({ key: targetKey, hunks: [], error: message });
             });
         return () => {
             cancelled = true;
         };
-    }, [repoPath, filePath, mode, reloadToken]);
+    }, [repoPath, filePath, mode, reloadToken, targetKey]);
+
+    const current = loaded.key === targetKey;
+    const hunks = useMemo(() => (current ? loaded.hunks : []), [current, loaded.hunks]);
+    const loading = Boolean(repoPath) && !current;
+    const error = current ? loaded.error : null;
 
     useEffect(() => {
         const onRefresh = () => reload();
@@ -55,7 +78,7 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
     const apply = useCallback(
         async (operation: "stage" | "unstage" | "restore") => {
             const hunk = hunks[index];
-            if (!repoPath || !hunk || busy) return;
+            if (!repoPath || !hunk || busy || loading) return;
             setBusy(true);
             try {
                 if (operation === "stage") await commands.gitStageHunk(repoPath, filePath, hunk.index);
@@ -68,7 +91,7 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
                 setBusy(false);
             }
         },
-        [busy, filePath, hunks, index, repoPath],
+        [busy, filePath, hunks, index, loading, repoPath],
     );
 
     const step = useCallback(
@@ -81,7 +104,7 @@ export function useFileHunks(repoPath: string | null, filePath: string, mode: Hu
         [hunks.length],
     );
 
-    return { hunks, index, busy, step, apply, reload };
+    return { hunks, index, busy, loading, error, step, apply, reload };
 }
 
 /**
@@ -99,7 +122,7 @@ export function HunkActions({
     mode: HunkMode;
     active: boolean;
 }) {
-    const { hunks, index, busy, step, apply } = useFileHunks(repoPath, filePath, mode);
+    const { hunks, index, busy, loading, error, step, apply } = useFileHunks(repoPath, filePath, mode);
     const hunk = hunks[index];
 
     useEffect(() => {
@@ -108,6 +131,9 @@ export function HunkActions({
             if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
             const key = event.key.toLowerCase();
             if (key !== "y") return;
+            // A redo inside a text field must stay a redo; this handler listens
+            // on the window, so it has to check where the keystroke landed.
+            if (isEditableTarget(event.target)) return;
             if (event.shiftKey && mode === "staged") {
                 event.preventDefault();
                 void apply("unstage");
@@ -120,6 +146,13 @@ export function HunkActions({
         return () => window.removeEventListener("keydown", onKey);
     }, [active, apply, hunks.length, mode]);
 
+    if (error && hunks.length === 0) {
+        return (
+            <span className="px-1 text-xs text-text-muted" role="status" title={error}>
+                Hunks unavailable
+            </span>
+        );
+    }
     if (!hunk) return null;
 
     return (
@@ -160,7 +193,7 @@ export function HunkActions({
                             size="icon"
                             aria-label="Stage hunk"
                             className="h-6 w-6"
-                            disabled={busy}
+                            disabled={busy || loading}
                             onClick={() => void apply("stage")}
                         >
                             <Icon icon={Add20Regular} />
@@ -173,7 +206,7 @@ export function HunkActions({
                             size="icon"
                             aria-label="Restore hunk"
                             className="h-6 w-6"
-                            disabled={busy}
+                            disabled={busy || loading}
                             onClick={() => void apply("restore")}
                         >
                             <Icon icon={ArrowUndo20Regular} />
@@ -188,7 +221,7 @@ export function HunkActions({
                         size="icon"
                         aria-label="Unstage hunk"
                         className="h-6 w-6"
-                        disabled={busy}
+                        disabled={busy || loading}
                         onClick={() => void apply("unstage")}
                     >
                         <Icon icon={ArrowUndo20Regular} />

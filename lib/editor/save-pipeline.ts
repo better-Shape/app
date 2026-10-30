@@ -55,9 +55,32 @@ export async function formatForSave(path: string, text: string): Promise<string>
     }
 }
 
+/**
+ * Writes per path, in the order they were requested.
+ *
+ * Formatting is asynchronous, so two saves of the same file can finish out of
+ * order and leave the older snapshot on disk. Chaining per path keeps the last
+ * request as the last write.
+ */
+const writeChains = new Map<string, Promise<unknown>>();
+
+/** Runs `run` after every earlier write for the same path, success or not. */
+const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => {
+    const previous = writeChains.get(path) ?? Promise.resolve();
+    const next = previous.then(run, run);
+    writeChains.set(
+        path,
+        next.catch(() => undefined),
+    );
+    return next;
+};
+
 /** Runs the save pipeline and returns the LF text that was written. */
-export async function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF"): Promise<string> {
-    const prepared = await formatForSave(path, prepareDocForSave(doc));
-    await commands.saveFile(path, toDiskText(prepared, eol));
-    return prepared;
+export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF"): Promise<string> {
+    const prepared = prepareDocForSave(doc);
+    return serializeWrites(path, async () => {
+        const formatted = await formatForSave(path, prepared);
+        await commands.saveFile(path, toDiskText(formatted, eol));
+        return formatted;
+    });
 }

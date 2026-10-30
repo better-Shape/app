@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
 import { openSettingsWindow } from "@/lib/window/open-settings";
+import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import {
     ContextMenu,
@@ -1058,14 +1059,23 @@ function getAppCommands(): EditorAction[] {
                 window.dispatchEvent(
                     new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
                 );
-                window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "design" }));
+                requestWorkspaceTab("design");
             },
         },
         {
             id: "app.design.inspect",
             label: "Design: Toggle Element Inspector",
             shortcut: "",
-            run: () => window.dispatchEvent(new Event("bettershape-toggle-browser-design-mode")),
+            run: () => {
+                // The inspector lives in the design studio, which mounts with its
+                // tab, so the toggle is queued for it as well as sent now.
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+                );
+                requestWorkspaceTab("design");
+                queueSurfaceIntent("design-inspector");
+                window.dispatchEvent(new Event("bettershape-toggle-browser-design-mode"));
+            },
         },
         {
             id: "app.git.allChanges",

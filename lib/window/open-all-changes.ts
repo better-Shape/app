@@ -1,5 +1,7 @@
 "use client";
 
+import { requestWorkspaceTab } from "@/lib/window/workspace-intent";
+
 /**
  * Session key that hands the file to focus over to the all-changes tab.
  * sessionStorage is per window, which matches the tab it belongs to.
@@ -20,5 +22,8 @@ export function openAllChangesTab(focusPath?: string) {
             /* unavailable storage still opens the tab, just without focus */
         }
     }
-    window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "all-changes" }));
+    window.dispatchEvent(
+        new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+    );
+    requestWorkspaceTab("all-changes");
 }
