@@ -74,11 +74,13 @@ const Home = () => {
     if (!showWelcome) {
         return (
             <>
-                <div className="flex h-full flex-col items-center justify-center gap-3 bg-editor text-sm text-text-muted">
-                    <p>No project open</p>
+                <div className="flex h-full flex-col items-center justify-center gap-1 bg-editor">
+                    <p className="text-base text-text-primary">No project open</p>
+                    <p className="text-sm text-text-muted">Open a folder to start working.</p>
                     <Button
-                        variant="secondary"
+                        variant="outline"
                         size="sm"
+                        className="mt-3"
                         onClick={() =>
                             window.dispatchEvent(new Event("bettershape-open-project-pick"))
                         }
