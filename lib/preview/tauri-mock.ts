@@ -64,6 +64,11 @@ const PREVIEW_FILES: Record<string, string> = {
         null,
         2,
     )}\n`,
+    ["/preview/shared-lib/notes.md"]: [
+        "# shared-lib (preview fixture)",
+        "",
+        "A folder added to the workspace, outside the project root.",
+    ].join("\n"),
     [`${PREVIEW_PROJECT_PATH}/src/App.tsx`]: [
         "export default function App() {",
         '    return <main className="app">Hello from the preview fixture</main>;',
@@ -89,6 +94,12 @@ const PREVIEW_DIRS: Record<string, Array<{ name: string; is_dir: boolean }>> = {
     [`${PREVIEW_PROJECT_PATH}/src`]: [
         { name: "App.tsx", is_dir: false },
         { name: "main.ts", is_dir: false },
+    ],
+    // A second root for the "Add Folder to Workspace" path: the explorer lists
+    // extra roots after the project, and QA needs one to look at.
+    "/preview/shared-lib": [
+        { name: "notes.md", is_dir: false },
+        { name: "theme.css", is_dir: false },
     ],
 };
 

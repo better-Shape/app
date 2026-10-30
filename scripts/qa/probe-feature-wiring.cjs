@@ -6,8 +6,10 @@
  * home screen it gates. This probe drives the real settings page, flips the
  * switches, and writes a screenshot per claim.
  *
- * Run: PLAYWRIGHT_SANDBOX_LIBS=/tmp/chrome-deps node scripts/qa/probe-feature-wiring.cjs
- * Requires a dev server at PROBE_URL (default http://127.0.0.1:48921).
+ * Run: PLAYWRIGHT_SANDBOX_LIBS=/tmp/chrome-deps/lib node scripts/qa/probe-feature-wiring.cjs
+ * Needs the Browser Preview build (`npm run build:preview && npm run preview:browser`),
+ * because the mocked IPC bridge only exists there. PROBE_URL defaults to
+ * http://127.0.0.1:48921.
  */
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
@@ -85,6 +87,42 @@ async function isSwitchOn(locator) {
   assert.equal(await page.getByRole("button", { name: "Open folder" }).count(), 1, "quiet home has no way in");
   await page.screenshot({ path: path.join(SHOTS, "home-without-welcome.png"), fullPage: false });
 
+  // 5. A folder added to the workspace appears in the explorer, and can be
+  //    removed from there. The backend half (IPC path grants) already worked;
+  //    without a row the action looked inert.
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "bettershape-workspace-folders",
+      JSON.stringify(["/preview/shared-lib"]),
+    );
+  });
+  await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(3000);
+  await page.getByRole("button", { name: "New tab" }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("menuitem", { name: "Files" }).first().click();
+  await page.waitForTimeout(2000);
+  const explorer = page.locator('[data-explorer-root="true"]');
+  assert.equal(await explorer.count(), 1, "the Files tab has no explorer");
+  assert.ok((await explorer.textContent()).includes("shared-lib"), "extra root is not listed");
+  assert.ok((await explorer.textContent()).includes("notes.md"), "extra root files are not listed");
+  await page.screenshot({ path: path.join(SHOTS, "explorer-extra-root.png"), fullPage: false });
+
+  const remove = page.getByRole("button", { name: "Remove shared-lib from the workspace" });
+  assert.equal(await remove.count(), 1, "extra root has no remove control");
+  await explorer.getByText("shared-lib", { exact: true }).hover();
+  await remove.click();
+  await page.waitForTimeout(800);
+  assert.ok(
+    !(await explorer.textContent()).includes("shared-lib"),
+    "removing the folder left the row on screen",
+  );
+  assert.equal(
+    await page.evaluate(() => window.localStorage.getItem("bettershape-workspace-folders")),
+    "[]",
+    "removing the folder did not persist",
+  );
+
   // Leave the setting as it was found.
   await page.goto(`${BASE_URL}/settings?category=privacy`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(1500);
@@ -95,7 +133,9 @@ async function isSwitchOn(locator) {
   assert.deepEqual(ignored, [], `console errors: ${ignored.join(" | ")}`);
 
   await browser.close();
-  console.log(`probe passed: linting switches, dependent disable state and welcome gating (${SHOTS})`);
+  console.log(
+    `probe passed: linting switches, dependent disable state, welcome gating and extra workspace roots (${SHOTS})`,
+  );
 })().catch((error) => {
   console.error(error);
   process.exit(1);
