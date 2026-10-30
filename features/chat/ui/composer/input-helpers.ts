@@ -1214,29 +1214,53 @@ const insertInlineContextMenuClipboard = (opts: {
   }
 };
 
-/** Reads clipboard text for the composer context-menu `Paste` item, warning when blocked. */
+const getClipboardTextReader = (): (() => Promise<string>) | null => {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+    return null;
+  }
+  return () => navigator.clipboard.readText();
+};
+
+const warnClipboardReadBlocked = (
+  textarea: HTMLTextAreaElement | null,
+  title: string,
+): void => {
+  textarea?.focus();
+  notify.warn(title, "Press Cmd+V or Ctrl+V to paste directly.");
+};
+
+/** Isolates `onText` exceptions from `.readText()` rejections so insertion bugs never report permission denial. */
+const applyReadClipboardText = (
+  textarea: HTMLTextAreaElement | null,
+  text: string,
+  onText: (value: string) => void,
+): void => {
+  try {
+    onText(text);
+  } catch {
+    textarea?.focus();
+    notify.error("Paste failed", "Could not insert the clipboard contents.");
+  }
+};
+
 export const readComposerClipboardTextWithFeedback = (
   textarea: HTMLTextAreaElement | null,
   onText: (text: string) => void,
+  isStale?: () => boolean,
 ): void => {
-  textarea?.focus();
-  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
-    notify.warn(
-      "Clipboard unavailable",
-      "Press Cmd+V or Ctrl+V to paste directly.",
-    );
+  const readClipboard = getClipboardTextReader();
+  if (!readClipboard) {
+    warnClipboardReadBlocked(textarea, "Clipboard unavailable");
     return;
   }
-  navigator.clipboard
-    .readText()
-    .then(onText)
-    .catch(() => {
-      textarea?.focus();
-      notify.warn(
-        "Clipboard access denied",
-        "Press Cmd+V or Ctrl+V to paste directly.",
-      );
-    });
+  textarea?.focus();
+  readClipboard().then(
+    (text) => {
+      if (isStale?.()) return;
+      applyReadClipboardText(textarea, text, onText);
+    },
+    () => warnClipboardReadBlocked(textarea, "Clipboard access denied"),
+  );
 };
 
 /** Inserts clipboard text invoked from the custom context-menu `Paste` item. */
