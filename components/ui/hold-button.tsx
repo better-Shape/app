@@ -24,9 +24,21 @@ export interface HoldButtonProps {
 
 const DEFAULT_HOLD_MS = 1100;
 const QUICK_TAP_MAX_MS = 240;
-const ARMED_TIMEOUT_MS = 3600;
 const CONFIRMED_RESET_MS = 1200;
 const CLICK_GUARD_RESET_MS = 64;
+
+const assignForwardedRef = (
+    forwardedRef: React.ForwardedRef<HTMLButtonElement>,
+    node: HTMLButtonElement | null,
+): void => {
+    if (typeof forwardedRef === "function") forwardedRef(node);
+    else if (forwardedRef) forwardedRef.current = node;
+};
+
+const isOutsideElement = (
+    element: HTMLElement | null,
+    target: EventTarget | null,
+): boolean => Boolean(element && target instanceof Node && !element.contains(target));
 
 const isActivationKey = (key: string): boolean => key === " " || key === "Enter";
 
@@ -131,6 +143,7 @@ const useHoldState = (
     onConfirm: () => HoldConfirmResult,
     holdMs: number,
     disabled: boolean,
+    buttonRef: React.RefObject<HTMLButtonElement | null>,
 ) => {
     const [state, setState] = React.useState<HoldButtonState>("idle");
     const [pending, setPending] = React.useState(false);
@@ -266,11 +279,16 @@ const useHoldState = (
         activeInputTokenRef.current = null;
         armedPressRef.current = false;
         writeState("armed");
-        timersRef.current.reset = window.setTimeout(() => {
-            timersRef.current.reset = null;
-            writeState("idle");
-        }, ARMED_TIMEOUT_MS);
     }, [writeState]);
+
+    React.useEffect(() => {
+        if (state !== "armed") return undefined;
+        const handleDocumentPointerDown = (event: PointerEvent) => {
+            if (isOutsideElement(buttonRef.current, event.target)) cancelHold();
+        };
+        document.addEventListener("pointerdown", handleDocumentPointerDown, true);
+        return () => document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+    }, [buttonRef, cancelHold, state]);
 
     const matchesActivePress = React.useCallback(
         (source: "pointer" | "keyboard", token: number | string) =>
@@ -413,6 +431,15 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
         },
         ref,
     ) => {
+        const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+        const setButtonNode = React.useCallback(
+            (node: HTMLButtonElement | null) => {
+                buttonRef.current = node;
+                assignForwardedRef(ref, node);
+            },
+            [ref],
+        );
+
         const {
             state,
             pending,
@@ -424,7 +451,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
             handlePointerCancel,
             handleBlur,
             handleClick,
-        } = useHoldState(onConfirm, holdMs, disabled);
+        } = useHoldState(onConfirm, holdMs, disabled, buttonRef);
 
         const activeState = disabled ? "idle" : state;
         const isBusy = !disabled && pending;
@@ -437,7 +464,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
 
         return (
             <button
-                ref={ref}
+                ref={setButtonNode}
                 type="button"
                 disabled={disabled}
                 aria-busy={isBusy || undefined}

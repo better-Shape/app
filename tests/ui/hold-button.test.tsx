@@ -118,7 +118,7 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("confirmed");
     });
 
-    it("disarms on Escape or timeout without confirming", () => {
+    it("disarms on Escape or outside pointerdown without imposing a deadline on armed state", () => {
         const onConfirm = vi.fn();
         render(
             <HoldButton
@@ -141,15 +141,28 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
 
+        // Clicking outside disarms without confirming.
         act(() => {
             btn.click();
         });
         expect(btn.dataset.state).toBe("armed");
         act(() => {
-            vi.advanceTimersByTime(3700);
+            document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
         });
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
+
+        // Remaining on the armed button imposes no fixed countdown (WCAG 2.2.1): a second press after 10s confirms.
+        act(() => {
+            btn.click();
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(btn.dataset.state).toBe("armed");
+        act(() => {
+            btn.click();
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("confirmed");
     });
 
     it("survives Safari/WKWebView pointer blur while still cancelling keyboard holds on blur", () => {
