@@ -17,10 +17,23 @@ export function toDiskText(text: string, eol: "LF" | "CRLF"): string {
     return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
 }
 
+/**
+ * Strips trailing spaces and tabs one line at a time.
+ *
+ * A single multiline expression with `$` and a quantified class backtracks
+ * super-linearly on long runs of whitespace; splitting first keeps each
+ * replacement anchored to one line.
+ */
+const trimLineEnds = (doc: string): string =>
+    doc
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+$/, ""))
+        .join("\n");
+
 /** Applies Trim trailing whitespace and Insert final newline to an LF document. */
 export function prepareDocForSave(doc: string): string {
     const editor = getSettings().editor;
-    let text = editor.trimTrailingWhitespace ? doc.replace(/[ \t]+$/gm, "") : doc;
+    let text = editor.trimTrailingWhitespace ? trimLineEnds(doc) : doc;
     if (editor.insertFinalNewline && text.length > 0 && !text.endsWith("\n")) text += "\n";
     return text;
 }

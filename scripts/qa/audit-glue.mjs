@@ -97,8 +97,9 @@ for (const file of files) {
     if (imported.has(file) || isRouteFile(file)) continue;
     (consumerImported.has(file) ? testOnly : orphans).push(relative(ROOT, file));
 }
-orphans.sort();
-testOnly.sort();
+const byName = (a, b) => a.localeCompare(b);
+orphans.sort(byName);
+testOnly.sort(byName);
 
 // Event channels
 const EVENT_LISTEN_RE = /addEventListener\(\s*["']([^"']+)["']/g;
@@ -125,11 +126,11 @@ const DOM_EVENTS = new Set([
 const channelName = (name) => /^[a-z][a-z0-9:_-]*$/i.test(name);
 const listenerOnly = [...listeners.keys()]
     .filter((name) => !dispatchers.has(name) && !DOM_EVENTS.has(name) && channelName(name))
-    .sort()
+    .sort(byName)
     .map((name) => ({ name, listeners: [...listeners.get(name)] }));
 const dispatchOnly = [...dispatchers.keys()]
     .filter((name) => !listeners.has(name) && !DOM_EVENTS.has(name) && channelName(name))
-    .sort()
+    .sort(byName)
     .map((name) => ({ name, dispatchers: [...dispatchers.get(name)] }));
 
 // Settings keys with no reader outside the settings system
@@ -181,8 +182,8 @@ for (const file of files) {
 }
 const duplicates = [...exportsByName.entries()]
     .filter(([, owners]) => owners.size > 1)
-    .map(([name, owners]) => ({ name, owners: [...owners].sort() }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map(([name, owners]) => ({ name, owners: [...owners].sort(byName) }))
+    .sort((a, b) => byName(a.name, b.name));
 
 const summary = {
     generatedAt: new Date().toISOString(),
