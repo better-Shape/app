@@ -66,6 +66,7 @@ import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
 import { lintGutter } from "@codemirror/lint";
+import { inlineBlame } from "./inline-blame";
 
 /**
  * Three different surfaces dispatch `bettershape-editor-action`: the command
@@ -176,6 +177,9 @@ export function CodeMirrorEditor({
         // construction time.
         const indentCompartment = new Compartment();
         const eolCompartment = new Compartment();
+        // Settings -> Git -> Inline Git Blame can be flipped while a file is
+        // open, so the annotation lives in its own compartment.
+        const blameCompartment = new Compartment();
         // Seed from Settings -> Editor. `getEditorOptionsFromSettings()` is the
         // tested settings->editor mapper; before this it had no production caller
         // and every editor setting except font family/size was inert.
@@ -295,6 +299,12 @@ export function CodeMirrorEditor({
                     closedText: "▸",
                 }),
                 optionsCompartment.of(optionExtensions(editorOptions)),
+                blameCompartment.of(
+                    inlineBlame({
+                        enabled: getSettings().git.blame.enabled,
+                        getPath: () => pathRef.current,
+                    }),
+                ),
                 dropCursor(),
                 EditorState.allowMultipleSelections.of(true),
                 indentCompartment.of([
@@ -397,7 +407,15 @@ export function CodeMirrorEditor({
         // A settings change reaches the open document, not only the next one.
         const unsubscribeSettings = subscribeSettings(() => {
             view.dispatch({
-                effects: optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings())),
+                effects: [
+                    optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings())),
+                    blameCompartment.reconfigure(
+                        inlineBlame({
+                            enabled: getSettings().git.blame.enabled,
+                            getPath: () => pathRef.current,
+                        }),
+                    ),
+                ],
             });
         });
         pathRef.current = path;
