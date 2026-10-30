@@ -174,6 +174,18 @@ if (existsSync(storePath)) {
 // The settings UI itself is never a reader: rendering a key is not consuming it.
 const settingsUi = join(ROOT, "features/settings/ui");
 const settingsLayer = join(ROOT, "lib/settings");
+/**
+ * Drops type declarations, which name a key without reading it.
+ *
+ * The store declares `codingAssistance: boolean;` next to the default and the
+ * mapper; leaving that line in makes every declared-but-unused key look like it
+ * has a reader inside the settings layer.
+ */
+const withoutTypeDeclarations = (source) =>
+    source
+        .split("\n")
+        .filter((line) => !/^\s{4,}\w+\??:\s*[\w<>\[\]"'|\s.,]+;\s*$/.test(line))
+        .join("\n");
 const withoutDefaults = (source) => {
     const start = source.indexOf("DEFAULT_SETTINGS");
     if (start < 0) return source;
@@ -211,7 +223,7 @@ const readSources = (predicate) =>
     files
         .filter((file) => predicate(file))
         .map((file) => {
-            const source = withoutDefaults(readFileSync(file, "utf8"));
+            const source = withoutTypeDeclarations(withoutDefaults(readFileSync(file, "utf8")));
             return { file: relative(ROOT, file), source, ...readSettingsShape(source) };
         });
 const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
@@ -229,19 +241,21 @@ for (const { key } of settingsKeys) keyNameCounts.set(key, (keyNameCounts.get(ke
  * its parent: a leaf named `enabled` or `timeout` would otherwise match any
  * unrelated code and report a dead setting as wired.
  */
+// `settings.python.interpreterPath` and `settings?.python?.interpreterPath` are
+// the same read, so the separator is optional-chaining aware.
+const chainPattern = (...parts) =>
+    new RegExp(`\\b${parts.map(escapeRegExp).join("\\s*\\??\\.\\s*")}\\b`);
 const mentions = (entry, section, key) => {
-    const dotted = new RegExp(`\\b${escapeRegExp(`${section}.${key}`)}\\b`);
-    if (dotted.test(entry.source)) return true;
+    if (chainPattern(section, key).test(entry.source)) return true;
     // A local alias for the section: `const termSettings = getSettings().terminal`.
     for (const [alias, path] of entry.aliases) {
         if (path !== section) continue;
-        if (new RegExp(`\\b${escapeRegExp(alias)}[.?]*\\.${escapeRegExp(key)}\\b`).test(entry.source)) return true;
+        if (chainPattern(alias, key).test(entry.source)) return true;
     }
     const nested = section.split(".");
     if (nested.length > 1) {
         // `const { blame } = settings.git` then `blame.enabled`.
-        const qualified = new RegExp(`\\b${escapeRegExp(`${nested[nested.length - 1]}.${key}`)}\\b`);
-        return qualified.test(entry.source);
+        return chainPattern(nested[nested.length - 1], key).test(entry.source);
     }
     if (entry.destructured.get(section)?.has(key)) return true;
     // A name that exists in one section only can be matched on its own, and as
