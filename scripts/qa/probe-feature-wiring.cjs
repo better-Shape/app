@@ -169,6 +169,50 @@ async function isSwitchOn(locator) {
   await rowSwitch(page, "Inline Git Blame").click();
   await page.waitForTimeout(400);
 
+  // 7. Two editor settings that used to render a control and change nothing:
+  //    the caret glyph is asserted from the live editor's computed style, not
+  //    from the settings object.
+  await page.goto(`${BASE_URL}/settings?category=editor`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(2000);
+  await page.getByRole("button", { name: "Cursor style" }).click();
+  await page.waitForTimeout(300);
+  await page.locator("[role=menu]").getByText("Block", { exact: true }).first().click();
+  await page.waitForTimeout(400);
+
+  await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(3000);
+  await page.getByRole("button", { name: "New tab" }).first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("menuitem", { name: "Files" }).first().click();
+  await page.waitForTimeout(1200);
+  await page.locator('[data-explorer-root="true"]').getByText("README.md", { exact: true }).first().click();
+  await page.waitForTimeout(1500);
+  const sourceToggle = page.getByRole("button", { name: /view source/i }).first();
+  if (await sourceToggle.count()) await sourceToggle.click();
+  await page.waitForTimeout(2000);
+
+  // Draw the caret: CodeMirror only paints its custom cursor while focused.
+  await page.locator(".cm-line").first().click({ position: { x: 4, y: 8 } });
+  // The caret blinks; shoot while it is painted, then assert the computed style.
+  await page.waitForTimeout(60);
+  await page.screenshot({ path: path.join(SHOTS, "editor-block-cursor.png"), fullPage: false });
+  await page.waitForTimeout(400);
+  const caret = await page.evaluate(() => {
+    const node = document.querySelector(".cm-cursor");
+    if (!node) return null;
+    const style = getComputedStyle(node);
+    return { background: style.backgroundColor, width: style.width, borderLeft: style.borderLeftWidth };
+  });
+  assert.ok(caret, "the editor has no caret element");
+  assert.notEqual(caret.background, "rgba(0, 0, 0, 0)", `cursor is still a thin line: ${JSON.stringify(caret)}`);
+
+  // Leave these as they were found too.
+  await page.goto(`${BASE_URL}/settings?category=editor`, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "Cursor style" }).click();
+  await page.locator("[role=menu]").getByText("Line", { exact: true }).first().click();
+  await page.waitForTimeout(300);
+
   // Leave the setting as it was found.
   await page.goto(`${BASE_URL}/settings?category=privacy`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(1500);

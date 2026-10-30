@@ -631,3 +631,33 @@ caret line.
 Evidence after the merge: full `vitest run` **2822 tests green**, `lint:strict`
 and `typecheck` clean, probe green, contact sheet at
 `.qa-artifacts/feature-wiring/contact-sheet.png` read frame by frame.
+
+## Round 6 — settings that render a control and change nothing
+
+The editor's options mapper fed five settings into nothing. Two were worse than
+inert:
+
+- **The status bar hardcoded `Spaces: 4` and `insertSpaces: true`.** `publishStatus`
+  published literal values instead of the live `tabSize` / `insertSpaces`, so the
+  bar said "Spaces: 4" over a two-space file and kept saying it after the
+  Indentation picker changed the unit. It now publishes what the editor is
+  actually using.
+- **"Detect indentation" was a switch with no reader.** The editor now inspects
+  the buffer on mount (`features/editor/lib/detect-indentation.ts`) and matches
+  the file when the setting is on; two-space files stay two-space. Five unit
+  tests cover the detection, two more mount the real editor and assert the
+  reported indentation with the switch on and off.
+
+Wired the four the mapper already described but the editor ignored: `cursorStyle`
+(the caret element is drawn as line / block / underline instead of always a thin
+line), `fontLigatures`, `smoothScrolling`, and `renderWhitespace` (CodeMirror has
+"all" and "trailing" decorators and no selection-scoped one, so "selection" maps
+to off rather than pretending). The probe switches the caret to a block and
+asserts the live element's computed background, then screenshots the caret while
+it is painted (`.qa-artifacts/feature-wiring/editor-block-cursor.png`).
+
+Still inert, and named rather than hidden: `editor.bracketPairColorization`,
+`editor.showBracketGuides` and `terminal.defaultShell`. The first two need a
+decoration layer CodeMirror does not ship, and the third needs the Rust spawn
+path to accept a shell argument; none of them has a UI control today, so nothing
+on screen currently promises them.

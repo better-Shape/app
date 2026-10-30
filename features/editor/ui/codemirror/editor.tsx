@@ -11,6 +11,8 @@ import {
     highlightActiveLine,
     highlightActiveLineGutter,
     highlightSpecialChars,
+    highlightTrailingWhitespace,
+    highlightWhitespace,
     drawSelection,
     dropCursor,
     rectangularSelection,
@@ -60,6 +62,7 @@ import { getSettings } from "@/lib/settings";
 import { notify } from "@/features/notifications";
 import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
+import { detectIndentation } from "@/features/editor/lib/detect-indentation";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
@@ -97,12 +100,47 @@ import {
  * target this one, so a split view never edits the wrong buffer.
  */
 
+/** Draws CodeMirror's caret element as the cursor style the setting names. */
+function cursorStyleFor(style: string): Record<string, string> {
+    switch (style) {
+        case "block":
+            return { borderLeftColor: "transparent", background: "currentColor", width: "0.65em", opacity: "0.55" };
+        case "block-outline":
+            return { border: "1px solid currentColor", borderLeftColor: "currentColor", width: "0.65em", opacity: "0.7" };
+        case "underline":
+            return { borderLeftColor: "transparent", borderBottom: "2px solid currentColor", height: "0" };
+        case "underline-thin":
+            return { borderLeftColor: "transparent", borderBottom: "1px solid currentColor", height: "0" };
+        case "line-thin":
+            return { borderLeftWidth: "1px" };
+        default:
+            return { borderLeftWidth: "2px" };
+    }
+}
+
 /**
  * Extensions that mirror Settings -> Editor and can change while a file is
  * open. They live in a compartment so a settings change reconfigures the live
  * editor instead of waiting for the file to be reopened.
  */
 const optionExtensions = (options: ReturnType<typeof getEditorOptionsFromSettings>) => [
+    // Render whitespace: CodeMirror has "all" and "trailing" decorators, and no
+    // selection-scoped one, so "selection" is the same as off rather than a lie
+    // about a decoration that does not exist.
+    ...(options.renderWhitespace === "all"
+        ? [highlightWhitespace()]
+        : options.renderWhitespace === "trailing" || options.renderWhitespace === "boundary"
+          ? [highlightTrailingWhitespace()]
+          : []),
+    // Font ligatures and the scroll feel come from the settings the font is
+    // drawn with, so they belong on the same compartment as the sizes.
+    EditorView.theme({
+        "&": { fontFeatureSettings: options.fontLigatures ? '"liga" 1, "calt" 1' : '"liga" 0, "calt" 0' },
+        ".cm-scroller": { scrollBehavior: options.smoothScrolling ? "smooth" : "auto" },
+        // The caret glyphs CodeMirror ships are a thin left border; a block and
+        // an underline are the same element drawn differently.
+        ".cm-cursor": cursorStyleFor(options.cursorStyle),
+    }),
     ...(options.renderLineHighlight === "none"
         ? []
         : [
@@ -191,6 +229,15 @@ export function CodeMirrorEditor({
                 ? editorOptions.tabSize
                 : 4;
         let eol: "LF" | "CRLF" = editorOptions.defaultEol === "CRLF" ? "CRLF" : "LF";
+        // Settings -> Editor -> "Detect indentation": match the buffer instead of
+        // reindenting a two-space file with four.
+        if (editorOptions.detectIndentation === true) {
+            const detected = detectIndentation(content);
+            if (detected) {
+                tabSize = detected.tabSize;
+                insertSpaces = detected.insertSpaces;
+            }
+        }
         const applyIndent = (v: EditorView) => {
             v.dispatch({
                 effects: indentCompartment.reconfigure([
@@ -221,8 +268,11 @@ export function CodeMirrorEditor({
                         path: pathRef.current,
                         line: line.number,
                         column: head - line.from + 1,
-                        spaces: 4,
-                        insertSpaces: true,
+                        // Live values, not the shipped defaults: the status bar
+                        // used to say "Spaces: 4" over a two-space file and kept
+                        // saying it after the Indentation picker changed the unit.
+                        spaces: tabSize,
+                        insertSpaces,
                         eol: view.state.lineBreak === "\r\n" ? "CRLF" : "LF",
                         language: languageNameForPath(pathRef.current),
                     },
