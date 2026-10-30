@@ -6,10 +6,14 @@ import { Breadcrumb, BreadcrumbItem } from "@/components/ui/breadcrumb";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import Status from "@/features/agent/workbench/status/ui/status";
+import { MessageAttachmentPill } from "@/features/chat/ui/composer/attachments";
 import { ChatDataTable, MarkdownTableShell } from "@/features/chat/ui/md/data-table";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
+import { ContextChip } from "@/features/chat/ui/message/context-chip";
+import { ChatMessageItem } from "@/features/chat/ui/message/item";
 import { OpenInMenu } from "@/features/chat/ui/shell/open-in";
+import { syncChatDomHighlights } from "@/lib/chat/dom-highlights";
 import {
     clearProposedEdit,
     getProposedEdit,
@@ -283,5 +287,44 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
         expect(outer?.className).toContain("@container/status");
         expect(outer?.className).not.toContain("@[760px]/status:grid");
         expect(inner?.className).toContain("@[760px]/status:grid");
+    });
+
+    it("renders parsed kind icons for sent audio/terminal/code attachments and highlights clickable file/folder mention chips", () => {
+        const sentContent = [
+            '<attached_file name="Terminal 1.log" type="text/x-bettershape-terminal" size="42">ls -la</attached_file>',
+            '<attached_file name="snippet.txt" type="text/x-bettershape-code" size="18">const x = 1;</attached_file>',
+            '<attached_file name="voice-note.bin" type="audio/mpeg" size="128">binary</attached_file>',
+            "Inspect @app.tsx and @src/",
+        ].join("\n");
+
+        const container = mountInTooltipProvider(
+            <div>
+                <div data-chat-message-index="0">
+                    <ChatMessageItem role="user" content={sentContent} timestamp={1700000000000} />
+                </div>
+                <div data-inferred-audio>
+                    <MessageAttachmentPill name="memo.mp3" />
+                </div>
+                <div data-chat-message-index="1">
+                    <ContextChip onClick={() => undefined}>@router.ts</ContextChip>
+                </div>
+            </div>,
+        );
+
+        const msgRow = container.querySelector("[data-chat-message-index='0']");
+        const kindGlyphIcons = msgRow?.querySelectorAll("span.squircle-lg svg.text-text-muted") ?? [];
+        expect(kindGlyphIcons.length).toBe(3);
+
+        const inferredAudioSvg = container.querySelector("[data-inferred-audio] svg.text-text-muted");
+        expect(inferredAudioSvg).not.toBeNull();
+
+        const clickableMentionBtn = container.querySelector(
+            "[data-chat-message-index='1'] button[data-chat-find-text]",
+        );
+        expect(clickableMentionBtn).not.toBeNull();
+
+        const highlighted = syncChatDomHighlights(container, "@router.ts");
+        expect(highlighted.ranges).toHaveLength(1);
+        expect(highlighted.ranges.at(0)?.range.toString()).toBe("@router.ts");
     });
 });

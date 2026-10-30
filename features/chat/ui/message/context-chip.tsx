@@ -43,7 +43,12 @@ export const ContextChip = ({
     // one that only labels is a span.
     if (onClick) {
         return (
-            <button type="button" onClick={onClick} className={classes}>
+            <button
+                type="button"
+                data-chat-find-text
+                onClick={onClick}
+                className={classes}
+            >
                 {body}
             </button>
         );

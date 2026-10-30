@@ -1449,6 +1449,9 @@ type OpenUIFenceScannerState = {
     activeFence: ActiveOpenUIFence | null;
     activeMessageTags: Map<string, number>;
     pendingMessageTag: PendingTag | null;
+    inlineCodeEnd: number;
+    paragraphEnd: number;
+    unmatchedTickLengths: Set<number>;
     overflow?: OpenUIFenceOverflow;
 };
 
@@ -1784,26 +1787,78 @@ const activateTopLevelOpenUIFence = (
     };
 };
 
-/** Replaces `[start, end)` spans in `line` with equal-width space runs. */
-const blankOutSpans = (
-    line: string,
-    spans: ReadonlyArray<readonly [number, number]>,
-): string => {
-    let out = "";
-    let cursor = 0;
-    for (const [start, end] of spans) {
-        out += line.slice(cursor, start) + " ".repeat(end - start);
-        cursor = end;
+/** Counts consecutive backtick characters in `text` from `start` up to `limit`. */
+const countTicksAt = (text: string, start: number, limit: number): number => {
+    let end = start;
+    while (end < limit && text.charCodeAt(end) === 96) {
+        end += 1;
     }
-    return out + line.slice(cursor);
+    return end - start;
 };
 
-/** Replaces closed inline backtick code spans in `line` with spaces so literal `<tag>` examples stay inert. */
-const maskInlineCodeInLine = (line: string): string => {
-    if (!line.includes("`") || !line.includes("<")) return line;
-    const spans: Array<[number, number]> = [];
-    appendInlineCodeSpansInRange(line, 0, line.length, spans);
-    return spans.length === 0 ? line : blankOutSpans(line, spans);
+/** Finds a closing backtick run of exact length `runLen` in `text[from..limit)`, or `-1`. */
+const findMatchingInlineTickRunEnd = (
+    text: string,
+    from: number,
+    limit: number,
+    runLen: number,
+): number => {
+    let cursor = from;
+    while (cursor < limit) {
+        const tick = text.indexOf("`", cursor);
+        if (tick === -1 || tick >= limit) return -1;
+        const count = countTicksAt(text, tick, limit);
+        if (count === runLen) return tick + count;
+        cursor = tick + count;
+    }
+    return -1;
+};
+
+/** Finds the end offset of the current CommonMark paragraph starting after `afterLine`. */
+const findParagraphEndFromLine = (text: string, afterLine: number): number => {
+    let cursor = afterLine;
+    while (cursor < text.length) {
+        const { lineText, afterLine: nextLine } = readLineSliceAt(text, cursor);
+        if (lineText.trim().length === 0) return cursor;
+        cursor = nextLine;
+    }
+    return text.length;
+};
+
+/** Refreshes `state.paragraphEnd` and resets unmatched backtick lengths at paragraph boundaries. */
+const ensureInlineParagraphBounds = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    lineStart: number,
+    afterLine: number,
+): void => {
+    if (lineStart >= state.paragraphEnd) {
+        state.paragraphEnd = findParagraphEndFromLine(text, afterLine);
+        state.unmatchedTickLengths.clear();
+    }
+};
+
+/** Advances past a backtick run at `globalTick`, updating `state.inlineCodeEnd` when closed. */
+const advanceInlineBacktickAt = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    globalTick: number,
+): number => {
+    const limit = state.paragraphEnd;
+    const runLen = countTicksAt(text, globalTick, limit);
+    if (state.unmatchedTickLengths.has(runLen)) return globalTick + runLen;
+    const closeEnd = findMatchingInlineTickRunEnd(
+        text,
+        globalTick + runLen,
+        limit,
+        runLen,
+    );
+    if (closeEnd === -1) {
+        state.unmatchedTickLengths.add(runLen);
+        return globalTick + runLen;
+    }
+    state.inlineCodeEnd = closeEnd;
+    return closeEnd;
 };
 
 /** Checks whether the scanner is outside all structural tags and pending tag headers. */
@@ -1812,27 +1867,110 @@ const isOutsideOpaqueStructuralTag = (
 ): boolean =>
     state.activeMessageTags.size === 0 && state.pendingMessageTag === null;
 
-/** Opens top-level Markdown fences only when no opaque structural tag is active. */
-const openFenceOnLine = (
+/** Steps one top-level prose character at `index` on `line`, skipping closed inline code spans. */
+const stepTopLevelProseChar = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    at: { lineStart: number; index: number },
+): number => {
+    if (line.charCodeAt(at.index) === 96) {
+        const nextGlobal = advanceInlineBacktickAt(
+            state,
+            text,
+            at.lineStart + at.index,
+        );
+        return Math.min(line.length, nextGlobal - at.lineStart);
+    }
+    const step = stepStructuralScannerAt(
+        line,
+        at.index,
+        state.pendingMessageTag,
+        state.activeMessageTags,
+    );
+    state.pendingMessageTag = step.tag;
+    return step.nextIndex;
+};
+
+/** Finishes structural tag scanning for the remainder or end of `line`. */
+const finalizeScannedProseLine = (
     state: OpenUIFenceScannerState,
     line: string,
+    index: number,
     lineStart: number,
-    nextLineStart: number,
 ): void => {
-    const outsideOpaqueTag = isOutsideOpaqueStructuralTag(state);
-    if (outsideOpaqueTag) {
-        const fence = parseValidTopLevelFence(line);
-        if (fence) {
-            activateTopLevelOpenUIFence(state, fence, lineStart, nextLineStart);
-            return;
-        }
+    if (index < line.length) {
+        state.pendingMessageTag = scanStructuralTags(
+            line.slice(index),
+            state.activeMessageTags,
+            state.pendingMessageTag,
+        );
+        return;
     }
-    const scanLine = outsideOpaqueTag ? maskInlineCodeInLine(line) : line;
-    state.pendingMessageTag = scanStructuralTags(
-        scanLine,
-        state.activeMessageTags,
-        state.pendingMessageTag,
+    if (lineStart + line.length > state.inlineCodeEnd) {
+        state.pendingMessageTag = finalizeLineEndPendingTag(
+            state.pendingMessageTag,
+        );
+    }
+};
+
+/** Scans `line` for structural tags while skipping single- and multi-line inline code spans. */
+const scanTopLevelProseLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    line: string,
+    lineStart: number,
+): void => {
+    let index = Math.max(0, state.inlineCodeEnd - lineStart);
+    while (index < line.length && isOutsideOpaqueStructuralTag(state)) {
+        index = stepTopLevelProseChar(state, text, line, { lineStart, index });
+    }
+    finalizeScannedProseLine(state, line, index, lineStart);
+};
+
+type OpenUILineSlice = {
+    lineText: string;
+    lineStart: number;
+    afterLine: number;
+};
+
+/** Opens a top-level fence on `slice` when outside any active inline code span. */
+const tryOpenFenceOutsideInlineCode = (
+    state: OpenUIFenceScannerState,
+    slice: OpenUILineSlice,
+): boolean => {
+    if (slice.lineStart < state.inlineCodeEnd) return false;
+    const fence = parseValidTopLevelFence(slice.lineText);
+    if (!fence) return false;
+    state.paragraphEnd = 0;
+    state.unmatchedTickLengths.clear();
+    activateTopLevelOpenUIFence(
+        state,
+        fence,
+        slice.lineStart,
+        slice.afterLine,
     );
+    return true;
+};
+
+/** Opens top-level Markdown fences only when outside opaque structural tags and inline code spans. */
+const openFenceOnLine = (
+    state: OpenUIFenceScannerState,
+    text: string,
+    slice: OpenUILineSlice,
+): void => {
+    if (!isOutsideOpaqueStructuralTag(state)) {
+        state.pendingMessageTag = scanStructuralTags(
+            slice.lineText,
+            state.activeMessageTags,
+            state.pendingMessageTag,
+        );
+        return;
+    }
+    if (tryOpenFenceOutsideInlineCode(state, slice)) return;
+    if (slice.afterLine <= state.inlineCodeEnd) return;
+    ensureInlineParagraphBounds(state, text, slice.lineStart, slice.afterLine);
+    scanTopLevelProseLine(state, text, slice.lineText, slice.lineStart);
 };
 
 /** Finalizes any unclosed OpenUI or overflow fence at `textLength`. */
@@ -1853,24 +1991,22 @@ const finalizeOpenUIFenceScan = (
     return { fences: state.fences, overflow: state.overflow };
 };
 
-/** Steps `state` across one line `[lineStart, afterLine)`, returning true if overflow closed. */
+/** Steps `state` across one line `slice`, returning true if overflow closed. */
 const stepOpenUIFenceLine = (
     state: OpenUIFenceScannerState,
     text: string,
-    lineText: string,
-    lineStart: number,
-    afterLine: number,
+    slice: OpenUILineSlice,
 ): boolean => {
     if (state.activeFence) {
         return closeOpenUIFenceOnLine(
             state,
             text,
-            lineText,
-            lineStart,
-            afterLine,
+            slice.lineText,
+            slice.lineStart,
+            slice.afterLine,
         );
     }
-    openFenceOnLine(state, lineText, lineStart, afterLine);
+    openFenceOnLine(state, text, slice);
     return false;
 };
 
@@ -1882,11 +2018,20 @@ const findOpenUIFences = (text: string): OpenUIFenceScan => {
         activeFence: null,
         activeMessageTags: new Map<string, number>(),
         pendingMessageTag: null,
+        inlineCodeEnd: 0,
+        paragraphEnd: 0,
+        unmatchedTickLengths: new Set<number>(),
     };
     let lineStart = 0;
     while (lineStart < text.length) {
         const { lineText, afterLine } = readLineSliceAt(text, lineStart);
-        if (stepOpenUIFenceLine(state, text, lineText, lineStart, afterLine)) {
+        if (
+            stepOpenUIFenceLine(state, text, {
+                lineText,
+                lineStart,
+                afterLine,
+            })
+        ) {
             return { fences: state.fences, overflow: state.overflow };
         }
         lineStart = afterLine;

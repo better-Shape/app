@@ -103,7 +103,7 @@ function SentAttachment({ att }: { att: ParsedUserAttachment }) {
             />
         );
     }
-    return <MessageAttachmentPill name={att.name} />;
+    return <MessageAttachmentPill kind={att.kind} name={att.name} />;
 }
 
 /** Preserve attachment identity across reordering while disambiguating exact duplicates. */

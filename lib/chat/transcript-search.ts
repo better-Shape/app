@@ -2,7 +2,15 @@
  * Searchable text extraction and match indexing for in-conversation find.
  */
 
-import { type AngleMatchReplacement, scanMarkdownOutsideCode } from "./export-markdown";
+import {
+    type AngleMatchReplacement,
+    decodeBasicXmlEntities,
+    findNextInterestingOffset,
+    scanMarkdownOutsideCode,
+    trySkipClosedCodeSpanAt,
+} from "./export-markdown";
+
+export { decodeBasicXmlEntities };
 
 export interface TranscriptMatch {
     messageIndex: number;
@@ -66,16 +74,6 @@ const ATTACHMENT_TYPE_ATTR_RE = /\btype=(["'])([^"']*)\1/i;
 const ATTACHMENT_XML_ENC_RE = /\bname_encoding=(["'])xml\1/i;
 const EDIT_FILE_ATTR_RE = /\bfile=(["'])([^"']*)\1/i;
 const CAT_PATH_ATTR_RE = /\bpath=(["'])([^"']*)\1/i;
-
-/** Decodes basic XML entities inside an extracted tag attribute value. */
-export const decodeBasicXmlEntities = (raw: string): string =>
-    raw
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&amp;/g, "&");
 
 /** Reads the raw attribute value matched by `attrRe` from `openTag`, or `""`. */
 const readRawTagAttr = (openTag: string, attrRe: RegExp): string =>
@@ -218,21 +216,6 @@ const findOpenTagCloseGt = (source: string, from: number): number => {
     return -1;
 };
 
-/** Finds the next valid `<tag` opener with a tag-boundary delimiter at or after `from`. */
-const findNextOpenTagAt = (
-    lower: string,
-    openPrefix: string,
-    from: number,
-): number => {
-    let idx = lower.indexOf(openPrefix, from);
-    while (idx !== -1) {
-        const delim = lower.charAt(idx + openPrefix.length);
-        if (TAG_BOUNDARY_CHARS.has(delim)) return idx;
-        idx = lower.indexOf(openPrefix, idx + openPrefix.length);
-    }
-    return -1;
-};
-
 /** Finds the next valid `</tag>` closer at or after `from`, returning `[closeStart, closeEnd]`. */
 const findNextCloseTagBounds = (
     lower: string,
@@ -252,23 +235,103 @@ const findNextCloseTagBounds = (
     return null;
 };
 
-/** Counts non-self-closing nested `<tag ...>` openers inside `lower[from..limit)`. */
-const countNestedOpenersBefore = (
+/** Matches a `</tag>` closer starting right at `offset`, returning its end offset or `-1`. */
+const matchCloseTagEndAt = (
+    lower: string,
+    closePrefix: string,
+    offset: number,
+): number => {
+    if (!lower.startsWith(closePrefix, offset)) return -1;
+    const afterName = offset + closePrefix.length;
+    const gt = lower.indexOf(">", afterName);
+    if (gt === -1) return -1;
+    return /^[ \t\r\n]*$/u.test(lower.slice(afterName, gt)) ? gt + 1 : -1;
+};
+
+/** Matches a `<tag ...>` opener starting right at `offset`, returning `{ end, opens }` or `null`. */
+const matchSameTagOpenerAt = (
     source: string,
     lower: string,
     openPrefix: string,
-    from: number,
-    limit: number,
-): number => {
-    let added = 0;
-    let openIdx = findNextOpenTagAt(lower, openPrefix, from);
-    while (openIdx !== -1 && openIdx < limit) {
-        const gt = findOpenTagCloseGt(source, openIdx + openPrefix.length);
-        if (gt === -1) break;
-        added += Number(source.charAt(gt - 1) !== "/");
-        openIdx = findNextOpenTagAt(lower, openPrefix, gt + 1);
+    offset: number,
+): { end: number; opens: boolean } | null => {
+    if (!lower.startsWith(openPrefix, offset)) return null;
+    if (!TAG_BOUNDARY_CHARS.has(lower.charAt(offset + openPrefix.length))) {
+        return null;
     }
-    return added;
+    const gt = findOpenTagCloseGt(source, offset + openPrefix.length);
+    if (gt === -1) return null;
+    return { end: gt + 1, opens: source.charAt(gt - 1) !== "/" };
+};
+
+/** Checks whether a closed code span `[cursor, codeEnd)` may safely cross any inner `</tag>`. */
+const canSkipClosedCodeSpan = (
+    lower: string,
+    closePrefix: string,
+    cursor: number,
+    codeEnd: number,
+): boolean => {
+    const innerClose = findNextCloseTagBounds(lower, closePrefix, cursor);
+    if (!innerClose || innerClose[0] >= codeEnd) return true;
+    return findNextCloseTagBounds(lower, closePrefix, codeEnd) !== null;
+};
+
+/** Tries to advance `state.cursor` past a closed code span at `state.cursor`. */
+const tryAdvanceClosedCodeAt = (
+    source: string,
+    lower: string,
+    closePrefix: string,
+    state: { cursor: number },
+): boolean => {
+    const codeEnd = trySkipClosedCodeSpanAt(source, state.cursor);
+    if (codeEnd === -1) return false;
+    if (!canSkipClosedCodeSpan(lower, closePrefix, state.cursor, codeEnd)) {
+        return false;
+    }
+    state.cursor = codeEnd;
+    return true;
+};
+
+/** Advances `state` across a `<tag>` opener or plain text when not at `</tag>`. */
+const advanceOpenTagOrTextAt = (
+    source: string,
+    lower: string,
+    openPrefix: string,
+    state: { cursor: number; depth: number },
+): void => {
+    const openHit = matchSameTagOpenerAt(
+        source,
+        lower,
+        openPrefix,
+        state.cursor,
+    );
+    if (openHit) {
+        state.depth += Number(openHit.opens);
+        state.cursor = openHit.end;
+        return;
+    }
+    state.cursor = findNextInterestingOffset(source, state.cursor + 1);
+};
+
+/** Advances one tag or closed-code token during `findBalancedPairedClose`. */
+const stepPairedTagTokenAt = (
+    source: string,
+    lower: string,
+    prefixes: { open: string; close: string },
+    state: { cursor: number; depth: number },
+): readonly [number, number] | null => {
+    if (tryAdvanceClosedCodeAt(source, lower, prefixes.close, state)) {
+        return null;
+    }
+    const closeEnd = matchCloseTagEndAt(lower, prefixes.close, state.cursor);
+    if (closeEnd !== -1) {
+        state.depth -= 1;
+        const matched: readonly [number, number] = [state.cursor, closeEnd];
+        state.cursor = closeEnd;
+        return state.depth === 0 ? matched : null;
+    }
+    advanceOpenTagOrTextAt(source, lower, prefixes.open, state);
+    return null;
 };
 
 /** Finds balanced `[closeStart, closeEnd]` for `<tag>` opened at `afterOpenGt`, or `null`. */
@@ -278,17 +341,12 @@ const findBalancedPairedClose = (
     afterOpenGt: number,
     tag: string,
 ): readonly [number, number] | null => {
-    const openPrefix = `<${tag}`;
-    const closePrefix = `</${tag}`;
-    let depth = 1;
-    let cursor = afterOpenGt;
-    while (depth > 0) {
-        const close = findNextCloseTagBounds(lower, closePrefix, cursor);
-        if (!close) return null;
-        depth +=
-            countNestedOpenersBefore(source, lower, openPrefix, cursor, close[0]) - 1;
-        cursor = close[1];
-        if (depth === 0) return close;
+    if (!findNextCloseTagBounds(lower, `</${tag}`, afterOpenGt)) return null;
+    const prefixes = { open: `<${tag}`, close: `</${tag}` };
+    const state = { cursor: afterOpenGt, depth: 1 };
+    while (state.cursor < source.length) {
+        const closed = stepPairedTagTokenAt(source, lower, prefixes, state);
+        if (closed) return closed;
     }
     return null;
 };

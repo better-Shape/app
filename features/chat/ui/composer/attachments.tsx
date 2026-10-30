@@ -94,6 +94,14 @@ export function attachmentKind(file: File): AttachmentKind {
     return "file";
 }
 
+/** Infers an attachment kind from a filename extension when no explicit kind was supplied. */
+const inferAttachmentKindFromName = (name: string): AttachmentKind => {
+    const ext = getFileExtension(name);
+    if (IMAGE_EXTENSIONS.has(ext)) return "image";
+    if (AUDIO_EXTENSIONS.has(ext)) return "audio";
+    return "file";
+};
+
 function newId() {
     return typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -326,16 +334,17 @@ export const ComposerFileTile = ({
 
 /** Sent-message chip: file-kind icon + filename. */
 export const MessageAttachmentPill = ({
-    kind = "file",
+    kind,
     name,
 }: {
     kind?: AttachmentKind;
     name: string;
 }) => {
+    const resolvedKind = kind ?? inferAttachmentKindFromName(name);
     return (
         <Tooltip content={name} side="top" delayDuration={220}>
             <span className="inline-flex h-7 max-w-56 items-center gap-1.5 squircle-lg border border-border-subtle bg-surface-2 px-2.5 text-xs font-medium text-text-primary">
-                <KindIcon kind={kind} name={name} />
+                <KindIcon kind={resolvedKind} name={name} />
                 <span className="min-w-0 truncate">{name}</span>
             </span>
         </Tooltip>

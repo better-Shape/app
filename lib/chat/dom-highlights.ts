@@ -151,6 +151,7 @@ const SEARCHABLE_BUTTON_CLASSES = [
     "underline",
     "chat-text",
     "chat-link-chip",
+    "bg-accent-text-bg",
 ] as const;
 
 /** Checks whether a `<button>` carries searchable transcript prose, path links, or action labels. */

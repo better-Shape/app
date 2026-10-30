@@ -65,6 +65,7 @@ import {
   processComposerDropTransfer,
   processComposerPasteEvent,
   processSelectedPickerFiles,
+  readComposerClipboardTextWithFeedback,
   resolveArrowDownAction,
   resolveArrowUpAction,
   resolveAutoTargetModel,
@@ -2105,23 +2106,19 @@ const ChatInputInner = ({
       [addUploadedFiles, inputValue, textCtrl],
     );
     const handleContextMenuPaste = React.useCallback(() => {
-      if (!navigator.clipboard) return;
-      navigator.clipboard
-        .readText()
-        .then((text) =>
-          pasteClipboardTextViaContextMenu({
-            text,
-            textarea: textareaRef.current,
-            inputValue: inputValueRef.current,
-            addUploadedFiles,
-            swapAttachmentInline: textCtrl.swapAttachmentInline,
-            clearHistoryCursor: () => {
-              historyCursorRef.current = null;
-            },
-            applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
-          }),
-        )
-        .catch(() => undefined);
+      readComposerClipboardTextWithFeedback(textareaRef.current, (text) =>
+        pasteClipboardTextViaContextMenu({
+          text,
+          textarea: textareaRef.current,
+          inputValue: inputValueRef.current,
+          addUploadedFiles,
+          swapAttachmentInline: textCtrl.swapAttachmentInline,
+          clearHistoryCursor: () => {
+            historyCursorRef.current = null;
+          },
+          applyProgrammaticInputValue: textCtrl.applyProgrammaticInputValue,
+        }),
+      );
     }, [addUploadedFiles, textCtrl]);
 
     const sendStatus = deriveComposerSendStatus({

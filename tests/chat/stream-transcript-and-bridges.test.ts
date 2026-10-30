@@ -4,7 +4,12 @@ import { formatAiTerminalTitle } from "@/features/agent/terminal-dock";
 import { applyInsertedPromptEvent } from "@/features/chat/lib/use-chat-session";
 import { detectErrorBillingProvider } from "@/features/chat/ui/blocks/error";
 import { detectPendingHitl } from "@/features/chat/ui/chat";
-import { isImeKeyEvent, isPlainPickerConfirmKey } from "@/features/chat/ui/composer/mentions";
+import { readComposerClipboardTextWithFeedback } from "@/features/chat/ui/composer/input-helpers";
+import {
+    computeMentionPickerPosition,
+    isImeKeyEvent,
+    isPlainPickerConfirmKey,
+} from "@/features/chat/ui/composer/mentions";
 import { formatRowsAsMarkdownTable } from "@/features/chat/ui/md/data-table";
 import { parseMessageContent } from "@/features/chat/ui/md/renderer";
 import { preprocessChatMarkdown, repairStreamGlitches } from "@/features/chat/ui/md/stream";
@@ -774,5 +779,108 @@ describe("chat stream sanitization, transcript utilities, and workbench bridges"
         expect(singleAligned.activeRange?.toString()).toBe("hello");
         host.remove();
     });
+
+    it("handles clipboard denial feedback, category Back-row geometry, multiline inline-code OpenUI examples, apostrophe attributes, and code-quoted control tags", async () => {
+        notificationStore.clearAll();
+        const textarea = document.createElement("textarea");
+        document.body.appendChild(textarea);
+        const origClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+                readText: () => Promise.reject(new DOMException("Denied", "NotAllowedError")),
+            },
+        });
+        const onText = vi.fn();
+        readComposerClipboardTextWithFeedback(textarea, onText);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(onText).not.toHaveBeenCalled();
+        expect(
+            notificationStore
+                .getSnapshot()
+                .notifications.some((n) => n.message === "Clipboard access denied"),
+        ).toBe(true);
+        if (origClipboard) {
+            Object.defineProperty(navigator, "clipboard", origClipboard);
+        }
+        notificationStore.clearAll();
+        textarea.remove();
+
+        const anchorRect = { left: 24, top: 280, bottom: 340, width: 320, height: 60 };
+        const rootPos = computeMentionPickerPosition({
+            rect: anchorRect,
+            viewportWidth: 800,
+            viewportHeight: 600,
+            menuHeight: 240,
+            hasBackRow: false,
+        });
+        const categoryPos = computeMentionPickerPosition({
+            rect: anchorRect,
+            viewportWidth: 800,
+            viewportHeight: 600,
+            menuHeight: 240,
+            hasBackRow: true,
+        });
+        expect((rootPos.maxListHeight ?? 0) - (categoryPos.maxListHeight ?? 0)).toBe(34);
+        expect(78 + (categoryPos.maxListHeight ?? 0)).toBeLessThanOrEqual(anchorRect.top - 14);
+
+        const multilineInlineOpenUI = parseMessageContent(
+            "Inline literal: ``\n```openui-lang\nroot = Surface([])\n```\n`` stays prose.",
+        );
+        expect(multilineInlineOpenUI.some((c) => c.type === "openui")).toBe(false);
+
+        const multilineInlineTagThenOpenUI = parseMessageContent(
+            'See `<terminal_command\nid="demo">` first.\n\n```openui-lang\nroot = Surface([])\n```',
+        );
+        expect(multilineInlineTagThenOpenUI.some((c) => c.type === "openui")).toBe(true);
+
+        const exported = formatTranscriptAsMarkdown("Apostrophe paths", [
+            {
+                role: "user",
+                content: "<attached_file name=\"O'Brien's notes.md\">body</attached_file>\nCheck this",
+            },
+            {
+                role: "assistant",
+                content: "<edit file=\"src/it's.ts\"><original>a</original><replacement>b</replacement></edit>\nDone.",
+            },
+        ]);
+        expect(exported).toContain("`O'Brien's notes.md`");
+        expect(exported).toContain("> Edited `src/it's.ts`");
+
+        const hiddenWithCodeTagExamples = [
+            "<thinking>",
+            "Explain `<thinking>` and `</thinking>` plus:",
+            "```xml",
+            "<thinking>",
+            "```",
+            "internal_hidden_secret_phrase",
+            "</thinking>",
+            "Visible final answer.",
+        ].join("\n");
+        const searchable = extractSearchableMessageText(hiddenWithCodeTagExamples);
+        expect(searchable).not.toContain("internal_hidden_secret_phrase");
+        expect(searchable).toContain("Visible final answer.");
+        expect(
+            findTranscriptMatches(
+                [{ role: "assistant", content: hiddenWithCodeTagExamples }],
+                "internal_hidden_secret_phrase",
+            ),
+        ).toHaveLength(0);
+
+        const truncatedFenceBetweenThoughts = [
+            "<thinking>",
+            "```ts",
+            "const hiddenTruncated = 1;",
+            "</thinking>",
+            "Visible middle answer.",
+            "<thinking>second hidden thought</thinking>",
+        ].join("\n");
+        const middleSearchable = extractSearchableMessageText(truncatedFenceBetweenThoughts);
+        expect(middleSearchable).toContain("Visible middle answer.");
+        expect(middleSearchable).not.toContain("hiddenTruncated");
+        expect(middleSearchable).not.toContain("second hidden thought");
+    });
 });
+
 
