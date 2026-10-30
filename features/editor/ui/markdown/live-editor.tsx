@@ -34,6 +34,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { openSearchPanel, search, searchKeymap, SearchQuery, setSearchQuery } from "@codemirror/search";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-markdown";
+import { indentUnit } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { betterShapeEditorChrome } from "../codemirror/theme";
-import { optionExtensions } from "../codemirror/options";
+import { indentUnitFor, optionExtensions } from "../codemirror/options";
 import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
 
 /*
@@ -306,7 +307,7 @@ const proseTheme = EditorView.theme({
     ".cm-line": { padding: "1px 32px" },
     ".cm-cursor, .cm-dropCursor": { borderLeftWidth: "2px", borderLeftColor: "var(--text-primary)" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-        backgroundColor: "color-mix(in srgb, #e8c547 55%, transparent) !important",
+        backgroundColor: "var(--editor-selection) !important",
     },
     ".cm-md-u": { textDecoration: "underline" },
     ".cm-md-h1": { fontSize: "1.85em", lineHeight: "1.3", paddingTop: "18px", paddingBottom: "6px" },
@@ -658,11 +659,17 @@ export function MarkdownLiveEditor({
         // whitespace marker that the code editor honours and the document
         // editor ignores is a setting that works on some files only.
         const optionCompartment = new Compartment();
+        // Markdown's own indent default is two spaces; Settings -> Editor owns it
+        // instead, in the same compartment so a change reaches an open document.
+        const documentOptions = () => {
+            const options = getEditorOptionsFromSettings();
+            return [...optionExtensions(options), indentUnit.of(indentUnitFor(options))];
+        };
         const view = new EditorView({
             state: EditorState.create({
                 doc: contentRef.current,
                 extensions: [
-                    optionCompartment.of(optionExtensions(getEditorOptionsFromSettings())),
+                    optionCompartment.of(documentOptions()),
                     ...liveMarkdownExtensions((doc) => {
                         lastEmitted.current = doc;
                         onChangeRef.current(doc);
@@ -724,9 +731,7 @@ export function MarkdownLiveEditor({
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
         const unsubscribeSettings = subscribeSettings(() => {
             view.dispatch({
-                effects: optionCompartment.reconfigure(
-                    optionExtensions(getEditorOptionsFromSettings()),
-                ),
+                effects: optionCompartment.reconfigure(documentOptions()),
             });
         });
         return () => {

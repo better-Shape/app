@@ -11,6 +11,7 @@ import {
 } from "@codemirror/view";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { bracketColors } from "@/features/editor/ui/codemirror/bracket-colors";
+import { minimap } from "@/features/editor/ui/codemirror/minimap";
 import type { getEditorOptionsFromSettings } from "@/lib/settings";
 
 type EditorOptions = ReturnType<typeof getEditorOptionsFromSettings>;
@@ -31,6 +32,17 @@ export function cursorStyleFor(style: string): Record<string, string> {
         default:
             return { borderLeftWidth: "2px" };
     }
+}
+
+/**
+ * The indent one Tab press inserts: spaces to the configured tab size, or a tab
+ * character when the user asked for tabs. Both editors use it, so the status
+ * bar's "Spaces: n" describes what Tab actually does.
+ */
+export function indentUnitFor(options: EditorOptions): string {
+    if (options.insertSpaces === false) return "\t";
+    const size = typeof options.tabSize === "number" && options.tabSize > 0 ? options.tabSize : 4;
+    return " ".repeat(size);
 }
 
 /**
@@ -70,6 +82,7 @@ export const optionExtensions = (options: EditorOptions) => [
                   : []),
           ]),
     ...(options.bracketPairColorization.enabled ? [bracketColors()] : []),
+    ...(options.minimap.enabled ? [minimap()] : []),
     drawSelection({ cursorBlinkRate: options.cursorBlinking === "solid" ? 0 : 1100 }),
     ...(options.scrollBeyondLastLine ? [scrollPastEnd()] : []),
     ...(options.guides.indentation

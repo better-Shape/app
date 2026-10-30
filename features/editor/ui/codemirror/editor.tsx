@@ -54,7 +54,7 @@ import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { getSettings } from "@/lib/settings";
 import { notify } from "@/features/notifications";
-import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
+import { getEditorOptionsFromSettings, subscribeSettings, updateSettingSection } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
 import { detectIndentation } from "@/features/editor/lib/detect-indentation";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
@@ -532,6 +532,11 @@ export function CodeMirrorEditor({
                     }
                     break;
                 }
+                case "toggleMinimap":
+                    // The minimap lives in the options compartment, so the command
+                    // and the Settings switch drive the same one place.
+                    updateSettingSection("editor", { minimap: !getSettings().editor.minimap });
+                    break;
                 case "toggleWordWrap":
                     wrapEnabled = !wrapEnabled;
                     v.dispatch({

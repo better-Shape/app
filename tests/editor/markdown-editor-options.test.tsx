@@ -27,12 +27,16 @@ let root: Root | undefined;
 
 beforeEach(() => {
     resetSettings();
+    // jsdom ships no 2D context and logs a "Not implemented" line for every
+    // request. The minimap only needs the element to exist here.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
 });
 
 afterEach(() => {
+    vi.restoreAllMocks();
     act(() => root?.unmount());
     host.remove();
     resetSettings();
@@ -102,5 +106,47 @@ describe("markdown editor options", () => {
         expect(host.querySelectorAll(".cm-trailingSpace").length).toBeGreaterThan(0);
         // "Trailing" is not "All": gaps between words stay undecorated.
         expect(whitespaceMarks()).toBe(0);
+    });
+
+    it("indents with the configured tab size instead of Markdown's own default", async () => {
+        updateSettingSection("editor", { tabSize: 4, insertSpaces: true });
+        await mount();
+
+        const content = host.querySelector(".cm-content")!;
+        await act(async () => {
+            content.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+        });
+
+        const line = host.querySelector(".cm-line")!.textContent ?? "";
+        expect(line.startsWith("    ")).toBe(true);
+    });
+
+    it("inserts a tab character when Insert spaces is off", async () => {
+        updateSettingSection("editor", { tabSize: 4, insertSpaces: false });
+        await mount();
+
+        const content = host.querySelector(".cm-content")!;
+        await act(async () => {
+            content.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+        });
+
+        const line = host.querySelector(".cm-line")!.textContent ?? "";
+        expect(line.startsWith("\t")).toBe(true);
+    });
+
+    it("adds and removes the minimap with the setting on an open document", async () => {
+        updateSettingSection("editor", { minimap: false });
+        await mount();
+        expect(host.querySelector(".cm-minimap")).toBeNull();
+
+        await act(async () => {
+            updateSettingSection("editor", { minimap: true });
+        });
+        expect(host.querySelector(".cm-minimap")).not.toBeNull();
+
+        await act(async () => {
+            updateSettingSection("editor", { minimap: false });
+        });
+        expect(host.querySelector(".cm-minimap")).toBeNull();
     });
 });
