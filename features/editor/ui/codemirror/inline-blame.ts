@@ -95,6 +95,14 @@ function blameReporter() {
                 this.publish();
             }
 
+            destroy() {
+                // Switching the setting off removes this plugin; the label has to
+                // go with it, or the status bar keeps advertising a line nobody
+                // is blaming any more.
+                this.last = null;
+                this.publish();
+            }
+
             private publish() {
                 if (typeof window === "undefined") return;
                 window.dispatchEvent(

@@ -109,6 +109,25 @@ describe("inline blame in the editor", () => {
         }
     });
 
+    it("clears the status label when the setting is switched off", async () => {
+        updateSettingSection("git", { blame: { enabled: true } });
+        const published: string[] = [];
+        const listen = (event: Event) => {
+            const detail = (event as CustomEvent<{ blame?: string }>).detail;
+            if (typeof detail?.blame === "string") published.push(detail.blame);
+        };
+        window.addEventListener("bettershape-editor-status", listen);
+        try {
+            await mountEditor();
+            await settle();
+            expect(published.at(-1)).toContain("Grace");
+            act(() => updateSettingSection("git", { blame: { enabled: false } }));
+            expect(published.at(-1)).toBe("");
+        } finally {
+            window.removeEventListener("bettershape-editor-status", listen);
+        }
+    });
+
     it("stays out of the way when the setting is off", async () => {
         await mountEditor();
         await settle();
