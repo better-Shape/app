@@ -769,9 +769,8 @@ const hasExecuteDump = (text: string): boolean => EXECUTE_DUMP_RE.test(text);
 
 const TOOL_CODE_JSON_KEY_RE = /^[{[][\s\S]*"tool_code"\s*:/u;
 const TOOL_CODE_JSON_TRIGGER_RE =
-    /print\s*\(|render_design_previews|concepts\s*=|"(?:tool_)?name"\s*:|"arguments"\s*:|"parameters"\s*:|\b[a-zA-Z_]\w*\s*\(/u;
+    /\bprint\s*\(|\bfunctions\.[a-zA-Z_]\w*\s*\(|\b(?:default_api\.[a-zA-Z_]\w*|render_design_previews|read_file|edit_file|write_file|grep_search|run_terminal|web_search|list_terminals|terminal_read|terminal_input|list_dir|codebase_overview|update_todos)\s*\(|concepts\s*=|"tool_name"\s*:|"arguments"\s*:/u;
 
-/** Checks whether a `"tool_code"` JSON payload contains a leaked tool-call trigger. */
 const isLeakedToolCodeJson = (trimmed: string): boolean =>
     TOOL_CODE_JSON_KEY_RE.test(trimmed) && TOOL_CODE_JSON_TRIGGER_RE.test(trimmed);
 

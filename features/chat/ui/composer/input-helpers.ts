@@ -1214,7 +1214,6 @@ const insertInlineContextMenuClipboard = (opts: {
   }
 };
 
-/** Returns a bound clipboard reader when the environment exposes `navigator.clipboard.readText`. */
 const getClipboardTextReader = (): (() => Promise<string>) | null => {
   if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
     return null;
@@ -1222,7 +1221,6 @@ const getClipboardTextReader = (): (() => Promise<string>) | null => {
   return () => navigator.clipboard.readText();
 };
 
-/** Warns when clipboard access is unavailable or denied and refocuses `textarea`. */
 const warnClipboardReadBlocked = (
   textarea: HTMLTextAreaElement | null,
   title: string,
@@ -1231,7 +1229,7 @@ const warnClipboardReadBlocked = (
   notify.warn(title, "Press Cmd+V or Ctrl+V to paste directly.");
 };
 
-/** Invokes `onText` safely so paste callback errors never masquerade as clipboard denial. */
+/** Isolates `onText` exceptions from `.readText()` rejections so insertion bugs never report permission denial. */
 const applyReadClipboardText = (
   textarea: HTMLTextAreaElement | null,
   text: string,
@@ -1245,10 +1243,10 @@ const applyReadClipboardText = (
   }
 };
 
-/** Reads clipboard text for the composer context-menu `Paste` item, warning when blocked. */
 export const readComposerClipboardTextWithFeedback = (
   textarea: HTMLTextAreaElement | null,
   onText: (text: string) => void,
+  isStale?: () => boolean,
 ): void => {
   const readClipboard = getClipboardTextReader();
   if (!readClipboard) {
@@ -1257,7 +1255,10 @@ export const readComposerClipboardTextWithFeedback = (
   }
   textarea?.focus();
   readClipboard().then(
-    (text) => applyReadClipboardText(textarea, text, onText),
+    (text) => {
+      if (isStale?.()) return;
+      applyReadClipboardText(textarea, text, onText);
+    },
     () => warnClipboardReadBlocked(textarea, "Clipboard access denied"),
   );
 };

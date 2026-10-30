@@ -9,11 +9,10 @@ const ASSISTANT_HIDDEN_BLOCK_AT_RE =
     /<(thinking|thought|think|analysis|rename_chat|todos)\b[^>]*>[\s\S]*?<\/\1>/yi;
 const ASSISTANT_EDIT_BLOCK_AT_RE = /<edit\b([^>]*)>[\s\S]*?<\/edit>/yi;
 const ASSISTANT_ACTION_TAG_AT_RE = /<bettershape_action\b[^>]*\/?>/yi;
-const QUOTED_NAME_ATTR_RE = /\bname=(?:"([^"]*)"|'([^']*)')/i;
+const ATTACHED_NAME_ATTR_RE = /\bname="([^"]*)"/;
 const QUOTED_FILE_ATTR_RE = /\bfile=(?:"([^"]*)"|'([^']*)')/i;
-const ATTACHMENT_XML_ENC_RE = /\bname_encoding=(?:"xml"|'xml')/i;
+const ATTACHMENT_XML_ENC_RE = /\bname_encoding="xml"/;
 
-/** Decodes basic XML attribute entities into plain text. */
 export const decodeBasicXmlEntities = (raw: string): string =>
     raw
         .replaceAll("&quot;", '"')
@@ -25,22 +24,20 @@ export const decodeBasicXmlEntities = (raw: string): string =>
         .replaceAll("&gt;", ">")
         .replaceAll("&amp;", "&");
 
-/** Extracts the raw string inside a single- or double-quoted attribute match (`"([^"]*)"|'([^']*)'`). */
 export const readRawQuotedAttr = (attrs: string, attrRe: RegExp): string => {
     const match = attrRe.exec(attrs);
     if (!match) return "";
     return typeof match[1] === "string" ? match[1] : String(match[2]);
 };
 
-/** Extracts and XML-decodes a single- or double-quoted attribute value. */
 export const readDecodedQuotedAttr = (attrs: string, attrRe: RegExp): string => {
     const raw = readRawQuotedAttr(attrs, attrRe);
     return raw ? decodeBasicXmlEntities(raw).trim() : "";
 };
 
-/** Reads an `<attached_*>` `name=` attribute, decoding XML entities only when `name_encoding="xml"`. */
-export const readAttachmentNameAttr = (attrs: string, attrRe: RegExp): string => {
-    const raw = readRawQuotedAttr(attrs, attrRe);
+/** Mirrors `parseUserAttachments`: only double-quoted `name="..."` with lowercase `name_encoding="xml"` decodes entities. */
+export const readAttachmentNameAttr = (attrs: string): string => {
+    const raw = ATTACHED_NAME_ATTR_RE.exec(attrs)?.[1] ?? "";
     if (!raw) return "";
     return ATTACHMENT_XML_ENC_RE.test(attrs) ? decodeBasicXmlEntities(raw) : raw;
 };
@@ -265,7 +262,7 @@ const matchAttachmentBlockAt = (
     const match = execStickyAt(ATTACHED_BLOCK_AT_RE, input, offset);
     if (!match) return null;
     const kind = match[1] || "file";
-    const label = readAttachmentNameAttr(match[2], QUOTED_NAME_ATTR_RE).trim() || kind;
+    const label = readAttachmentNameAttr(match[2]).trim() || kind;
     attachmentNotes.push(`_Attached: ${formatInlineCodeSpan(label)}_`);
     return { replacement: "", end: offset + match[0].length };
 };

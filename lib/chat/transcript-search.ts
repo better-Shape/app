@@ -73,7 +73,7 @@ const LOWER_TAG_NAME_CHARS = new Set(
 );
 const SENT_FILE_TITLE_ATTR_RE = /\btitle=(?:"([^"]*)"|'([^']*)')/i;
 const SENT_FILE_NAME_ATTR_RE = /\bname=(?:"([^"]*)"|'([^']*)')/i;
-const ATTACHMENT_TYPE_ATTR_RE = /\btype=(?:"([^"]*)"|'([^']*)')/i;
+const ATTACHMENT_TYPE_ATTR_RE = /\btype="([^"]*)"/;
 const EDIT_FILE_ATTR_RE = /\bfile=(?:"([^"]*)"|'([^']*)')/i;
 const CAT_PATH_ATTR_RE = /\bpath=(?:"([^"]*)"|'([^']*)')/i;
 
@@ -102,15 +102,13 @@ const rendersAsImageThumb = (
     return isImage && hasInlineAttachmentDataUrl(tagKind === "asset", inner);
 };
 
-/** Formats the visible pill filename rendered by `<SentAttachment>` for search indexing. */
 const formatUserAttachmentSearchLabel = (
     tagKind: "image" | "file" | "asset",
     openTag: string,
     inner: string,
 ): string => {
     if (rendersAsImageThumb(tagKind, openTag, inner)) return " ";
-    const name =
-        readAttachmentNameAttr(openTag, SENT_FILE_NAME_ATTR_RE) || "attachment";
+    const name = readAttachmentNameAttr(openTag) || "attachment";
     return ` ${name} `;
 };
 
@@ -482,21 +480,18 @@ type MutableWebSection = {
     snippetLines: string[];
 };
 
-/** Consumes a line-start `### ` heading into `state.title` when unset. */
 const consumeWebTitleLine = (state: MutableWebSection, trimmedLead: string): boolean => {
     if (state.title !== null || !trimmedLead.startsWith("### ")) return false;
     state.title = trimmedLead.slice(4).trim();
     return true;
 };
 
-/** Consumes a line-start `URL:` metadata line into `state.url` when unset. */
 const consumeWebUrlLine = (state: MutableWebSection, trimmedLead: string): boolean => {
     if (state.url !== null || !trimmedLead.startsWith("URL:")) return false;
     state.url = trimmedLead.slice(4).trim();
     return true;
 };
 
-/** Consumes one line of a `<web_result>` section into `state`. */
 const consumeWebSectionLine = (state: MutableWebSection, rawLine: string): void => {
     const trimmedLead = rawLine.trimStart();
     if (consumeWebTitleLine(state, trimmedLead) || consumeWebUrlLine(state, trimmedLead)) {
@@ -505,19 +500,17 @@ const consumeWebSectionLine = (state: MutableWebSection, rawLine: string): void 
     state.snippetLines.push(rawLine);
 };
 
-/** Builds a `WebSearchResultItem` from populated `MutableWebSection` state. */
 const finalizeWebResultSection = (state: MutableWebSection): WebSearchResultItem => ({
     title: state.title ?? "Result",
     url: state.url ?? "",
     snippet: state.snippetLines.join("\n").trim(),
 });
 
-/** Parses a single `---`-delimited web search result section when a title or URL is present. */
 const parseSingleWebResultSection = (
     block: string,
 ): WebSearchResultItem | null => {
     const state: MutableWebSection = { title: null, url: null, snippetLines: [] };
-    for (const line of block.split(/\r?\n/u)) consumeWebSectionLine(state, line);
+    for (const line of block.split(/\r\n|\n|\r/u)) consumeWebSectionLine(state, line);
     if (state.title === null && state.url === null) return null;
     return finalizeWebResultSection(state);
 };
