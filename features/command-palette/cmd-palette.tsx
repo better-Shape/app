@@ -550,6 +550,18 @@ export const CommandPalette = () => {
                     ),
             },
             {
+                id: "current-file:popout",
+                label: "Open in New Window",
+                shortcut: "",
+                meta: name,
+                section: "Current File",
+                run: () => {
+                    void import("@/lib/window/open-editor-popout").then(({ openEditorPopout }) =>
+                        openEditorPopout(path),
+                    );
+                },
+            },
+            {
                 id: "current-file:reveal",
                 label: "Reveal in Explorer",
                 shortcut: "",
@@ -1025,6 +1037,14 @@ function getAppCommands(): EditorAction[] {
             label: "View: Show Git Graph",
             shortcut: shortcut("Git Graph"),
             run: () => showSidebarTab("graph"),
+        },
+        {
+            id: "app.git.allChanges",
+            label: "Git: Open All Changes",
+            shortcut: "",
+            run: () => {
+                void import("@/lib/window/open-all-changes").then(({ openAllChangesTab }) => openAllChangesTab());
+            },
         },
         {
             id: "app.git.refresh",

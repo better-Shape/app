@@ -29,6 +29,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FileIcon } from "@/components/ui/file-icon";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
+import { openAllChangesTab } from "@/lib/window/open-all-changes";
+import { HunkActions } from "@/features/git/ui/shared/hunk-actions";
 import {
     GenerateStarButton,
     streamTextInto,
@@ -1223,6 +1225,7 @@ const MoreActionsDropdown = ({
             <DropdownMenuItem onClick={handleFetch}>Fetch All</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePull}>Pull</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePush}>Push</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openAllChangesTab()}>Open All Changes</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={stageAllChanges}>Stage All Changes</DropdownMenuItem>
             <DropdownMenuItem onClick={unstageAllChanges}>Unstage All Changes</DropdownMenuItem>
@@ -2216,11 +2219,15 @@ const CommitActionsRow = ({
 /** Header for the embedded diff pane: file name, staged state, layout toggle, and close. */
 const DiffPaneHeader = ({
     diffFile,
+    repoPath,
+    active,
     sideBySide,
     setSideBySide,
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean };
+    repoPath: string | null;
+    active: boolean;
     sideBySide: boolean;
     setSideBySide: (value: boolean | ((previous: boolean) => boolean)) => void;
     setDiffFile: (value: { path: string; staged: boolean } | null) => void;
@@ -2236,6 +2243,12 @@ const DiffPaneHeader = ({
     <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">
         {diffFile.path}
     </span>
+    <HunkActions
+        repoPath={repoPath}
+        filePath={diffFile.path}
+        mode={diffFile.staged ? "staged" : "unstaged"}
+        active={active}
+    />
     <span className="shrink-0 text-xs text-text-muted">
         {diffFile.staged ? "Staged" : "Unstaged"}
     </span>
@@ -2271,6 +2284,7 @@ const DiffPaneHeader = ({
 /** Embedded diff pane: empty state, or the diff header plus the Monaco diff editor. */
 const DiffPane = ({
     diffFile,
+    repoPath,
     diffLoading,
     diffOriginal,
     diffModified,
@@ -2280,6 +2294,7 @@ const DiffPane = ({
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean } | null;
+    repoPath: string | null;
     diffLoading: boolean;
     diffOriginal: string;
     diffModified: string;
@@ -2296,7 +2311,14 @@ const DiffPane = ({
             </div>
         ) : (
             <>
-<DiffPaneHeader diffFile={diffFile} sideBySide={sideBySide} setSideBySide={setSideBySide} setDiffFile={setDiffFile} />
+<DiffPaneHeader
+                    diffFile={diffFile}
+                    repoPath={repoPath}
+                    active={active}
+                    sideBySide={sideBySide}
+                    setSideBySide={setSideBySide}
+                    setDiffFile={setDiffFile}
+                />
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                     {diffLoading ? (
                         <div className="flex h-full items-center justify-center text-sm text-text-muted">
@@ -2503,6 +2525,7 @@ const EmbeddedSourceBody = ({
                 children: (
                     <DiffPane
                         diffFile={diffFile}
+                        repoPath={gitRepo}
                         diffLoading={diffLoading}
                         diffOriginal={diffOriginal}
                         diffModified={diffModified}

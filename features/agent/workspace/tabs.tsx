@@ -15,6 +15,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
+import { openEditorPopout } from "@/lib/window/open-editor-popout";
 import { Favicon } from "@/components/ui/favicon";
 
 import { FileIcon } from "@/components/ui/file-icon";
@@ -161,6 +162,11 @@ function SortableWorkspaceTab({
                         >
                             Reveal in Explorer
                         </ContextMenuItem>
+                        {tab.kind === "file" ? (
+                            <ContextMenuItem onClick={() => void openEditorPopout(tabPath)}>
+                                Open in New Window
+                            </ContextMenuItem>
+                        ) : null}
                         <ContextMenuSeparator />
                     </>
                 ) : null}
@@ -239,6 +245,7 @@ export function WorkspaceTabs({
                     [
                         ["files", "Files"],
                         ["graph", "Graph"],
+                        ["all-changes", "All changes"],
                         ["prs", "Pull requests"],
                     ] as const
                 ).map(([kind, label]) => (

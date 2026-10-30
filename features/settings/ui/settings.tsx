@@ -49,6 +49,7 @@ import { KeyboardShortcutsView } from "./sections/shortcuts";
 import { PluginsSettingsView } from "./sections/plugins";
 import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
+import { MicrophoneSettings } from "./sections/microphone";
 import { useRouter } from "next/navigation";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
@@ -802,6 +803,7 @@ export function SettingsView({
         if (section === "rules") return "settings-ai-rules";
         if (section === "workflows") return "settings-ai-workflows";
         if (section === "subagents" || section === "subagent") return "settings-ai-subagents";
+        if (section === "voice" || section === "microphone") return "settings-microphone";
         // Legacy deep link: "memories" (System Instructions) merged into Rules.
         if (section === "memories") return "settings-ai-rules";
         switch (category) {
@@ -818,6 +820,9 @@ export function SettingsView({
                 return "settings-terminal";
             case "git":
                 return "settings-git";
+            case "voice":
+            case "microphone":
+                return "settings-microphone";
             case "appearance":
                 return "settings-editor-font";
             case "motion":
@@ -1009,6 +1014,7 @@ export function SettingsView({
                             {activeLeafId === "ai-skills" ? <SkillsSettings /> : null}
                             {activeLeafId === "ai-context" ? <AiSettings settings={settings} page="context" /> : null}
                             {activeLeafId === "editor-font" ? <EditorSettings settings={settings} /> : null}
+                            {activeLeafId === "voice" ? <MicrophoneSettings /> : null}
                             {activeLeafId === "terminal" ? <TerminalSettings settings={settings} /> : null}
                             {activeLeafId === "git" ? <GitSettings settings={settings} /> : null}
                             {activeLeafId === "motion" ? <MotionSettings settings={settings} /> : null}

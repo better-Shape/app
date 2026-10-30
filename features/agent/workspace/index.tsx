@@ -10,6 +10,7 @@ import Graph from "@/features/git/ui/graph/graph";
 import { ProblemsTab } from "./problems-tab";
 import { BlameTab } from "./blame-tab";
 import { PackagesTab } from "./packages-tab";
+import { AllChangesTab } from "./multi-diff";
 import { SearchTab } from "./search-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
@@ -59,6 +60,7 @@ import {
 
 const ADDABLE_TAB_TITLES: Partial<Record<TabKind, string>> = {
     files: "Files",
+    "all-changes": "All changes",
     graph: "Graph",
     prs: "Pull requests",
     browser: "New tab",
@@ -82,6 +84,8 @@ const WORKSPACE_TAB_ALIASES: Partial<Record<string, TabKind>> = {
     errors: "problems",
     search: "search",
     find: "search",
+    "all-changes": "all-changes",
+    changes: "all-changes",
     packages: "packages",
     dependencies: "packages",
     blame: "blame",
@@ -158,6 +162,7 @@ const SINGLETON_TAB_RENDERERS: Partial<Record<TabKind, (ctx: SingletonTabContext
         </div>
     ),
     search: () => <SearchTab />,
+    "all-changes": ({ projectPath }) => <AllChangesTab projectPath={projectPath} />,
     problems: () => <ProblemsTab />,
     packages: () => <PackagesTab />,
     blame: () => <BlameTab />,

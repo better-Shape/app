@@ -23,6 +23,7 @@ import {
 import { GitStatusButton } from "./git-status";
 import { StatusItem } from "./status-item";
 import { PythonInterpreterStatus } from "./python-interpreter";
+import { DevRunStatusItem } from "./run-status";
 
 type SplitState = ReturnType<typeof useEditorSplitOptional>;
 
@@ -250,6 +251,7 @@ const Status = () => {
             <div className="relative flex @[760px]/status:grid @[760px]/status:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] h-full w-full items-center justify-between overflow-hidden px-1">
                 <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
                     <GitStatusButton />
+                    <DevRunStatusItem />
 
                     {latestProgressMessage && (
                         <ProgressIndicator messages={progressMessages} latest={latestProgressMessage} />

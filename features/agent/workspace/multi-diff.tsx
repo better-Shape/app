@@ -17,8 +17,9 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 
-export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
-export const ALL_CHANGES_TAB_ID = "__all_changes__";
+import { ALL_CHANGES_FOCUS_KEY, openAllChangesTab } from "@/lib/window/open-all-changes";
+
+export { openAllChangesTab };
 
 function fileName(path: string) {
     return path.split(/[\\/]/).pop() || path;
@@ -390,14 +391,29 @@ export function MultiDiffEditor({
     );
 }
 
-/** Open All changes as a main-area tab (same chrome as chat) — does not enter Files mode. */
-export function openAllChangesTab(focusPath?: string) {
-    if (focusPath) {
+/**
+ * Workspace tab body for the all-changes view. The focus path is handed over
+ * once through sessionStorage because the tab is created by an event that
+ * carries only its kind.
+ */
+export function AllChangesTab({ projectPath }: { projectPath: string }) {
+    const [focusPath] = useState<string | undefined>(() => {
         try {
-            sessionStorage.setItem("bettershape-all-changes-focus", focusPath);
+            return sessionStorage.getItem(ALL_CHANGES_FOCUS_KEY) ?? undefined;
+        } catch {
+            return undefined;
+        }
+    });
+    useEffect(() => {
+        try {
+            sessionStorage.removeItem(ALL_CHANGES_FOCUS_KEY);
         } catch {
             /* ignore */
         }
-    }
-    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "all-changes" }));
+    }, []);
+    return (
+        <div className="h-full min-h-0 bg-sidebar">
+            <MultiDiffEditor projectPath={projectPath} focusPath={focusPath} />
+        </div>
+    );
 }

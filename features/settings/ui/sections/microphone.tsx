@@ -137,7 +137,7 @@ export function MicrophoneSettings() {
                         : error
                           ? error
                           : listening
-                            ? "Listening…"
+                            ? "Listening..."
                             : "Names show up after access is allowed."
                 }
             >

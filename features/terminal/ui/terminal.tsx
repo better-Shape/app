@@ -299,13 +299,15 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 },
             });
 
-// History only, no clipboard write: this runs on every selection change, and a
-            // drag across the terminal selects continuously.
+// History on every selection change; the clipboard follows only when
+            // Terminal → Copy on select is on, because a drag selects continuously.
             const publishSelection = () => {
                 if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                if (!getSettings().terminal.copyOnSelect) return;
+                void navigator.clipboard?.writeText(selected).catch(() => copySelected(selected));
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
