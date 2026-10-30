@@ -444,12 +444,26 @@ const setsHaveSameMembers = (
     return true;
 };
 
+const takeBoundedPrefix = (
+    source: ReadonlySet<string>,
+    limit: number,
+): Set<string> => {
+    const result = new Set<string>();
+    if (limit <= 0) return result;
+    for (const hash of source) {
+        result.add(hash);
+        if (result.size >= limit) break;
+    }
+    return result;
+};
+
 const combineActiveArrivals = (
     retained: ReadonlySet<string>,
     newlyConfirmed: ReadonlySet<string>,
 ): ReadonlySet<string> => {
     if (retained.size === 0) return newlyConfirmed;
-    const combined = new Set<string>(retained);
+    const retainedBudget = MAX_ARRIVING_COMMITS - newlyConfirmed.size;
+    const combined = takeBoundedPrefix(retained, retainedBudget);
     for (const hash of newlyConfirmed) combined.add(hash);
     return setsHaveSameMembers(retained, combined) ? retained : combined;
 };

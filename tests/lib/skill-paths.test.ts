@@ -15,8 +15,10 @@ describe("skill-paths: normalizeSkillPath", () => {
         expect(normalizeSkillPath("/home/dev/skills///")).toBe("/home/dev/skills");
     });
 
-    it("leaves an already-normalized path alone", () => {
+    it("leaves an already-normalized path alone and preserves POSIX literal backslashes", () => {
         expect(normalizeSkillPath("/home/dev/.claude/skills")).toBe("/home/dev/.claude/skills");
+        expect(normalizeSkillPath("/home/dev/dir\\name/")).toBe("/home/dev/dir\\name");
+        expect(normalizeSkillPath("/home/dev/trailing\\")).toBe("/home/dev/trailing\\");
     });
 
     it("preserves POSIX and Windows drive roots without collapsing C:\\ to drive-relative C:", () => {
@@ -38,12 +40,16 @@ describe("skill-paths: normalizeSkillPath", () => {
 describe("skill-paths: skillPathSep / joinSkillPath", () => {
     it("uses the separator the directory already uses", () => {
         expect(skillPathSep("/home/dev/project")).toBe("/");
+        expect(skillPathSep("/home/dev/dir\\name")).toBe("/");
         expect(skillPathSep("C:\\Users\\dev\\project")).toBe("\\");
     });
 
     it("joins with one separator even when both sides carry one", () => {
         expect(joinSkillPath("/home/dev/project/", "/.claude/skills")).toBe(
             "/home/dev/project/.claude/skills"
+        );
+        expect(joinSkillPath("/home/dev/dir\\name/", "/sub\\skill/SKILL.md")).toBe(
+            "/home/dev/dir\\name/sub\\skill/SKILL.md"
         );
         expect(joinSkillPath("C:\\Users\\dev", "skills\\pdf")).toBe("C:\\Users\\dev\\skills\\pdf");
     });

@@ -348,7 +348,7 @@ describe("GraphSvgRow arrival stroke draw", () => {
         }
     });
 
-    it("retains pending baseline when 12 commits confirm before a deeper missing side parent arrives", () => {
+    it("retains pending baseline when 12 commits confirm before a deeper missing side parent arrives and bounds active union to 12", () => {
         vi.useFakeTimers();
         const leadChain = Array.from({ length: 11 }, (_, idx) => {
             const step = 11 - idx;
@@ -357,9 +357,11 @@ describe("GraphSvgRow arrival stroke draw", () => {
         });
         const firstSlice = [
             ...leadChain,
-            makeLog("deep-merge", ["anchor-0", "late-side"]),
+            makeLog("deep-merge", ["anchor-0", "late-side", "later-side"]),
             makeLog("anchor-0", []),
         ];
+        const secondSlice = [...firstSlice, makeLog("late-side", ["anchor-0"])];
+        const thirdSlice = [...secondSlice, makeLog("later-side", ["anchor-0"])];
 
         try {
             expect(renderArrivals([makeLog("anchor-0", [], ["HEAD -> main"])])).toBe("");
@@ -368,12 +370,16 @@ describe("GraphSvgRow arrival stroke draw", () => {
             expect(initialSet[0]).toBe("lead-11");
             expect(initialSet[11]).toBe("deep-merge");
 
+            // Chunk arriving within 520ms adds late-side while keeping active size <= 12.
+            const midWindowSet = renderArrivals(secondSlice).split(",");
+            expect(midWindowSet).toHaveLength(12);
+            expect(midWindowSet).toContain("late-side");
+
+            // Chunk arriving after 520ms animates only newly resolved later-side.
             act(() => {
                 vi.advanceTimersByTime(520);
             });
-            expect(renderArrivals([...firstSlice, makeLog("late-side", ["anchor-0"])])).toBe(
-                "late-side",
-            );
+            expect(renderArrivals(thirdSlice)).toBe("later-side");
         } finally {
             vi.useRealTimers();
         }
