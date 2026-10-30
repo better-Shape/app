@@ -1716,9 +1716,9 @@ const RemoteRow = ({
     // Copying a remote URL used to give no sign at all that anything happened. The
     // button now holds its own confirmation: green glyph, "Copied" tooltip, and the
     // toast only fires once the write has landed.
-    const { copied, failed, copiedText, copy } = useCopyToClipboard({ resetMs: 1200 });
+    const { copied, failed, copiedText, failedText, copy } = useCopyToClipboard({ resetMs: 1200 });
     const urlCopied = Boolean(remote.url) && copied && copiedText === remote.url;
-    const urlFailed = Boolean(remote.url) && failed && copiedText === remote.url;
+    const urlFailed = Boolean(remote.url) && failed && failedText === remote.url;
     const copyLabel = urlCopied ? "Copied" : urlFailed ? "Couldn't copy" : "Copy URL";
 
     return (

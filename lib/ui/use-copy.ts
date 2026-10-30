@@ -109,6 +109,7 @@ export const useCopyToClipboard = ({
         copied: state === "copied",
         failed: state === "failed",
         copiedText: state === "copied" ? copiedText : null,
+        failedText: state === "failed" ? copiedText : null,
         copy,
     };
 };

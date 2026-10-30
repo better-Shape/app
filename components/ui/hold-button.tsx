@@ -6,8 +6,10 @@ import { cn } from "@/lib/utils";
 
 export type HoldButtonState = "idle" | "holding" | "armed" | "confirmed";
 
+export type HoldConfirmResult = void | boolean | Promise<void | boolean>;
+
 export interface HoldButtonProps {
-    onConfirm: () => void | Promise<void>;
+    onConfirm: () => HoldConfirmResult;
     ariaLabel: string;
     armedAriaLabel?: string;
     label?: React.ReactNode;
@@ -122,11 +124,11 @@ const clearAllTimers = (timers: HoldTimers) => {
  * - Quick tap (< 240ms) or assistive-tech `.click()` enters `armed` so keyboard, switch-access,
  *   and motor-impaired users can confirm with a second non-timed press (WCAG 2.2.1 & 2.5.2).
  */
-const isPromiseLike = (value: unknown): value is PromiseLike<void> =>
-    Boolean(value && typeof (value as PromiseLike<void>).then === "function");
+const isPromiseLike = (value: unknown): value is PromiseLike<void | boolean> =>
+    Boolean(value && typeof (value as PromiseLike<void | boolean>).then === "function");
 
 const useHoldState = (
-    onConfirm: () => void | Promise<void>,
+    onConfirm: () => HoldConfirmResult,
     holdMs: number,
     disabled: boolean,
 ) => {
@@ -196,16 +198,27 @@ const useHoldState = (
         }, CONFIRMED_RESET_MS);
     }, [writeState]);
 
+    const settleSyncConfirm = React.useCallback(
+        (outcome: void | boolean) => {
+            if (outcome === false) {
+                if (mountedRef.current) writeState("idle");
+                return;
+            }
+            finishConfirmed();
+        },
+        [finishConfirmed, writeState],
+    );
+
     const awaitAsyncConfirm = React.useCallback(
-        (promise: PromiseLike<void>) => {
+        (promise: PromiseLike<void | boolean>) => {
             confirmInFlightRef.current = true;
             setPending(true);
             writeState("idle");
             void Promise.resolve(promise).then(
-                () => {
+                (outcome) => {
                     confirmInFlightRef.current = false;
                     if (mountedRef.current) setPending(false);
-                    finishConfirmed();
+                    settleSyncConfirm(outcome);
                 },
                 () => {
                     confirmInFlightRef.current = false;
@@ -216,7 +229,7 @@ const useHoldState = (
                 },
             );
         },
-        [finishConfirmed, writeState],
+        [settleSyncConfirm, writeState],
     );
 
     const fireConfirm = React.useCallback(() => {
@@ -232,7 +245,7 @@ const useHoldState = (
         startedAtRef.current = 0;
         scheduleClickGuardClear();
 
-        let result: void | Promise<void>;
+        let result: HoldConfirmResult;
         try {
             result = onConfirmRef.current();
         } catch {
@@ -243,8 +256,8 @@ const useHoldState = (
             awaitAsyncConfirm(result);
             return;
         }
-        finishConfirmed();
-    }, [awaitAsyncConfirm, cancelHold, finishConfirmed, scheduleClickGuardClear, writeState]);
+        settleSyncConfirm(result);
+    }, [awaitAsyncConfirm, cancelHold, scheduleClickGuardClear, settleSyncConfirm, writeState]);
 
     const enterArmed = React.useCallback(() => {
         clearTimerSlot(timersRef.current, "hold");
@@ -343,6 +356,7 @@ const useHoldState = (
 
     const handlePointerLeave = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (sourceRef.current !== "pointer") return;
             if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
             if (stateRef.current === "holding" || armedPressRef.current) cancelHold();
         },
@@ -351,6 +365,7 @@ const useHoldState = (
 
     const handlePointerCancel = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (sourceRef.current !== "pointer") return;
             if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
             cancelHold();
         },

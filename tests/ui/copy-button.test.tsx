@@ -42,9 +42,15 @@ afterEach(() => {
 });
 
 function Probe({ text, silent }: { text: string; silent?: boolean }) {
-    const { copied, failed, copy } = useCopyToClipboard({ silent });
+    const { copied, failed, copiedText, failedText, copy } = useCopyToClipboard({ silent });
     return (
-        <button data-testid="probe" data-state={copied ? "copied" : failed ? "failed" : "idle"} onClick={() => copy(text)}>
+        <button
+            data-testid="probe"
+            data-state={copied ? "copied" : failed ? "failed" : "idle"}
+            data-copied-text={copiedText ?? ""}
+            data-failed-text={failedText ?? ""}
+            onClick={() => copy(text)}
+        >
             go
         </button>
     );
@@ -75,6 +81,8 @@ describe("useCopyToClipboard", () => {
             await Promise.resolve();
         });
         expect(probe().getAttribute("data-state")).toBe("failed");
+        expect(probe().getAttribute("data-copied-text")).toBe("");
+        expect(probe().getAttribute("data-failed-text")).toBe("abc123");
         // A retry would hit the same wall, so the user gets guidance, not a green tick.
         expect(toasts()).toEqual(["error"]);
     });

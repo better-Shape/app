@@ -407,21 +407,27 @@ describe("discoverSkills", () => {
         expect(listedPaths).not.toContain(`${PROJECT}/.claude/skills/Makefile`);
     });
 
-    it("rejects POSIX sibling symlinks that differ only by directory case", async () => {
+    it("rejects POSIX sibling symlinks and relative parent-traversal symlinks escaping the project", async () => {
         serveSkillFs(
             mocks,
             {
                 "/home/dev/DEMO/escape/SKILL.md": skillFile("escape", "Outside.", "Secret."),
+                "/home/dev/outside/leak/SKILL.md": skillFile("leak", "Outside.", "Secret."),
             },
             {
                 homeDir: HOME,
                 symlinks: {
                     [`${PROJECT}/.claude/skills/escape`]: "/home/dev/DEMO/escape",
+                    [`${PROJECT}/.agents/skills/leak`]: "../../../outside/leak",
                 },
             },
         );
 
         await expect(discoverItems()).resolves.toEqual([]);
+        expect(mocks.ensurePathWithin).toHaveBeenCalledWith(
+            `${PROJECT}/.agents/skills/leak`,
+            PROJECT,
+        );
     });
 
     it("resolves Windows symlinked skill folders case-insensitively", async () => {

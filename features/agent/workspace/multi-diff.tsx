@@ -121,12 +121,14 @@ function LazyFileDiff({
         }
     };
 
-    const discard = async () => {
+    const discard = async (): Promise<boolean> => {
         try {
             await commands.gitDiscardChanges(repo, file.path);
             window.dispatchEvent(new Event("bettershape-git-refresh"));
+            return true;
         } catch (err) {
             notify.error("Git", err instanceof Error ? err.message : String(err));
+            return false;
         }
     };
 

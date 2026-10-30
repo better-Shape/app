@@ -130,12 +130,14 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
         }
     };
 
-    const discard = async () => {
+    const discard = async (): Promise<boolean> => {
         try {
             await commands.gitDiscardChanges(tab.repo, tab.path);
             window.dispatchEvent(new Event("bettershape-git-refresh"));
+            return true;
         } catch (err) {
             notify.error("Git", err instanceof Error ? err.message : String(err));
+            return false;
         }
     };
 

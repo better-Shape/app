@@ -467,7 +467,35 @@ describe("HoldButton", () => {
         });
         expect(btn.dataset.state).toBe("idle");
 
-        // Second async invocation rejects -> settles back to idle without flashing confirmed.
+        // Second async invocation resolves to false -> settles back to idle without flashing confirmed.
+        const onConfirmFalse = vi.fn<() => Promise<boolean>>().mockResolvedValue(false);
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                confirmedLabel="Done"
+                onConfirm={onConfirmFalse}
+            />,
+        );
+        act(() => {
+            btn.click();
+            btn.click();
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(onConfirmFalse).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("idle");
+
+        // Third async invocation rejects -> settles back to idle without flashing confirmed.
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                confirmedLabel="Done"
+                onConfirm={onConfirm}
+            />,
+        );
         act(() => {
             btn.click();
             btn.click();
@@ -477,6 +505,33 @@ describe("HoldButton", () => {
             await Promise.resolve();
         });
         expect(btn.dataset.state).toBe("idle");
+    });
+
+    it("ignores unrelated pointerleave and pointercancel while a keyboard hold is active", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={400}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+            vi.advanceTimersByTime(150);
+            btn.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false, pointerId: 1 }));
+            btn.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 1 }));
+        });
+        expect(btn.dataset.state).toBe("holding");
+
+        act(() => {
+            vi.advanceTimersByTime(250);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("confirmed");
     });
 
     it("clears click suppression on pointercancel so the next assistive click arms cleanly", () => {
