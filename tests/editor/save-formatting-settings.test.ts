@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
         insertFinalNewline: true,
         formatOnSave: false,
     },
+    prettier: { enable: true },
 }));
 
 const backend = vi.hoisted(() => ({
@@ -17,7 +18,7 @@ const notifyMock = vi.hoisted(() => ({
     error: vi.fn(),
 }));
 
-vi.mock("@/lib/settings", () => ({ getSettings: () => ({ editor: state.editor }) }));
+vi.mock("@/lib/settings", () => ({ getSettings: () => ({ editor: state.editor, prettier: state.prettier }) }));
 vi.mock("@/lib/backend", () => ({
     commands: backend,
     getProjectPath: () => "/repo",
@@ -32,6 +33,7 @@ describe("save formatting settings", () => {
         state.editor.trimTrailingWhitespace = true;
         state.editor.insertFinalNewline = true;
         state.editor.formatOnSave = false;
+        state.prettier.enable = true;
     });
 
     it("trims trailing whitespace only when the setting is on", () => {
@@ -48,6 +50,13 @@ describe("save formatting settings", () => {
 
     it("does not format when Format on save is off", async () => {
         await expect(formatForSave("a.ts", "const a=1")).resolves.toBe("const a=1");
+        expect(backend.prettierFormatFile).not.toHaveBeenCalled();
+    });
+
+    it("does not format when Prettier is switched off", async () => {
+        state.editor.formatOnSave = true;
+        state.prettier.enable = false;
+        await expect(formatForSave("off.ts", "const a=1")).resolves.toBe("const a=1");
         expect(backend.prettierFormatFile).not.toHaveBeenCalled();
     });
 

@@ -159,6 +159,15 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
         </SettingSection>
         <SettingSection title="Saving">
             <SettingCard>
+            <SettingRow
+                title="Format with Prettier"
+                description="Runs the project's Prettier when a file is saved or formatted."
+            >
+                <SettingSwitch
+                    checked={settings.prettier.enable}
+                    onChange={(v) => updateSettingSection("prettier", { enable: v })}
+                />
+            </SettingRow>
             <SettingRow title="Format on save">
                 <SettingSwitch
                     checked={e.formatOnSave}

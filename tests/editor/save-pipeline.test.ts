@@ -14,10 +14,11 @@ const settings = vi.hoisted(() => ({
     formatOnSave: false,
     trimTrailingWhitespace: false,
     insertFinalNewline: true,
+    prettier: true,
 }));
 
 vi.mock("@/lib/settings", () => ({
-    getSettings: () => ({ editor: { ...settings } }),
+    getSettings: () => ({ editor: { ...settings }, prettier: { enable: settings.prettier } }),
 }));
 
 import { formatForSave, prepareDocForSave, saveContents, toDiskText } from "@/lib/editor/save-pipeline";
@@ -27,6 +28,7 @@ describe("save pipeline", () => {
         settings.formatOnSave = false;
         settings.trimTrailingWhitespace = false;
         settings.insertFinalNewline = true;
+        settings.prettier = true;
         backend.prettier.mockReset();
         backend.save.mockReset().mockResolvedValue(undefined);
     });
@@ -60,6 +62,13 @@ describe("save pipeline", () => {
         backend.prettier.mockResolvedValue("const a = 1;\n");
         await expect(formatForSave("/project/a.ts", "const a=1;\n")).resolves.toBe("const a = 1;\n");
         expect(backend.prettier).toHaveBeenCalledWith("/project", "/project/a.ts", "const a=1;\n");
+    });
+
+    it("does not format when Prettier is switched off", async () => {
+        settings.formatOnSave = true;
+        settings.prettier = false;
+        await expect(formatForSave("/project/a.ts", "const a=1;\n")).resolves.toBe("const a=1;\n");
+        expect(backend.prettier).not.toHaveBeenCalled();
     });
 
     it("keeps the unformatted text when the formatter rejects", async () => {

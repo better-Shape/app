@@ -56,7 +56,10 @@ export function prepareDocForSave(doc: string): string {
  * the explicit Format action still reports its own failure.
  */
 export async function formatForSave(path: string, text: string): Promise<string> {
-    if (!getSettings().editor.formatOnSave) return text;
+    const settings = getSettings();
+    // Format on save is a request to run the formatter, not a way to ignore the
+    // formatter being switched off.
+    if (!settings.editor.formatOnSave || !settings.prettier.enable) return text;
     try {
         const formatted = await commands.prettierFormatFile(getProjectPath() ?? "", path, text);
         lastFormatFailure = null;

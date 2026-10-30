@@ -671,6 +671,10 @@ export function CodeMirrorEditor({
                 case "format":
                 case "formatDocument":
                 case "formatSelection": {
+                    if (!getSettings().prettier.enable) {
+                        notify.info("Prettier is off", "Turn on Prettier in Settings to format files.");
+                        break;
+                    }
                     // Prettier formats whole documents; selection formatting falls back to it.
                     const source = v.state.doc.toString();
                     void commands
