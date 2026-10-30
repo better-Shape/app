@@ -34,6 +34,7 @@ import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
+import { useProjectState } from "@/lib/backend";
 import { openSettingsWindow } from "@/lib/window/open-settings";
 import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { toTimestampMs } from "@/lib/ui/timestamp";
@@ -260,6 +261,11 @@ export const CommandPalette = () => {
     const listRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // The Current File section needs the file the editor has open. Callers used
+    // to have to pass it in `detail.activeFile`, and none did, so the section
+    // never rendered; the backend's active file is the same value.
+    const { active_file } = useProjectState();
+
     const browse = isBrowseMode(mode);
 
     useEffect(() => {
@@ -269,7 +275,7 @@ export const CommandPalette = () => {
             const openMode = detail?.mode || "";
             setMode(openMode);
             setRecentFiles(Boolean(detail?.recent));
-            setActiveFileBias(detail?.activeFile || null);
+            setActiveFileBias(detail?.activeFile || active_file || null);
             const initialFilterTab: PaletteFilter =
                 openMode === "files"
                     ? "files"
@@ -319,7 +325,7 @@ export const CommandPalette = () => {
             window.removeEventListener("bettershape-command-palette", handleOpen);
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, []);
+    }, [active_file]);
 
     const handleOpenChange = useCallback((value: boolean) => {
         setOpen(value);
