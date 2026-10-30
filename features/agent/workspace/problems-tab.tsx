@@ -81,16 +81,16 @@ export function ProblemsTab() {
         || !Object.is(runInputs[0], project_path)
         || !Object.is(runInputs[1], selection)
         || !Object.is(runInputs[2], active_file)
-        || !Object.is(runInputs[3], manualRun)) {
-        setRunInputs([project_path, selection, active_file, manualRun]);
-        setBusy(Boolean(project_path && selection.targets.length));
+        || !Object.is(runInputs[3], manualRun)
+        || !Object.is(runInputs[4], eslintEnabled)) {
+        setRunInputs([project_path, selection, active_file, manualRun, eslintEnabled]);
+        // A switched-off linter never starts, so it must never look busy.
+        setBusy(Boolean(project_path && selection.targets.length && eslintEnabled));
     }
 
     useEffect(() => {
         const { targets, skipped } = selection;
         if (!project_path || targets.length === 0 || !eslintEnabled) {
-            setBusy(false);
-            setRun(NO_RUN);
             return;
         }
 
