@@ -339,13 +339,22 @@ const extractPresentationMetadata = (content: string) => {
     return { content: rest, forked, renamed };
 };
 
+/** Resolves the visible body text of a user message, collapsing hidden continue-action XML. */
+const resolveVisibleUserCopyText = (parsedText: string, rawContent: string): string => {
+    const parsedAction = parseBetterShapeContinueAction(parsedText || rawContent);
+    return parsedAction.action ? parsedAction.displayText : parsedText;
+};
+
+/** Joins visible user message text with bracketed attachment names when attachments exist. */
+const formatAttachmentNamesCopy = (visibleText: string, names: string): string =>
+    visibleText ? `${visibleText}\n\n[${names}]` : `[${names}]`;
+
 /** Formats user text and attachment names for the message copy action. */
-const userMessageCopyText = (content: string): string => {
+export const userMessageCopyText = (content: string): string => {
     const parts = parseUserAttachments(content);
+    const visibleText = resolveVisibleUserCopyText(parts.text, content);
     const names = parts.attachments.map((attachment) => attachment.name).join(", ");
-    if (names && parts.text) return `${parts.text}\n\n[${names}]`;
-    if (names) return `[${names}]`;
-    return parts.text || content;
+    return names ? formatAttachmentNamesCopy(visibleText, names) : visibleText || content;
 };
 
 /** Checks whether rich assistant metadata or non-OpenUI blocks prefer live rendered DOM copy text. */

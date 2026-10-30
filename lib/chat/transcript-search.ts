@@ -6,6 +6,9 @@ import {
     type AngleMatchReplacement,
     decodeBasicXmlEntities,
     findNextInterestingOffset,
+    readAttachmentNameAttr,
+    readDecodedQuotedAttr,
+    readRawQuotedAttr,
     scanMarkdownOutsideCode,
     trySkipClosedCodeSpanAt,
 } from "./export-markdown";
@@ -68,22 +71,11 @@ const UNQUOTED_TAG_OUTCOMES: Partial<Record<string, 1 | -1>> = {
 const LOWER_TAG_NAME_CHARS = new Set(
     "abcdefghijklmnopqrstuvwxyz0123456789_:-",
 );
-const SENT_FILE_TITLE_ATTR_RE = /\btitle=(["'])([^"']*)\1/i;
-const SENT_FILE_NAME_ATTR_RE = /\bname=(["'])([^"']*)\1/i;
-const ATTACHMENT_TYPE_ATTR_RE = /\btype=(["'])([^"']*)\1/i;
-const ATTACHMENT_XML_ENC_RE = /\bname_encoding=(["'])xml\1/i;
-const EDIT_FILE_ATTR_RE = /\bfile=(["'])([^"']*)\1/i;
-const CAT_PATH_ATTR_RE = /\bpath=(["'])([^"']*)\1/i;
-
-/** Reads the raw attribute value matched by `attrRe` from `openTag`, or `""`. */
-const readRawTagAttr = (openTag: string, attrRe: RegExp): string =>
-    openTag.match(attrRe)?.[2] ?? "";
-
-/** Reads and XML-decodes an attribute matched by `attrRe` from `openTag`. */
-const readDecodedTagAttr = (openTag: string, attrRe: RegExp): string => {
-    const raw = readRawTagAttr(openTag, attrRe);
-    return raw ? decodeBasicXmlEntities(raw).trim() : "";
-};
+const SENT_FILE_TITLE_ATTR_RE = /\btitle=(?:"([^"]*)"|'([^']*)')/i;
+const SENT_FILE_NAME_ATTR_RE = /\bname=(?:"([^"]*)"|'([^']*)')/i;
+const ATTACHMENT_TYPE_ATTR_RE = /\btype=(?:"([^"]*)"|'([^']*)')/i;
+const EDIT_FILE_ATTR_RE = /\bfile=(?:"([^"]*)"|'([^']*)')/i;
+const CAT_PATH_ATTR_RE = /\bpath=(?:"([^"]*)"|'([^']*)')/i;
 
 /** Checks whether an attachment payload contains an inline `data:` URL thumbnail. */
 const hasInlineAttachmentDataUrl = (
@@ -105,7 +97,7 @@ const rendersAsImageThumb = (
     openTag: string,
     inner: string,
 ): boolean => {
-    const mime = readRawTagAttr(openTag, ATTACHMENT_TYPE_ATTR_RE).toLowerCase();
+    const mime = readRawQuotedAttr(openTag, ATTACHMENT_TYPE_ATTR_RE).toLowerCase();
     const isImage = tagKind === "image" || mime.startsWith("image/");
     return isImage && hasInlineAttachmentDataUrl(tagKind === "asset", inner);
 };
@@ -117,11 +109,8 @@ const formatUserAttachmentSearchLabel = (
     inner: string,
 ): string => {
     if (rendersAsImageThumb(tagKind, openTag, inner)) return " ";
-    const rawName =
-        readRawTagAttr(openTag, SENT_FILE_NAME_ATTR_RE) || "attachment";
-    const name = ATTACHMENT_XML_ENC_RE.test(openTag)
-        ? decodeBasicXmlEntities(rawName)
-        : rawName;
+    const name =
+        readAttachmentNameAttr(openTag, SENT_FILE_NAME_ATTR_RE) || "attachment";
     return ` ${name} `;
 };
 
@@ -134,21 +123,21 @@ const joinDistinctLabels = (a: string, b: string): string => {
 /** Formats the visible heading and filename rendered by `<SentFileCard>` for search indexing. */
 const formatSentFileSearchLabel = (openTag: string): string => {
     const label = joinDistinctLabels(
-        readDecodedTagAttr(openTag, SENT_FILE_TITLE_ATTR_RE),
-        readDecodedTagAttr(openTag, SENT_FILE_NAME_ATTR_RE),
+        readDecodedQuotedAttr(openTag, SENT_FILE_TITLE_ATTR_RE),
+        readDecodedQuotedAttr(openTag, SENT_FILE_NAME_ATTR_RE),
     );
     return label ? ` ${label} ` : " ";
 };
 
 /** Formats the edited file path rendered by `<edit file="...">` for search indexing. */
 const formatEditSearchLabel = (openTag: string): string => {
-    const filePath = readDecodedTagAttr(openTag, EDIT_FILE_ATTR_RE);
+    const filePath = readDecodedQuotedAttr(openTag, EDIT_FILE_ATTR_RE);
     return filePath ? ` ${filePath} ` : " ";
 };
 
 /** Formats the file path rendered by `<cat path="...">` for search indexing. */
 const formatCatSearchLabel = (openTag: string, inner: string): string => {
-    const label = readDecodedTagAttr(openTag, CAT_PATH_ATTR_RE) || inner.trim();
+    const label = readDecodedQuotedAttr(openTag, CAT_PATH_ATTR_RE) || inner.trim();
     return label ? ` ${label} ` : " ";
 };
 
@@ -487,44 +476,50 @@ export type WebSearchResultItem = {
     snippet: string;
 };
 
-/** Extracts the trimmed remainder of the first line containing `prefix`, or `null`. */
-const extractFirstPrefixedLine = (
-    block: string,
-    prefix: string,
-): string | null => {
-    const idx = block.indexOf(prefix);
-    if (idx === -1) return null;
-    const start = idx + prefix.length;
-    const lineEnd = block.indexOf("\n", start);
-    const raw =
-        lineEnd === -1 ? block.slice(start) : block.slice(start, lineEnd);
-    return raw.trim();
+type MutableWebSection = {
+    title: string | null;
+    url: string | null;
+    snippetLines: string[];
 };
 
-/** Removes the first `prefix...` single-line entry (excluding its trailing `\r\n`/`\n`) from `block`. */
-const stripFirstPrefixedLine = (block: string, prefix: string): string => {
-    const idx = block.indexOf(prefix);
-    if (idx === -1) return block;
-    const lineEnd = block.indexOf("\n", idx + prefix.length);
-    if (lineEnd === -1) return block.slice(0, idx);
-    const end = block.charAt(lineEnd - 1) === "\r" ? lineEnd - 1 : lineEnd;
-    return `${block.slice(0, idx)}${block.slice(end)}`;
+/** Consumes a line-start `### ` heading into `state.title` when unset. */
+const consumeWebTitleLine = (state: MutableWebSection, trimmedLead: string): boolean => {
+    if (state.title !== null || !trimmedLead.startsWith("### ")) return false;
+    state.title = trimmedLead.slice(4).trim();
+    return true;
 };
+
+/** Consumes a line-start `URL:` metadata line into `state.url` when unset. */
+const consumeWebUrlLine = (state: MutableWebSection, trimmedLead: string): boolean => {
+    if (state.url !== null || !trimmedLead.startsWith("URL:")) return false;
+    state.url = trimmedLead.slice(4).trim();
+    return true;
+};
+
+/** Consumes one line of a `<web_result>` section into `state`. */
+const consumeWebSectionLine = (state: MutableWebSection, rawLine: string): void => {
+    const trimmedLead = rawLine.trimStart();
+    if (consumeWebTitleLine(state, trimmedLead) || consumeWebUrlLine(state, trimmedLead)) {
+        return;
+    }
+    state.snippetLines.push(rawLine);
+};
+
+/** Builds a `WebSearchResultItem` from populated `MutableWebSection` state. */
+const finalizeWebResultSection = (state: MutableWebSection): WebSearchResultItem => ({
+    title: state.title ?? "Result",
+    url: state.url ?? "",
+    snippet: state.snippetLines.join("\n").trim(),
+});
 
 /** Parses a single `---`-delimited web search result section when a title or URL is present. */
 const parseSingleWebResultSection = (
     block: string,
 ): WebSearchResultItem | null => {
-    const title = extractFirstPrefixedLine(block, "### ");
-    const url = extractFirstPrefixedLine(block, "URL:");
-    if (title === null && url === null) return null;
-    const withoutTitle = stripFirstPrefixedLine(block, "### ");
-    const snippet = stripFirstPrefixedLine(withoutTitle, "URL:").trim();
-    return {
-        title: title !== null ? title : "Result",
-        url: url !== null ? url : "",
-        snippet,
-    };
+    const state: MutableWebSection = { title: null, url: null, snippetLines: [] };
+    for (const line of block.split(/\r?\n/u)) consumeWebSectionLine(state, line);
+    if (state.title === null && state.url === null) return null;
+    return finalizeWebResultSection(state);
 };
 
 /** Parses `<web_result>` markdown sections into structured citation items. */

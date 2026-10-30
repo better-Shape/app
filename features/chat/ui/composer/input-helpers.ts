@@ -1214,29 +1214,52 @@ const insertInlineContextMenuClipboard = (opts: {
   }
 };
 
+/** Returns a bound clipboard reader when the environment exposes `navigator.clipboard.readText`. */
+const getClipboardTextReader = (): (() => Promise<string>) | null => {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+    return null;
+  }
+  return () => navigator.clipboard.readText();
+};
+
+/** Warns when clipboard access is unavailable or denied and refocuses `textarea`. */
+const warnClipboardReadBlocked = (
+  textarea: HTMLTextAreaElement | null,
+  title: string,
+): void => {
+  textarea?.focus();
+  notify.warn(title, "Press Cmd+V or Ctrl+V to paste directly.");
+};
+
+/** Invokes `onText` safely so paste callback errors never masquerade as clipboard denial. */
+const applyReadClipboardText = (
+  textarea: HTMLTextAreaElement | null,
+  text: string,
+  onText: (value: string) => void,
+): void => {
+  try {
+    onText(text);
+  } catch {
+    textarea?.focus();
+    notify.error("Paste failed", "Could not insert the clipboard contents.");
+  }
+};
+
 /** Reads clipboard text for the composer context-menu `Paste` item, warning when blocked. */
 export const readComposerClipboardTextWithFeedback = (
   textarea: HTMLTextAreaElement | null,
   onText: (text: string) => void,
 ): void => {
-  textarea?.focus();
-  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
-    notify.warn(
-      "Clipboard unavailable",
-      "Press Cmd+V or Ctrl+V to paste directly.",
-    );
+  const readClipboard = getClipboardTextReader();
+  if (!readClipboard) {
+    warnClipboardReadBlocked(textarea, "Clipboard unavailable");
     return;
   }
-  navigator.clipboard
-    .readText()
-    .then(onText)
-    .catch(() => {
-      textarea?.focus();
-      notify.warn(
-        "Clipboard access denied",
-        "Press Cmd+V or Ctrl+V to paste directly.",
-      );
-    });
+  textarea?.focus();
+  readClipboard().then(
+    (text) => applyReadClipboardText(textarea, text, onText),
+    () => warnClipboardReadBlocked(textarea, "Clipboard access denied"),
+  );
 };
 
 /** Inserts clipboard text invoked from the custom context-menu `Paste` item. */

@@ -37,7 +37,13 @@ import {
     stripShellPromptPrefix,
     tryWrapMarkdownLinkOnPaste,
 } from "@/lib/chat/prompt-history";
-import { extractSearchableMessageText, findTranscriptMatches } from "@/lib/chat/transcript-search";
+import {
+    extractSearchableMessageText,
+    findTranscriptMatches,
+    parseWebResults,
+} from "@/lib/chat/transcript-search";
+import { buildPlanBuildMessage } from "@/lib/chat/continue-action";
+import { userMessageCopyText } from "@/features/chat/ui/message/item";
 import { providerIcon } from "@/lib/ui/provider-icon";
 
 describe("chat stream sanitization, transcript utilities, and workbench bridges", () => {
@@ -880,6 +886,99 @@ describe("chat stream sanitization, transcript utilities, and workbench bridges"
         expect(middleSearchable).toContain("Visible middle answer.");
         expect(middleSearchable).not.toContain("hiddenTruncated");
         expect(middleSearchable).not.toContain("second hidden thought");
+
+        expect(userMessageCopyText(buildPlanBuildMessage("PLAN.md", "Ship it"))).toBe("Continue");
+
+        const apostropheSearchable = extractSearchableMessageText(
+            [
+                "<edit file=\"src/it's.ts\"><original>a</original><replacement>b</replacement></edit>",
+                "<cat path=\"docs/O'Brien.md\">body</cat>",
+                "<sent_file title=\"Owner's Spec\" name=\"spec's.md\">body</sent_file>",
+            ].join("\n"),
+        );
+        expect(apostropheSearchable).toContain("src/it's.ts");
+        expect(apostropheSearchable).toContain("docs/O'Brien.md");
+        expect(apostropheSearchable).toContain("Owner's Spec");
+
+        const legacyVsEncodedExport = formatTranscriptAsMarkdown("Attachment encodings", [
+            {
+                role: "user",
+                content: [
+                    '<attached_file name="AT&amp;T.md">legacy</attached_file>',
+                    '<attached_file name="AT&amp;T.md" name_encoding="xml">encoded</attached_file>',
+                    "Compare both",
+                ].join("\n"),
+            },
+        ]);
+        expect(legacyVsEncodedExport).toContain("_Attached: `AT&amp;T.md`_");
+        expect(legacyVsEncodedExport).toContain("_Attached: `AT&T.md`_");
+
+        const approvedEditChunks = parseMessageContent(
+            [
+                '<edit_pending id="ep-1" file="src/app.ts" status="pending">diff</edit_pending>',
+                '<edit_pending id="ep-1" file="src/app.ts" status="approved">diff</edit_pending>',
+            ].join("\n"),
+        ).filter((chunk) => chunk.type === "edit_pending");
+        expect(approvedEditChunks).toHaveLength(1);
+        expect(approvedEditChunks[0]?.commandStatus).toBe("approved");
+
+        const benignToolCodeDoc = [
+            "```json",
+            '{ "tool_code": "sample" }',
+            "```",
+            "",
+            "Documentation keeps non-invocation tool_code keys.",
+        ].join("\n");
+        expect(preprocessChatMarkdown(benignToolCodeDoc)).toContain('{ "tool_code": "sample" }');
+        expect(
+            preprocessChatMarkdown('```json\n{ "tool_code": "print(read_file(\'x\'))" }\n```'),
+        ).not.toContain("read_file");
+
+        const webHits = parseWebResults(
+            [
+                "### Fetch Spec",
+                "Pass a valid URL: parameter when constructing Request.",
+                "---",
+                "### MDN Guide",
+                "URL: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+                "Snippet mentioning URL: inline stays intact.",
+            ].join("\n"),
+        );
+        expect(webHits).toEqual([
+            {
+                title: "Fetch Spec",
+                url: "",
+                snippet: "Pass a valid URL: parameter when constructing Request.",
+            },
+            {
+                title: "MDN Guide",
+                url: "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+                snippet: "Snippet mentioning URL: inline stays intact.",
+            },
+        ]);
+
+        notificationStore.clearAll();
+        const pasteArea = document.createElement("textarea");
+        document.body.appendChild(pasteArea);
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+                readText: () => Promise.resolve("hello clipboard"),
+            },
+        });
+        readComposerClipboardTextWithFeedback(pasteArea, () => {
+            throw new Error("paste callback boom");
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        const pasteNotices = notificationStore.getSnapshot().notifications;
+        expect(pasteNotices.some((n) => n.message === "Paste failed")).toBe(true);
+        expect(pasteNotices.some((n) => n.message === "Clipboard access denied")).toBe(false);
+        if (origClipboard) {
+            Object.defineProperty(navigator, "clipboard", origClipboard);
+        }
+        notificationStore.clearAll();
+        pasteArea.remove();
     });
 });
 
