@@ -20,7 +20,7 @@ import {
 export type WordWrapSetting = "off" | "on" | "bounded";
 export type AutoSaveSetting = "off" | "afterDelay" | "onFocusChange";
 export type LineNumbersSetting = "on" | "off" | "relative";
-export type RenderWhitespaceSetting = "none" | "selection" | "all";
+export type RenderWhitespaceSetting = "none" | "selection" | "trailing" | "boundary" | "all";
 export type CursorStyleSetting = "line" | "block" | "underline";
 export type DefaultShellSetting = "auto" | "powershell" | "cmd" | "git-bash";
 export type UpdateChannel = "stable" | "nightly";
@@ -1126,7 +1126,7 @@ export function getEditorOptionsFromSettings(settings: BetterShapeSettings = get
         wordWrap: settings.editor.wordWrap as "off" | "on" | "wordWrapColumn" | "bounded",
         minimap: { enabled: settings.editor.minimap },
         lineNumbers: settings.editor.lineNumbers as "on" | "off" | "relative" | "interval" | (number & {}),
-        renderWhitespace: settings.editor.renderWhitespace as "none" | "boundary" | "selection" | "trailing" | "all",
+        renderWhitespace: settings.editor.renderWhitespace,
         bracketPairColorization: { enabled: settings.editor.bracketPairColorization },
         fontLigatures: settings.editor.fontLigatures,
         cursorStyle: settings.editor.cursorStyle as "line" | "block" | "underline" | "line-thin" | "block-outline" | "underline-thin",

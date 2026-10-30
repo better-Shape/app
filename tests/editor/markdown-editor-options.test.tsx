@@ -18,6 +18,7 @@ const DOC = [
     "",
     "A line with several gaps between words.",
     "Nested call: outer(inner(value))",
+    "This line ends in blanks   ",
     "",
 ].join("\n");
 
@@ -92,5 +93,14 @@ describe("markdown editor options", () => {
         await mount();
 
         expect(host.querySelectorAll('[class*="cm-bracket-depth-"]').length).toBe(0);
+    });
+
+    it("marks only trailing blanks when Render whitespace is Trailing", async () => {
+        updateSettingSection("editor", { renderWhitespace: "trailing" });
+        await mount();
+
+        expect(host.querySelectorAll(".cm-trailingSpace").length).toBeGreaterThan(0);
+        // "Trailing" is not "All": gaps between words stay undecorated.
+        expect(whitespaceMarks()).toBe(0);
     });
 });

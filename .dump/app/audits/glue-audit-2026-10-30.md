@@ -771,3 +771,17 @@ primary-first ordering, corrupt storage, and path equality.
 `scripts/qa/probe-feature-wiring.cjs` green over nine steps on the browser
 preview build (`settings-render-whitespace.png`, `editor-render-whitespace.png`,
 `editor-bracket-colors.png`).
+
+### 7.7 A type hole CI caught that the local run did not
+
+`npm run typecheck` runs `tsc --noEmit` **and** `tsc --noEmit -p tests/tsconfig.json`.
+Running only the first hid that `RenderWhitespaceSetting` was
+`"none" | "selection" | "all"` while the editor already supported `trailing` and
+`boundary` decorations and the new Settings row offered both — the row compiled
+only because of a cast.
+
+Fix: the union now carries all five modes, the mapper's cast is gone, and a
+trailing-whitespace case proves `trailing` decorates end-of-line blanks without
+decorating gaps between words. Gate re-run with the repository's own script:
+`npm run typecheck` clean (both tsconfigs), `npm run lint:strict` clean,
+2866/2866 tests.
