@@ -341,9 +341,6 @@ describe("Chat surface token and styling invariants", () => {
         const domHighlights = fs.readFileSync(path.join(rootDir, "lib/chat/dom-highlights.ts"), "utf8");
         expect(domHighlights).not.toContain("#ffffff");
         expect(domHighlights).toContain("var(--text-on-accent)");
-
-        const mdDiff = fs.readFileSync(path.join(rootDir, "features/chat/ui/md/diff.tsx"), "utf8");
-        expect(mdDiff).not.toContain("<style jsx>");
     });
 
     it("detectPendingHitl counts parallel pending approvals and clears immediately when <question> settles in-place", () => {

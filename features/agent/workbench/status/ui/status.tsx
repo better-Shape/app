@@ -24,6 +24,7 @@ import { GitStatusButton } from "./git-status";
 import { StatusItem } from "./status-item";
 import { PythonInterpreterStatus } from "./python-interpreter";
 import { DevRunStatusItem } from "./run-status";
+import { NotificationsMenu } from "./notifications-menu";
 
 type SplitState = ReturnType<typeof useEditorSplitOptional>;
 
@@ -258,6 +259,7 @@ const Status = () => {
                 </div>
 
                 <div className="relative z-30 ml-auto flex items-center justify-end h-full shrink-0 min-w-0">
+                    <NotificationsMenu />
                     {hasEditor ? (
                         <EditorStatusItems
                             statusFile={statusFile as string}

@@ -250,13 +250,15 @@ reproducible rather than claimed.
 
 Measurements, before and after the pass:
 
-| Metric | Audit head | After |
-| --- | --- | --- |
-| Orphan modules | 48 | 33 |
-| Event channels, listener only | 18 | 16 |
-| Event channels, dispatch only | 9 | 8 |
-| Settings keys with no reader | 34 | 28 |
-| Duplicate exported names | 15 | 15 |
+| Metric | Audit head | After the mount pass | After the dead-code sweep |
+| --- | --- | --- | --- |
+| Modules scanned | 573 | 574 | 531 |
+| Orphan modules | 48 | 33 | 0 |
+| Test-only modules (own tests, no app importer) | not measured | 13 | 7 |
+| Event channels, listener only | 18 | 16 | 11 |
+| Event channels, dispatch only | 9 | 8 | 7 |
+| Settings keys with no reader | 34 | 28 | 0, see the caveat above |
+| Duplicate exported names | 15 | 15 | 15 |
 
 The orphan count fell by mounting the design studio, the all-changes view, the
 subagent cards, the chat overflow menu and hunk staging, and by deleting
@@ -280,3 +282,56 @@ copy on select now have readers.
    a null result with an actionable sentence.
 3. The all-changes view drew duplicate hover controls on top of the diff
    text. The duplicate overlay is gone; the header controls remain.
+
+## Round 3, 2026-10-30: the dead-code sweep
+
+The auditor now scans `tests/`, `e2e/` and `scripts/` as consumers and reports a
+separate test-only bucket, so a module kept alive only by its own test is no
+longer counted as wired. That split took the 32 conflated candidates down to 19
+orphans and 13 test-only modules, and each was judged on its import graph rather
+than on how often its name appears in the tree: shared basenames (`types`, `tab`,
+`diff`, `commands`) made a text search useless as a verdict.
+
+Deleted, because a live surface already covers the same ground or nothing could
+reach them at all:
+
+| Module | Why it is dead |
+| --- | --- |
+| `features/agent/sidebar/account.tsx` | Footer row superseded by the sidebar account control |
+| `features/agent/sidebar/agent-tabs-chip.tsx` | Subagent list replaced by the Agents tab cards mounted in the previous pass |
+| `features/chat/ui/blocks/loading-state.tsx` | Generating indicator is the live loading surface |
+| `features/chat/ui/blocks/preview.tsx` | The design studio supersedes it; nothing imported it |
+| `features/chat/ui/composer/context-bar.tsx` | Repo context moved into the composer's own controls |
+| `features/chat/ui/md/diff.tsx` | Inline diff moved to the chat diff block |
+| `features/chat/ui/md/stream-words.tsx` | Documented no-op wrapper with no importers |
+| `features/git/commands.ts` | Unused command helpers |
+| `features/git/ui/branches/{detail,hooks,list,actions,data}.tsx` | Half-finished branch panel; the shipped one is `branches/panel.tsx` |
+| `features/preview/design/{deploy,left-panel,rail,tool-rail}.tsx` | Superseded by the design shell's integrated panels |
+| `features/promo/types.ts` | No importer |
+| `lib/agent-preview/agent-options.ts` | No importer |
+| `lib/editor/jsonc.ts` | No importer |
+| `lib/mcp/install.ts` | No importer |
+| `lib/plan/branch.ts` | No importer |
+| `lib/dev/perf-hud-overlay.ts` | Dev overlay never mounted |
+| `lib/path/uri.ts` | No importer |
+| `lib/settings/tab.ts` | No importer |
+| `lib/terminal/tabs.ts` | No importer |
+| `lib/ui/textarea-caret.ts` | No importer |
+
+Each of the five modules with a dedicated test lost that test with it
+(`agent-tabs-chip`, `perf-hud`, `path-uri`, `settings-tab`, `select-tab`); no
+test was edited to make another one pass. Two further edits were mechanical: the
+chat styling invariant no longer reads the deleted `md/diff.tsx`, and
+`classify-hover-rungs.py` lost its two entries for deleted files.
+
+The Notifications menu was kept and mounted instead of deleted. It is the only
+surface that reads `notificationStore` history, it already had a passing
+accessibility test, and the status bar had no notifications entry; deleting it
+would have removed the only way to see earlier notifications.
+
+Still test-only, and deliberately not deleted: the OpenUI rich blocks
+(`analysis`, `carousel`, `style`, `thinking`, `disable-openui-devtools`), the
+design `preview-panel`, and `lib/preview/tauri-mock.ts`. The blocks are asserted
+by broader chat and design suites that also cover live components, and the mock
+is browser-test infrastructure. Removing them means pruning assertions from
+tests that pass today, which is a separate change from proving the glue works.

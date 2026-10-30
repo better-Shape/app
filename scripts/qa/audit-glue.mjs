@@ -38,6 +38,10 @@ const walk = (dir, out = []) => {
 };
 
 const files = CODE_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(join(ROOT, root)) : []));
+// Tests, the e2e suite and the QA scripts are importers too. A module that only
+// they import is not app-reachable, but it is not dead either.
+const CONSUMER_ROOTS = ["tests", "e2e", "scripts"];
+const consumerFiles = CONSUMER_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(join(ROOT, root)) : []));
 const isRouteFile = (file) => file.startsWith(join(ROOT, "app")) && ROUTE_FILES.has(file.split("/").pop());
 
 const resolveSpecifier = (fromFile, specifier) => {
@@ -77,11 +81,24 @@ for (const [file, specifiers] of importGraph) {
     }
 }
 
-const orphans = files
-    .filter((file) => !imported.has(file))
-    .filter((file) => !isRouteFile(file))
-    .map((file) => relative(ROOT, file))
-    .sort();
+const consumerImported = new Set();
+for (const file of consumerFiles) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(IMPORT_RE)) {
+        const raw = match[1] ?? match[2] ?? match[3];
+        const target = raw ? resolveSpecifier(file, raw) : null;
+        if (target) consumerImported.add(target);
+    }
+}
+
+const orphans = [];
+const testOnly = [];
+for (const file of files) {
+    if (imported.has(file) || isRouteFile(file)) continue;
+    (consumerImported.has(file) ? testOnly : orphans).push(relative(ROOT, file));
+}
+orphans.sort();
+testOnly.sort();
 
 // Event channels
 const EVENT_LISTEN_RE = /addEventListener\(\s*["']([^"']+)["']/g;
@@ -132,7 +149,6 @@ if (existsSync(storePath)) {
         if (section && keyMatch) settingsKeys.push({ section, key: keyMatch[1] });
     }
 }
-const storePathForReaders = join(ROOT, "lib/settings/store.ts");
 // A key is read when the settings adapter or any app code reads it. Only the
 // settings UI itself is excluded, because rendering a key is not consuming it.
 const settingsReaders = files.filter((file) => !file.startsWith(join(ROOT, "features/settings/ui")));
@@ -173,6 +189,7 @@ const summary = {
     counts: {
         modules: files.length,
         orphanModules: orphans.length,
+        testOnlyModules: testOnly.length,
         listenerOnlyChannels: listenerOnly.length,
         dispatchOnlyChannels: dispatchOnly.length,
         duplicateExports: duplicates.length,
@@ -180,6 +197,7 @@ const summary = {
         unreadSettings: unreadSettings.length,
     },
     orphans,
+    testOnly,
     listenerOnly,
     dispatchOnly,
     unreadSettings,
@@ -192,6 +210,8 @@ writeFileSync(join(ROOT, ".qa-artifacts/glue-audit.json"), `${JSON.stringify(sum
 console.log(`modules scanned: ${summary.counts.modules}`);
 console.log(`\norphan modules (${orphans.length})`);
 for (const file of orphans) console.log(`  ${file}`);
+console.log(`\ntest-only modules (${testOnly.length})`);
+for (const file of testOnly) console.log(`  ${file}`);
 console.log(`\nevents: listener only (${listenerOnly.length})`);
 for (const channel of listenerOnly) console.log(`  ${channel.name}  <- ${channel.listeners.join(", ")}`);
 console.log(`\nevents: dispatch only (${dispatchOnly.length})`);

@@ -65,7 +65,17 @@ const { applySandboxLibs } = require("./sandbox-libs.cjs");
       await page.screenshot({ path: ".qa-artifacts/all-changes-tab.png" });
     }
   }
+  // 3. Status bar notifications menu (mounted next to the editor status items)
+  const notifications = page.getByRole("button", { name: /^Notifications/ });
+  const notificationCount = await notifications.count();
+  console.log("notifications buttons", notificationCount);
+  assert.equal(notificationCount, 1, "The status bar has no Notifications control");
+  await notifications.first().click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: ".qa-artifacts/notifications-menu.png" });
+  await page.keyboard.press("Escape");
+
   assert.deepEqual(errors, [], `Console errors: ${JSON.stringify(errors.slice(0, 5))}`);
-  console.log("probe passed: voice, design and all-changes surfaces render with no console errors");
+  console.log("probe passed: voice, design, all-changes and notifications surfaces render with no console errors");
   await browser.close();
 })().catch((e) => { console.error("FAILED", e.message); process.exit(1); });
