@@ -1,7 +1,6 @@
 "use client";
 
 import { Alert20Regular } from "@fluentui/react-icons/headless/svg/alert";
-import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 
 
@@ -17,6 +16,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { DrawnCheck } from "@/components/ui/checkmark";
 import { Icon } from "@/components/ui/icon";
 
 import { useGitBranch } from "@/features/agent/workbench/hooks/use-git-branch";
@@ -130,7 +130,7 @@ export function DesignDeploy({
                                 <p className="truncate text-sm text-text-primary">{productionHost}</p>
                                 <p className="text-2xs text-text-muted">Live</p>
                             </div>
-                            <Icon icon={Checkmark20Regular} className="text-success" />
+                            <DrawnCheck className="size-4 text-success" />
                         </div>
                     ) : null}
                 </AlertDialogBody>

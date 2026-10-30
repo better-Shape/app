@@ -8,6 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import { commands, type GitFileParams } from "@/lib/backend";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Icon } from "@/components/ui/icon";
+import { HoldButton } from "@/components/ui/hold-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,38 @@ function fileName(path: string) {
 
 function countDiff(original: string, current: string): { add: number; del: number } {
     return countChangedLines(original, current);
+}
+
+const isAddedGitStatus = (status: string): boolean => {
+    const code = status.trim().charAt(0).toUpperCase();
+    return code === "A" || code === "?";
+};
+
+const joinRepoFilePath = (repo: string, filePath: string): string =>
+    `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${filePath.replaceAll("\\", "/")}`;
+
+const formatDiscardError = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
+/** Unstages staged edits (if any), removes untracked additions, and restores the worktree from HEAD. */
+export async function discardGitFileChange(target: {
+    repo: string;
+    path: string;
+    staged: boolean;
+    status: string;
+}): Promise<boolean> {
+    try {
+        if (target.staged) await commands.gitUnstage(target.repo, target.path);
+        if (isAddedGitStatus(target.status)) {
+            await commands.deletePath(joinRepoFilePath(target.repo, target.path));
+        }
+        await commands.gitDiscardChanges(target.repo, target.path);
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
+        return true;
+    } catch (err) {
+        notify.error("Git", formatDiscardError(err));
+        return false;
+    }
 }
 
 function statusBadge(status: string, original: string, current: string): string | null {
@@ -128,13 +162,10 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
         }
     };
 
-    const discard = async () => {
-        try {
-            await commands.gitDiscardChanges(tab.repo, tab.path);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-        } catch (err) {
-            notify.error("Git", err instanceof Error ? err.message : String(err));
-        }
+    const discard = async (): Promise<boolean> => {
+        const ok = await discardGitFileChange(tab);
+        if (ok) setCurrent(original);
+        return ok;
     };
 
     return (
@@ -182,15 +213,14 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         >
                             {tab.staged ? "Unstage" : "Stage"}
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => void discard()}
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                            aria-label="Discard changes"
-                            title="Discard"
-                        >
-                            <Icon icon={ArrowUndo20Regular} />
-                        </button>
+                        <Tooltip content="Hold to discard changes">
+                            <HoldButton
+                                size="icon"
+                                onConfirm={() => discard()}
+                                ariaLabel="Discard changes"
+                                icon={<Icon icon={ArrowUndo20Regular} />}
+                            />
+                        </Tooltip>
                     </>
                 ) : null}
                 <button

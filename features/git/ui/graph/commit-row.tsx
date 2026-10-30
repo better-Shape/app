@@ -41,6 +41,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     blendTop = false,
     blendBottom = false,
     compact = false,
+    arriving = false,
 }: {
     log: GitLogEntry; node: GraphNode; repoPath: string | null;
     index: number; total: number; isExpanded: boolean;
@@ -66,6 +67,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     blendBottom?: boolean;
     /** Workspace graph: names and avatars, no lane lines or branch pills. */
     compact?: boolean;
+    /** True briefly when a newly created commit arrives at the top of an open graph. */
+    arriving?: boolean;
 }) {
     const isManager = surface === "editor";
     const isHead = commitIsHead(log.refs);
@@ -186,6 +189,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             muted={muted}
                             avatarUrl={laneAvatarUrl}
                             avatarKey={log.hash}
+                            arriving={arriving}
                         />
                         )}
                         <div className={cn("flex min-w-0 flex-1 items-center overflow-hidden pr-2 @container", compact ? "gap-2" : "gap-1.5", compact && !laneAvatarUrl && "pl-2")}>

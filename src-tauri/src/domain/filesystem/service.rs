@@ -23,7 +23,7 @@ pub async fn read_file_within(path: String, root: String) -> Result<String, AppE
     fs::read_file_within(path, root).await
 }
 
-pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+pub fn ensure_path_within(path: String, root: String) -> Result<String, AppError> {
     fs::ensure_path_within(path, root)
 }
 

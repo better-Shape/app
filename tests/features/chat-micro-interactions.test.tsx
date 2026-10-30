@@ -5,12 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const askMocks = vi.hoisted(() => ({
     answerAskUser: vi.fn(async () => undefined),
     openUrlExternal: vi.fn(async () => undefined),
+    applyFileEdit: vi.fn(async () => undefined),
+    gitUnstage: vi.fn(async () => undefined),
+    gitDiscardChanges: vi.fn(async () => undefined),
+    deletePath: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/backend/commands", () => ({
     commands: {
         answerAskUser: askMocks.answerAskUser,
         openUrlExternal: askMocks.openUrlExternal,
+        applyFileEdit: askMocks.applyFileEdit,
+        gitUnstage: askMocks.gitUnstage,
+        gitDiscardChanges: askMocks.gitDiscardChanges,
+        deletePath: askMocks.deletePath,
     },
 }));
 
@@ -18,6 +26,10 @@ vi.mock("@/lib/backend", () => ({
     commands: {
         answerAskUser: askMocks.answerAskUser,
         openUrlExternal: askMocks.openUrlExternal,
+        applyFileEdit: askMocks.applyFileEdit,
+        gitUnstage: askMocks.gitUnstage,
+        gitDiscardChanges: askMocks.gitDiscardChanges,
+        deletePath: askMocks.deletePath,
         readFile: vi.fn(async () => {
             throw new Error("missing");
         }),
@@ -45,6 +57,8 @@ import { ApprovalCard } from "@/features/chat/ui/blocks/approval";
 import { QuestionsCard } from "@/features/chat/ui/blocks/questions";
 import { ChatErrorDialog } from "@/features/chat/ui/blocks/error";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
+import { InlineDiff } from "@/features/chat/ui/md/diff";
+import { discardGitFileChange } from "@/features/agent/workspace/file-diff";
 
 describe("Transcript select-to-quote extraction & formatting", () => {
     it("skips buttons, [data-quote-skip], and status chrome when extracting selected text", () => {
@@ -233,5 +247,84 @@ describe("HITL cards, smart CodeBlock & Error recovery micro-interactions", () =
         expect(onDismiss).toHaveBeenCalledTimes(1);
         expect(inserted).toEqual([{ prompt: "/compact", send: true }]);
         window.removeEventListener("bettershape-chat-insert-prompt", onInsert);
+    });
+
+    it("resets InlineDiff Applied status back to pending when file or diff rows change", async () => {
+        askMocks.applyFileEdit.mockClear();
+
+        await act(async () => {
+            root.render(
+                <InlineDiff
+                    file="src/a.ts"
+                    original="const a = 1;"
+                    replacement="const a = 2;"
+                />,
+            );
+        });
+
+        const applyBtn = Array.from(host.querySelectorAll("button")).find((b) =>
+            b.textContent?.includes("Apply"),
+        );
+        if (!applyBtn) throw new Error("expected Apply button");
+        await act(async () => {
+            applyBtn.click();
+            await Promise.resolve();
+        });
+        expect(host.textContent).toContain("Applied");
+        expect(host.querySelector(".t-success-check")).not.toBeNull();
+
+        // Streaming finish on the SAME diff preserves Applied.
+        await act(async () => {
+            root.render(
+                <InlineDiff
+                    file="src/a.ts"
+                    original="const a = 1;"
+                    replacement="const a = 2;"
+                    isGenerating={false}
+                />,
+            );
+        });
+        expect(host.textContent).toContain("Applied");
+
+        // Changing replacement or file resets status back to pending so the new edit is not falsely marked Applied.
+        await act(async () => {
+            root.render(
+                <InlineDiff
+                    file="src/a.ts"
+                    original="const a = 1;"
+                    replacement="const a = 3;"
+                    isGenerating={false}
+                />,
+            );
+        });
+        expect(host.textContent).not.toContain("Applied");
+    });
+
+    it("unstages staged files and deletes newly added files when discarding via discardGitFileChange", async () => {
+        askMocks.gitUnstage.mockClear();
+        askMocks.gitDiscardChanges.mockClear();
+        askMocks.deletePath.mockClear();
+
+        await expect(
+            discardGitFileChange({
+                repo: "/project",
+                path: "src/staged.ts",
+                staged: true,
+                status: "M",
+            }),
+        ).resolves.toBe(true);
+        expect(askMocks.gitUnstage).toHaveBeenCalledWith("/project", "src/staged.ts");
+        expect(askMocks.gitDiscardChanges).toHaveBeenCalledWith("/project", "src/staged.ts");
+        expect(askMocks.deletePath).not.toHaveBeenCalled();
+
+        await expect(
+            discardGitFileChange({
+                repo: "/project",
+                path: "src/new-file.ts",
+                staged: true,
+                status: "A",
+            }),
+        ).resolves.toBe(true);
+        expect(askMocks.deletePath).toHaveBeenCalledWith("/project/src/new-file.ts");
     });
 });

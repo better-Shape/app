@@ -15,6 +15,7 @@ import { useProjectState } from "@/lib/backend";
 import { AGENT_CHROME_ACTIONS_SLOT, usePanelCommit } from "@/features/agent/chrome";
 import { PanelGlyph } from "@/components/ui/panel-glyph";
 import { CommitMenu } from "@/features/agent/workspace/commit-menu";
+import { terminalSessionStore } from "@/features/terminal/session";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -101,6 +102,9 @@ function chatSubagents(parentId: string | null, extra: SubagentCard[]): Subagent
     return [...map.values()];
 }
 
+const subscribeTerminalStore = (onStoreChange: () => void) =>
+    terminalSessionStore.subscribe(onStoreChange);
+
 /** Renders the ChatTitlebar UI component. */
 export const ChatTitlebar = memo(function ChatTitlebar({
     title,
@@ -122,6 +126,17 @@ export const ChatTitlebar = memo(function ChatTitlebar({
     const terminalCommit = usePanelCommit();
     const actionsSlot = useElementById(AGENT_CHROME_ACTIONS_SLOT);
     const terminalOpen = useStoredFlag("bettershape-agent-terminal-open", "bettershape-terminal-open");
+    const hasUnreadTerminal = useSyncExternalStore(
+        subscribeTerminalStore,
+        () => terminalSessionStore.hasUnreadForProject(project_path),
+        () => false,
+    );
+    const showTerminalDot = !terminalOpen && hasUnreadTerminal;
+    const terminalLabel = terminalOpen
+        ? "Hide terminal"
+        : showTerminalDot
+          ? "Show terminal (new output)"
+          : "Show terminal";
     useSyncExternalStore(subscribeSubagents, getSubagents, getSubagents);
     const subagents = chatSubagents(conversationId, extractedSubagents);
     const runningSubagentCount = subagents.filter((c) => c.status === "running").length;
@@ -138,10 +153,10 @@ export const ChatTitlebar = memo(function ChatTitlebar({
     const actions = (
         <div className="flex items-center gap-2">
             {project_path ? <CommitMenu projectPath={project_path} /> : null}
-            <Tooltip content={terminalOpen ? "Hide terminal" : "Show terminal"}>
+            <Tooltip content={terminalLabel}>
                 <button
                     type="button"
-                    aria-label={terminalOpen ? "Hide terminal" : "Show terminal"}
+                    aria-label={terminalLabel}
                     aria-pressed={terminalOpen}
                     data-panel-toggle="terminal"
                     data-panel-committed={terminalCommit.committed ? "true" : undefined}
@@ -150,10 +165,15 @@ export const ChatTitlebar = memo(function ChatTitlebar({
                         terminalCommit.commit();
                         toggleTerminal();
                     }}
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[active=true]:text-text-primary"
+                    className="relative flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[active=true]:text-text-primary"
                     data-active={terminalOpen}
                 >
                     <PanelGlyph side="bottom" open={terminalOpen} />
+                    <span
+                        className="t-tab-dot pointer-events-none absolute top-1 right-1"
+                        data-on={showTerminalDot ? "true" : "false"}
+                        aria-hidden
+                    />
                 </button>
             </Tooltip>
         </div>

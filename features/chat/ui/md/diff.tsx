@@ -3,6 +3,7 @@ import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 import React from 'react';
 import { Icon } from "@/components/ui/icon";
+import { DrawnCheck } from "@/components/ui/checkmark";
 
 import { cn } from '@/lib/utils';
 import { commands } from '@/lib/backend';
@@ -115,6 +116,9 @@ export const InlineDiff = ({ file, original, replacement, isGenerating }: {
 
     const [editScope, setEditScope] = React.useState<readonly [typeof rows, typeof file, typeof isGenerating] | null>(null);
     if (editScope === null || !Object.is(editScope[0], rows) || !Object.is(editScope[1], file) || !Object.is(editScope[2], isGenerating)) {
+        const contentChanged =
+            editScope !== null &&
+            (!Object.is(editScope[0], rows) || !Object.is(editScope[1], file));
         setEditScope([rows, file, isGenerating]);
         const nextSelected: Record<string, boolean> = {};
         rows.forEach((row) => {
@@ -123,16 +127,13 @@ export const InlineDiff = ({ file, original, replacement, isGenerating }: {
         setSelected(nextSelected);
 
         // Edits always start as "pending" - the user must explicitly accept or reject.
-        // Only reset to pending when the edit is still generating or when the file/rows change.
-        if (isGenerating) {
+        // Reset whenever the edit is still generating or the target file/diff rows changed.
+        if (isGenerating || contentChanged) {
             setStatus("pending");
             setAppliedContent(null);
-        } else if (status === "applying") {
-            // Don't interrupt an in-progress apply
-        } else if (status !== "accepted" && status !== "rejected") {
+        } else if (status !== "applying" && status !== "accepted" && status !== "rejected") {
             setStatus("pending");
         }
-
     }
 
     const mergedContent = React.useMemo(() => {
@@ -234,7 +235,12 @@ export const InlineDiff = ({ file, original, replacement, isGenerating }: {
                     {status === "applying" && (
                         <span className="text-2xs font-medium mr-2 text-text-muted">Applying...</span>
                     )}
-                    {status === "accepted" && <span className="text-2xs text-success font-regular mr-1">Applied</span>}
+                    {status === "accepted" && (
+                        <span className="inline-flex items-center gap-1 text-2xs text-success font-regular mr-1">
+                            <DrawnCheck className="size-3" motion="compact" />
+                            Applied
+                        </span>
+                    )}
                     {status === "rejected" && <span className="text-2xs text-error font-regular mr-1">Discarded</span>}
                     <button
                         type="button"

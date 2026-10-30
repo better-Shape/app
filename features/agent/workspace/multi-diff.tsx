@@ -16,6 +16,9 @@ import { discoverGitRepos, pickDefaultRepo } from "@/lib/git/repos";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
+import { HoldButton } from "@/components/ui/hold-button";
+import { discardGitFileChange } from "./file-diff";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
 export const ALL_CHANGES_TAB_ID = "__all_changes__";
@@ -119,14 +122,13 @@ function LazyFileDiff({
         }
     };
 
-    const discard = async () => {
-        try {
-            await commands.gitDiscardChanges(repo, file.path);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-        } catch (err) {
-            notify.error("Git", err instanceof Error ? err.message : String(err));
-        }
-    };
+    const discard = (): Promise<boolean> =>
+        discardGitFileChange({
+            repo,
+            path: file.path,
+            staged: file.staged,
+            status: file.status,
+        });
 
     const openFile = async () => {
         const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
@@ -172,16 +174,14 @@ function LazyFileDiff({
                 >
                     Open File
                 </Button>
-                <Button
-                    type="button"
-                    onClick={() => void discard()}
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Restore"
-                    title="Restore"
-                >
-                    <Icon icon={ArrowUndo20Regular} />
-                </Button>
+                <Tooltip content="Hold to restore file">
+                    <HoldButton
+                        size="icon"
+                        onConfirm={() => discard()}
+                        ariaLabel="Restore file"
+                        icon={<Icon icon={ArrowUndo20Regular} />}
+                    />
+                </Tooltip>
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
@@ -196,15 +196,14 @@ function LazyFileDiff({
                         >
                             {file.staged ? "Unstage" : "Stage"}
                         </Button>
-                        <Button
-                            type="button"
-                            onClick={() => void discard()}
-                            variant="ghost"
-                            className="bg-surface-4"
+                        <HoldButton
                             size="xs"
-                        >
-                            Restore
-                        </Button>
+                            onConfirm={() => discard()}
+                            ariaLabel="Restore file"
+                            label="Restore"
+                            armedLabel="Confirm"
+                            className="bg-surface-4 text-text-primary"
+                        />
                     </div>
                 ) : null}
                 {!visible ? (

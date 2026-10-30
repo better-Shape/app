@@ -8,6 +8,7 @@ import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/windo
 
 
 import * as React from "react";
+import { Collapse } from "@/components/ui/collapse";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 import {
@@ -19,16 +20,30 @@ import {
 } from "@/lib/workspace/repo-history";
 import { cn } from "@/lib/utils";
 
+const formatWithPathSeparators = (normalizedTarget: string, originalPath: string): string =>
+    originalPath.includes("\\") ? normalizedTarget.replaceAll("/", "\\") : normalizedTarget;
+
 /** Parent directory portion of a path, rendered with the path's own separators. */
-const parentDir = (path: string): string => {
-    const normalized = path.replace(/\\/g, "/");
-    const idx = normalized.lastIndexOf("/");
-    if (idx <= 0) return path;
-    const parent = normalized.slice(0, idx);
-    return path.includes("\\") ? parent.replace(/\//g, "\\") : parent;
+export const parentDir = (path: string): string => {
+    const normalized = path.replaceAll("\\", "/");
+    if (normalized === "/" || /^[A-Za-z]:\/+$/.test(normalized)) return path;
+    let end = normalized.length;
+    while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;
+    const trimmed = normalized.slice(0, end);
+    if (/^\/\/[^/]+\/[^/]+$/.test(trimmed)) {
+        return formatWithPathSeparators(trimmed, path);
+    }
+    const idx = trimmed.lastIndexOf("/");
+    if (idx < 0) return path;
+    if (idx === 0) return formatWithPathSeparators("/", path);
+    const parent = trimmed.slice(0, idx);
+    if (/^[A-Za-z]:$/.test(parent)) {
+        return formatWithPathSeparators(`${parent}/`, path);
+    }
+    return formatWithPathSeparators(parent, path);
 };
 
-/** Single welcome-screen action tile (icon over label, inverts on hover). */
+/** Single welcome-screen action tile (icon over label, +1 surface step on hover). */
 const ActionCard = ({
     icon,
     label,
@@ -45,16 +60,16 @@ const ActionCard = ({
             type="button"
             onClick={onClick}
             className={cn(
-                "group relative flex flex-col items-start gap-3 rounded-xl bg-surface-3 px-4 py-4 text-left",
-                "text-text-secondary transition-colors",
-                "hover:bg-text-primary hover:text-background",
+                "group press-spring relative flex flex-col items-start gap-3 rounded-xl bg-surface-3 px-4 py-4 text-left",
+                "text-text-secondary transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
+                "hover:bg-surface-4 hover:text-text-primary",
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
             )}
         >
             {external ? (
                 <Icon
                     icon={Open20Regular}
-                    className="absolute right-3 top-3 opacity-40 group-hover:opacity-70"
+                    className="absolute right-3 top-3 opacity-40 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-75"
                 />
             ) : null}
             <Icon icon={icon} className="shrink-0" />
@@ -83,56 +98,91 @@ const WelcomeActions = ({
     </section>
 );
 
+const RecentProjectRow = ({
+    entry,
+    onOpenProject,
+}: {
+    entry: RepoHistoryEntry;
+    onOpenProject: (path: string) => void;
+}) => (
+    <li>
+        <button
+            type="button"
+            onClick={() => onOpenProject(entry.path)}
+            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-border-focus"
+        >
+            <span className="shrink-0 text-text-primary">{getRepoName(entry.path)}</span>
+            <span className="min-w-0 truncate text-right text-text-muted">
+                {parentDir(entry.path)}
+            </span>
+        </button>
+    </li>
+);
+
 /** Recent project list, collapsed to five entries until expanded. */
 const RecentProjects = ({
     recentFolders,
-    visible,
     showAll,
     onToggleShowAll,
     onOpenProject,
 }: {
     recentFolders: RepoHistoryEntry[];
-    visible: RepoHistoryEntry[];
     showAll: boolean;
     onToggleShowAll: () => void;
     onOpenProject: (path: string) => void;
-}) => (
-    <section className="flex w-full flex-col gap-2">
-        <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-text-primary">Recent projects</h2>
-            {recentFolders.length > 5 ? (
-                <button
-                    type="button"
-                    className="text-sm text-text-muted hover:text-text-secondary"
-                    onClick={onToggleShowAll}
-                >
-                    {showAll ? "Show less" : `View all (${recentFolders.length})`}
-                </button>
-            ) : null}
-        </div>
+}) => {
+    const overflowId = React.useId();
+    const initialEntries = recentFolders.slice(0, 5);
+    const overflowEntries = recentFolders.slice(5);
 
-        {recentFolders.length === 0 ? (
-            <p className="py-2 text-sm text-text-muted">No recent projects</p>
-        ) : (
-            <ul className="flex w-full flex-col">
-                {visible.map((entry) => (
-                    <li key={entry.path}>
-                        <button
-                            type="button"
-                            onClick={() => onOpenProject(entry.path)}
-                            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm hover:bg-[var(--row-hover)]"
-                        >
-                            <span className="shrink-0 text-text-primary">{getRepoName(entry.path)}</span>
-                            <span className="min-w-0 truncate text-right text-text-muted">
-                                {parentDir(entry.path)}
-                            </span>
-                        </button>
-                    </li>
-                ))}
-            </ul>
-        )}
-    </section>
-);
+    return (
+        <section className="flex w-full flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-medium text-text-primary">Recent projects</h2>
+                {overflowEntries.length > 0 ? (
+                    <button
+                        type="button"
+                        aria-expanded={showAll}
+                        aria-controls={overflowId}
+                        className="rounded-sm px-1 text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+                        onClick={onToggleShowAll}
+                    >
+                        {showAll ? "Show less" : `View all (${recentFolders.length})`}
+                    </button>
+                ) : null}
+            </div>
+
+            {recentFolders.length === 0 ? (
+                <p className="py-2 text-sm text-text-muted">No recent projects</p>
+            ) : (
+                <div className="flex w-full flex-col">
+                    <ul className="flex w-full flex-col">
+                        {initialEntries.map((entry) => (
+                            <RecentProjectRow
+                                key={entry.path}
+                                entry={entry}
+                                onOpenProject={onOpenProject}
+                            />
+                        ))}
+                    </ul>
+                    {overflowEntries.length > 0 ? (
+                        <Collapse id={overflowId} open={showAll}>
+                            <ul className="flex w-full flex-col">
+                                {overflowEntries.map((entry) => (
+                                    <RecentProjectRow
+                                        key={entry.path}
+                                        entry={entry}
+                                        onOpenProject={onOpenProject}
+                                    />
+                                ))}
+                            </ul>
+                        </Collapse>
+                    ) : null}
+                </div>
+            )}
+        </section>
+    );
+};
 
 /** First-run landing screen: project actions over the recent project list. */
 export const WelcomeScreen = ({
@@ -153,7 +203,6 @@ export const WelcomeScreen = ({
     onSelectChat?: (id: string) => void;
 }) => {
     const [showAll, setShowAll] = React.useState(false);
-    const visible = showAll ? recentFolders : recentFolders.slice(0, 5);
 
     return (
         <div data-testid="welcome-screen" className="flex h-full min-h-0 w-full flex-col text-text-primary select-none">
@@ -167,7 +216,6 @@ export const WelcomeScreen = ({
                     />
                     <RecentProjects
                         recentFolders={recentFolders}
-                        visible={visible}
                         showAll={showAll}
                         onToggleShowAll={() => setShowAll((v) => !v)}
                         onOpenProject={onOpenProject}

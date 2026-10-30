@@ -72,7 +72,7 @@
   /* ── Actions ───────────────────────────────────────────── */
   /* Deliberate brand accent (not an accidental indigo default) */
   --accent: #3946FF;
-  /* Private-window purple. Dark chrome; light theme overrides below. */
+  /* Private-window purple for dark chrome. */
   --incognito: #a200ff83;
   --incognito-fg: #fae3ff;
   --incognito-muted: #f6e4ffa6;
@@ -1664,31 +1664,6 @@ body[data-resizing] .xterm {
 
 .animate-in {
   animation: bettershape-fade-in var(--spring-quick-dur) var(--spring-quick) both;
-}
-
-@keyframes bettershape-orb-breathe {
-  0%,
-  100% {
-    transform: translateX(-50%) scale(1);
-    opacity: 0.42;
-  }
-  50% {
-    transform: translateX(-50%) scale(1.18);
-    opacity: 0.72;
-  }
-}
-
-.onboard-orb {
-  position: absolute;
-  left: 50%;
-  bottom: -38%;
-  width: min(92vw, 720px);
-  height: min(92vw, 720px);
-  border-radius: 9999px;
-  pointer-events: none;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 85%, white) 0%, transparent 68%);
-  filter: blur(72px);
-  animation: bettershape-orb-breathe 5.2s ease-in-out infinite;
 }
 
 /* Smooth editor scrolling (textarea + synced overlays) */

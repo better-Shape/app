@@ -73,7 +73,7 @@ const SEMANTIC = /^(accent|error|success|warning|info|danger|destructive)/;
  * and every entry is keyed by file so that a new use in a new file fails this test.
  */
 const EXEMPT: Record<string, string> = {
-    "app/welcome-screen.tsx :: text-primary": "inverted fill on the welcome surface, the page inverts rather than tints",
+    "app/welcome-screen.tsx :: surface-4": "welcome action tiles lift one surface step from surface-3, matching secondary buttons",
     "components/ui/scroll.tsx :: scrollbar-hover": "scrollbar thumb, not chrome",
     "components/ui/button.tsx :: surface-4": "secondary variant lifts to a raised surface, an elevation step rather than a state layer",
     "components/ui/button.tsx :: surface-2": "labels on a disabled button, which never take a pointer",

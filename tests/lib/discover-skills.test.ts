@@ -323,6 +323,156 @@ describe("discoverSkills", () => {
 
         await expect(discoverItems()).resolves.toHaveLength(1);
     });
+
+    it("deduplicates symlinked project skill roots (.claude/skills -> .agents/skills)", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.agents/skills/pdf/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills`]: `${PROJECT}/.agents/skills`,
+                },
+            },
+        );
+
+        const items = await discoverItems();
+        expect(items).toHaveLength(1);
+        expect(items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
+        expect(items[0].name).toBe("pdf-processing");
+    });
+
+    it("deduplicates symlinked individual skill subfolders across roots", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.claude/skills/pdf/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+                [`${PROJECT}/.agents/skills/release/SKILL.md`]: skillFile(
+                    "release-notes",
+                    "Draft release notes.",
+                    "Body.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.agents/skills/pdf`]: `${PROJECT}/.claude/skills/pdf`,
+                },
+            },
+        );
+
+        const items = await discoverItems();
+        expect(items.map((item) => item.relPath)).toEqual([
+            ".claude/skills/pdf/SKILL.md",
+            ".agents/skills/release/SKILL.md",
+        ]);
+    });
+
+    it("discovers symlinked skill subfolders pointing elsewhere inside the project and skips extensionless files", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.claude/skills/LICENSE`]: "MIT",
+                [`${PROJECT}/.claude/skills/Makefile`]: "all:",
+                [`${PROJECT}/shared/pdf-skill/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/pdf`]: `${PROJECT}/shared/pdf-skill`,
+                },
+            },
+        );
+
+        const items = await discoverItems();
+        expect(items).toHaveLength(1);
+        expect(items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
+        expect(items[0].rootPath).toBe(`${PROJECT}/shared/pdf-skill`);
+        const listedPaths = mocks.lsDir.mock.calls.map(([dir]) => dir);
+        expect(listedPaths).not.toContain(`${PROJECT}/.claude/skills/LICENSE`);
+        expect(listedPaths).not.toContain(`${PROJECT}/.claude/skills/Makefile`);
+    });
+
+    it("rejects POSIX sibling symlinks and relative parent-traversal symlinks escaping the project", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "/home/dev/DEMO/escape/SKILL.md": skillFile("escape", "Outside.", "Secret."),
+                "/home/dev/outside/leak/SKILL.md": skillFile("leak", "Outside.", "Secret."),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/escape`]: "/home/dev/DEMO/escape",
+                    [`${PROJECT}/.agents/skills/leak`]: "../../../outside/leak",
+                },
+            },
+        );
+
+        await expect(discoverItems()).resolves.toEqual([]);
+        expect(mocks.ensurePathWithin).toHaveBeenCalledWith(
+            `${PROJECT}/.agents/skills/leak`,
+            PROJECT,
+        );
+    });
+
+    it("rejects deep symlink chains (>8 hops) and supports root-level '/' confinement", async () => {
+        const symlinks: Record<string, string> = {};
+        for (let hop = 0; hop < 10; hop += 1) {
+            symlinks[`${PROJECT}/.claude/skills/hop-${hop}`] =
+                hop < 9 ? `${PROJECT}/.claude/skills/hop-${hop + 1}` : "/home/dev/outside/secret";
+        }
+        serveSkillFs(
+            mocks,
+            {
+                "/home/dev/outside/secret/SKILL.md": skillFile("secret", "Outside.", "Secret."),
+            },
+            { homeDir: HOME, symlinks },
+        );
+
+        await expect(discoverItems()).resolves.toEqual([]);
+        await expect(
+            mocks.ensurePathWithin(`${PROJECT}/.claude/skills/hop-0`, "/"),
+        ).resolves.toBe("/home/dev/outside/secret");
+    });
+
+    it("resolves Windows symlinked skill folders case-insensitively", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Users/Ada/Demo/Shared/Pdf-Skill/SKILL.md": skillFile(
+                    "pdf-win",
+                    "Windows skill.",
+                    "Steps.",
+                ),
+            },
+            {
+                homeDir: "C:/Users/Ada",
+                symlinks: {
+                    "C:/Users/Ada/Demo/.claude/skills/pdf": "C:/Users/Ada/Demo/Shared/Pdf-Skill",
+                },
+            },
+        );
+
+        mocks.getProjectPath.mockReturnValue("c:\\users\\ada\\demo");
+        const result = await discoverSkills();
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].name).toBe("pdf-win");
+    });
 });
 
 describe("reconcileImportedRow", () => {
