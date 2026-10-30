@@ -46,10 +46,15 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
         await gotoRoute(page, "/settings");
         await expectPreviewActive(page, "welcome");
 
-        for (const navLabel of ["Providers", "Editor", "Git", "Terminal"]) {
+        for (const navLabel of ["Providers", "Models", "Editor", "Git", "Terminal"]) {
             const navButton = page.locator("nav button", { hasText: navLabel }).first();
             if (await navButton.count()) {
                 await navButton.click();
+            }
+            if (navLabel === "Models") {
+                await expect(
+                    page.getByRole("button", { name: /^Auto-run mode\s+\S+/ }),
+                ).toBeVisible();
             }
             const axe = await new AxeBuilder({ page })
                 .withRules(["button-name"])
@@ -73,9 +78,19 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             await expectPreviewActive(page, "project");
             await expect(page.locator("#bettershape-workbench")).toBeVisible();
 
-            // Open Commit menu and click modified App.tsx to open SingleFileDiffEditor.
+            // Open Commit menu and navigate via keyboard ArrowDown + Enter to open SingleFileDiffEditor.
             await page.getByRole("button", { name: /^Commit\b/ }).click();
-            await page.locator("[data-radix-popper-content-wrapper]").getByRole("button", { name: /App\.tsx/ }).click();
+            const appMenuItem = page
+                .locator("[data-radix-popper-content-wrapper]")
+                .getByRole("menuitem", { name: /App\.tsx/ });
+            await expect(appMenuItem).toBeVisible();
+            for (let step = 0; step < 6; step += 1) {
+                const highlighted = await appMenuItem.getAttribute("data-highlighted");
+                if (highlighted !== null) break;
+                await page.keyboard.press("ArrowDown");
+            }
+            await expect(appMenuItem).toHaveAttribute("data-highlighted", "");
+            await page.keyboard.press("Enter");
 
             const discardBtn = page.locator("button.t-hold").first();
             await expect(discardBtn).toBeVisible();

@@ -21,11 +21,19 @@ import {
 import { cn } from "@/lib/utils";
 
 /** Parent directory portion of a path, rendered with the path's own separators. */
-const parentDir = (path: string): string => {
+export const parentDir = (path: string): string => {
     const normalized = path.replaceAll("\\", "/");
-    const idx = normalized.lastIndexOf("/");
-    if (idx <= 0) return path;
-    const parent = normalized.slice(0, idx);
+    if (normalized === "/" || /^[A-Za-z]:\/+$/.test(normalized)) return path;
+    let end = normalized.length;
+    while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;
+    const trimmed = normalized.slice(0, end);
+    const idx = trimmed.lastIndexOf("/");
+    if (idx < 0) return path;
+    if (idx === 0) return path.includes("\\") ? "\\" : "/";
+    const parent = trimmed.slice(0, idx);
+    if (/^[A-Za-z]:$/.test(parent)) {
+        return path.includes("\\") ? `${parent}\\` : `${parent}/`;
+    }
     return path.includes("\\") ? parent.replaceAll("/", "\\") : parent;
 };
 
@@ -95,7 +103,7 @@ const RecentProjectRow = ({
         <button
             type="button"
             onClick={() => onOpenProject(entry.path)}
-            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)]"
+            className="flex w-full items-baseline justify-between gap-4 rounded-md px-1 py-1.5 text-left text-sm transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--row-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-border-focus"
         >
             <span className="shrink-0 text-text-primary">{getRepoName(entry.path)}</span>
             <span className="min-w-0 truncate text-right text-text-muted">
@@ -130,7 +138,7 @@ const RecentProjects = ({
                         type="button"
                         aria-expanded={showAll}
                         aria-controls={overflowId}
-                        className="text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-secondary"
+                        className="rounded-sm px-1 text-sm text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
                         onClick={onToggleShowAll}
                     >
                         {showAll ? "Show less" : `View all (${recentFolders.length})`}

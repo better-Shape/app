@@ -17,6 +17,7 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 import { HoldButton } from "@/components/ui/hold-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
 export const ALL_CHANGES_TAB_ID = "__all_changes__";
@@ -173,13 +174,14 @@ function LazyFileDiff({
                 >
                     Open File
                 </Button>
-                <HoldButton
-                    size="icon"
-                    onConfirm={() => discard()}
-                    ariaLabel="Restore file"
-                    title="Hold to restore file"
-                    icon={<Icon icon={ArrowUndo20Regular} />}
-                />
+                <Tooltip content="Hold to restore file">
+                    <HoldButton
+                        size="icon"
+                        onConfirm={() => discard()}
+                        ariaLabel="Restore file"
+                        icon={<Icon icon={ArrowUndo20Regular} />}
+                    />
+                </Tooltip>
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
@@ -198,7 +200,6 @@ function LazyFileDiff({
                             size="xs"
                             onConfirm={() => discard()}
                             ariaLabel="Restore file"
-                            title="Hold to restore file"
                             label="Restore"
                             armedLabel="Confirm"
                             className="bg-surface-4 text-text-primary"

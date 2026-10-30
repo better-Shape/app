@@ -39,6 +39,27 @@ function createTabId() {
 }
 
 /** Exported for tests; the app uses the `terminalSessionStore` singleton. */
+const projectPathKey = (raw: string): string => {
+    const isWindows = raw.includes("\\") || /^[A-Za-z]:/.test(raw);
+    const forward = raw.replaceAll("\\", "/");
+    let end = forward.length;
+    while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
+    const trimmed = forward.slice(0, end);
+    return isWindows ? trimmed.toLowerCase() : trimmed;
+};
+
+const lookupByProjectPath = (
+    map: Record<string, string | null>,
+    cwd: string,
+): string | null => {
+    if (cwd in map) return map[cwd] ?? null;
+    const target = projectPathKey(cwd);
+    for (const [key, value] of Object.entries(map)) {
+        if (projectPathKey(key) === target) return value;
+    }
+    return null;
+};
+
 export class TerminalSessionStore {
     tabs: TerminalTab[] = [];
     activeProjectTabs: Record<string, string | null> = {};
@@ -113,15 +134,9 @@ export class TerminalSessionStore {
      */
     hasUnreadForProject(cwd: string | null | undefined): boolean {
         if (!cwd || this.unreadTabs.size === 0) return false;
-        const normalizePath = (raw: string): string => {
-            const forward = raw.replaceAll("\\", "/");
-            let end = forward.length;
-            while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
-            return forward.slice(0, end);
-        };
-        const norm = normalizePath(cwd);
+        const norm = projectPathKey(cwd);
         return this.tabs.some(
-            (tab) => this.unreadTabs.has(tab.id) && normalizePath(tab.cwd) === norm,
+            (tab) => this.unreadTabs.has(tab.id) && projectPathKey(tab.cwd) === norm,
         );
     }
 
@@ -134,8 +149,8 @@ export class TerminalSessionStore {
         const ids = new Set<string>();
         const cwd = this.panel.cwd;
         if (!this.panel.visible || !cwd) return ids;
-        const project = this.activeProjectTabs[cwd];
-        const secondary = this.activeSecondaryTabs[cwd];
+        const project = lookupByProjectPath(this.activeProjectTabs, cwd);
+        const secondary = lookupByProjectPath(this.activeSecondaryTabs, cwd);
         if (project) ids.add(project);
         if (secondary) ids.add(secondary);
         return ids;

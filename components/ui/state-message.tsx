@@ -1,5 +1,6 @@
 "use client";
 
+import { ErrorCircle20Regular } from "@fluentui/react-icons/headless/svg/error-circle";
 import * as React from "react";
 import { Button } from "./button";
 import { Icon, type IconGlyph } from "./icon";
@@ -33,29 +34,36 @@ export const PanelStateMessage = ({
     actionLabel,
     onAction,
     actionDisabled = false,
-}: PanelStateMessageProps) => (
-    <div className="flex flex-col items-start gap-1.5 px-3 py-4">
-        <p className="flex items-center gap-1.5 text-sm text-text-primary">
-            {icon ? (
-                <Icon
-                    icon={icon}
-                    className={cn("shrink-0", tone === "error" ? "text-error" : "text-text-muted")}
-                />
+}: PanelStateMessageProps) => {
+    const resolvedIcon = icon ?? (tone === "error" ? ErrorCircle20Regular : undefined);
+
+    return (
+        <div
+            role={tone === "error" ? "alert" : undefined}
+            className="flex flex-col items-start gap-1.5 px-3 py-4"
+        >
+            <p className="flex items-center gap-1.5 text-sm text-text-primary">
+                {resolvedIcon ? (
+                    <Icon
+                        icon={resolvedIcon}
+                        className={cn("shrink-0", tone === "error" ? "text-error" : "text-text-muted")}
+                    />
+                ) : null}
+                <span>{title}</span>
+            </p>
+            {detail ? <p className="text-xs leading-relaxed text-text-muted">{detail}</p> : null}
+            {actionLabel && onAction ? (
+                <Button
+                    type="button"
+                    variant="secondary"
+                    size="xs"
+                    onClick={onAction}
+                    disabled={actionDisabled}
+                    className="mt-1"
+                >
+                    {actionLabel}
+                </Button>
             ) : null}
-            <span>{title}</span>
-        </p>
-        {detail ? <p className="text-xs leading-relaxed text-text-muted">{detail}</p> : null}
-        {actionLabel && onAction ? (
-            <Button
-                type="button"
-                variant="secondary"
-                size="xs"
-                onClick={onAction}
-                disabled={actionDisabled}
-                className="mt-1"
-            >
-                {actionLabel}
-            </Button>
-        ) : null}
-    </div>
-);
+        </div>
+    );
+};

@@ -3,8 +3,55 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SettingCard, SettingRow, SettingSelect, SettingSwitch } from "@/features/settings/ui/shared/controls";
-import { WelcomeScreen } from "@/app/welcome-screen";
+import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
+import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
+import { getSettings, updateSettingSection } from "@/lib/settings";
+import { defaultProvidersSettings } from "@/lib/ai/providers";
+
+vi.mock("@tauri-apps/api/event", () => ({
+    listen: vi.fn(async () => () => {}),
+}));
+
+vi.mock("@/lib/catalog/store", () => ({
+    useBetterShapeCatalog: () => undefined,
+    getCatalogDefaultEnabledIds: () => [],
+    getCatalogModels: () => [
+        {
+            id: "auto",
+            name: "Auto",
+            description: "Automatic routing",
+            provider: "Auto",
+            inputCost: 0,
+            cachedInputCost: 0,
+            outputCost: 0,
+            contextWindow: "200K",
+            releaseDate: "Rolling",
+        },
+        {
+            id: "openai/gpt-4o",
+            name: "GPT-4o",
+            description: "OpenAI flagship",
+            provider: "OpenAI",
+            inputCost: 0,
+            cachedInputCost: 0,
+            outputCost: 0,
+            contextWindow: "128K",
+            releaseDate: "Rolling",
+        },
+        {
+            id: "anthropic/claude-sonnet-4.6",
+            name: "Claude Sonnet 4.6",
+            description: "Anthropic balanced",
+            provider: "Anthropic",
+            inputCost: 0,
+            cachedInputCost: 0,
+            outputCost: 0,
+            contextWindow: "200K",
+            releaseDate: "Rolling",
+        },
+    ],
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -33,7 +80,7 @@ const findButton = (text: string): HTMLButtonElement => {
 };
 
 describe("Settings row accessible labelling", () => {
-    it("wires SettingRow title and description IDs onto SettingSwitch and SettingSelect", () => {
+    it("wires SettingRow title, description, and selected value IDs onto SettingSwitch and SettingSelect", () => {
         render(
             <SettingCard>
                 <SettingRow title="Minimap" description="Show a miniature overview beside the editor.">
@@ -66,13 +113,62 @@ describe("Settings row accessible labelling", () => {
         );
 
         const selectTrigger = findButton("On");
-        const selectLabelId = selectTrigger.getAttribute("aria-labelledby") ?? "";
-        expect(selectLabelId.length).toBeGreaterThan(0);
-        expect(document.getElementById(selectLabelId)?.textContent).toBe("Word wrap");
+        const selectLabelIds = (selectTrigger.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .filter(Boolean);
+        expect(selectLabelIds).toHaveLength(2);
+        const announced = selectLabelIds
+            .map((id) => document.getElementById(id)?.textContent)
+            .join(" ");
+        expect(announced).toBe("Word wrap On");
+    });
+
+    it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {
+        updateSettingSection("ai", {
+            providers: defaultProvidersSettings(),
+            enabledModels: [],
+        });
+
+        const rerenderModels = () => {
+            render(<AiSettingsPanel settings={getSettings()} page="models" />);
+        };
+        rerenderModels();
+
+        const getModelSwitch = (label: string) => {
+            const match = container.querySelector(`button[role="switch"][aria-label="${label}"]`);
+            if (!(match instanceof HTMLButtonElement)) {
+                throw new Error(`Missing switch for ${label}`);
+            }
+            return match;
+        };
+
+        // Auto is always active and locked on.
+        expect(getModelSwitch("Auto").disabled).toBe(true);
+        expect(getModelSwitch("GPT-4o").disabled).toBe(false);
+        expect(getModelSwitch("Claude Sonnet 4.6").disabled).toBe(false);
+
+        // Turn off Claude Sonnet 4.6 -> GPT-4o becomes the sole enabled concrete model.
+        act(() => {
+            getModelSwitch("Claude Sonnet 4.6").click();
+        });
+        rerenderModels();
+
+        expect(getSettings().ai.enabledModels).toEqual(["auto", "openai/gpt-4o"]);
+        expect(getModelSwitch("Claude Sonnet 4.6").getAttribute("aria-checked")).toBe("false");
+        expect(getModelSwitch("GPT-4o").getAttribute("aria-checked")).toBe("true");
+        expect(getModelSwitch("GPT-4o").disabled).toBe(true);
     });
 });
 
-describe("WelcomeScreen surface polish and RecentProjects Collapse", () => {
+describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects Collapse", () => {
+    it("formats Windows drive roots and POSIX roots accurately in parentDir", () => {
+        expect(parentDir("C:\\repo")).toBe("C:\\");
+        expect(parentDir("C:/repo")).toBe("C:/");
+        expect(parentDir("C:\\Users\\ada\\repo\\")).toBe("C:\\Users\\ada");
+        expect(parentDir("/repo")).toBe("/");
+        expect(parentDir("/Users/ada/repo/")).toBe("/Users/ada");
+    });
+
     it("uses +1 surface step hover without light-fill inversion and reveals overflow projects via Collapse", () => {
         const folders = Array.from({ length: 7 }, (_, idx) => ({
             path: `/Users/dev/work/project-${idx + 1}`,
@@ -109,8 +205,8 @@ describe("WelcomeScreen surface polish and RecentProjects Collapse", () => {
     });
 });
 
-describe("PanelStateMessage recovery affordance", () => {
-    it("renders recovery button and dispatches workspace files tab navigation", () => {
+describe("PanelStateMessage recovery affordance and error semantics", () => {
+    it("renders recovery button, dispatches workspace files tab navigation, and exposes alert role on errors", () => {
         const events: string[] = [];
         const onTab = (event: Event) => {
             events.push(String((event as CustomEvent).detail));
@@ -120,8 +216,9 @@ describe("PanelStateMessage recovery affordance", () => {
             const onRetry = vi.fn();
             render(
                 <PanelStateMessage
-                    title="Nothing to lint"
-                    detail="Open a TypeScript or JavaScript file first."
+                    title="ESLint did not run"
+                    detail="Configuration failed to load."
+                    tone="error"
                     actionLabel="Browse files"
                     onAction={() => {
                         onRetry();
@@ -129,6 +226,9 @@ describe("PanelStateMessage recovery affordance", () => {
                     }}
                 />,
             );
+            expect(container.querySelector('[role="alert"]')).not.toBeNull();
+            expect(container.querySelector("svg")).not.toBeNull();
+
             const btn = findButton("Browse files");
             act(() => {
                 btn.click();

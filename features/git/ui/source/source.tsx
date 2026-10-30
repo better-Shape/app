@@ -1714,7 +1714,8 @@ const RemoteRow = ({
     // Copying a remote URL used to give no sign at all that anything happened. The
     // button now holds its own confirmation: green glyph, "Copied" tooltip, and the
     // toast only fires once the write has landed.
-    const { copied, copy } = useCopyToClipboard({ silent: true, resetMs: 1200 });
+    const { copied, copiedText, copy } = useCopyToClipboard({ silent: true, resetMs: 1200 });
+    const urlCopied = Boolean(remote.url) && copied && copiedText === remote.url;
 
     return (
     <div key={remote.name} className="rounded-lg border border-border-subtle bg-panel-secondary p-2">
@@ -1740,12 +1741,12 @@ const RemoteRow = ({
                 <div className="flex gap-1 shrink-0">
                     <RemoteActionButton content="Edit URL" label="Edit URL" icon={Edit20Regular} onClick={() => setEditingRemote(remote)} />
                     <RemoteActionButton
-                        content={copied ? "Copied" : "Copy URL"}
-                        label={copied ? "Copied" : "Copy URL"}
+                        content={urlCopied ? "Copied" : "Copy URL"}
+                        label={urlCopied ? "Copied" : "Copy URL"}
                         icon={Clipboard20Regular}
                         onClick={() => copy(remote.url, "Remote URL copied")}
-                        className={cn("h-6 w-6", copied && "text-success")}
-                        copied={copied}
+                        className={cn("h-6 w-6", urlCopied && "text-success")}
+                        copied={urlCopied}
                     />
                     <RemoteActionButton content="Remove" label="Remove remote" icon={Delete20Filled} onClick={() => handleRemoveRemote(remote.name)} className="h-6 w-6 text-error" />
                 </div>

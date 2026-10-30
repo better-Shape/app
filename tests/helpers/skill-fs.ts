@@ -84,7 +84,8 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             const [name, ...tail] = rest.split("/");
             if (names.has(name)) continue;
             names.add(name);
-            const isDir = tail.length > 0 || links.has(`${requestedPrefix}${name}`) || directories.has(`${prefix}${name}`);
+            const targetEntry = canonicalize(`${requestedPrefix}${name}`);
+            const isDir = tail.length > 0 || directories.has(targetEntry);
             entries.push({ name, path: `${requestedPrefix}${name}`, is_dir: isDir });
         }
         return entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -98,9 +99,12 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
 
     mocks.readFileFromDisk.mockImplementation(read);
 
+    const pathCompareKey = (canonical: string): string =>
+        /^[A-Za-z]:/.test(canonical) ? canonical.toLowerCase() : canonical;
+
     const inside = (child: string, parent: string) => {
-        const file = canonicalize(child).toLowerCase();
-        const root = canonicalize(parent).toLowerCase();
+        const file = pathCompareKey(canonicalize(child));
+        const root = pathCompareKey(canonicalize(parent));
         return file === root || file.startsWith(`${root}/`);
     };
 

@@ -194,4 +194,117 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).toHaveBeenCalledTimes(1);
     });
+
+    it("cancels touch hold when pointer drags outside button bounds under implicit pointer capture", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                holdMs={600}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 20,
+            top: 10,
+            right: 100,
+            bottom: 38,
+            width: 80,
+            height: 28,
+            x: 20,
+            y: 10,
+            toJSON: () => ({}),
+        });
+
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 7,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("holding");
+
+        // Drag finger outside bounds without firing pointerleave (implicit touch capture).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 7,
+                    clientX: 145,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(700);
+        });
+
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("aborts in-flight hold and armed timers when disabled becomes true", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={500}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+            vi.advanceTimersByTime(250);
+        });
+        expect(btn.dataset.state).toBe("holding");
+
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={500}
+                disabled
+                onConfirm={onConfirm}
+            />,
+        );
+        act(() => {
+            vi.advanceTimersByTime(500);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("clears click suppression on pointercancel so the next assistive click arms cleanly", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Restore file"
+                label="Restore"
+                armedLabel="Confirm"
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 3 }));
+            btn.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 3 }));
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        act(() => {
+            btn.click();
+        });
+        expect(btn.dataset.state).toBe("armed");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
 });

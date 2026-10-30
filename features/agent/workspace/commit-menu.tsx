@@ -470,6 +470,38 @@ const CommitTriggerButton = ({
     </DropdownMenuTrigger>
 );
 
+/** Moves focus from the single-line commit input into the first enabled menu item on `ArrowDown`. */
+const focusFirstCommitMenuItem = (input: HTMLInputElement): void => {
+    const menu = input.closest("[data-radix-menu-content]");
+    const firstItem = menu?.querySelector<HTMLElement>(
+        "[data-radix-collection-item]:not([data-disabled])",
+    );
+    firstItem?.focus();
+};
+
+/** Handles `Escape`, `ArrowDown`, `Cmd/Ctrl+Enter`, and `Shift+Enter` inside the commit title input. */
+const handleCommitTitleKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    onCommitAll: () => void,
+    setDescriptionOpen: (next: boolean) => void,
+): void => {
+    if (event.key === "Escape") return;
+    event.stopPropagation();
+    if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusFirstCommitMenuItem(event.currentTarget);
+        return;
+    }
+    if (event.key !== "Enter") return;
+    if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        onCommitAll();
+    } else if (event.shiftKey) {
+        event.preventDefault();
+        setDescriptionOpen(true);
+    }
+};
+
 /** Renders the framed commit message + optional description box inside `CommitMenu`. */
 const CommitMessageComposer = ({
     title,
@@ -502,17 +534,9 @@ const CommitMessageComposer = ({
                 className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
                 disabled={busy}
                 onChange={(event) => setTitle(event.target.value)}
-                onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key !== "Enter") return;
-                    if (event.ctrlKey || event.metaKey) {
-                        event.preventDefault();
-                        onCommitAll();
-                    } else if (event.shiftKey) {
-                        event.preventDefault();
-                        setDescriptionOpen(true);
-                    }
-                }}
+                onKeyDown={(event) =>
+                    handleCommitTitleKeyDown(event, onCommitAll, setDescriptionOpen)
+                }
             />
             <GenerateStarButton
                 placement="inline"
@@ -715,17 +739,16 @@ const CommitChangesList = ({
                     const folder = parentFolder(file.path);
                     const tone = GIT_STATUS_TONES[letter] ?? "text-warning";
                     return (
-                        <button
+                        <DropdownMenuItem
                             key={`${file.path}-${file.staged}`}
-                            type="button"
-                            onClick={() => onSelectFile(file)}
-                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-sm transition-colors hover:bg-row-hover focus-visible:bg-row-hover focus-visible:outline-none"
+                            onSelect={() => onSelectFile(file)}
+                            className="flex w-full items-center gap-2 px-2 py-1 text-left text-sm"
                         >
                             <FileIcon name={fileName(file.path)} className="size-4 shrink-0" />
                             <span className="min-w-0 flex-1 truncate text-text-primary">{fileName(file.path)}</span>
                             {folder ? <span className="shrink-0 text-sm text-text-muted">{folder}</span> : null}
                             <span className={cn("w-4 shrink-0 text-center text-sm", tone)}>{letter}</span>
-                        </button>
+                        </DropdownMenuItem>
                     );
                 })
             )}

@@ -232,6 +232,9 @@ export function SettingSelect<T extends string>({
 }) {
     const label = options.find((o) => o.value === value)?.label ?? value;
     const rowLabels = React.useContext(SettingRowLabelContext);
+    const valueId = React.useId();
+    const labelledBy =
+        !ariaLabel && rowLabels?.titleId ? `${rowLabels.titleId} ${valueId}` : undefined;
 
     return (
         <DropdownMenu>
@@ -241,11 +244,11 @@ export function SettingSelect<T extends string>({
                     size="sm"
                     disabled={disabled}
                     aria-label={ariaLabel}
-                    aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                    aria-labelledby={labelledBy}
                     aria-describedby={rowLabels?.descriptionId}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
-                    <span className="truncate">{label}</span>
+                    <span id={valueId} className="truncate">{label}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
                 </Button>
             </DropdownMenuTrigger>

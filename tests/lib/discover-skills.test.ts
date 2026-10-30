@@ -377,6 +377,57 @@ describe("discoverSkills", () => {
             ".agents/skills/release/SKILL.md",
         ]);
     });
+
+    it("discovers symlinked skill subfolders pointing elsewhere inside the project even when lstat reports non-dir", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/shared/pdf-skill/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/pdf`]: `${PROJECT}/shared/pdf-skill`,
+                },
+            },
+        );
+        const baseLs = mocks.lsDir.getMockImplementation()!;
+        mocks.lsDir.mockImplementation(async (dir: string) => {
+            const entries = await baseLs(dir);
+            if (dir === `${PROJECT}/.claude/skills`) {
+                return entries.map((entry: { name: string; path: string; is_dir: boolean }) =>
+                    entry.name === "pdf" ? { ...entry, is_dir: false } : entry,
+                );
+            }
+            return entries;
+        });
+
+        const items = await discoverItems();
+        expect(items).toHaveLength(1);
+        expect(items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
+        expect(items[0].rootPath).toBe(`${PROJECT}/shared/pdf-skill`);
+    });
+
+    it("rejects POSIX sibling symlinks that differ only by directory case", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "/home/dev/DEMO/escape/SKILL.md": skillFile("escape", "Outside.", "Secret."),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/escape`]: "/home/dev/DEMO/escape",
+                },
+            },
+        );
+
+        await expect(discoverItems()).resolves.toEqual([]);
+    });
 });
 
 describe("reconcileImportedRow", () => {

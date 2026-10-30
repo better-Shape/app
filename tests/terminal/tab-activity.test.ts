@@ -176,4 +176,23 @@ describe("terminal tab activity", () => {
         terminalSessionStore.setActive("/repo", "b");
         expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(false);
     });
+
+    it("matches Windows project paths case-insensitively while keeping POSIX paths case-sensitive", () => {
+        terminalSessionStore.setTabs(() => [
+            { ...tab("win", 11), cwd: "C:\\Users\\Ada\\Repo" },
+            { ...tab("posix", 12), cwd: "/home/ada/Repo" },
+        ]);
+        terminalSessionStore.setActive("C:\\Users\\Ada\\Repo", "win");
+        terminalSessionStore.setPanel({ visible: false, cwd: "c:\\users\\ada\\repo" });
+
+        terminalSessionStore.noteOutput(11);
+        terminalSessionStore.noteOutput(12);
+
+        expect(terminalSessionStore.hasUnreadForProject("c:\\users\\ada\\repo\\")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/home/ada/Repo")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/home/ada/repo")).toBe(false);
+
+        terminalSessionStore.setPanel({ visible: true, cwd: "c:/users/ada/repo" });
+        expect(terminalSessionStore.unreadTabs.has("win")).toBe(false);
+    });
 });

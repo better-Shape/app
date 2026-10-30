@@ -777,7 +777,7 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     return;
                 }
                 if (!conversationId ? viewingIdRef.current === null : viewingIdRef.current === conversationId) {
-                    if (streamFlushDirtyRef.current && current) {
+                    if (streamFlushDirtyRef.current) {
                         messagesRef.current = current.messages;
                         setMessages(current.messages);
                     }

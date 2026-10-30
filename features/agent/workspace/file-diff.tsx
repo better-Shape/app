@@ -9,6 +9,7 @@ import { commands, type GitFileParams } from "@/lib/backend";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Icon } from "@/components/ui/icon";
 import { HoldButton } from "@/components/ui/hold-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
@@ -183,13 +184,14 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         >
                             {tab.staged ? "Unstage" : "Stage"}
                         </button>
-                        <HoldButton
-                            size="icon"
-                            onConfirm={() => discard()}
-                            ariaLabel="Discard changes"
-                            title="Hold to discard changes"
-                            icon={<Icon icon={ArrowUndo20Regular} />}
-                        />
+                        <Tooltip content="Hold to discard changes">
+                            <HoldButton
+                                size="icon"
+                                onConfirm={() => discard()}
+                                ariaLabel="Discard changes"
+                                icon={<Icon icon={ArrowUndo20Regular} />}
+                            />
+                        </Tooltip>
                     </>
                 ) : null}
                 <button

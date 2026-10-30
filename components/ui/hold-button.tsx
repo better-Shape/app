@@ -18,13 +18,13 @@ export interface HoldButtonProps {
     size?: "icon" | "xs" | "sm";
     disabled?: boolean;
     className?: string;
-    title?: string;
 }
 
 const DEFAULT_HOLD_MS = 1100;
 const QUICK_TAP_MAX_MS = 240;
 const ARMED_TIMEOUT_MS = 3600;
 const CONFIRMED_RESET_MS = 1200;
+const CLICK_GUARD_RESET_MS = 64;
 
 const isActivationKey = (key: string): boolean => key === " " || key === "Enter";
 
@@ -46,7 +46,39 @@ const resolveFaceText = (
     return label;
 };
 
-/** Renders one visual layer (base or clipped destructive fill) so text and icon invert seamlessly. */
+const resolveAriaLabel = (
+    state: HoldButtonState,
+    ariaLabel: string,
+    armedAriaLabel?: string,
+): string => {
+    if (state === "armed") return armedAriaLabel ?? `${ariaLabel} (press again to confirm)`;
+    if (state === "confirmed") return `${ariaLabel} confirmed`;
+    return ariaLabel;
+};
+
+const isPointerInsideTarget = (event: React.PointerEvent<HTMLButtonElement>): boolean => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+    );
+};
+
+const releaseImplicitPointerCapture = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element) || typeof target.releasePointerCapture !== "function") return;
+    try {
+        if (typeof target.hasPointerCapture !== "function" || target.hasPointerCapture(event.pointerId)) {
+            target.releasePointerCapture(event.pointerId);
+        }
+    } catch {
+        // Synthetic pointer events in unit tests do not register active browser capture ids.
+    }
+};
+
+/** Renders one visual layer (base or clipped destructive fill) so text and icon invert together. */
 const HoldButtonFace = ({
     state,
     icon,
@@ -65,27 +97,28 @@ const HoldButtonFace = ({
 type HoldTimers = {
     hold: number | null;
     reset: number | null;
+    clickGuard: number | null;
 };
 
-const clearHoldTimer = (timers: HoldTimers) => {
-    if (timers.hold !== null) {
-        window.clearTimeout(timers.hold);
-        timers.hold = null;
+const clearTimerSlot = (timers: HoldTimers, key: keyof HoldTimers) => {
+    const id = timers[key];
+    if (id !== null) {
+        window.clearTimeout(id);
+        timers[key] = null;
     }
 };
 
-const clearResetTimer = (timers: HoldTimers) => {
-    if (timers.reset !== null) {
-        window.clearTimeout(timers.reset);
-        timers.reset = null;
-    }
+const clearAllTimers = (timers: HoldTimers) => {
+    clearTimerSlot(timers, "hold");
+    clearTimerSlot(timers, "reset");
+    clearTimerSlot(timers, "clickGuard");
 };
 
 /**
  * Owns the hold-to-confirm state machine:
  * - Continuous press (`pointerdown` or `Enter`/`Space` held for `holdMs`) charges `.t-hold__fill`
  *   linearly on the compositor and fires `onConfirm` on completion.
- * - Releasing after >= 240ms aborts and snaps `.t-hold__fill` back over `200ms var(--ease-out)`.
+ * - Releasing after >= 240ms or dragging outside bounds aborts and snaps `.t-hold__fill` back.
  * - Quick tap (< 240ms) or assistive-tech `.click()` enters `armed` so keyboard, switch-access,
  *   and motor-impaired users can confirm with a second non-timed press (WCAG 2.2.1 & 2.5.2).
  */
@@ -97,9 +130,11 @@ const useHoldState = (
     const [state, setState] = React.useState<HoldButtonState>("idle");
     const stateRef = React.useRef<HoldButtonState>("idle");
     const onConfirmRef = React.useRef(onConfirm);
-    const timersRef = React.useRef<HoldTimers>({ hold: null, reset: null });
+    const disabledRef = React.useRef(disabled);
+    const timersRef = React.useRef<HoldTimers>({ hold: null, reset: null, clickGuard: null });
     const startedAtRef = React.useRef(0);
     const sourceRef = React.useRef<"pointer" | "keyboard" | null>(null);
+    const activePointerIdRef = React.useRef<number | null>(null);
     const suppressClickRef = React.useRef(false);
 
     React.useEffect(() => {
@@ -111,36 +146,56 @@ const useHoldState = (
         setState(next);
     }, []);
 
-    const abortToIdle = React.useCallback(() => {
-        clearHoldTimer(timersRef.current);
-        clearResetTimer(timersRef.current);
+    const scheduleClickGuardClear = React.useCallback(() => {
+        clearTimerSlot(timersRef.current, "clickGuard");
+        timersRef.current.clickGuard = window.setTimeout(() => {
+            timersRef.current.clickGuard = null;
+            suppressClickRef.current = false;
+        }, CLICK_GUARD_RESET_MS);
+    }, []);
+
+    const cancelHold = React.useCallback(() => {
+        clearAllTimers(timersRef.current);
         sourceRef.current = null;
+        activePointerIdRef.current = null;
         startedAtRef.current = 0;
+        suppressClickRef.current = false;
         writeState("idle");
     }, [writeState]);
 
-    React.useEffect(() => () => {
-        clearHoldTimer(timersRef.current);
-        clearResetTimer(timersRef.current);
-    }, []);
+    React.useEffect(() => {
+        disabledRef.current = disabled;
+        if (disabled && stateRef.current !== "idle") {
+            cancelHold();
+        }
+    }, [disabled, cancelHold]);
+
+    React.useEffect(() => () => clearAllTimers(timersRef.current), []);
 
     const fireConfirm = React.useCallback(() => {
-        clearHoldTimer(timersRef.current);
-        clearResetTimer(timersRef.current);
+        if (disabledRef.current) {
+            cancelHold();
+            return;
+        }
+        clearTimerSlot(timersRef.current, "hold");
+        clearTimerSlot(timersRef.current, "reset");
         sourceRef.current = null;
+        activePointerIdRef.current = null;
         startedAtRef.current = 0;
+        scheduleClickGuardClear();
         writeState("confirmed");
         void onConfirmRef.current();
         timersRef.current.reset = window.setTimeout(() => {
             timersRef.current.reset = null;
             writeState("idle");
         }, CONFIRMED_RESET_MS);
-    }, [writeState]);
+    }, [cancelHold, scheduleClickGuardClear, writeState]);
 
     const enterArmed = React.useCallback(() => {
-        clearHoldTimer(timersRef.current);
-        clearResetTimer(timersRef.current);
+        clearTimerSlot(timersRef.current, "hold");
+        clearTimerSlot(timersRef.current, "reset");
         sourceRef.current = null;
+        activePointerIdRef.current = null;
         writeState("armed");
         timersRef.current.reset = window.setTimeout(() => {
             timersRef.current.reset = null;
@@ -149,54 +204,100 @@ const useHoldState = (
     }, [writeState]);
 
     const beginPress = React.useCallback(
-        (source: "pointer" | "keyboard") => {
-            if (disabled || stateRef.current === "confirmed") return;
+        (source: "pointer" | "keyboard", pointerId: number | null = null) => {
+            if (disabledRef.current || stateRef.current === "confirmed") return;
+            if (source === "pointer" && activePointerIdRef.current !== null && activePointerIdRef.current !== pointerId) {
+                return;
+            }
+            clearTimerSlot(timersRef.current, "clickGuard");
             suppressClickRef.current = true;
             if (stateRef.current === "armed") {
                 fireConfirm();
                 return;
             }
-            clearHoldTimer(timersRef.current);
-            clearResetTimer(timersRef.current);
+            clearTimerSlot(timersRef.current, "hold");
+            clearTimerSlot(timersRef.current, "reset");
             sourceRef.current = source;
+            activePointerIdRef.current = pointerId;
             startedAtRef.current = performance.now();
             writeState("holding");
             timersRef.current.hold = window.setTimeout(fireConfirm, holdMs);
         },
-        [disabled, fireConfirm, holdMs, writeState],
+        [fireConfirm, holdMs, writeState],
     );
 
-    const releasePress = React.useCallback(() => {
-        if (stateRef.current !== "holding") return;
-        const elapsed = performance.now() - startedAtRef.current;
-        if (elapsed < QUICK_TAP_MAX_MS) {
-            enterArmed();
-            return;
-        }
-        abortToIdle();
-    }, [abortToIdle, enterArmed]);
+    const releasePress = React.useCallback(
+        (pointerId: number | null = null) => {
+            if (pointerId !== null && activePointerIdRef.current !== null && pointerId !== activePointerIdRef.current) {
+                return;
+            }
+            activePointerIdRef.current = null;
+            scheduleClickGuardClear();
+            if (stateRef.current !== "holding") return;
+            const elapsed = performance.now() - startedAtRef.current;
+            if (elapsed < QUICK_TAP_MAX_MS) {
+                enterArmed();
+                return;
+            }
+            clearTimerSlot(timersRef.current, "hold");
+            clearTimerSlot(timersRef.current, "reset");
+            sourceRef.current = null;
+            startedAtRef.current = 0;
+            writeState("idle");
+        },
+        [enterArmed, scheduleClickGuardClear, writeState],
+    );
+
+    const handlePointerMove = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (stateRef.current !== "holding" || sourceRef.current !== "pointer") return;
+            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
+            if (!isPointerInsideTarget(event)) cancelHold();
+        },
+        [cancelHold],
+    );
 
     const handleBlur = React.useCallback(() => {
         // WebKit does not focus buttons on pointerdown, so ignore synthetic blur during pointer holds.
         if (sourceRef.current === "pointer" && stateRef.current === "holding") return;
-        if (stateRef.current === "holding" || stateRef.current === "armed") abortToIdle();
-    }, [abortToIdle]);
+        if (stateRef.current === "holding" || stateRef.current === "armed") cancelHold();
+    }, [cancelHold]);
 
     const handleClick = React.useCallback(() => {
         if (suppressClickRef.current) {
+            clearTimerSlot(timersRef.current, "clickGuard");
             suppressClickRef.current = false;
             return;
         }
-        if (disabled || stateRef.current === "confirmed") return;
+        if (disabledRef.current || stateRef.current === "confirmed") return;
         if (stateRef.current === "armed") fireConfirm();
         else enterArmed();
-    }, [disabled, enterArmed, fireConfirm]);
+    }, [enterArmed, fireConfirm]);
+
+    const handlePointerLeave = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
+            if (stateRef.current === "holding") cancelHold();
+        },
+        [cancelHold],
+    );
+
+    const handlePointerCancel = React.useCallback(
+        (event: React.PointerEvent<HTMLButtonElement>) => {
+            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
+            cancelHold();
+        },
+        [cancelHold],
+    );
 
     return {
         state,
         beginPress,
         releasePress,
-        abortToIdle,
+        cancelHold,
+        handlePointerMove,
+        handlePointerLeave,
+        handlePointerCancel,
         handleBlur,
         handleClick,
     };
@@ -220,19 +321,24 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
             size = "xs",
             disabled = false,
             className,
-            title,
         },
         ref,
     ) => {
-        const { state, beginPress, releasePress, abortToIdle, handleBlur, handleClick } =
-            useHoldState(onConfirm, holdMs, disabled);
+        const {
+            state,
+            beginPress,
+            releasePress,
+            cancelHold,
+            handlePointerMove,
+            handlePointerLeave,
+            handlePointerCancel,
+            handleBlur,
+            handleClick,
+        } = useHoldState(onConfirm, holdMs, disabled);
 
-        const activeState = disabled && state !== "idle" ? "idle" : state;
+        const activeState = disabled ? "idle" : state;
         const faceText = resolveFaceText(activeState, label, armedLabel, confirmedLabel);
-        const computedAria =
-            activeState === "armed"
-                ? (armedAriaLabel ?? `${ariaLabel} (press again to confirm)`)
-                : ariaLabel;
+        const computedAria = resolveAriaLabel(activeState, ariaLabel, armedAriaLabel);
         const customHoldVar =
             holdMs !== DEFAULT_HOLD_MS
                 ? ({ "--hold-dur": `${holdMs}ms` } as React.CSSProperties)
@@ -245,22 +351,22 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
                 disabled={disabled}
                 data-state={activeState}
                 aria-label={computedAria}
-                title={activeState === "armed" ? "Press again to confirm" : (title ?? ariaLabel)}
                 style={customHoldVar}
                 onContextMenu={(event) => event.preventDefault()}
                 onPointerDown={(event) => {
-                    if (event.button === 0) beginPress("pointer");
+                    if (event.button !== 0) return;
+                    releaseImplicitPointerCapture(event);
+                    beginPress("pointer", event.pointerId);
                 }}
-                onPointerUp={releasePress}
-                onPointerLeave={() => {
-                    if (activeState === "holding") abortToIdle();
-                }}
-                onPointerCancel={abortToIdle}
+                onPointerMove={handlePointerMove}
+                onPointerUp={(event) => releasePress(event.pointerId)}
+                onPointerLeave={handlePointerLeave}
+                onPointerCancel={handlePointerCancel}
                 onKeyDown={(event) => {
                     if (event.key === "Escape" && activeState !== "idle") {
                         event.preventDefault();
                         event.stopPropagation();
-                        abortToIdle();
+                        cancelHold();
                         return;
                     }
                     if (!event.repeat && isActivationKey(event.key)) {

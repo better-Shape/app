@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GraphSvgRow } from "@/features/git/ui/graph/svg-row";
+import { detectFreshGraphArrival, type GraphHeadSnapshot } from "@/features/git/ui/graph/graph";
 import type { GraphNode } from "@/lib/backend";
 
 let container: HTMLDivElement;
@@ -68,5 +69,37 @@ describe("GraphSvgRow arrival stroke draw", () => {
         const staticLines = container.querySelectorAll("path.graph-line:not(.t-graph-line-draw)");
         expect(staticLines).toHaveLength(1);
         expect(container.querySelector("g.t-graph-node-arrive")).not.toBeNull();
+    });
+
+    it("animates only commits extending loaded history in the same cacheKey, not cache or branch switches", () => {
+        const prev: GraphHeadSnapshot = {
+            cacheKey: "/repo::head",
+            topHash: "aaa111",
+            known: new Set(["aaa111", "bbb222"]),
+        };
+
+        // Genuine new commit on top of aaa111 in the same cacheKey -> animates.
+        expect(
+            detectFreshGraphArrival(prev, "/repo::head", {
+                hash: "ccc333",
+                parents: ["aaa111"],
+            }),
+        ).toBe(true);
+
+        // Toggling showAllBranches switches cacheKey (/repo::all) -> never animates existing history.
+        expect(
+            detectFreshGraphArrival(prev, "/repo::all", {
+                hash: "ddd444",
+                parents: ["aaa111"],
+            }),
+        ).toBe(false);
+
+        // Switching to an unrelated branch tip whose parents are outside loaded history -> stays static.
+        expect(
+            detectFreshGraphArrival(prev, "/repo::head", {
+                hash: "eee555",
+                parents: ["zzz999"],
+            }),
+        ).toBe(false);
     });
 });

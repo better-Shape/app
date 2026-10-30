@@ -875,7 +875,6 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                     }
                                                     onConfirm={() => runAction("cancel")}
                                                     ariaLabel="Cancel workflow run"
-                                                    title="Hold to cancel workflow run"
                                                     label="Cancel run"
                                                     armedLabel="Confirm"
                                                     className="text-text-secondary"

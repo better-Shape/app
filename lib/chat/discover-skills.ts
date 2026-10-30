@@ -141,8 +141,14 @@ async function listSkillDirFiles(root: SkillRoot): Promise<SkillFile[]> {
         files.push({ fileName: SKILL_FILE_NAME, filePath: rootFile, folder: root.path });
     }
 
+    const isCandidateSubdir = (entry: { name: string; is_dir: boolean }) =>
+        entry.is_dir ||
+        (entry.name !== SKILL_FILE_NAME &&
+            !entry.name.startsWith(".") &&
+            !entry.name.includes("."));
+
     const dirs = entries
-        .filter((entry) => entry.is_dir)
+        .filter(isCandidateSubdir)
         .map((entry) => entry.name)
         .sort((a, b) => a.localeCompare(b));
 
@@ -177,6 +183,25 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
 function canonicalPathKey(path: string): string {
     const normalized = normalizeSkillPath(path);
     return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * Chooses the confinement root passed to `readFileWithin`. When a skill subfolder
+ * inside the project is a verified symlink to another project directory (such as
+ * `shared/pdf-skill`), confine reads to that resolved subfolder rather than the
+ * outer `.claude/skills` directory.
+ */
+function resolveSkillReadRoot(
+    rootPath: string,
+    canonicalRoot: string | null,
+    fileFolder: string,
+    canonicalFolder: string,
+): string {
+    if (fileFolder === rootPath || canonicalFolder === fileFolder) return rootPath;
+    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath);
+    const folderKey = canonicalPathKey(canonicalFolder);
+    if (folderKey === baseKey || folderKey.startsWith(`${baseKey}/`)) return rootPath;
+    return canonicalFolder;
 }
 
 /**
@@ -263,7 +288,9 @@ export async function discoverSkills(
         for (const file of files) {
             if (superseded()) return { projectPath, items: [] };
 
-            let canonicalFolder = canonicalRoot ?? file.folder;
+            let canonicalFolder = canonicalRoot !== null && file.folder === root.path
+                ? canonicalRoot
+                : file.folder;
             if (root.scope === "project" && projectPath && file.folder !== root.path) {
                 const resolvedSubdir = await resolveProjectCanonicalDir(file.folder, projectPath);
                 if (!resolvedSubdir) continue;
@@ -280,9 +307,16 @@ export async function discoverSkills(
             seenPaths.add(fileKey);
             if (isDismissed(dismissed, relPath)) continue;
 
+            const readRoot = resolveSkillReadRoot(
+                root.path,
+                canonicalRoot,
+                file.folder,
+                canonicalFolder,
+            );
+
             let raw: string;
             try {
-                raw = await commands.readFileWithin(file.filePath, root.path);
+                raw = await commands.readFileWithin(file.filePath, readRoot);
             } catch {
                 continue; // unreadable, or a symlink that leaves this root
             }
@@ -314,7 +348,7 @@ export async function discoverSkills(
                 body: parsed.body,
                 fileName: file.fileName,
                 folder: file.folder,
-                rootPath: root.path,
+                rootPath: readRoot,
                 relPath,
                 projectPath: projectPath ?? "",
                 scope: root.scope,

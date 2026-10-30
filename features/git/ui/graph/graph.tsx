@@ -54,36 +54,47 @@ import { GraphLoadingStatus } from "./graph-loading-status";
 
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
 
-type GraphHeadSnapshot = {
-    repo: string | null;
+export type GraphHeadSnapshot = {
+    cacheKey: string | null;
     topHash: string | null;
     known: Set<string>;
 };
 
-const isFreshArrival = (
+export const detectFreshGraphArrival = (
     prev: GraphHeadSnapshot,
-    repo: string | null,
-    topHash: string | null,
-): boolean =>
-    Boolean(repo && topHash && prev.repo === repo && prev.topHash && !prev.known.has(topHash));
+    cacheKey: string | null,
+    topCommit: Pick<GitLogEntry, "hash" | "parents"> | undefined,
+): boolean => {
+    if (!cacheKey || !topCommit || prev.cacheKey !== cacheKey || !prev.topHash) return false;
+    if (prev.known.has(topCommit.hash)) return false;
+    return topCommit.parents.some((parent) => prev.known.has(parent));
+};
 
 /**
- * Tracks a genuinely new head commit arriving in an already-loaded repository.
- * Clears after 520ms so virtualized scroll recycling never replays the stroke draw.
+ * Tracks a genuinely new head commit arriving in an already-loaded graph view.
+ * Keyed by `cacheKey` and verified against parent lineage so cache/branch switches
+ * and virtualized scroll recycling never replay the stroke draw on existing history.
  */
-const useArrivingCommitHash = (repo: string | null, gitLogs: GitLogEntry[]): string | null => {
-    const topHash = gitLogs[0]?.hash ?? null;
-    const [prev, setPrev] = useState<GraphHeadSnapshot>({ repo: null, topHash: null, known: new Set() });
+export const useArrivingCommitHash = (
+    cacheKey: string | null,
+    gitLogs: GitLogEntry[],
+): string | null => {
+    const topCommit = gitLogs[0];
+    const topHash = topCommit?.hash ?? null;
+    const [prev, setPrev] = useState<GraphHeadSnapshot>({
+        cacheKey: null,
+        topHash: null,
+        known: new Set(),
+    });
     const [arrivingHash, setArrivingHash] = useState<string | null>(null);
 
-    if (prev.repo !== repo || prev.topHash !== topHash) {
-        const fresh = isFreshArrival(prev, repo, topHash);
-        const nextKnown = prev.repo === repo ? new Set(prev.known) : new Set<string>();
-        const cap = Math.min(gitLogs.length, 200);
-        for (let index = 0; index < cap; index += 1) nextKnown.add(gitLogs[index].hash);
-        setPrev({ repo, topHash, known: nextKnown });
+    if (prev.cacheKey !== cacheKey || prev.topHash !== topHash) {
+        const fresh = detectFreshGraphArrival(prev, cacheKey, topCommit);
+        const nextKnown = prev.cacheKey === cacheKey ? new Set(prev.known) : new Set<string>();
+        for (const entry of gitLogs) nextKnown.add(entry.hash);
+        setPrev({ cacheKey, topHash, known: nextKnown });
         if (fresh) setArrivingHash(topHash);
-        else if (prev.repo !== repo && arrivingHash !== null) setArrivingHash(null);
+        else if (prev.cacheKey !== cacheKey && arrivingHash !== null) setArrivingHash(null);
     }
 
     useEffect(() => {
@@ -138,7 +149,7 @@ export default function Graph({
     const cached = cacheKey ? graphCache[cacheKey] : null;
 
     const [gitLogs, setGitLogs] = useState<GitLogEntry[]>(cached?.logs || []);
-    const arrivingHash = useArrivingCommitHash(gitRepo, gitLogs);
+    const arrivingHash = useArrivingCommitHash(cacheKey, gitLogs);
     const [expandedCommits, setExpandedCommits] = useState<Set<string>>(cached?.expanded || new Set());
     const [commitFilesCache, setCommitFilesCache] = useState<Record<string, GitFileParams[]>>(cached?.filesCache || {});
     const [commitFilesLoaded, setCommitFilesLoaded] = useState<Record<string, boolean>>({});
