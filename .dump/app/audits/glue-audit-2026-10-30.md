@@ -596,3 +596,38 @@ Settings → Git → Inline Git Blame, opens the README source and asserts the
 annotation is drawn and attributed to the fixture author
 (`.qa-artifacts/feature-wiring/inline-blame.png`). This is the first proof that
 the setting reaches a live editor rather than only a unit test.
+
+## Round 5 — the base moved, and the merge exposed a feature that was on screen but outside it
+
+`mega/absorb-all` advanced to `aeb992f` (PR #56: HoldButton, the shared
+`PanelStateMessage`, InlineDiff reset), which left this branch conflicting.
+Settled by hand:
+
+- `multi-diff.tsx` keeps this branch's request ordering, revision-keyed diff
+  cache and `AllChangesTab`, and takes the base's hold-to-restore control, the
+  floating stage/restore row and `discardGitFileChange`. The branch had been
+  calling `gitDiscardChanges` directly, which cannot unstage first or delete a
+  file git reports as added — the base helper is strictly more correct.
+- `problems/panel.tsx` takes `PanelStateMessage` and puts this branch's
+  "ESLint is off" state back on top of it. Without that branch the state the
+  model still produces fell through to the "ready" case and would have rendered
+  `state.groups` on an object that has none.
+- `collapsible.tsx` and `design/deploy.tsx` stay deleted; nothing in the merged
+  tree imports them. `md/diff.tsx` comes back from the base even though only
+  tests import it: the base had just hardened it, and erasing that in a merge
+  would bury work in progress. It is the third test-only module, on purpose.
+
+**Inline blame was drawn, not visible.** The annotation was an end-of-line
+span, and the editor only mounts in the workspace dock, where every fixture
+line is wider than the view — so the span sat past the right edge with the
+viewport scrolled to column 1. The probe had been asserting the DOM node, which
+is exactly the wrong assertion for a visibility bug. It is now a block row
+under the caret line, clamped to the content width, and mirrored into the
+status bar (`bettershape-editor-status` carries `blame`), which is the copy
+that is always on screen. The probe asserts the status segment carries the
+author and is inside the window; a unit test pins the published label to the
+caret line.
+
+Evidence after the merge: full `vitest run` **2822 tests green**, `lint:strict`
+and `typecheck` clean, probe green, contact sheet at
+`.qa-artifacts/feature-wiring/contact-sheet.png` read frame by frame.
