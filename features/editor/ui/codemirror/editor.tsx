@@ -283,6 +283,9 @@ export function CodeMirrorEditor({
                 publishBuffer(view);
             }, 250);
         };
+        // Set before the state is built: extensions read it while they are
+        // constructed (inline blame fetches for the path it sees).
+        pathRef.current = path;
         const state = EditorState.create({
             // CodeMirror splits the doc on the line separator, so a CRLF string
             // would otherwise seed one giant line. The doc holds `\n` breaks and

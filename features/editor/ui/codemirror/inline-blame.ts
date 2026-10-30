@@ -104,16 +104,16 @@ function blameLoader(getPath: () => string | null) {
                 const next = getPath();
                 this.path = next;
                 if (this.timer !== null) window.clearTimeout(this.timer);
-                this.timer = null;
-                if (!next) {
-                    this.view.dispatch({ effects: setBlameRegions.of([]) });
-                    return;
-                }
-                // Debounced: a tab switch can mount several editors at once.
+                // Debounced, and never synchronous: a plugin cannot dispatch
+                // while the view is being created or updated.
                 this.timer = window.setTimeout(() => void this.load(next), 150);
             }
 
-            private async load(path: string) {
+            private async load(path: string | null) {
+                if (!path) {
+                    if (!this.destroyed) this.view.dispatch({ effects: setBlameRegions.of([]) });
+                    return;
+                }
                 const project = getProjectPath();
                 if (!project) return;
                 try {
