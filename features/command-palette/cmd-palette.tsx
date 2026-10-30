@@ -35,8 +35,10 @@ import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
-import { useProjectState } from "@/lib/backend";
+import { commands, useProjectState } from "@/lib/backend";
 import { openSettingsWindow } from "@/lib/window/open-settings";
+import { editorActionImplemented } from "@/lib/editor/action-contract";
+import { symbolPaletteRows } from "@/features/command-palette/symbols";
 import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import {
@@ -69,6 +71,12 @@ interface EditorAction {
     muted?: boolean;
     /** Toggle archive for chat rows. */
     archive?: () => void;
+    /**
+     * The `bettershape-editor-action` id this row dispatches, when it is an
+     * editor command. Rows whose id has no handler are filtered out instead of
+     * promising an action nothing answers.
+     */
+    editorAction?: string;
 }
 
 type PaletteGroup = Pick<EditorAction, "id" | "label" | "section" | "model" | "meta"> & { group: true };
@@ -97,7 +105,8 @@ interface CommandPaletteOpenDetail {
 }
 
 function isBrowseMode(mode: string): boolean {
-    return !mode || mode === "files";
+    // `editor_symbols` browses a list the palette builds itself, like files does.
+    return !mode || mode === "files" || mode === "editor_symbols";
 }
 
 /** Format relative ago. */
@@ -601,6 +610,37 @@ export const CommandPalette = () => {
         ];
     }, [browse, activeFileBias]);
 
+    // "Go to Symbol in Editor..." opens this palette in `editor_symbols` mode;
+    // the outline the breadcrumb already requests is the source of the rows.
+    // Rows carry the path they were read for, so a stale answer for another file
+    // never renders.
+    const [outlineRows, setOutlineRows] = useState<{ path: string; rows: EditorAction[] }>({
+        path: "",
+        rows: [],
+    });
+    useEffect(() => {
+        if (!open || mode !== "editor_symbols" || !activeFileBias) return;
+        const path = activeFileBias;
+        let cancelled = false;
+        commands
+            .readFile(path)
+            .then((content) => commands.getOutline(path, content ?? "", getFileExtension(path), 0))
+            .then((response) => {
+                if (cancelled) return;
+                setOutlineRows({ path, rows: symbolPaletteRows(path, response.symbols) });
+            })
+            .catch(() => {
+                if (!cancelled) setOutlineRows({ path, rows: [] });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, mode, activeFileBias]);
+    const symbolRows = useMemo(
+        () => (outlineRows.path === activeFileBias ? outlineRows.rows : []),
+        [outlineRows, activeFileBias],
+    );
+
     const filtered = useMemo(() => {
         if (!browse) {
             if (!query.trim()) return actions;
@@ -616,7 +656,9 @@ export const CommandPalette = () => {
         }
 
         let pool: PaletteRow[] = [];
-        if (filterTab === "all") {
+        if (mode === "editor_symbols") {
+            pool = symbolRows;
+        } else if (filterTab === "all") {
             const fileSlice = fileActions.slice(0, activeFileBias ? 6 : 8);
             const agentSlice = query.trim()
                 ? agentActions
@@ -659,6 +701,8 @@ export const CommandPalette = () => {
     }, [
         browse,
         actions,
+        mode,
+        symbolRows,
         filterTab,
         agentActions,
         fileActions,
@@ -671,7 +715,9 @@ export const CommandPalette = () => {
 
     const fallbackAskAction = useMemo<EditorAction | null>(() => {
         const trimmed = query.trim();
-        if (!trimmed || !browse || mode === "files" || filterTab !== "all") return null;
+        if (!trimmed || !browse || mode === "files" || mode === "editor_symbols" || filterTab !== "all") {
+            return null;
+        }
         return {
             id: "agent:ask-fallback",
             label: `Ask Agent: "${trimmed}"`,
@@ -1017,7 +1063,7 @@ function eventCommand(id: string, label: string, keybinding: string, type: strin
 }
 
 /** App-level workbench commands for the command palette. */
-function getAppCommands(): EditorAction[] {
+export function getAppCommands(): EditorAction[] {
     const commands: EditorAction[] = [
         // ── Navigation ───────────────────────────────────────────────────────
         {
@@ -1206,8 +1252,9 @@ function getAppCommands(): EditorAction[] {
                 );
             },
         },
-        // ── Editor settings ────────────────────────────────────────────────────
-        eventCommand("app.chat.new", "Chat: New Chat", "New Chat", "bettershape-chat-new"),
+        // ── Chat and preferences ───────────────────────────────────────────────
+        // "Chat: New Chat" is declared once, below, where it can also focus the
+        // composer; a second event-only copy put two identical rows in the list.
         eventCommand("app.chat.cycleMode", "Chat: Cycle Chat Mode", "Cycle Chat Mode", "bettershape-chat-cycle-mode"),
         eventCommand(
             "app.help.keyboardShortcuts",
@@ -1275,6 +1322,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.rename",
             label: "Rename Symbol",
             shortcut: "F2",
+            editorAction: "rename",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.rename" } })
@@ -1284,6 +1332,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.quickFix",
             label: "Quick Fix…",
             shortcut: "Ctrl+.",
+            editorAction: "quickFix",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.quickFix" } })
@@ -1293,6 +1342,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.organizeImports",
             label: "Organize Imports",
             shortcut: "Shift+Alt+O",
+            editorAction: "organizeImports",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1304,6 +1354,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.goToDefinition",
             label: "Go to Definition",
             shortcut: "F12",
+            editorAction: "revealDefinition",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.revealDefinition" } })
@@ -1313,6 +1364,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.findRefs",
             label: "Find All References",
             shortcut: "Shift+F12",
+            editorAction: "referenceSearch.trigger",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1324,6 +1376,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.peekDef",
             label: "Peek Definition",
             shortcut: "Alt+F12",
+            editorAction: "peekDefinition",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1335,6 +1388,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.inlayHints",
             label: "Editor: Toggle Inlay Hints",
             shortcut: "",
+            editorAction: "inlayHints.toggle",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.inlayHints.toggle" } })
@@ -1704,9 +1758,10 @@ function getAppCommands(): EditorAction[] {
     ];
 
     // Focused popout has no sidebars/status, zen mode is not applicable.
-    if (isPopoutPath()) {
-        return commands.filter((c) => c.id !== "app.view.zenMode");
-    }
-    return commands;
+    const applicable = isPopoutPath() ? commands.filter((c) => c.id !== "app.view.zenMode") : commands;
+    // A row that dispatches an editor action nothing answers is a dead entry:
+    // it closes the palette and does nothing. `lib/editor/action-contract` owns
+    // the list, so the row comes back on its own when the engine lands.
+    return applicable.filter((c) => !c.editorAction || editorActionImplemented(c.editorAction));
 }
 

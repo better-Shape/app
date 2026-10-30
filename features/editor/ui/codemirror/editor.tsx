@@ -59,28 +59,17 @@ import { languageForPath, languageNameForPath } from "./lang";
 import { detectIndentation } from "@/features/editor/lib/detect-indentation";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
+import { runClipboardAction } from "@/features/editor/lib/clipboard-actions";
+import { normalizeEditorAction } from "@/lib/editor/action-contract";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
 import { lintGutter } from "@codemirror/lint";
 import { inlineBlame } from "./inline-blame";
 
-/**
- * Three different surfaces dispatch `bettershape-editor-action`: the command
- * palette and titlebar menu use VS Code-style ids (`editor.action.commentLine`),
- * while the status bar and the editor's own pickers send bare ids
- * (`commentLine`). The switch below was written against the bare form only, so
- * every `editor.action.*` entry was a silent no-op. Normalise once here instead
- * of duplicating every case under both spellings.
- */
-const EDITOR_ACTION_PREFIX = "editor.action.";
-
-function normalizeEditorAction(action: string | undefined): string | undefined {
-    if (!action) return undefined;
-    return action.startsWith(EDITOR_ACTION_PREFIX)
-        ? action.slice(EDITOR_ACTION_PREFIX.length)
-        : action;
-}
+// `normalizeEditorAction` lives in the shared contract so the surfaces that
+// offer a command and the switch that answers it agree on one spelling; the
+// same module declares the ids that have no engine yet.
 import {
     ContextMenu,
     ContextMenuContent,
@@ -521,6 +510,16 @@ export function CodeMirrorEditor({
                     break;
                 case "selectAll":
                     selectAll(v);
+                    break;
+                // The keyboard bindings are native; a menubar click is not.
+                case "cut":
+                    runClipboardAction(v, "cut");
+                    break;
+                case "copy":
+                    runClipboardAction(v, "copy");
+                    break;
+                case "paste":
+                    runClipboardAction(v, "paste");
                     break;
                 case "jumpToPosition":
                     jumpToPosition(v, detail.line ?? 1, detail.column ?? 1);
