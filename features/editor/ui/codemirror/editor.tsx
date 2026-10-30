@@ -386,19 +386,22 @@ export function CodeMirrorEditor({
             const doc = live.state.doc.toString();
             try {
                 const written = await saveContents(pathRef.current, doc, eol);
-                if (written !== doc && viewRef.current === live && live.state.doc.toString() === doc) {
+                // Typing during the write keeps the buffer dirty; an unchanged
+                // buffer is clean whether or not the write changed the text.
+                if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
+                if (written !== doc) {
                     live.dispatch({
                         changes: { from: 0, to: doc.length, insert: written },
                         annotations: externalContentUpdate.of(true),
                     });
                     setContentRef.current(written);
-                    // The prepared text is now what is on disk, so the buffer is
-                    // clean even when trimming or formatting changed it.
-                    savedContentRef.current = written;
-                    isDirtyRef.current = false;
-                    void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
                     publishBuffer(live);
                 }
+                // The prepared text is what is on disk now, so it is the baseline
+                // the dirty check compares against.
+                savedContentRef.current = written;
+                isDirtyRef.current = false;
+                void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             } catch (error) {
                 notify.error("Save failed", error instanceof Error ? error.message : String(error));
             }

@@ -62,16 +62,22 @@ export async function formatForSave(path: string, text: string): Promise<string>
  * order and leave the older snapshot on disk. Chaining per path keeps the last
  * request as the last write.
  */
-const writeChains = new Map<string, Promise<unknown>>();
+const writeChains = new Map<string, Promise<void>>();
 
 /** Runs `run` after every earlier write for the same path, success or not. */
 const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => {
     const previous = writeChains.get(path) ?? Promise.resolve();
     const next = previous.then(run, run);
-    writeChains.set(
-        path,
-        next.catch(() => undefined),
+    // The tail resolves to nothing, so the map never holds saved file text, and
+    // a settled path is dropped rather than kept for the life of the session.
+    const tail = next.then(
+        () => undefined,
+        () => undefined,
     );
+    writeChains.set(path, tail);
+    void tail.then(() => {
+        if (writeChains.get(path) === tail) writeChains.delete(path);
+    });
     return next;
 };
 
