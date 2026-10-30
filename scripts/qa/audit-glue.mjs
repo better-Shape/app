@@ -164,7 +164,9 @@ const withoutDefaults = (source) => {
     return end < 0 ? source : source.slice(0, start) + source.slice(end);
 };
 const readSources = (predicate) =>
-    files.filter(predicate).map((file) => ({ file: relative(ROOT, file), source: withoutDefaults(readFileSync(file, "utf8")) }));
+    files
+        .filter((file) => predicate(file))
+        .map((file) => ({ file: relative(ROOT, file), source: withoutDefaults(readFileSync(file, "utf8")) }));
 const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
 const mappingSources = readSources((file) => file.startsWith(settingsLayer));
 const mentions = (entry, section, key) => {

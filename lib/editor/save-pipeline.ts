@@ -21,14 +21,23 @@ export function toDiskText(text: string, eol: "LF" | "CRLF"): string {
 /**
  * Strips trailing spaces and tabs one line at a time.
  *
- * A single multiline expression with `$` and a quantified class backtracks
- * super-linearly on long runs of whitespace; splitting first keeps each
- * replacement anchored to one line.
+ * Scans backwards from the end of each line instead of matching a regex: a
+ * quantified whitespace class anchored to `$` backtracks super-linearly on a
+ * long run of spaces, and a formatter left running on autosave checks this on
+ * every keystroke.
  */
 const trimLineEnds = (doc: string): string =>
     doc
         .split("\n")
-        .map((line) => line.replace(/[ \t]+$/, ""))
+        .map((line) => {
+            let end = line.length;
+            while (end > 0) {
+                const code = line.charCodeAt(end - 1);
+                if (code !== 0x20 && code !== 0x09) break;
+                end -= 1;
+            }
+            return end === line.length ? line : line.slice(0, end);
+        })
         .join("\n");
 
 /** Applies Trim trailing whitespace and Insert final newline to an LF document. */
