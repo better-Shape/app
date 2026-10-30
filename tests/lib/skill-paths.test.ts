@@ -77,8 +77,11 @@ describe("skill-paths: isInsideSkillPath", () => {
         expect(isInsideSkillPath("/home/dev/project/a", "/home/dev/project/b")).toBe(false);
     });
 
-    it("ignores case, matching how the filesystem compares paths", () => {
-        expect(isInsideSkillPath("/Home/Dev/Project/.claude", "/home/dev/project")).toBe(true);
+    it("ignores case on Windows paths while keeping POSIX paths case-sensitive", () => {
+        expect(isInsideSkillPath("C:\\Users\\Dev\\Project\\.claude", "c:/users/dev/project")).toBe(
+            true,
+        );
+        expect(isInsideSkillPath("/Home/Dev/Project/.claude", "/home/dev/project")).toBe(false);
     });
 });
 
@@ -87,6 +90,13 @@ describe("skill-paths: displaySkillPath", () => {
         expect(displaySkillPath("/home/dev/demo/.claude/skills/pdf/SKILL.md", "/home/dev/demo", "/home/dev")).toBe(
             ".claude/skills/pdf/SKILL.md"
         );
+        expect(
+            displaySkillPath(
+                "/home/dev/Demo/.claude/skills/pdf/SKILL.md",
+                "/home/dev/demo",
+                "/home/dev",
+            ),
+        ).toBe("~/Demo/.claude/skills/pdf/SKILL.md");
     });
 
     it("returns a `~/…` path for files in the home directory", () => {

@@ -4,7 +4,11 @@ import { commands } from "@/lib/backend/commands";
 import { getProjectPath } from "@/lib/backend/project-state";
 import { getHomeDir, listCustomSkillFolders } from "@/lib/chat/skill-folders";
 import { parseSkillDocument } from "@/lib/chat/skill-frontmatter";
-import { displaySkillPath, joinSkillPath, normalizeSkillPath } from "@/lib/chat/skill-paths";
+import {
+    displaySkillPath,
+    joinSkillPath,
+    skillPathComparisonKey,
+} from "@/lib/chat/skill-paths";
 import { SKILL_FILE_NAME, listSkillRoots, type SkillRoot, type SkillRootScope } from "@/lib/chat/skill-roots";
 import { listSkills, skillIdFromName, skillTitle, type Skill } from "@/lib/chat/skills";
 
@@ -47,19 +51,13 @@ export type SkillScan = {
 /** Prefix for the per-project localStorage key holding dismissed files. */
 const DISMISSED_KEY_PREFIX = "bettershape-dismissed-discovered:";
 
-/** Windows paths are case-insensitive; POSIX ones (Linux) are not. */
-function isCaseInsensitivePath(projectPath: string): boolean {
-    return projectPath.includes("\\") || /^[a-zA-Z]:/.test(projectPath);
-}
-
 /**
  * LocalStorage key storing dismissed paths for one project. The path keeps its
  * case everywhere except case-insensitive filesystems, so `/home/dev/Repo` and
  * `/home/dev/repo` do not share dismissals on Linux.
  */
 function dismissedKey(projectPath: string): string {
-    const scoped = normalizeSkillPath(projectPath);
-    return DISMISSED_KEY_PREFIX + (isCaseInsensitivePath(scoped) ? scoped.toLowerCase() : scoped);
+    return DISMISSED_KEY_PREFIX + skillPathComparisonKey(projectPath);
 }
 
 /** True when `fileName` ends with one of `extensions`, ignoring case. */
@@ -173,12 +171,6 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
     return dismissed.has(relPath);
 }
 
-/** Case-aware comparison key for canonicalized filesystem paths. */
-function canonicalPathKey(path: string): string {
-    const normalized = normalizeSkillPath(path);
-    return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
-}
-
 /** Checks directory containment using a trailing slash so sibling stems never match. */
 const isKeyWithinBase = (folderKey: string, baseKey: string): boolean => {
     const basePrefix = baseKey.endsWith("/") ? baseKey : `${baseKey}/`;
@@ -198,8 +190,8 @@ function resolveSkillReadRoot(
     canonicalFolder: string,
 ): string {
     if (fileFolder === rootPath || canonicalFolder === fileFolder) return rootPath;
-    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath);
-    return isKeyWithinBase(canonicalPathKey(canonicalFolder), baseKey)
+    const baseKey = skillPathComparisonKey(canonicalRoot ?? rootPath);
+    return isKeyWithinBase(skillPathComparisonKey(canonicalFolder), baseKey)
         ? rootPath
         : canonicalFolder;
 }
@@ -280,7 +272,7 @@ export async function discoverSkills(
         if (root.scope === "project" && projectPath) {
             canonicalRoot = await resolveProjectCanonicalDir(root.path, projectPath);
             if (!canonicalRoot) continue;
-            const rootKey = canonicalPathKey(canonicalRoot);
+            const rootKey = skillPathComparisonKey(canonicalRoot);
             if (seenCanonicalRoots.has(rootKey)) continue;
             seenCanonicalRoots.add(rootKey);
         }
@@ -302,7 +294,7 @@ export async function discoverSkills(
                 canonicalFolder !== file.folder
                     ? joinSkillPath(canonicalFolder, file.fileName)
                     : file.filePath;
-            const fileKey = canonicalPathKey(canonicalFile);
+            const fileKey = skillPathComparisonKey(canonicalFile);
             if (seenPaths.has(fileKey)) continue;
             seenPaths.add(fileKey);
             if (isDismissed(dismissed, relPath)) continue;

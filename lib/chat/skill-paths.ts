@@ -6,8 +6,20 @@
 const isPathSep = (char: string): boolean => char === "/" || char === "\\";
 
 const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
+const WINDOWS_DRIVE_PREFIX_RE = /^[A-Za-z]:/;
 
 const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
+
+/** True when `path` uses Windows drive letters or backslash separators (case-insensitive FS). */
+export function isCaseInsensitiveSkillPath(path: string): boolean {
+    return path.includes("\\") || WINDOWS_DRIVE_PREFIX_RE.test(path);
+}
+
+/** Normalized path key that folds case on Windows paths while preserving POSIX case. */
+export function skillPathComparisonKey(path: string): string {
+    const normalized = normalizeSkillPath(path);
+    return isCaseInsensitiveSkillPath(path) ? normalized.toLowerCase() : normalized;
+}
 
 const trimLeadingSeparators = (value: string): string => {
     let start = 0;
@@ -69,15 +81,29 @@ export function joinSkillPath(dir: string, relativePath: string): string {
     return base.endsWith(sep) ? `${base}${relative}` : `${base}${sep}${relative}`;
 }
 
-/** Case-insensitive containment check for skill display paths, including `/` and `X:/` roots. */
+const toContainmentPair = (
+    child: string,
+    parent: string,
+): { childKey: string; parentKey: string } => {
+    const normalizedChild = normalizeSkillPath(child);
+    const normalizedParent = normalizeSkillPath(parent);
+    if (isCaseInsensitiveSkillPath(child) || isCaseInsensitiveSkillPath(parent)) {
+        return {
+            childKey: normalizedChild.toLowerCase(),
+            parentKey: normalizedParent.toLowerCase(),
+        };
+    }
+    return { childKey: normalizedChild, parentKey: normalizedParent };
+};
+
+/**
+ * Containment check for skill paths: preserves case on POSIX paths while folding case on
+ * Windows paths, and handles `/` and `X:/` roots without false prefix matches.
+ */
 export function isInsideSkillPath(child: string, parent: string): boolean {
-    const normalizedChild = normalizeSkillPath(child).toLowerCase();
-    const normalizedParent = normalizeSkillPath(parent).toLowerCase();
-    if (!normalizedChild || !normalizedParent) return false;
-    return (
-        normalizedChild === normalizedParent ||
-        normalizedChild.startsWith(withTrailingSlash(normalizedParent))
-    );
+    const { childKey, parentKey } = toContainmentPair(child, parent);
+    if (!childKey || !parentKey) return false;
+    return childKey === parentKey || childKey.startsWith(withTrailingSlash(parentKey));
 }
 
 const stripParentPrefix = (normalizedFull: string, rawParent: string): string => {

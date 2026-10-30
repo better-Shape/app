@@ -348,16 +348,16 @@ describe("GraphSvgRow arrival stroke draw", () => {
         }
     });
 
-    it("retains pending baseline when 12 main-parent commits confirm before a missing side parent arrives", () => {
+    it("retains pending baseline when 12 commits confirm before a deeper missing side parent arrives", () => {
         vi.useFakeTimers();
-        const mainChain = Array.from({ length: 11 }, (_, idx) => {
+        const leadChain = Array.from({ length: 11 }, (_, idx) => {
             const step = 11 - idx;
-            const parent = step === 1 ? "anchor-0" : `main-${step - 1}`;
-            return makeLog(`main-${step}`, [parent]);
+            const parent = step === 1 ? "deep-merge" : `lead-${step - 1}`;
+            return makeLog(`lead-${step}`, [parent], step === 11 ? ["HEAD -> main"] : []);
         });
         const firstSlice = [
-            makeLog("wide-merge", ["main-11", "late-side"], ["HEAD -> main"]),
-            ...mainChain,
+            ...leadChain,
+            makeLog("deep-merge", ["anchor-0", "late-side"]),
             makeLog("anchor-0", []),
         ];
 
@@ -365,7 +365,8 @@ describe("GraphSvgRow arrival stroke draw", () => {
             expect(renderArrivals([makeLog("anchor-0", [], ["HEAD -> main"])])).toBe("");
             const initialSet = renderArrivals(firstSlice).split(",");
             expect(initialSet).toHaveLength(12);
-            expect(initialSet[0]).toBe("wide-merge");
+            expect(initialSet[0]).toBe("lead-11");
+            expect(initialSet[11]).toBe("deep-merge");
 
             act(() => {
                 vi.advanceTimersByTime(520);

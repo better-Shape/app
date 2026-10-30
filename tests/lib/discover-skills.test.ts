@@ -221,11 +221,19 @@ describe("discoverSkills", () => {
         await expect(discoverItems()).resolves.toHaveLength(1);
     });
 
-    it("keeps case-sensitive project paths apart in dismissal keys", async () => {
-        serve({ [`${PROJECT}/.agents/guide.md`]: "agent body" });
+    it("keeps case-sensitive project paths apart in dismissal keys and display paths", async () => {
+        mocks.listCustomSkillFolders.mockReturnValue(["/home/dev/DEMO"]);
+        serve({
+            [`${PROJECT}/.agents/guide.md`]: "agent body",
+            "/home/dev/DEMO/extra.md": "external body",
+        });
         dismissDiscoveredFile("/home/dev/DEMO", ".agents/guide.md");
 
-        await expect(discoverItems()).resolves.toHaveLength(1);
+        const items = await discoverItems();
+        expect(items.map((item) => item.relPath)).toEqual([
+            ".agents/guide.md",
+            "~/DEMO/extra.md",
+        ]);
     });
 
     it("treats Windows project paths case-insensitively for dismissals", async () => {

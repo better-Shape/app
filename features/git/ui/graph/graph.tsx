@@ -222,13 +222,20 @@ const walkConfirmedAncestors = (
     return confirmed;
 };
 
+const isSelectableArrival = (
+    hash: string,
+    confirmed: ReadonlySet<string>,
+    excluded: ReadonlySet<string>,
+): boolean => confirmed.has(hash) && !excluded.has(hash);
+
 const capOrderedArrivals = (
     ordered: readonly string[],
     confirmed: ReadonlySet<string>,
+    excluded: ReadonlySet<string>,
 ): Set<string> => {
     const selected = new Set<string>();
     for (const hash of ordered) {
-        if (!confirmed.has(hash)) continue;
+        if (!isSelectableArrival(hash, confirmed, excluded)) continue;
         selected.add(hash);
         if (selected.size >= MAX_ARRIVING_COMMITS) break;
     }
@@ -244,10 +251,13 @@ const hasMatchingGraphContext = (
     return (prev.headRef ?? null) === nextHeadRef;
 };
 
-const resolveConfirmedFreshHashes = (forward: GraphForwardWalk): ReadonlySet<string> => {
+const resolveConfirmedFreshHashes = (
+    forward: GraphForwardWalk,
+    excluded: ReadonlySet<string>,
+): ReadonlySet<string> => {
     if (forward.knownAnchors.size === 0) return EMPTY_ARRIVAL_SET;
     const confirmed = walkConfirmedAncestors(forward.knownAnchors, forward.reverseChildren);
-    return capOrderedArrivals(forward.ordered, confirmed);
+    return capOrderedArrivals(forward.ordered, confirmed, excluded);
 };
 
 const evaluateFreshGraphLineage = (
@@ -264,7 +274,7 @@ const evaluateFreshGraphLineage = (
     const freshByHash = indexFreshLineage(commits, prev.known);
     const forward = walkForwardFreshCommits(topHash, freshByHash, prev.known);
     return {
-        freshHashes: resolveConfirmedFreshHashes(forward),
+        freshHashes: resolveConfirmedFreshHashes(forward, prev.animated ?? EMPTY_ARRIVAL_SET),
         hasMissingParent: forward.hasMissingParent,
     };
 };
@@ -380,7 +390,6 @@ const computeNextSnapshot = (
 ): {
     nextSnapshot: GraphHeadSnapshot;
     freshHashes: ReadonlySet<string>;
-    alreadyAnimated: ReadonlySet<string>;
 } => {
     const keyChanged = prev.cacheKey !== cacheKey;
     const staleCarryOver = nextIgnoredLogsRef !== null;
@@ -398,7 +407,6 @@ const computeNextSnapshot = (
     const nextPending = resolveNextPendingBaseline(baseline, evaluation);
     return {
         freshHashes: evaluation.freshHashes,
-        alreadyAnimated: baseline.animated ?? EMPTY_ARRIVAL_SET,
         nextSnapshot: {
             cacheKey,
             topHash: effectiveTopHash,
@@ -436,39 +444,24 @@ const setsHaveSameMembers = (
     return true;
 };
 
-const reuseIfSameMembers = (
-    current: ReadonlySet<string>,
-    candidate: ReadonlySet<string>,
-): ReadonlySet<string> => (setsHaveSameMembers(current, candidate) ? current : candidate);
-
-const isUnsettledArrival = (
-    hash: string,
-    current: ReadonlySet<string>,
-    alreadyKnown: ReadonlySet<string>,
-): boolean => current.has(hash) || !alreadyKnown.has(hash);
-
-const selectUnsettledArrivals = (
-    freshHashes: ReadonlySet<string>,
-    current: ReadonlySet<string>,
-    alreadyKnown: ReadonlySet<string>,
+const combineActiveArrivals = (
+    retained: ReadonlySet<string>,
+    newlyConfirmed: ReadonlySet<string>,
 ): ReadonlySet<string> => {
-    const active = new Set<string>();
-    for (const hash of freshHashes) {
-        if (isUnsettledArrival(hash, current, alreadyKnown)) active.add(hash);
-    }
-    return active.size > 0 ? active : EMPTY_ARRIVAL_SET;
+    if (retained.size === 0) return newlyConfirmed;
+    const combined = new Set<string>(retained);
+    for (const hash of newlyConfirmed) combined.add(hash);
+    return setsHaveSameMembers(retained, combined) ? retained : combined;
 };
 
 const resolveNextArrivingState = (
     current: ReadonlySet<string>,
     freshHashes: ReadonlySet<string>,
-    alreadyAnimated: ReadonlySet<string>,
     contextShifted: boolean,
 ): ReadonlySet<string> => {
-    const active = selectUnsettledArrivals(freshHashes, current, alreadyAnimated);
-    if (active.size > 0) return reuseIfSameMembers(current, active);
-    if (current.size > 0 && contextShifted) return EMPTY_ARRIVAL_SET;
-    return current;
+    const retained = contextShifted ? EMPTY_ARRIVAL_SET : current;
+    if (freshHashes.size === 0) return retained;
+    return combineActiveArrivals(retained, freshHashes);
 };
 
 /**
@@ -494,7 +487,7 @@ export const useArrivingCommitHashes = (
     const keyChanged = prev.cacheKey !== cacheKey;
     const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
     if (hasSnapshotChanged(prev, keyChanged, gitLogs, nextIgnoredLogsRef)) {
-        const { nextSnapshot, freshHashes, alreadyAnimated } = computeNextSnapshot(
+        const { nextSnapshot, freshHashes } = computeNextSnapshot(
             prev,
             cacheKey,
             gitLogs,
@@ -504,7 +497,6 @@ export const useArrivingCommitHashes = (
         const nextArriving = resolveNextArrivingState(
             arrivingHashes,
             freshHashes,
-            alreadyAnimated,
             hasArrivalContextShifted(prev, nextSnapshot),
         );
         if (nextArriving !== arrivingHashes) setArrivingHashes(nextArriving);
