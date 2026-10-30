@@ -863,6 +863,15 @@ export function SettingsView({
             case "keybindings":
             case "shortcuts":
                 return "settings-keyboard-shortcuts";
+            // Leaves that exist in the nav but had no deep link: arriving from a
+            // link such as /settings?category=privacy landed on Providers.
+            case "privacy":
+            case "data-control":
+                return "settings-privacy";
+            case "notifications":
+                return "settings-notifications";
+            case "developer":
+                return "settings-developer";
             default:
                 return null;
         }
