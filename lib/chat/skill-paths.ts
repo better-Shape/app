@@ -3,11 +3,41 @@
  * Runs in the renderer without Node's `path` module and handles both POSIX and Windows paths.
  */
 
+const isPathSep = (char: string): boolean => char === "/" || char === "\\";
+
+const trimLeadingSeparators = (value: string): string => {
+    let start = 0;
+    while (start < value.length && isPathSep(value[start])) start += 1;
+    return value.slice(start);
+};
+
+const trimTrailingSeparators = (value: string): string => {
+    let end = value.length;
+    while (end > 0 && isPathSep(value[end - 1])) end -= 1;
+    return value.slice(0, end);
+};
+
+const collapseSeparators = (value: string, sep: "\\" | "/"): string => {
+    let out = "";
+    let prevSep = false;
+    for (const char of value) {
+        if (isPathSep(char)) {
+            if (!prevSep) out += sep;
+            prevSep = true;
+        } else {
+            out += char;
+            prevSep = false;
+        }
+    }
+    return out;
+};
+
 /** Normalize separators to forward slashes and drop trailing slashes while preserving `/`. */
 export function normalizeSkillPath(path: string): string {
     const forward = path.replaceAll("\\", "/");
-    if (/^\/+$/.test(forward)) return "/";
-    return forward.replace(/\/+$/, "");
+    if (!forward) return "";
+    const trimmed = trimTrailingSeparators(forward);
+    return trimmed === "" ? "/" : trimmed;
 }
 
 /** Return the path separator already used by `dir` (`\` on Windows paths, `/` otherwise). */
@@ -18,9 +48,9 @@ export function skillPathSep(dir: string): "\\" | "/" {
 /** Join `dir` and `relativePath` using `dir`'s separator without duplicating slashes. */
 export function joinSkillPath(dir: string, relativePath: string): string {
     const sep = skillPathSep(dir);
-    const relative = relativePath.replace(/^[\\/]+/, "").replaceAll(/[\\/]+/g, sep);
-    if (/^[\\/]+$/.test(dir)) return `${sep}${relative}`;
-    const base = dir.replace(/[\\/]+$/, "");
+    const relative = collapseSeparators(trimLeadingSeparators(relativePath), sep);
+    const base = trimTrailingSeparators(dir);
+    if (!base && dir.length > 0) return `${sep}${relative}`;
     return relative ? `${base}${sep}${relative}` : base;
 }
 
@@ -35,7 +65,7 @@ export function isInsideSkillPath(child: string, parent: string): boolean {
 
 const stripParentPrefix = (normalizedFull: string, rawParent: string): string => {
     const normalizedParent = normalizeSkillPath(rawParent);
-    return normalizedFull.slice(normalizedParent.length).replace(/^\/+/, "");
+    return trimLeadingSeparators(normalizedFull.slice(normalizedParent.length));
 };
 
 const tryFormatRelative = (

@@ -497,6 +497,7 @@ const ProviderBaseUrlField = ({
             <TextInput
                 value={baseUrl}
                 placeholder={preset.baseUrl || "https://host/v1"}
+                aria-label={`${preset.label} base URL`}
                 onChange={onChange}
                 onReset={onReset}
                 defaultValue={preset.baseUrl}
@@ -543,6 +544,7 @@ const ProviderCredentialsGrid = ({
             <KeyInput
                 value={connection.apiKey}
                 placeholder={preset.keyHint || "API key"}
+                aria-label={`${preset.label} API key`}
                 onChange={handleApiKeyChange}
                 warning={keyFormatWarning(id, connection.apiKey)}
                 savedInVault={savedInVault}

@@ -453,8 +453,8 @@ export const useArrivingCommitHash = (
     gitLogs: GitLogEntry[],
 ): string | null => {
     const arrivingHashes = useArrivingCommitHashes(cacheKey, gitLogs);
-    for (const hash of arrivingHashes) return hash;
-    return null;
+    const first = arrivingHashes.values().next();
+    return first.done ? null : first.value;
 };
 
 export default function Graph({
