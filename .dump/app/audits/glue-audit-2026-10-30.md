@@ -335,3 +335,71 @@ design `preview-panel`, and `lib/preview/tauri-mock.ts`. The blocks are asserted
 by broader chat and design suites that also cover live components, and the mock
 is browser-test infrastructure. Removing them means pruning assertions from
 tests that pass today, which is a separate change from proving the glue works.
+
+## Round 4, 2026-10-30: the review pass
+
+The 21 review threads open on `37d169a` were worked one by one and resolved on
+`ef7ec99`. What changed, grouped by the surfaces they touch:
+
+- **Preview save path** (`features/editor/ui/main/editor.tsx`) — saves through
+  the shared pipeline with the document's own line ending, adopts the text that
+  was actually written (so a trim or a format no longer leaves the preview
+  disagreeing with the disk), and schedules autosave on the same condition the
+  code editor uses. `imagePreviewEnabled` now only decides the default mode for
+  images.
+- **CodeMirror** (`features/editor/ui/codemirror/editor.tsx`) — option
+  extensions moved into an `optionsCompartment` and reconfigured from
+  `subscribeSettings`, so an open file follows a settings change; the dirty flag
+  is stated after every save instead of only when dirty.
+- **Markdown editor** — answers `bettershape-editor-search` for its own path,
+  matching the code editor, and both callers pass the path.
+- **All changes** — a mounted view is told to focus a file through
+  `ALL_CHANGES_FOCUS_EVENT`, a no-path call clears the stored key, and a
+  `revision` counter reloads a file whose contents changed under an unchanged
+  path.
+- **Dev run** — the store tracks whether the process is alive separately from
+  its status, so a compile error no longer hides Stop; a failed start reports
+  instead of leaving an unhandled rejection.
+- **Save pipeline** — a formatting failure saves the unformatted text and says
+  so, once per file and reason.
+- **Terminal and voice** — an older rejected clipboard write cannot overwrite a
+  newer selection; a microphone test that fails after the device opened releases
+  it.
+- **Tooling** — the mock backend uses `remember_preview_url_cmd` and the real
+  return shapes; the settings check here now separates keys that nothing reads
+  from keys only the settings layer reads.
+
+### Settings the audit counted as wired but that only the mapper reads
+
+Round 1 reported "0 settings keys with no reader". That number was true and
+misleading: the reader check counted `lib/settings/store.ts`, which merely maps
+a key into an options object. The check now needs a reader outside the settings
+system, and reports 25 keys that only `lib/settings/store.ts` touches:
+
+`editor.renderWhitespace`, `editor.bracketPairColorization`,
+`editor.detectIndentation`, `editor.fontLigatures`, `editor.cursorStyle`,
+`editor.smoothScrolling`, `editor.showIndentGuides`, `editor.showBracketGuides`,
+`terminal.defaultShell`, `ai.maxContextLines`, `ai.multiworkConfirm`,
+`ai.multiworkShowChips`, `ai.indexEmbeddings`, `ai.chatMemoryEnabled`,
+`eslint.fixOnSave`, `lsp.emmet`, `node.codingAssistance`, and eight more of the
+same shape.
+
+They are a real backlog, not a regression: the switch exists and persists, but
+the surface that would consume it is either not written or reads around it.
+Wiring them is feature work, so this pass names them rather than claiming they
+are connected.
+
+### Tests added in this pass
+
+- `tests/features/hunk-commands.test.tsx` — the hunk commands are called with
+  the repository, file and on-screen index; a list read for another file is
+  never shown or acted on.
+- `tests/editor/save-formatting-settings.test.ts` — trim, final newline and
+  format-on-save behave as their switches say, and a formatting failure keeps
+  the text and reports once.
+- `tests/lib/open-all-changes.test.ts` — a no-path call clears a stale focus
+  key and the focus event carries the requested file.
+
+The two tests that only asserted a command existed or that a source file
+mentioned a settings key were removed: a behavioural test in the same suite
+replaces what they were standing in for.
