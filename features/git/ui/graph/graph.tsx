@@ -59,6 +59,7 @@ export type GraphPendingBaseline = {
     topHash: string | null;
     known: Set<string>;
     headRef?: string | null;
+    animated?: ReadonlySet<string>;
 };
 
 export type GraphHeadSnapshot = {
@@ -324,11 +325,24 @@ const resolveArrivalBaseline = (
     return prev;
 };
 
-const toPendingBaseline = (baseline: GraphPendingBaseline): GraphPendingBaseline => ({
+const mergeAnimatedHashes = (
+    prior: ReadonlySet<string>,
+    confirmed: ReadonlySet<string>,
+): ReadonlySet<string> => {
+    if (confirmed.size === 0) return prior;
+    if (prior.size === 0) return confirmed;
+    return new Set<string>([...prior, ...confirmed]);
+};
+
+const toPendingBaseline = (
+    baseline: GraphPendingBaseline,
+    confirmed: ReadonlySet<string>,
+): GraphPendingBaseline => ({
     cacheKey: baseline.cacheKey,
     topHash: baseline.topHash,
     known: baseline.known,
     headRef: baseline.headRef ?? null,
+    animated: mergeAnimatedHashes(baseline.animated ?? EMPTY_ARRIVAL_SET, confirmed),
 });
 
 const resolveNextPendingBaseline = (
@@ -337,7 +351,7 @@ const resolveNextPendingBaseline = (
 ): GraphPendingBaseline | null => {
     if (!evaluation.hasMissingParent) return null;
     if (evaluation.freshHashes.size >= MAX_ARRIVING_COMMITS) return null;
-    return toPendingBaseline(baseline);
+    return toPendingBaseline(baseline, evaluation.freshHashes);
 };
 
 const resolveEffectiveSlice = (
@@ -363,7 +377,11 @@ const computeNextSnapshot = (
     cacheKey: string | null,
     gitLogs: GitLogEntry[],
     nextIgnoredLogsRef: GitLogEntry[] | null,
-): { nextSnapshot: GraphHeadSnapshot; freshHashes: ReadonlySet<string> } => {
+): {
+    nextSnapshot: GraphHeadSnapshot;
+    freshHashes: ReadonlySet<string>;
+    alreadyAnimated: ReadonlySet<string>;
+} => {
     const keyChanged = prev.cacheKey !== cacheKey;
     const staleCarryOver = nextIgnoredLogsRef !== null;
     const { effectiveLogs, effectiveTopHash, effectiveHeadRef } = resolveEffectiveSlice(
@@ -380,6 +398,7 @@ const computeNextSnapshot = (
     const nextPending = resolveNextPendingBaseline(baseline, evaluation);
     return {
         freshHashes: evaluation.freshHashes,
+        alreadyAnimated: baseline.animated ?? EMPTY_ARRIVAL_SET,
         nextSnapshot: {
             cacheKey,
             topHash: effectiveTopHash,
@@ -417,23 +436,40 @@ const setsHaveSameMembers = (
     return true;
 };
 
+const reuseIfSameMembers = (
+    current: ReadonlySet<string>,
+    candidate: ReadonlySet<string>,
+): ReadonlySet<string> => (setsHaveSameMembers(current, candidate) ? current : candidate);
+
+const isUnsettledArrival = (
+    hash: string,
+    current: ReadonlySet<string>,
+    alreadyKnown: ReadonlySet<string>,
+): boolean => current.has(hash) || !alreadyKnown.has(hash);
+
+const selectUnsettledArrivals = (
+    freshHashes: ReadonlySet<string>,
+    current: ReadonlySet<string>,
+    alreadyKnown: ReadonlySet<string>,
+): ReadonlySet<string> => {
+    const active = new Set<string>();
+    for (const hash of freshHashes) {
+        if (isUnsettledArrival(hash, current, alreadyKnown)) active.add(hash);
+    }
+    return active.size > 0 ? active : EMPTY_ARRIVAL_SET;
+};
+
 const resolveNextArrivingState = (
     current: ReadonlySet<string>,
     freshHashes: ReadonlySet<string>,
-    prev: GraphHeadSnapshot,
-    next: GraphHeadSnapshot,
+    alreadyAnimated: ReadonlySet<string>,
+    contextShifted: boolean,
 ): ReadonlySet<string> => {
-    if (freshHashes.size > 0) {
-        return setsHaveSameMembers(current, freshHashes) ? current : freshHashes;
-    }
-    if (current.size > 0 && hasArrivalContextShifted(prev, next)) return EMPTY_ARRIVAL_SET;
+    const active = selectUnsettledArrivals(freshHashes, current, alreadyAnimated);
+    if (active.size > 0) return reuseIfSameMembers(current, active);
+    if (current.size > 0 && contextShifted) return EMPTY_ARRIVAL_SET;
     return current;
 };
-
-const clearExpiredPendingBaseline = (snapshot: GraphHeadSnapshot): GraphHeadSnapshot =>
-    snapshot.pendingBaseline
-        ? { ...snapshot, pendingTopHash: null, pendingBaseline: null }
-        : snapshot;
 
 /**
  * Tracks newly arrived head commits in an already-loaded graph view across streamed batches
@@ -458,7 +494,7 @@ export const useArrivingCommitHashes = (
     const keyChanged = prev.cacheKey !== cacheKey;
     const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
     if (hasSnapshotChanged(prev, keyChanged, gitLogs, nextIgnoredLogsRef)) {
-        const { nextSnapshot, freshHashes } = computeNextSnapshot(
+        const { nextSnapshot, freshHashes, alreadyAnimated } = computeNextSnapshot(
             prev,
             cacheKey,
             gitLogs,
@@ -468,18 +504,15 @@ export const useArrivingCommitHashes = (
         const nextArriving = resolveNextArrivingState(
             arrivingHashes,
             freshHashes,
-            prev,
-            nextSnapshot,
+            alreadyAnimated,
+            hasArrivalContextShifted(prev, nextSnapshot),
         );
         if (nextArriving !== arrivingHashes) setArrivingHashes(nextArriving);
     }
 
     useEffect(() => {
         if (arrivingHashes.size === 0) return undefined;
-        const timer = window.setTimeout(() => {
-            setArrivingHashes(EMPTY_ARRIVAL_SET);
-            setPrev(clearExpiredPendingBaseline);
-        }, 520);
+        const timer = window.setTimeout(() => setArrivingHashes(EMPTY_ARRIVAL_SET), 520);
         return () => window.clearTimeout(timer);
     }, [arrivingHashes]);
 

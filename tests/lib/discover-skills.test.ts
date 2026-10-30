@@ -476,14 +476,14 @@ describe("discoverSkills", () => {
 
     it("resolves deep >8-hop symlink chains, enforces leftmost prefix precedence, and tolerates symlink cycles alongside valid skills", async () => {
         const symlinks: Record<string, string> = {};
-        // 12-hop chain escaping outside the project root -> must resolve all 12 hops and be rejected.
+        // 13-hop chain (escape-chain -> hop-1..hop-12 -> /outside) must resolve all 13 symlinks and be rejected.
         symlinks[`${PROJECT}/.claude/skills/escape-chain`] = `${PROJECT}/hops/hop-1`;
         for (let step = 1; step < 12; step += 1) {
             symlinks[`${PROJECT}/hops/hop-${step}`] = `${PROJECT}/hops/hop-${step + 1}`;
         }
         symlinks[`${PROJECT}/hops/hop-12`] = "/outside/stolen-skill";
 
-        // 12-hop chain staying inside the project root -> must resolve all 12 hops and load cleanly.
+        // 13-hop chain (safe-chain -> hop-1..hop-12 -> shared/deep-safe) must resolve all 13 symlinks and load.
         symlinks[`${PROJECT}/.claude/skills/safe-chain`] = `${PROJECT}/safe-hops/hop-1`;
         for (let step = 1; step < 12; step += 1) {
             symlinks[`${PROJECT}/safe-hops/hop-${step}`] = `${PROJECT}/safe-hops/hop-${step + 1}`;
@@ -505,7 +505,7 @@ describe("discoverSkills", () => {
                 "/outside/sub/SKILL.md": skillFile("trap", "Outside trap.", "Body."),
                 [`${PROJECT}/shared/deep-safe/SKILL.md`]: skillFile(
                     "deep-safe",
-                    "Safe 12-hop skill.",
+                    "Safe 13-hop skill.",
                     "Steps.",
                 ),
             },

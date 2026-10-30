@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GraphSvgRow } from "@/features/git/ui/graph/svg-row";
 import {
     collectFreshGraphArrivals,
@@ -384,6 +384,83 @@ describe("GraphSvgRow arrival stroke draw", () => {
             const laterPage = [...mergeChunkTwo, makeLog("older-0", [])];
             act(() => {
                 root.render(<MultiProbe cacheKey="/repo::head" logs={laterPage} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("animates delayed merge side-branch chunks arriving after the 520ms head highlight expires without replaying settled commits", () => {
+        vi.useFakeTimers();
+        const makeLog = (
+            hash: string,
+            parents: string[],
+            refs: string[] = [],
+        ): GitLogEntry => ({
+            hash,
+            message: hash,
+            author: "Ada",
+            author_email: "ada@example.com",
+            date: "1700000000",
+            files_changed: 1,
+            insertions: 1,
+            deletions: 0,
+            refs,
+            parent_count: parents.length,
+            parents,
+        });
+
+        const baseLogs = [makeLog("base-0", [], ["HEAD -> main"])];
+        const mergeChunkOne = [
+            makeLog("merge-head", ["base-0", "side-2"], ["HEAD -> main"]),
+            makeLog("base-0", []),
+        ];
+        const intermediateChunk = [...mergeChunkOne, makeLog("older-0", [])];
+        const completingChunk = [
+            ...intermediateChunk,
+            makeLog("side-2", ["side-1"]),
+            makeLog("side-1", ["base-0"]),
+        ];
+
+        const MultiProbe = ({ cacheKey, logs }: { cacheKey: string; logs: GitLogEntry[] }) => {
+            const arriving = useArrivingCommitHashes(cacheKey, logs);
+            return <div data-arrivals={Array.from(arriving).join(",")} />;
+        };
+
+        try {
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={baseLogs} />);
+            });
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={mergeChunkOne} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+                "merge-head",
+            );
+
+            // Head highlight expires while side-2 is still missing from the streamed slice.
+            act(() => {
+                vi.advanceTimersByTime(520);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+            // Intermediate pagination before side-2 arrives keeps settled merge-head quiet.
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={intermediateChunk} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+            // Delayed chunk resolving side-2 -> side-1 -> base-0 animates the side branch.
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={completingChunk} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+                "side-2,side-1",
+            );
+
+            act(() => {
+                vi.advanceTimersByTime(520);
             });
             expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
         } finally {
