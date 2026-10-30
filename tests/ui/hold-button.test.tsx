@@ -1,4 +1,5 @@
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HoldButton } from "@/components/ui/hold-button";
@@ -603,5 +604,168 @@ describe("HoldButton", () => {
         });
         expect(btn.dataset.state).toBe("armed");
         expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("releases implicit pointer capture on both target and button and aborts touch drag-away via document pointermove without pointerleave", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard hunk"
+                label="Discard hunk"
+                holdMs={500}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            x: 10,
+            y: 10,
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 40,
+            width: 80,
+            height: 30,
+            toJSON: () => ({}),
+        });
+
+        const innerSpan = btn.querySelector("span") as HTMLSpanElement;
+        const releaseChild = vi.fn();
+        const releaseButton = vi.fn();
+        Object.defineProperty(innerSpan, "hasPointerCapture", { value: () => true, configurable: true });
+        Object.defineProperty(innerSpan, "releasePointerCapture", { value: releaseChild, configurable: true });
+        Object.defineProperty(btn, "hasPointerCapture", { value: () => true, configurable: true });
+        Object.defineProperty(btn, "releasePointerCapture", { value: releaseButton, configurable: true });
+
+        act(() => {
+            innerSpan.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 21,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(releaseChild).toHaveBeenCalledWith(21);
+        expect(releaseButton).toHaveBeenCalledWith(21);
+        expect(btn.dataset.state).toBe("holding");
+
+        // After implicit touch capture is released, dragging outside dispatches pointermove on
+        // document.body rather than the button, with zero pointerleave on the button itself.
+        act(() => {
+            vi.advanceTimersByTime(180);
+            document.body.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 21,
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        act(() => {
+            vi.advanceTimersByTime(600);
+            document.body.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 21,
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Subsequent hold on the button still works (no stuck pointer session).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 22,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(500);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("prevents confirmation when disabled flips synchronously or while an async confirm is resolving", async () => {
+        let resolveAsync: (() => void) | null = null;
+        const onConfirm = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveAsync = resolve;
+                }),
+        );
+
+        render(
+            <HoldButton
+                ariaLabel="Delete branch"
+                label="Delete branch"
+                holdMs={400}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 31 }));
+            vi.advanceTimersByTime(399);
+            // Commit disabled=true synchronously via flushSync and fire the timer immediately
+            // in the same tick before passive useEffects flush.
+            flushSync(() => {
+                root.render(
+                    <HoldButton
+                        ariaLabel="Delete branch"
+                        label="Delete branch"
+                        holdMs={400}
+                        disabled
+                        onConfirm={onConfirm}
+                    />,
+                );
+            });
+            vi.advanceTimersByTime(50);
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(btn.dataset.state).toBe("idle");
+
+        // Re-enable, trigger async confirm, then disable while async promise is still in flight.
+        render(
+            <HoldButton
+                ariaLabel="Delete branch"
+                label="Delete branch"
+                holdMs={400}
+                onConfirm={onConfirm}
+            />,
+        );
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 32 }));
+            vi.advanceTimersByTime(400);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.getAttribute("aria-busy")).toBe("true");
+
+        render(
+            <HoldButton
+                ariaLabel="Delete branch"
+                label="Delete branch"
+                holdMs={400}
+                disabled
+                onConfirm={onConfirm}
+            />,
+        );
+        await act(async () => {
+            resolveAsync?.();
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("idle");
     });
 });

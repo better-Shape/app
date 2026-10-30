@@ -473,6 +473,71 @@ describe("discoverSkills", () => {
         expect(result.items).toHaveLength(1);
         expect(result.items[0].name).toBe("pdf-win");
     });
+
+    it("resolves deep >8-hop symlink chains, enforces leftmost prefix precedence, and tolerates symlink cycles alongside valid skills", async () => {
+        const symlinks: Record<string, string> = {};
+        // 12-hop chain escaping outside the project root -> must resolve all 12 hops and be rejected.
+        symlinks[`${PROJECT}/.claude/skills/escape-chain`] = `${PROJECT}/hops/hop-1`;
+        for (let step = 1; step < 12; step += 1) {
+            symlinks[`${PROJECT}/hops/hop-${step}`] = `${PROJECT}/hops/hop-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/hops/hop-12`] = "/outside/stolen-skill";
+
+        // 12-hop chain staying inside the project root -> must resolve all 12 hops and load cleanly.
+        symlinks[`${PROJECT}/.claude/skills/safe-chain`] = `${PROJECT}/safe-hops/hop-1`;
+        for (let step = 1; step < 12; step += 1) {
+            symlinks[`${PROJECT}/safe-hops/hop-${step}`] = `${PROJECT}/safe-hops/hop-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/safe-hops/hop-12`] = `${PROJECT}/shared/deep-safe`;
+
+        // Adversarial insertion order: nested child inserted BEFORE outer parent symlink to /outside.
+        symlinks[`${PROJECT}/.claude/skills/order-trap/sub`] = `${PROJECT}/shared/deep-safe`;
+        symlinks[`${PROJECT}/.claude/skills/order-trap`] = "/outside";
+
+        // Symlink cycle alongside valid skills -> must not crash lsDir for valid siblings.
+        symlinks[`${PROJECT}/.claude/skills/loop-a`] = `${PROJECT}/.claude/skills/loop-b`;
+        symlinks[`${PROJECT}/.claude/skills/loop-b`] = `${PROJECT}/.claude/skills/loop-a`;
+
+        serveSkillFs(
+            mocks,
+            {
+                "/outside/stolen-skill/SKILL.md": skillFile("stolen", "Outside.", "Body."),
+                "/outside/sub/SKILL.md": skillFile("trap", "Outside trap.", "Body."),
+                [`${PROJECT}/shared/deep-safe/SKILL.md`]: skillFile(
+                    "deep-safe",
+                    "Safe 12-hop skill.",
+                    "Steps.",
+                ),
+            },
+            { homeDir: "/Users/dev", symlinks },
+        );
+
+        const result = await discoverSkills();
+        expect(result.items.map((item) => item.name)).toEqual(["deep-safe"]);
+    });
+
+    it("resolves relative symlinks mounted directly under POSIX root without UNC misparsing", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "/real-claude/skills/root-tool/SKILL.md": skillFile(
+                    "root-tool",
+                    "Root relative symlink.",
+                    "Body.",
+                ),
+            },
+            {
+                homeDir: null,
+                symlinks: {
+                    "/.claude": "real-claude",
+                },
+            },
+        );
+
+        mocks.getProjectPath.mockReturnValue("/");
+        const result = await discoverSkills();
+        expect(result.items.map((item) => item.name)).toEqual(["root-tool"]);
+    });
 });
 
 describe("reconcileImportedRow", () => {

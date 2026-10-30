@@ -7,6 +7,7 @@ import { DrawnCheck } from "@/components/ui/checkmark";
 import { Tooltip } from "@/components/ui/tooltip";
 import { notify } from "@/features/notifications";
 import { cn } from "@/lib/utils";
+import { useSettingRowLabels } from "../../shared/controls";
 import {
     ArrowReset20Regular,
     Clipboard20Regular,
@@ -31,6 +32,7 @@ export function KeyInput({
     /** When true, a key is stored in the OS keychain for this field even if
      *  the value is blanked in the UI. Renders a small "Saved" indicator. */
     savedInVault,
+    "aria-label": ariaLabel,
 }: {
     value: string;
     placeholder: string;
@@ -38,9 +40,11 @@ export function KeyInput({
     disabled?: boolean;
     warning?: string | null;
     savedInVault?: boolean;
+    "aria-label"?: string;
 }) {
     const [visible, setVisible] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
+    const rowLabels = useSettingRowLabels();
 
     const pasteFromClipboard = async () => {
         try {
@@ -86,7 +90,10 @@ export function KeyInput({
                         spellCheck={false}
                         autoComplete="off"
                         data-form-type="other"
-                        onChange={(e) => onChange(e.target.value)}
+                        aria-label={ariaLabel}
+                        aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                        aria-describedby={rowLabels?.descriptionId}
+                        onChange={(event) => onChange(event.target.value)}
                         className={cn(inputClass, savedInVault && !value && "pr-16 text-text-muted")}
                     />
                     {savedInVault && !value ? (
@@ -156,6 +163,7 @@ export function TextInput({
     onReset,
     defaultValue,
     mono = false,
+    "aria-label": ariaLabel,
 }: {
     value: string;
     placeholder: string;
@@ -165,8 +173,10 @@ export function TextInput({
     /** Default value used to decide whether to show the reset button. */
     defaultValue?: string;
     mono?: boolean;
+    "aria-label"?: string;
 }) {
     const canReset = Boolean(onReset) && value !== (defaultValue ?? "");
+    const rowLabels = useSettingRowLabels();
     return (
         <div className="flex w-full items-center gap-1.5">
             <input
@@ -175,7 +185,10 @@ export function TextInput({
                 placeholder={placeholder}
                 spellCheck={false}
                 autoComplete="off"
-                onChange={(e) => onChange(e.target.value)}
+                aria-label={ariaLabel}
+                aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                aria-describedby={rowLabels?.descriptionId}
+                onChange={(event) => onChange(event.target.value)}
                 className={`${inputClass} ${mono ? "font-mono text-xs" : ""}`}
             />
             {canReset ? (

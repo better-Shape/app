@@ -61,7 +61,8 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
         if (isAbsolute(rawTo)) return normalize(rawTo);
         const slash = normFrom.lastIndexOf("/");
         const parent = slash <= 0 ? "/" : normFrom.slice(0, slash);
-        return normalize(`${parent}/${rawTo}`);
+        const joined = parent === "/" ? `/${rawTo}` : `${parent}/${rawTo}`;
+        return normalize(joined);
     };
 
     const isWindowsPath = (canonical: string): boolean =>
@@ -76,12 +77,19 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
         }),
     );
     const stepSymlinkSubstitution = (current: string): string | null => {
-        const currentKey = pathCompareKey(current);
-        for (const [fromKey, link] of links.entries()) {
-            if (currentKey === fromKey) return link.to;
-            const prefix = fromKey === "/" ? "/" : `${fromKey}/`;
-            if (currentKey.startsWith(prefix)) {
-                return normalize(`${link.to}${current.slice(link.from.length)}`);
+        const { root, rest } = splitRootAndRest(current);
+        const segments = rest.split("/").filter(Boolean);
+        if (segments.length === 0) {
+            return links.get(pathCompareKey(current))?.to ?? null;
+        }
+        let prefix = "";
+        for (let index = 0; index < segments.length; index += 1) {
+            const firstPrefix = root === "/" ? `/${segments[0]}` : `${root}/${segments[0]}`;
+            prefix = index === 0 ? firstPrefix : `${prefix}/${segments[index]}`;
+            const link = links.get(pathCompareKey(prefix));
+            if (link) {
+                const suffix = segments.slice(index + 1).join("/");
+                return suffix ? normalize(`${link.to}/${suffix}`) : link.to;
             }
         }
         return null;
@@ -108,15 +116,26 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             directories.add(parts.slice(0, index).join("/") || "/");
         }
     }
-    for (const link of links.values()) {
-        const parts = link.from.split("/");
-        for (let index = 1; index <= parts.length; index += 1) {
+    const linkPaths = [...links.values()].map((link) => link.from);
+    for (const linkPath of linkPaths) {
+        const parts = linkPath.split("/");
+        for (let index = 1; index < parts.length; index += 1) {
             directories.add(parts.slice(0, index).join("/") || "/");
         }
     }
     const directoryKeys = new Map(
         [...directories].map((dir) => [pathCompareKey(dir), dir]),
     );
+
+    const resolveEntryIsDir = (entryPath: string, hasNestedSegments: boolean): boolean => {
+        if (hasNestedSegments) return true;
+        try {
+            const targetEntry = canonicalize(entryPath);
+            return directoryKeys.has(pathCompareKey(targetEntry));
+        } catch {
+            return false;
+        }
+    };
 
     mocks.lsDir.mockImplementation(async (path: string) => {
         const requestedDir = normalize(path);
@@ -128,7 +147,7 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
         const requestedPrefix = requestedDir === "/" ? "/" : `${requestedDir}/`;
         const names = new Set<string>();
         const entries: { name: string; path: string; is_dir: boolean }[] = [];
-        for (const candidate of [...normalized.keys(), ...directories]) {
+        for (const candidate of [...normalized.keys(), ...directories, ...linkPaths]) {
             const candidateKey = pathCompareKey(candidate);
             if (!candidateKey.startsWith(prefixKey) || candidateKey === dirKey) continue;
             const rest = candidate.slice(prefixKey.length);
@@ -136,9 +155,9 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             const [name, ...tail] = rest.split("/");
             if (names.has(name)) continue;
             names.add(name);
-            const targetEntry = canonicalize(`${requestedPrefix}${name}`);
-            const isDir = tail.length > 0 || directoryKeys.has(pathCompareKey(targetEntry));
-            entries.push({ name, path: `${requestedPrefix}${name}`, is_dir: isDir });
+            const entryPath = `${requestedPrefix}${name}`;
+            const isDir = resolveEntryIsDir(entryPath, tail.length > 0);
+            entries.push({ name, path: entryPath, is_dir: isDir });
         }
         return entries.sort((a, b) => a.name.localeCompare(b.name));
     });

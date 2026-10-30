@@ -2,7 +2,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SettingCard, SettingRow, SettingSelect, SettingSwitch } from "@/features/settings/ui/shared/controls";
+import {
+    ExcludePatternsSelect,
+    SettingCard,
+    SettingRow,
+    SettingSelect,
+    SettingSwitch,
+} from "@/features/settings/ui/shared/controls";
+import { KeyInput, TextInput } from "@/features/settings/ui/sections/providers/inputs";
 import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
 import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
@@ -121,6 +128,74 @@ describe("Settings row accessible labelling", () => {
             .map((id) => document.getElementById(id)?.textContent)
             .join(" ");
         expect(announced).toBe("Word wrap On");
+    });
+
+    it("preserves selected value announcement when SettingSelect receives an explicit aria-label and wires SettingRow labels onto ExcludePatternsSelect, KeyInput, and TextInput", () => {
+        render(
+            <SettingCard>
+                <SettingSelect
+                    aria-label="Line endings"
+                    value="lf"
+                    options={[
+                        { value: "lf", label: "LF" },
+                        { value: "crlf", label: "CRLF" },
+                    ]}
+                    onChange={() => {}}
+                />
+                <SettingRow title="Exclude" description="Folders left out of workspace search.">
+                    <ExcludePatternsSelect value="**/node_modules,**/.git" onChange={() => {}} />
+                </SettingRow>
+                <SettingRow title="API key" description="Stored in OS keychain." stack>
+                    <KeyInput value="" placeholder="sk-..." onChange={() => {}} />
+                </SettingRow>
+                <SettingRow title="Base URL" description="OpenAI-compatible endpoint." stack>
+                    <TextInput value="https://api.example.com" placeholder="https://..." onChange={() => {}} />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const explicitSelect = findButton("LF");
+        expect(explicitSelect.getAttribute("aria-label")).toBeNull();
+        const explicitIds = (explicitSelect.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .filter(Boolean);
+        expect(explicitIds.map((id) => document.getElementById(id)?.textContent).join(" ")).toBe(
+            "Line endings LF",
+        );
+
+        const excludeTrigger = findButton("node_modules, .git");
+        const excludeIds = (excludeTrigger.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .filter(Boolean);
+        expect(excludeIds.map((id) => document.getElementById(id)?.textContent).join(" ")).toBe(
+            "Exclude node_modules, .git",
+        );
+        const excludeDescId = excludeTrigger.getAttribute("aria-describedby") ?? "";
+        expect(document.getElementById(excludeDescId)?.textContent).toBe(
+            "Folders left out of workspace search.",
+        );
+
+        const passwordInput = container.querySelector('input[type="password"]');
+        if (!(passwordInput instanceof HTMLInputElement)) {
+            throw new Error("Expected password input");
+        }
+        expect(document.getElementById(passwordInput.getAttribute("aria-labelledby") ?? "")?.textContent).toBe(
+            "API key",
+        );
+        expect(document.getElementById(passwordInput.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+            "Stored in OS keychain.",
+        );
+
+        const textInput = container.querySelector('input[type="text"]');
+        if (!(textInput instanceof HTMLInputElement)) {
+            throw new Error("Expected text input");
+        }
+        expect(document.getElementById(textInput.getAttribute("aria-labelledby") ?? "")?.textContent).toBe(
+            "Base URL",
+        );
+        expect(document.getElementById(textInput.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+            "OpenAI-compatible endpoint.",
+        );
     });
 
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {

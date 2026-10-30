@@ -25,6 +25,21 @@ interface SettingRowLabels {
 
 const SettingRowLabelContext = React.createContext<SettingRowLabels | null>(null);
 
+/** Accessible label and description element IDs supplied by an enclosing `SettingRow`. */
+export const useSettingRowLabels = (): SettingRowLabels | null =>
+    React.useContext(SettingRowLabelContext);
+
+const resolveControlLabelledBy = (
+    explicitLabel: string | undefined,
+    explicitLabelId: string,
+    rowTitleId: string | undefined,
+    valueId: string,
+): string | undefined => {
+    if (explicitLabel) return `${explicitLabelId} ${valueId}`;
+    if (rowTitleId) return `${rowTitleId} ${valueId}`;
+    return undefined;
+};
+
 const settingCardClass = "overflow-hidden squircle-[18px] bg-settings-card";
 
 /** Shared chrome for settings action / select triggers. */
@@ -225,16 +240,21 @@ export function SettingSelect<T extends string>({
 }: {
     value: T;
     options: { value: T; label: string }[];
-    onChange: (v: T) => void;
+    onChange: (selected: T) => void;
     className?: string;
     disabled?: boolean;
     "aria-label"?: string;
 }) {
-    const label = options.find((o) => o.value === value)?.label ?? value;
-    const rowLabels = React.useContext(SettingRowLabelContext);
+    const label = options.find((option) => option.value === value)?.label ?? value;
+    const rowLabels = useSettingRowLabels();
+    const explicitLabelId = React.useId();
     const valueId = React.useId();
-    const labelledBy =
-        !ariaLabel && rowLabels?.titleId ? `${rowLabels.titleId} ${valueId}` : undefined;
+    const labelledBy = resolveControlLabelledBy(
+        ariaLabel,
+        explicitLabelId,
+        rowLabels?.titleId,
+        valueId,
+    );
 
     return (
         <DropdownMenu>
@@ -243,11 +263,15 @@ export function SettingSelect<T extends string>({
                     variant="ghost"
                     size="sm"
                     disabled={disabled}
-                    aria-label={ariaLabel}
                     aria-labelledby={labelledBy}
                     aria-describedby={rowLabels?.descriptionId}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
+                    {ariaLabel ? (
+                        <span id={explicitLabelId} className="sr-only">
+                            {ariaLabel}
+                        </span>
+                    ) : null}
                     <span id={valueId} className="truncate">{label}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
                 </Button>
@@ -421,27 +445,41 @@ export function FontFamilySelect({
     );
 }
 
+const formatMultiSelectSummary = (selectedLabels: readonly string[], placeholder: string): string => {
+    if (selectedLabels.length === 0) return placeholder;
+    if (selectedLabels.length <= 2) return selectedLabels.join(", ");
+    return `${selectedLabels.length} selected`;
+};
+
 export function SettingMultiSelect({
     value,
     options,
     onChange,
     placeholder = "None selected",
     className,
+    "aria-label": ariaLabel,
 }: {
     value: string[];
     options: { value: string; label: string }[];
     onChange: (values: string[]) => void;
     placeholder?: string;
     className?: string;
+    "aria-label"?: string;
 }) {
     const active = new Set(value);
-    const selectedLabels = options.filter((o) => active.has(o.value)).map((o) => o.label);
-    const summary =
-        selectedLabels.length === 0
-            ? placeholder
-            : selectedLabels.length <= 2
-              ? selectedLabels.join(", ")
-              : `${selectedLabels.length} selected`;
+    const selectedLabels = options
+        .filter((option) => active.has(option.value))
+        .map((option) => option.label);
+    const summary = formatMultiSelectSummary(selectedLabels, placeholder);
+    const rowLabels = useSettingRowLabels();
+    const explicitLabelId = React.useId();
+    const summaryId = React.useId();
+    const labelledBy = resolveControlLabelledBy(
+        ariaLabel,
+        explicitLabelId,
+        rowLabels?.titleId,
+        summaryId,
+    );
 
     return (
         <DropdownMenu>
@@ -449,9 +487,16 @@ export function SettingMultiSelect({
                 <Button
                     variant="secondary"
                     size="sm"
+                    aria-labelledby={labelledBy}
+                    aria-describedby={rowLabels?.descriptionId}
                     className={cn("h-8 min-w-[200px] max-w-[280px] justify-between gap-2 border border-border bg-panel-hover px-3 font-normal text-text-primary hover:bg-white/12 [[data-theme=light]_&]:bg-black/6 [[data-theme=light]_&]:hover:bg-black/10", className)}
                 >
-                    <span className="truncate">{summary}</span>
+                    {ariaLabel ? (
+                        <span id={explicitLabelId} className="sr-only">
+                            {ariaLabel}
+                        </span>
+                    ) : null}
+                    <span id={summaryId} className="truncate">{summary}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
                 </Button>
             </DropdownMenuTrigger>
@@ -478,21 +523,27 @@ export function SettingMultiSelect({
 export function ExcludePatternsSelect({
     value,
     onChange,
+    "aria-label": ariaLabel,
 }: {
     value: string;
-    onChange: (v: string) => void;
+    onChange: (nextValue: string) => void;
+    "aria-label"?: string;
 }) {
-    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((c) => c.pattern));
+    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern));
     const active = value
         .split(",")
-        .map((s) => s.trim())
-        .filter((p) => p && known.has(p));
+        .map((segment) => segment.trim())
+        .filter((pattern) => pattern && known.has(pattern));
 
     return (
         <SettingMultiSelect
             value={active}
             placeholder="None excluded"
-            options={COMMON_EXCLUDE_PATTERNS.map((c) => ({ value: c.pattern, label: c.label }))}
+            aria-label={ariaLabel}
+            options={COMMON_EXCLUDE_PATTERNS.map((entry) => ({
+                value: entry.pattern,
+                label: entry.label,
+            }))}
             onChange={(next) => onChange(next.join(","))}
         />
     );

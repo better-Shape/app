@@ -179,6 +179,11 @@ function canonicalPathKey(path: string): string {
     return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
 }
 
+function isKeyWithinBase(folderKey: string, baseKey: string): boolean {
+    const basePrefix = baseKey === "/" ? "/" : `${baseKey}/`;
+    return folderKey === baseKey || folderKey.startsWith(basePrefix);
+}
+
 /**
  * Chooses the confinement root passed to `readFileWithin`. When a skill subfolder
  * inside the project is a verified symlink to another project directory (such as
@@ -193,9 +198,9 @@ function resolveSkillReadRoot(
 ): string {
     if (fileFolder === rootPath || canonicalFolder === fileFolder) return rootPath;
     const baseKey = canonicalPathKey(canonicalRoot ?? rootPath);
-    const folderKey = canonicalPathKey(canonicalFolder);
-    if (folderKey === baseKey || folderKey.startsWith(`${baseKey}/`)) return rootPath;
-    return canonicalFolder;
+    return isKeyWithinBase(canonicalPathKey(canonicalFolder), baseKey)
+        ? rootPath
+        : canonicalFolder;
 }
 
 /**

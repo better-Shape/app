@@ -3,8 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GraphSvgRow } from "@/features/git/ui/graph/svg-row";
 import {
+    collectFreshGraphArrivals,
     detectFreshGraphArrival,
     useArrivingCommitHash,
+    useArrivingCommitHashes,
     type GraphHeadSnapshot,
 } from "@/features/git/ui/graph/graph";
 import type { GitLogEntry, GraphNode } from "@/lib/backend";
@@ -188,5 +190,109 @@ describe("GraphSvgRow arrival stroke draw", () => {
             root.render(<Probe cacheKey="/repo::all" logs={afterCommitLogs} />);
         });
         expect(container.querySelector("[data-arriving]")?.getAttribute("data-arriving")).toBe("ccc333");
+    });
+
+    it("collects every newly arrived commit in a multi-commit batch and diamond merge while capping large pulls", () => {
+        const prev: GraphHeadSnapshot = {
+            cacheKey: "/repo::head",
+            topHash: "aaa111",
+            known: new Set(["aaa111", "bbb222"]),
+            headRef: "branch:main",
+        };
+
+        const batch = collectFreshGraphArrivals(
+            prev,
+            "/repo::head",
+            [
+                { hash: "ddd444", parents: ["ccc333"] },
+                { hash: "ccc333", parents: ["aaa111"] },
+                { hash: "aaa111", parents: ["bbb222"] },
+            ],
+            "branch:main",
+        );
+        expect(Array.from(batch)).toEqual(["ddd444", "ccc333"]);
+
+        // Merge commit landing with two new side-branch parents + an unrelated orphan root:
+        // only commits lying on a path to known history (aaa111) are collected.
+        const mergeBatch = collectFreshGraphArrivals(
+            prev,
+            "/repo::head",
+            [
+                { hash: "mmm777", parents: ["ddd444", "eee555", "orphan9"] },
+                { hash: "ddd444", parents: ["aaa111"] },
+                { hash: "eee555", parents: ["aaa111"] },
+                { hash: "orphan9", parents: [] },
+            ],
+            "branch:main",
+        );
+        expect(Array.from(mergeBatch)).toEqual(["mmm777", "ddd444", "eee555"]);
+
+        // 20-commit fast-forward pull caps animated rows at 12 newest commits.
+        const twentyCommits = Array.from({ length: 20 }, (_, index) => {
+            const num = 20 - index;
+            const parent = num === 1 ? "aaa111" : `new-${num - 1}`;
+            return { hash: `new-${num}`, parents: [parent] };
+        });
+        const capped = collectFreshGraphArrivals(
+            prev,
+            "/repo::head",
+            twentyCommits,
+            "branch:main",
+        );
+        expect(capped.size).toBe(12);
+        expect(capped.has("new-20")).toBe(true);
+        expect(capped.has("new-9")).toBe(true);
+        expect(capped.has("new-8")).toBe(false);
+    });
+
+    it("preserves arrival detection across streamed initialLogs + appendLogs chunks", () => {
+        const makeLog = (hash: string, parents: string[], refs: string[] = []): GitLogEntry => ({
+            hash,
+            message: hash,
+            author: "Ada",
+            author_email: "ada@example.com",
+            date: "1700000000",
+            files_changed: 1,
+            insertions: 1,
+            deletions: 0,
+            refs,
+            parent_count: parents.length,
+            parents,
+        });
+
+        const baseLogs = [makeLog("base-0", [], ["HEAD -> main"])];
+        // First streamed chunk has 2 new commits whose oldest parent (new-1) has not arrived yet.
+        const chunkOne = [
+            makeLog("new-3", ["new-2"], ["HEAD -> main"]),
+            makeLog("new-2", ["new-1"]),
+        ];
+        // Second streamed chunk appends new-1 -> base-0, bridging the chain to baseLogs.
+        const chunkTwo = [
+            ...chunkOne,
+            makeLog("new-1", ["base-0"]),
+            makeLog("base-0", []),
+        ];
+
+        const MultiProbe = ({ cacheKey, logs }: { cacheKey: string; logs: GitLogEntry[] }) => {
+            const arriving = useArrivingCommitHashes(cacheKey, logs);
+            return <div data-arrivals={Array.from(arriving).join(",")} />;
+        };
+
+        act(() => {
+            root.render(<MultiProbe cacheKey="/repo::head" logs={baseLogs} />);
+        });
+        expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+        act(() => {
+            root.render(<MultiProbe cacheKey="/repo::head" logs={chunkOne} />);
+        });
+        expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+        act(() => {
+            root.render(<MultiProbe cacheKey="/repo::head" logs={chunkTwo} />);
+        });
+        expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+            "new-3,new-2,new-1",
+        );
     });
 });

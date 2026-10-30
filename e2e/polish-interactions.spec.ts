@@ -48,18 +48,22 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
 
         for (const navLabel of ["Providers", "Models", "Editor", "Git", "Terminal"]) {
             const navButton = page.locator("nav button", { hasText: navLabel }).first();
-            if (await navButton.count()) {
-                await navButton.click();
-            }
+            await expect(navButton).toBeVisible();
+            await navButton.click();
             if (navLabel === "Models") {
                 await expect(
                     page.getByRole("button", { name: /^Auto-run mode\s+\S+/ }),
                 ).toBeVisible();
             }
+            if (navLabel === "Editor") {
+                await expect(
+                    page.getByRole("button", { name: /^Exclude\s+\S+/ }),
+                ).toBeVisible();
+            }
             const axe = await new AxeBuilder({ page })
-                .withRules(["button-name"])
+                .withRules(["button-name", "label"])
                 .analyze();
-            expect(axe.violations, `button-name violations on ${navLabel}`).toEqual([]);
+            expect(axe.violations, `a11y label violations on ${navLabel}`).toEqual([]);
         }
 
         expectNoPageErrors();
@@ -103,6 +107,19 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             // Escape disarms back to idle without invoking gitDiscard.
             await discardBtn.press("Escape");
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
+
+            // Pressing and dragging the pointer outside bounds aborts the hold immediately.
+            const box = await discardBtn.boundingBox();
+            expect(box).not.toBeNull();
+            if (box) {
+                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+                await page.mouse.down();
+                await expect(discardBtn).toHaveAttribute("data-state", "holding");
+                await page.mouse.move(box.x - 48, box.y + box.height / 2);
+                await expect(discardBtn).toHaveAttribute("data-state", "idle");
+                await page.mouse.up();
+                await expect(discardBtn).toHaveAttribute("data-state", "idle");
+            }
 
             // Switch to Search workspace tab and verify empty-state recovery action.
             await page.evaluate(() => {

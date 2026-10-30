@@ -17,6 +17,11 @@ describe("skill-paths: normalizeSkillPath", () => {
     it("leaves an already-normalized path alone", () => {
         expect(normalizeSkillPath("/home/dev/.claude/skills")).toBe("/home/dev/.claude/skills");
     });
+
+    it("preserves POSIX root even when repeated slashes are passed", () => {
+        expect(normalizeSkillPath("/")).toBe("/");
+        expect(normalizeSkillPath("///")).toBe("/");
+    });
 });
 
 describe("skill-paths: skillPathSep / joinSkillPath", () => {
@@ -34,6 +39,8 @@ describe("skill-paths: skillPathSep / joinSkillPath", () => {
 
     it("normalizes a relative path to the directory's separator", () => {
         expect(joinSkillPath("C:\\Users\\dev", "skills/pdf")).toBe("C:\\Users\\dev\\skills\\pdf");
+        expect(joinSkillPath("/", ".claude/skills")).toBe("/.claude/skills");
+        expect(joinSkillPath("///", "/.claude/skills")).toBe("/.claude/skills");
     });
 });
 
@@ -41,6 +48,9 @@ describe("skill-paths: isInsideSkillPath", () => {
     it("is true for the folder itself and for its children", () => {
         expect(isInsideSkillPath("/home/dev/project", "/home/dev/project")).toBe(true);
         expect(isInsideSkillPath("/home/dev/project/.claude/skills", "/home/dev/project")).toBe(true);
+        expect(isInsideSkillPath("/proj/.claude/skills/SKILL.md", "/")).toBe(true);
+        expect(isInsideSkillPath("/", "/")).toBe(true);
+        expect(isInsideSkillPath("C:\\proj\\SKILL.md", "/")).toBe(false);
     });
 
     it("is false for parents, siblings, and prefix lookalikes", () => {
@@ -84,5 +94,9 @@ describe("skill-paths: displaySkillPath", () => {
         expect(displaySkillPath("/home/dev/demo/.agents/guide.md", "/home/dev/demo", "/home/dev")).toBe(
             ".agents/guide.md"
         );
+        expect(displaySkillPath("/.claude/skills/pdf/SKILL.md", "/", null)).toBe(
+            ".claude/skills/pdf/SKILL.md"
+        );
+        expect(displaySkillPath("/", "/", null)).toBe(".");
     });
 });
