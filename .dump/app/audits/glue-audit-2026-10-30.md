@@ -403,3 +403,67 @@ are connected.
 The two tests that only asserted a command existed or that a source file
 mentioned a settings key were removed: a behavioural test in the same suite
 replaces what they were standing in for.
+
+## Round 2 — wiring the settings that promised features
+
+The earlier "25 keys only the settings layer reads" list was measured with two
+matcher bugs. `scripts/qa/audit-glue.mjs` did not match optional-chained reads
+(`settings.python?.interpreterPath`), so a live reader looked dead, and it
+counted TypeScript declarations (`codingAssistance: boolean;`) as reads, so a
+dead key looked live. Both are fixed: `chainPattern()` builds an
+optional-chaining-aware chain for dotted, aliased and destructured access, and
+`withoutTypeDeclarations()` drops indented `name: type;` lines before the scan.
+
+Re-measured, the honest number was 22 keys with no reader outside
+`lib/settings/` and `features/settings/ui/`, not 10. Each was then checked by
+hand against the whole tree, because the script is a heuristic and the grep is
+the evidence.
+
+### Wired, with the surface each one now drives
+
+| Setting | Consumer | Proof |
+| --- | --- | --- |
+| `prettier.enable` | `formatForSave`, the Format command, new Settings row | `tests/editor/save-pipeline.test.ts`, `tests/editor/save-formatting-settings.test.ts` |
+| `eslint.enable` | Problems tab run gate plus a distinct "ESLint is off" state | `tests/workspace/problems.test.ts` |
+| `eslint.fixOnSave` | `--fix` through the save pipeline, ahead of Prettier | `tests/editor/save-pipeline.test.ts` |
+| `git.blame.enabled` | new caret-line inline blame extension | `tests/editor/inline-blame.test.ts`, `tests/editor/inline-blame-view.test.tsx` |
+| `tailwindControls.enable`, `numberScrubbing`, `scrubDecorations`, `wheelOnInputs` | design inspector drag and wheel stepping | `tests/preview/*` plus the probe |
+| `ai.maxContextLines` | `@file` mention truncation | `tests/chat/mention-truncation.test.ts` |
+| `privacy.showWelcomeOnStartup` | quiet home with an "Open folder" action | `scripts/qa/probe-feature-wiring.cjs` |
+
+### Deleted, because no surface was ever built for it
+
+`lsp.emmet`, `node.interpreterPath`, `node.codingAssistance`,
+`designAutocomplete`, `designDiagnostics`, `designBlame`, `spacingRefactor`,
+`ai.multiworkConfirm`, `ai.multiworkShowChips`, `privacy.showLoginPromptOnLaunch`
+and `tailwindControls.cursorBindPanel` had no reader, no writer outside
+`DEFAULT_SETTINGS`, and no UI. `eslint_lint_file` and `prettier_format_file`
+exist in Rust and the panels call them, so those were wiring gaps rather than
+phantoms; the list above is not.
+
+`workspace.toolingInstall` stays: the schema marks it `@deprecated` and keeps it
+for settings-merge compatibility, so dropping it would rewrite stored payloads
+for nothing.
+
+### Bugs found while wiring
+
+- The `Format` command ran Prettier with no switch check, so turning Prettier
+  off changed nothing.
+- `formatForSave` also ignored the switch, which means `editor.formatOnSave`
+  could not be turned off in practice either: the pipeline formatted whenever
+  the file was saved.
+- The problems panel reset its state from inside an effect; React's linter
+  flagged the cascade. The busy flag now travels with the other run inputs.
+- `/settings?category=privacy` (and `notifications`, `developer`) opened
+  Providers instead of the requested leaf: the nav entries existed, the router
+  lookup did not.
+- `pathRef` was assigned after `EditorState.create`, so an extension reading the
+  path while it is constructed saw the previous file. It is now assigned before
+  the state is built.
+
+### What is still unproven
+
+The probe drives the settings page and the empty home in a real browser and
+writes `.qa-artifacts/feature-wiring/*.png`. Inline blame is proven against a
+jsdom editor, not against a real git repository in the packaged app, and ESLint
+`--fix` is proven through mocks, not through `npx eslint` on disk.
