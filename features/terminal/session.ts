@@ -1,5 +1,6 @@
 import { randomSuffix } from "@/lib/utils";
 import { stripShellPromptPrefix } from "@/lib/chat/prompt-history";
+import { getPlatform } from "@/lib/platform";
 
 /**
  * Shared terminal session registration (used by the always-mounted DevRunHost
@@ -38,10 +39,14 @@ function createTabId() {
         : randomSuffix(9);
 }
 
+const isWindowsProjectPath = (raw: string): boolean => {
+    if (raw.includes("\\") || /^[A-Za-z]:/.test(raw)) return true;
+    return raw.startsWith("//") && getPlatform() === "windows";
+};
+
 /** Exported so the Terminal UI and session store agree on project path identity. */
 export const projectPathKey = (raw: string): string => {
-    const isWindows =
-        raw.includes("\\") || /^[A-Za-z]:/.test(raw) || raw.startsWith("//");
+    const isWindows = isWindowsProjectPath(raw);
     const forward = raw.replaceAll("\\", "/");
     let end = forward.length;
     while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;

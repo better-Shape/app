@@ -143,7 +143,7 @@ const useHoldState = (
     const timersRef = React.useRef<HoldTimers>({ hold: null, reset: null, clickGuard: null });
     const startedAtRef = React.useRef(0);
     const sourceRef = React.useRef<"pointer" | "keyboard" | null>(null);
-    const activePointerIdRef = React.useRef<number | null>(null);
+    const activeInputTokenRef = React.useRef<number | string | null>(null);
     const suppressClickRef = React.useRef(false);
 
     React.useEffect(() => {
@@ -166,7 +166,7 @@ const useHoldState = (
     const cancelHold = React.useCallback(() => {
         clearAllTimers(timersRef.current);
         sourceRef.current = null;
-        activePointerIdRef.current = null;
+        activeInputTokenRef.current = null;
         armedPressRef.current = false;
         startedAtRef.current = 0;
         suppressClickRef.current = false;
@@ -240,7 +240,7 @@ const useHoldState = (
         clearTimerSlot(timersRef.current, "hold");
         clearTimerSlot(timersRef.current, "reset");
         sourceRef.current = null;
-        activePointerIdRef.current = null;
+        activeInputTokenRef.current = null;
         armedPressRef.current = false;
         startedAtRef.current = 0;
         scheduleClickGuardClear();
@@ -263,7 +263,7 @@ const useHoldState = (
         clearTimerSlot(timersRef.current, "hold");
         clearTimerSlot(timersRef.current, "reset");
         sourceRef.current = null;
-        activePointerIdRef.current = null;
+        activeInputTokenRef.current = null;
         armedPressRef.current = false;
         writeState("armed");
         timersRef.current.reset = window.setTimeout(() => {
@@ -272,69 +272,77 @@ const useHoldState = (
         }, ARMED_TIMEOUT_MS);
     }, [writeState]);
 
+    const matchesActivePress = React.useCallback(
+        (source: "pointer" | "keyboard", token: number | string) =>
+            sourceRef.current === source && activeInputTokenRef.current === token,
+        [],
+    );
+
+    const isPressBlocked = React.useCallback(
+        () =>
+            disabledRef.current ||
+            confirmInFlightRef.current ||
+            stateRef.current === "confirmed" ||
+            sourceRef.current !== null,
+        [],
+    );
+
     const beginPress = React.useCallback(
-        (source: "pointer" | "keyboard", pointerId: number | null = null) => {
-            if (disabledRef.current || confirmInFlightRef.current || stateRef.current === "confirmed") {
-                return;
-            }
-            if (source === "pointer" && activePointerIdRef.current !== null && activePointerIdRef.current !== pointerId) {
-                return;
-            }
+        (source: "pointer" | "keyboard", token: number | string) => {
+            if (isPressBlocked()) return;
             clearTimerSlot(timersRef.current, "clickGuard");
             suppressClickRef.current = true;
+            sourceRef.current = source;
+            activeInputTokenRef.current = token;
             if (stateRef.current === "armed") {
                 armedPressRef.current = true;
-                sourceRef.current = source;
-                activePointerIdRef.current = pointerId;
                 return;
             }
             clearTimerSlot(timersRef.current, "hold");
             clearTimerSlot(timersRef.current, "reset");
-            sourceRef.current = source;
-            activePointerIdRef.current = pointerId;
             startedAtRef.current = performance.now();
             writeState("holding");
             timersRef.current.hold = window.setTimeout(fireConfirm, holdMs);
         },
-        [fireConfirm, holdMs, writeState],
+        [fireConfirm, holdMs, isPressBlocked, writeState],
     );
 
+    const settleHoldingRelease = React.useCallback(() => {
+        if (stateRef.current !== "holding") return;
+        const elapsed = performance.now() - startedAtRef.current;
+        if (elapsed < QUICK_TAP_MAX_MS) {
+            enterArmed();
+            return;
+        }
+        clearTimerSlot(timersRef.current, "hold");
+        clearTimerSlot(timersRef.current, "reset");
+        startedAtRef.current = 0;
+        writeState("idle");
+    }, [enterArmed, writeState]);
+
     const releasePress = React.useCallback(
-        (pointerId: number | null = null) => {
-            if (pointerId !== null && activePointerIdRef.current !== null && pointerId !== activePointerIdRef.current) {
-                return;
-            }
-            activePointerIdRef.current = null;
+        (source: "pointer" | "keyboard", token: number | string) => {
+            if (!matchesActivePress(source, token)) return;
+            sourceRef.current = null;
+            activeInputTokenRef.current = null;
             scheduleClickGuardClear();
-            if (armedPressRef.current && stateRef.current === "armed") {
-                armedPressRef.current = false;
+            const wasArmedPress = armedPressRef.current && stateRef.current === "armed";
+            armedPressRef.current = false;
+            if (wasArmedPress) {
                 fireConfirm();
                 return;
             }
-            armedPressRef.current = false;
-            if (stateRef.current !== "holding") return;
-            const elapsed = performance.now() - startedAtRef.current;
-            if (elapsed < QUICK_TAP_MAX_MS) {
-                enterArmed();
-                return;
-            }
-            clearTimerSlot(timersRef.current, "hold");
-            clearTimerSlot(timersRef.current, "reset");
-            sourceRef.current = null;
-            startedAtRef.current = 0;
-            writeState("idle");
+            settleHoldingRelease();
         },
-        [enterArmed, fireConfirm, scheduleClickGuardClear, writeState],
+        [fireConfirm, matchesActivePress, scheduleClickGuardClear, settleHoldingRelease],
     );
 
     const handlePointerMove = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
-            if (sourceRef.current !== "pointer") return;
-            if (stateRef.current !== "holding" && !armedPressRef.current) return;
-            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
+            if (!matchesActivePress("pointer", event.pointerId)) return;
             if (!isPointerInsideTarget(event)) cancelHold();
         },
-        [cancelHold],
+        [cancelHold, matchesActivePress],
     );
 
     const handleBlur = React.useCallback(() => {
@@ -356,20 +364,18 @@ const useHoldState = (
 
     const handlePointerLeave = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
-            if (sourceRef.current !== "pointer") return;
-            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
-            if (stateRef.current === "holding" || armedPressRef.current) cancelHold();
+            if (!matchesActivePress("pointer", event.pointerId)) return;
+            cancelHold();
         },
-        [cancelHold],
+        [cancelHold, matchesActivePress],
     );
 
     const handlePointerCancel = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
-            if (sourceRef.current !== "pointer") return;
-            if (activePointerIdRef.current !== null && event.pointerId !== activePointerIdRef.current) return;
+            if (!matchesActivePress("pointer", event.pointerId)) return;
             cancelHold();
         },
-        [cancelHold],
+        [cancelHold, matchesActivePress],
     );
 
     return {
@@ -445,7 +451,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
                     beginPress("pointer", event.pointerId);
                 }}
                 onPointerMove={handlePointerMove}
-                onPointerUp={(event) => releasePress(event.pointerId)}
+                onPointerUp={(event) => releasePress("pointer", event.pointerId)}
                 onPointerLeave={handlePointerLeave}
                 onPointerCancel={handlePointerCancel}
                 onKeyDown={(event) => {
@@ -457,13 +463,13 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
                     }
                     if (!event.repeat && isActivationKey(event.key)) {
                         event.preventDefault();
-                        beginPress("keyboard");
+                        beginPress("keyboard", event.key);
                     }
                 }}
                 onKeyUp={(event) => {
                     if (isActivationKey(event.key)) {
                         event.preventDefault();
-                        releasePress();
+                        releasePress("keyboard", event.key);
                     }
                 }}
                 onBlur={handleBlur}

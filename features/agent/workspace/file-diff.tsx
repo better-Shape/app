@@ -44,6 +44,38 @@ function countDiff(original: string, current: string): { add: number; del: numbe
     return countChangedLines(original, current);
 }
 
+const isAddedGitStatus = (status: string): boolean => {
+    const code = status.trim().charAt(0).toUpperCase();
+    return code === "A" || code === "?";
+};
+
+const joinRepoFilePath = (repo: string, filePath: string): string =>
+    `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${filePath.replaceAll("\\", "/")}`;
+
+const formatDiscardError = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
+/** Unstages staged edits (if any), removes untracked additions, and restores the worktree from HEAD. */
+export async function discardGitFileChange(target: {
+    repo: string;
+    path: string;
+    staged: boolean;
+    status: string;
+}): Promise<boolean> {
+    try {
+        if (target.staged) await commands.gitUnstage(target.repo, target.path);
+        if (isAddedGitStatus(target.status)) {
+            await commands.deletePath(joinRepoFilePath(target.repo, target.path));
+        }
+        await commands.gitDiscardChanges(target.repo, target.path);
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
+        return true;
+    } catch (err) {
+        notify.error("Git", formatDiscardError(err));
+        return false;
+    }
+}
+
 function statusBadge(status: string, original: string, current: string): string | null {
     const letter = status.trim().charAt(0).toUpperCase();
     if (letter === "A" || (!original && current)) return "New";
@@ -131,14 +163,9 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
     };
 
     const discard = async (): Promise<boolean> => {
-        try {
-            await commands.gitDiscardChanges(tab.repo, tab.path);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-            return true;
-        } catch (err) {
-            notify.error("Git", err instanceof Error ? err.message : String(err));
-            return false;
-        }
+        const ok = await discardGitFileChange(tab);
+        if (ok) setCurrent(original);
+        return ok;
     };
 
     return (

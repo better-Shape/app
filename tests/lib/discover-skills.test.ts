@@ -430,6 +430,26 @@ describe("discoverSkills", () => {
         );
     });
 
+    it("rejects deep symlink chains (>8 hops) and supports root-level '/' confinement", async () => {
+        const symlinks: Record<string, string> = {};
+        for (let hop = 0; hop < 10; hop += 1) {
+            symlinks[`${PROJECT}/.claude/skills/hop-${hop}`] =
+                hop < 9 ? `${PROJECT}/.claude/skills/hop-${hop + 1}` : "/home/dev/outside/secret";
+        }
+        serveSkillFs(
+            mocks,
+            {
+                "/home/dev/outside/secret/SKILL.md": skillFile("secret", "Outside.", "Secret."),
+            },
+            { homeDir: HOME, symlinks },
+        );
+
+        await expect(discoverItems()).resolves.toEqual([]);
+        await expect(
+            mocks.ensurePathWithin(`${PROJECT}/.claude/skills/hop-0`, "/"),
+        ).resolves.toBe("/home/dev/outside/secret");
+    });
+
     it("resolves Windows symlinked skill folders case-insensitively", async () => {
         serveSkillFs(
             mocks,

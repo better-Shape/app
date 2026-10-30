@@ -534,6 +534,39 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("confirmed");
     });
 
+    it("ignores mismatched release sources on armed presses so unrelated keyup or pointerup never confirms", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                armedLabel="Confirm"
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.click();
+        });
+        expect(btn.dataset.state).toBe("armed");
+
+        // Start an armed pointer press; an unrelated keyup must NOT confirm it.
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 12 }));
+            btn.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true }));
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(btn.dataset.state).toBe("armed");
+
+        // Matching pointerup completes the confirmation.
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 12 }));
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("confirmed");
+    });
+
     it("clears click suppression on pointercancel so the next assistive click arms cleanly", () => {
         const onConfirm = vi.fn();
         render(

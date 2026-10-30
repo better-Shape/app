@@ -98,6 +98,19 @@ describe("GraphSvgRow arrival stroke draw", () => {
             ),
         ).toBe(true);
 
+        // Multi-commit fast-forward / batch arrival on the same HEAD ref -> animates newest head.
+        expect(
+            detectFreshGraphArrival(
+                prev,
+                "/repo::head",
+                [
+                    { hash: "ddd444", parents: ["ccc333"] },
+                    { hash: "ccc333", parents: ["aaa111"] },
+                ],
+                "branch:main",
+            ),
+        ).toBe(true);
+
         // Checking out an existing descendant branch without changing cacheKey -> stays static.
         expect(
             detectFreshGraphArrival(

@@ -201,6 +201,8 @@ describe("terminal tab activity", () => {
         expect(terminalSessionStore.unreadTabs.has("win")).toBe(false);
         expect(sameProjectPath("C:\\Users\\Ada\\Repo", "c:/users/ada/repo/")).toBe(true);
         expect(sameProjectPath("/home/ada/Repo", "/home/ada/repo")).toBe(false);
+        // POSIX double-leading-slash paths stay case-sensitive outside Windows.
+        expect(sameProjectPath("//Work/App", "//work/app")).toBe(false);
 
         terminalSessionStore.setActive("c:/users/ada/repo", "win-next");
         expect(lookupByProjectPath(terminalSessionStore.activeProjectTabs, "C:\\Users\\Ada\\Repo")).toBe("win-next");

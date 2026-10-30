@@ -89,6 +89,49 @@ export const resolveGraphHeadRef = (
     return null;
 };
 
+type GraphCommitLineage = Pick<GitLogEntry, "hash" | "parents">;
+
+const isLineageList = (
+    value: GraphCommitLineage | readonly GraphCommitLineage[],
+): value is readonly GraphCommitLineage[] => Array.isArray(value);
+
+const normalizeLineageSlice = (
+    candidate: GraphCommitLineage | readonly GraphCommitLineage[] | undefined,
+): readonly GraphCommitLineage[] => {
+    if (!candidate) return EMPTY_ARRAY;
+    return isLineageList(candidate) ? candidate : [candidate];
+};
+
+const enqueueUnvisitedParents = (
+    parents: readonly string[] | undefined,
+    visited: Set<string>,
+    queue: string[],
+): void => {
+    if (!parents) return;
+    for (const parent of parents) {
+        if (visited.has(parent)) continue;
+        visited.add(parent);
+        queue.push(parent);
+    }
+};
+
+const reachesKnownHistory = (
+    commits: readonly GraphCommitLineage[],
+    known: ReadonlySet<string>,
+): boolean => {
+    const byHash = new Map<string, readonly string[]>();
+    for (const commit of commits) byHash.set(commit.hash, commit.parents);
+    const visited = new Set<string>([commits[0].hash]);
+    const queue: string[] = [];
+    enqueueUnvisitedParents(commits[0].parents, visited, queue);
+    for (let index = 0; index < queue.length; index += 1) {
+        const current = queue[index];
+        if (known.has(current)) return true;
+        enqueueUnvisitedParents(byHash.get(current), visited, queue);
+    }
+    return false;
+};
+
 const hasMatchingGraphContext = (
     prev: GraphHeadSnapshot,
     cacheKey: string | null,
@@ -101,12 +144,14 @@ const hasMatchingGraphContext = (
 export const detectFreshGraphArrival = (
     prev: GraphHeadSnapshot,
     cacheKey: string | null,
-    topCommit: Pick<GitLogEntry, "hash" | "parents"> | undefined,
+    candidate: GraphCommitLineage | readonly GraphCommitLineage[] | undefined,
     nextHeadRef: string | null = null,
 ): boolean => {
+    const commits = normalizeLineageSlice(candidate);
+    const topCommit = commits[0];
     if (!topCommit || !hasMatchingGraphContext(prev, cacheKey, nextHeadRef)) return false;
     if (prev.known.has(topCommit.hash)) return false;
-    return topCommit.parents.some((parent) => prev.known.has(parent));
+    return reachesKnownHistory(commits, prev.known);
 };
 
 const resolveIgnoredLogsRef = (
@@ -156,8 +201,8 @@ export const useArrivingCommitHash = (
     const keyChanged = prev.cacheKey !== cacheKey;
     const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
     const staleCarryOver = nextIgnoredLogsRef !== null;
-    const effectiveTopCommit = staleCarryOver ? undefined : gitLogs[0];
-    const effectiveTopHash = effectiveTopCommit?.hash ?? null;
+    const effectiveLogs = staleCarryOver ? EMPTY_ARRAY : gitLogs;
+    const effectiveTopHash = effectiveLogs[0]?.hash ?? null;
     const effectiveHeadRef = staleCarryOver ? null : resolveGraphHeadRef(gitLogs);
 
     const snapshotChanged =
@@ -168,7 +213,7 @@ export const useArrivingCommitHash = (
         const fresh = detectFreshGraphArrival(
             prev,
             cacheKey,
-            effectiveTopCommit,
+            effectiveLogs,
             effectiveHeadRef,
         );
         setPrev({

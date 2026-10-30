@@ -75,26 +75,26 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             return [pathCompareKey(normFrom), { from: normFrom, to: resolveLinkTarget(normFrom, to) }];
         }),
     );
+    const stepSymlinkSubstitution = (current: string): string | null => {
+        const currentKey = pathCompareKey(current);
+        for (const [fromKey, link] of links.entries()) {
+            if (currentKey === fromKey) return link.to;
+            const prefix = fromKey === "/" ? "/" : `${fromKey}/`;
+            if (currentKey.startsWith(prefix)) {
+                return normalize(`${link.to}${current.slice(link.from.length)}`);
+            }
+        }
+        return null;
+    };
+
     const canonicalize = (rawPath: string): string => {
         let current = normalize(rawPath);
-        for (let depth = 0; depth < 8; depth += 1) {
-            let replaced = false;
-            const currentKey = pathCompareKey(current);
-            for (const [fromKey, link] of links.entries()) {
-                if (currentKey === fromKey) {
-                    current = link.to;
-                    replaced = true;
-                    break;
-                }
-                if (currentKey.startsWith(`${fromKey}/`)) {
-                    current = `${link.to}${current.slice(link.from.length)}`;
-                    replaced = true;
-                    break;
-                }
-            }
-            if (!replaced) break;
+        for (let depth = 0; depth < 40; depth += 1) {
+            const next = stepSymlinkSubstitution(current);
+            if (next === null) return current;
+            current = next;
         }
-        return current;
+        throw new Error(`too many levels of symbolic links: ${rawPath}`);
     };
 
     const normalized = new Map(Object.entries(files).map(([path, body]) => [normalize(path), body]));
@@ -154,7 +154,8 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
     const inside = (child: string, parent: string) => {
         const file = pathCompareKey(canonicalize(child));
         const root = pathCompareKey(canonicalize(parent));
-        return file === root || file.startsWith(`${root}/`);
+        const prefix = root === "/" ? "/" : `${root}/`;
+        return file === root || file.startsWith(prefix);
     };
 
     mocks.readFileWithin?.mockImplementation(async (path: string, root: string) => {

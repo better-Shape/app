@@ -17,6 +17,7 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 import { HoldButton } from "@/components/ui/hold-button";
+import { discardGitFileChange } from "./file-diff";
 import { Tooltip } from "@/components/ui/tooltip";
 
 export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
@@ -121,16 +122,13 @@ function LazyFileDiff({
         }
     };
 
-    const discard = async (): Promise<boolean> => {
-        try {
-            await commands.gitDiscardChanges(repo, file.path);
-            window.dispatchEvent(new Event("bettershape-git-refresh"));
-            return true;
-        } catch (err) {
-            notify.error("Git", err instanceof Error ? err.message : String(err));
-            return false;
-        }
-    };
+    const discard = (): Promise<boolean> =>
+        discardGitFileChange({
+            repo,
+            path: file.path,
+            staged: file.staged,
+            status: file.status,
+        });
 
     const openFile = async () => {
         const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
