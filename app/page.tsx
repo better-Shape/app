@@ -11,6 +11,8 @@ import {
 import { WelcomeScreen, useRecentFolders } from "./welcome-screen";
 import { loginGitHub } from "@/lib/github/store";
 import { PreviewCrash } from "@/components/layout/error/preview-crash";
+import { Button } from "@/components/ui/button";
+import { useSettings } from "@/lib/settings";
 
 /**
  * Agent window home, welcome when idle.
@@ -21,6 +23,7 @@ const Home = () => {
     const [cloneOpen, setCloneOpen] = useState(false);
     const [sshOpen, setSshOpen] = useState(false);
     const recentFolders = useRecentFolders();
+    const showWelcome = useSettings().privacy.showWelcomeOnStartup;
     // Restoring only lasts until Main's restore brings a project, or a short grace period
     // passes. Both are derived here rather than written from an effect.
     const [restoreTimedOut, setRestoreTimedOut] = useState(false);
@@ -64,6 +67,28 @@ const Home = () => {
     // Keep mounted (dialogs) while project open so welcome dialogs still work.
     if (project_path) {
         return dialogs;
+    }
+
+    // Settings -> Privacy -> Show welcome page on startup. Turning it off leaves a
+    // quiet home instead of the marketing surface, but keeps a way in.
+    if (!showWelcome) {
+        return (
+            <>
+                <div className="flex h-full flex-col items-center justify-center gap-3 bg-editor text-sm text-text-muted">
+                    <p>No project open</p>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                            window.dispatchEvent(new Event("bettershape-open-project-pick"))
+                        }
+                    >
+                        Open folder
+                    </Button>
+                </div>
+                {dialogs}
+            </>
+        );
     }
 
     return (
