@@ -150,6 +150,18 @@ async function isSwitchOn(locator) {
   assert.equal(await blame.count(), 1, "the caret line has no blame annotation");
   const blameText = (await blame.first().textContent()) ?? "";
   assert.ok(blameText.includes("Preview Fixture"), `blame is not attributed: ${blameText}`);
+  // Drawn is not the same as readable: the dock is narrower than the fixture
+  // line, so the in-document annotation can sit past the right edge. The status
+  // bar carries the copy that is always on screen, so that is what is asserted.
+  const blameStatus = page.getByText(/Preview Fixture · /).last();
+  assert.equal(await blameStatus.count(), 1, "the status bar has no blame segment");
+  const statusText = (await blameStatus.textContent()) ?? "";
+  assert.ok(statusText.includes("d ago"), `status blame has no age: ${statusText}`);
+  const onScreen = await blameStatus.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && box.right <= window.innerWidth + 1;
+  });
+  assert.equal(onScreen, true, "the status blame segment is off screen");
   await page.screenshot({ path: path.join(SHOTS, "inline-blame.png"), fullPage: false });
 
   await page.goto(`${BASE_URL}/settings?category=git`, { waitUntil: "domcontentloaded", timeout: 120000 });

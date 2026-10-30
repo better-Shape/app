@@ -85,6 +85,30 @@ describe("inline blame in the editor", () => {
         expect(host.querySelector(".cm-inline-blame")?.textContent).toContain("Ada");
     });
 
+    // The dock is narrower than most lines, so the in-document row is not
+    // always on screen. The status bar carries the same label and is the copy a
+    // reader can rely on, which makes the published detail part of the contract.
+    it("publishes the caret line's blame to the status bar", async () => {
+        updateSettingSection("git", { blame: { enabled: true } });
+        const published: string[] = [];
+        const listen = (event: Event) => {
+            const detail = (event as CustomEvent<{ blame?: string }>).detail;
+            if (typeof detail?.blame === "string") published.push(detail.blame);
+        };
+        window.addEventListener("bettershape-editor-status", listen);
+        try {
+            const view = await mountEditor();
+            await settle();
+            expect(published.at(-1)).toContain("Grace");
+            act(() => {
+                view.dispatch({ selection: { anchor: view.state.doc.line(3).to } });
+            });
+            expect(published.at(-1)).toContain("Ada");
+        } finally {
+            window.removeEventListener("bettershape-editor-status", listen);
+        }
+    });
+
     it("stays out of the way when the setting is off", async () => {
         await mountEditor();
         await settle();

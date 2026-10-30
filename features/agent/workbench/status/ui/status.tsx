@@ -156,6 +156,15 @@ const EditorStatusItems = ({
                 </button>
             </Tooltip>
 
+            {editorStatus.blame ? (
+                <StatusItem
+                    label="Git blame for this line"
+                    className="hidden @[300px]/status:flex max-w-[280px]"
+                >
+                    <span className="truncate text-text-muted italic">{editorStatus.blame}</span>
+                </StatusItem>
+            ) : null}
+
             <StatusItem
                 label="Select Language Mode"
                 onClick={openLanguagePicker}

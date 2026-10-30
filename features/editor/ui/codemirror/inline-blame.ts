@@ -32,12 +32,17 @@ class BlameWidget extends WidgetType {
     }
 
     toDOM() {
-        const span = document.createElement("span");
-        span.className = "cm-inline-blame ml-3 select-none text-xs italic text-text-muted";
-        span.textContent = this.label;
+        // A block row under the caret line, not a trailing span: the editor
+        // lives in the dock, where almost every line is longer than the view,
+        // so an end-of-line annotation was scrolled out of sight every time.
+        const row = document.createElement("div");
+        // `w-full truncate`: a block widget sits inside `.cm-content`, which does
+        // not wrap it, so an unconstrained row hangs past the right edge.
+        row.className = "cm-inline-blame block w-full truncate pl-2 select-none text-xs italic text-text-muted";
+        row.textContent = this.label;
         // Clicking the annotation must not move the caret into the widget.
-        span.setAttribute("aria-hidden", "true");
-        return span;
+        row.setAttribute("aria-hidden", "true");
+        return row;
     }
 
     ignoreEvent() {
@@ -60,11 +65,47 @@ const blameDecoration = StateField.define<DecorationSet>({
         if (!entry) return Decoration.none;
         const label = inlineBlameLabel(entry, Math.floor(Date.now() / 1000));
         return Decoration.set([
-            Decoration.widget({ widget: new BlameWidget(label), side: 1 }).range(line.to),
+            Decoration.widget({ widget: new BlameWidget(label), block: true, side: 1 }).range(line.to),
         ]);
     },
     provide: (field) => EditorView.decorations.from(field),
 });
+
+/**
+ * Publishes the caret line's blame to the status bar. The annotation drawn in
+ * the document is a trailing row, so a line longer than the dock hides it; the
+ * status segment is the copy that is always on screen.
+ */
+function blameReporter() {
+    return ViewPlugin.fromClass(
+        class {
+            private last: string | null = null;
+
+            constructor(private readonly view: EditorView) {
+                this.publish();
+            }
+
+            update(update: ViewUpdate) {
+                const line = update.state.doc.lineAt(update.state.selection.main.head);
+                const regions = update.state.field(blameRegions, false);
+                const entry = regions ? blameEntryAt(regions, line.number) : undefined;
+                const label = entry ? inlineBlameLabel(entry, Math.floor(Date.now() / 1000)) : null;
+                if (label === this.last) return;
+                this.last = label;
+                this.publish();
+            }
+
+            private publish() {
+                if (typeof window === "undefined") return;
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-editor-status", {
+                        detail: { blame: this.last ?? "" },
+                    }),
+                );
+            }
+        },
+    );
+}
 
 /**
  * Fetches blame for the buffer and keeps it in step with the file the editor
@@ -143,5 +184,5 @@ function blameLoader(getPath: () => string | null) {
  */
 export function inlineBlame({ enabled, getPath }: { enabled: boolean; getPath: () => string | null }) {
     if (!enabled) return [];
-    return [blameRegions, blameDecoration, blameLoader(getPath)];
+    return [blameRegions, blameDecoration, blameLoader(getPath), blameReporter()];
 }
