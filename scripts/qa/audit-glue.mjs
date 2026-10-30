@@ -65,17 +65,28 @@ const resolveSpecifier = (fromFile, specifier) => {
  * OpenUI devtools switch, among others) has no `from` clause and was missed, so
  * a module that a shipped file does import was reported as test-only.
  */
-const IMPORT_RE = /(?:import|export)\s[^;]*?from\s+["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)|require\(\s*["']([^"']+)["']\s*\)|^\s*import\s+["']([^"']+)["']/gm;
+const IMPORT_RES = [
+    // `import x from "…"` and `export { x } from "…"`: the specifier always
+    // follows the keyword `from`, so the keyword is all that has to be matched.
+    /\bfrom\s+["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\brequire\(\s*["']([^"']+)["']\s*\)/g,
+    /^\s*import\s+["']([^"']+)["']/gm,
+];
+const specifiersIn = (source) => {
+    const found = new Set();
+    for (const pattern of IMPORT_RES) {
+        for (const match of source.matchAll(pattern)) {
+            if (match[1]) found.add(match[1]);
+        }
+    }
+    return [...found];
+};
 
 const importGraph = new Map();
 for (const file of files) {
     const source = readFileSync(file, "utf8");
-    const specifiers = new Set();
-    for (const match of source.matchAll(IMPORT_RE)) {
-        const raw = match[1] ?? match[2] ?? match[3] ?? match[4];
-        if (raw) specifiers.add(raw);
-    }
-    importGraph.set(file, [...specifiers]);
+    importGraph.set(file, specifiersIn(source));
 }
 
 const imported = new Set();
@@ -89,9 +100,8 @@ for (const [file, specifiers] of importGraph) {
 const consumerImported = new Set();
 for (const file of consumerFiles) {
     const source = readFileSync(file, "utf8");
-    for (const match of source.matchAll(IMPORT_RE)) {
-        const raw = match[1] ?? match[2] ?? match[3] ?? match[4];
-        const target = raw ? resolveSpecifier(file, raw) : null;
+    for (const specifier of specifiersIn(source)) {
+        const target = resolveSpecifier(file, specifier);
         if (target) consumerImported.add(target);
     }
 }
@@ -189,7 +199,7 @@ const settingsLayer = join(ROOT, "lib/settings");
 const withoutTypeDeclarations = (source) =>
     source
         .split("\n")
-        .filter((line) => !/^\s{4,}\w+\??:\s*[\w<>\[\]"'|\s.,]+;\s*$/.test(line))
+        .filter((line) => !/^ {4,}\w+\??:[^;]*;$/.test(line))
         .join("\n");
 const withoutDefaults = (source) => {
     const start = source.indexOf("DEFAULT_SETTINGS");

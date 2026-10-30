@@ -661,3 +661,21 @@ Still inert, and named rather than hidden: `editor.bracketPairColorization`,
 decoration layer CodeMirror does not ship, and the third needs the Rust spawn
 path to accept a shell argument; none of them has a UI control today, so nothing
 on screen currently promises them.
+
+## Round 6b — Sonar's four regex findings, fixed without changing behaviour
+
+SonarCloud reported four `S8786` super-linear regexes on this PR. All four were
+nested or ambiguous quantifiers, and three of them were in code this branch
+touched:
+
+- `scripts/qa/audit-glue.mjs`: the four-alternative import matcher is now four
+  separate patterns behind `specifiersIn()`, each anchored on a keyword, so
+  there is no `[^;]*?from` to backtrack over. The type-declaration filter lost
+  its `\s*[...\s.,]+;\s*$` nesting for ` {4,}\w+\??:[^;]*$`.
+- `features/preview/design/panel/field.tsx`: the numeric field test and the
+  scrub match both used `\d*\.?\d+`. They now use `\d+(?:\.\d+)?|\.\d+`, which
+  keeps every input that used to be accepted (`12`, `12px`, `0.5 rem`, `.5`,
+  `-.5px`) and rejects the same ones — verified by diffing the two patterns over
+  thirteen samples before replacing them.
+
+The audit still reports 535 modules, 0 orphans, 3 test-only; full suite 2830.
