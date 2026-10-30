@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { isNumericDraft, parseNumericDraft } from "./numeric-draft";
 import type { Styles } from "./types";
 import { isTokenProperty, TokenMenu } from "./tokens";
 
@@ -52,9 +53,8 @@ export function Field({
     // pointer over a field should not nudge values by accident.
     const scrubbable = controls.enable && controls.numberScrubbing;
     // A number, optionally followed by a unit, written either adjacent (`12px`)
-    // or spaced (`12 px`). The alternatives have disjoint prefixes, which is what
-    // keeps this linear.
-    const numeric = /^-?(?:\d+(?:\.\d+)?|\.\d+)\s*\S*$/.test(draft.trim());
+    // or spaced (`12 px`).
+    const numeric = isNumericDraft(draft);
     const [valueScope, setValueScope] = useState<readonly [typeof value] | null>(null);
     if (valueScope === null || !Object.is(valueScope[0], value)) {
         setValueScope([value]);
@@ -64,10 +64,10 @@ export function Field({
     const hasPrefix = Boolean(label || icon);
     const tokenable = hasPrefix && isTokenProperty(property);
     const stepBy = (delta: number, magnitude: number) => {
-        const match = draft.trim().match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))(.*)$/);
-        if (!match) return;
-        const unit = match[2] ?? "";
-        const next = Math.round((Number.parseFloat(match[1] ?? "0") + delta) * magnitude) / magnitude;
+        const parsed = parseNumericDraft(draft);
+        if (!parsed) return;
+        const unit = parsed.unit;
+        const next = Math.round((Number.parseFloat(parsed.value) + delta) * magnitude) / magnitude;
         const text = `${next}${unit}`;
         setDraft(text);
         onPreview({ [property]: mapValue(text) });

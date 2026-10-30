@@ -785,3 +785,28 @@ trailing-whitespace case proves `trailing` decorates end-of-line blanks without
 decorating gaps between words. Gate re-run with the repository's own script:
 `npm run typecheck` clean (both tsconfigs), `npm run lint:strict` clean,
 2866/2866 tests.
+
+### 7.8 The three regex findings Sonar kept, removed by scanning instead
+
+Sonar's new analysis still carried three `S8786` (super-linear regex) issues:
+`features/preview/design/panel/field.tsx` lines 57 and 67, and
+`scripts/qa/audit-glue.mjs` line 74. De-nesting the patterns had only moved the
+problem: `\d+(?:\.\d+)?` and `([^"']+)` keep a quantifier inside a group.
+
+Both are now scans, not patterns:
+
+- `features/preview/design/panel/numeric-draft.ts` reads a number and its unit
+  character by character (`parseNumericDraft` / `isNumericDraft`), keeping the
+  space in `12 px` so a step does not reformat the value. The new
+  `tests/preview/numeric-draft.test.ts` asserts the scan and the old pattern
+  agree on 18 field values, including the ones that separate them (`12 px extra`,
+  `+12`, `1.2.3`).
+- `scripts/qa/audit-glue.mjs` reads import specifiers with a scanner covering the
+  four forms. Differential check against the regexes it replaced: identical on
+  14 import shapes; the only difference is that `require ( "x" )` with a space is
+  now found, which the old pattern missed.
+
+Re-run after the change: `node scripts/qa/audit-glue.mjs` reports the same 538
+modules, 0 orphans, 3 test-only modules, and now **0 settings keys with no
+reader**. Gates on the head: `npm run lint:strict` clean, `npm run typecheck`
+clean, 274 files / 2870 tests passing.

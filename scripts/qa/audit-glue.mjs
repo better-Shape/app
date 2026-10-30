@@ -61,25 +61,61 @@ const resolveSpecifier = (fromFile, specifier) => {
 };
 
 /**
- * Four import forms, not three: the side-effect `import "./x"` (used for the
- * OpenUI devtools switch, among others) has no `from` clause and was missed, so
- * a module that a shipped file does import was reported as test-only.
+ * Import specifiers, read by scanning rather than by pattern.
+ *
+ * Four forms have to be found: `import x from "…"` (and `export … from`),
+ * `import("…")`, `require("…")`, and the side-effect `import "…"` at line start,
+ * which has no `from` clause. A scanner keeps every one of them linear; the
+ * regexes this replaces had to be de-nested twice before they stopped
+ * backtracking on long specifier lists.
  */
-const IMPORT_RES = [
-    // `import x from "…"` and `export { x } from "…"`: the specifier always
-    // follows the keyword `from`, so the keyword is all that has to be matched.
-    /\bfrom\s+["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\brequire\(\s*["']([^"']+)["']\s*\)/g,
-    /^\s*import\s+["']([^"']+)["']/gm,
-];
+const isWordChar = (char) => char !== "" && /[A-Za-z0-9_$]/.test(char);
+const isSpace = (char) => char === " " || char === "\t" || char === "\n" || char === "\r";
+
+/** Skips spaces and tabs forward from `index`. */
+const skipSpace = (source, index) => {
+    let at = index;
+    while (at < source.length && isSpace(source[at])) at += 1;
+    return at;
+};
+
+/** Reads a quoted specifier whose opening quote is at `index`. */
+const specifierAt = (source, index) => {
+    const quote = source[index];
+    if (quote !== '"' && quote !== "'") return null;
+    const close = source.indexOf(quote, index + 1);
+    return close === -1 ? null : source.slice(index + 1, close);
+};
+
 const specifiersIn = (source) => {
     const found = new Set();
-    for (const pattern of IMPORT_RES) {
-        for (const match of source.matchAll(pattern)) {
-            if (match[1]) found.add(match[1]);
+    const addAfterKeyword = (keyword, form) => {
+        let at = source.indexOf(keyword);
+        while (at !== -1) {
+            const before = at === 0 ? "" : source[at - 1];
+            const after = source[at + keyword.length] ?? "";
+            if (!isWordChar(before) && !isWordChar(after)) {
+                let cursor = skipSpace(source, at + keyword.length);
+                if (form === "call") {
+                    if (source[cursor] === "(") cursor = skipSpace(source, cursor + 1);
+                    else cursor = -1;
+                }
+                if (form === "line-start") {
+                    const lineStart = source.lastIndexOf("\n", at) + 1;
+                    cursor = source.slice(lineStart, at).trim() === "" ? cursor : -1;
+                }
+                if (cursor !== -1) {
+                    const specifier = specifierAt(source, cursor);
+                    if (specifier) found.add(specifier);
+                }
+            }
+            at = source.indexOf(keyword, at + keyword.length);
         }
-    }
+    };
+    addAfterKeyword("from", "plain");
+    addAfterKeyword("require", "call");
+    addAfterKeyword("import", "call");
+    addAfterKeyword("import", "line-start");
     return [...found];
 };
 
