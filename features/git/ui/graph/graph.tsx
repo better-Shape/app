@@ -89,6 +89,9 @@ const extractEntryHeadRef = (refs: readonly string[] | undefined): string | null
     return null;
 };
 
+/**
+ * Extracts the normalized `HEAD` ref identity (`branch:<name>` or `detached`) from a git log slice.
+ */
 export const resolveGraphHeadRef = (
     logs: readonly Pick<GitLogEntry, "refs">[],
 ): string | null => {
@@ -348,11 +351,8 @@ const toPendingBaseline = (
 const resolveNextPendingBaseline = (
     baseline: GraphPendingBaseline,
     evaluation: GraphArrivalEvaluation,
-): GraphPendingBaseline | null => {
-    if (!evaluation.hasMissingParent) return null;
-    if (evaluation.freshHashes.size >= MAX_ARRIVING_COMMITS) return null;
-    return toPendingBaseline(baseline, evaluation.freshHashes);
-};
+): GraphPendingBaseline | null =>
+    evaluation.hasMissingParent ? toPendingBaseline(baseline, evaluation.freshHashes) : null;
 
 const resolveEffectiveSlice = (
     gitLogs: GitLogEntry[],
