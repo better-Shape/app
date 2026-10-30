@@ -10,6 +10,7 @@ import {
     SettingSwitch,
 } from "@/features/settings/ui/shared/controls";
 import { KeyInput, TextInput } from "@/features/settings/ui/sections/providers/inputs";
+import { ProvidersSettingsView } from "@/features/settings/ui/sections/providers/providers-view";
 import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
 import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
@@ -196,6 +197,34 @@ describe("Settings row accessible labelling", () => {
         expect(document.getElementById(textInput.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
             "OpenAI-compatible endpoint.",
         );
+    });
+
+    it("exposes explicit provider-scoped aria-label attributes on standalone ProviderCard API key and base URL inputs", async () => {
+        const providers = defaultProvidersSettings();
+        providers.connections.openai = {
+            ...providers.connections.openai,
+            enabled: true,
+            apiKey: "sk-test-openai-key",
+            baseUrl: "https://api.openai.example/v1",
+        };
+        updateSettingSection("ai", {
+            providers,
+            enabledModels: [],
+        });
+
+        await act(async () => {
+            root.render(
+                <TooltipProvider>
+                    <ProvidersSettingsView />
+                </TooltipProvider>,
+            );
+        });
+
+        const apiKeyInput = container.querySelector('input[aria-label="OpenAI API key"]');
+        const baseUrlInput = container.querySelector('input[aria-label="OpenAI base URL"]');
+        expect(apiKeyInput).toBeInstanceOf(HTMLInputElement);
+        expect(baseUrlInput).toBeInstanceOf(HTMLInputElement);
+        expect((baseUrlInput as HTMLInputElement).value).toBe("https://api.openai.example/v1");
     });
 
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {

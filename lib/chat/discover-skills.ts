@@ -180,7 +180,7 @@ function canonicalPathKey(path: string): string {
 }
 
 function isKeyWithinBase(folderKey: string, baseKey: string): boolean {
-    const basePrefix = baseKey === "/" ? "/" : `${baseKey}/`;
+    const basePrefix = baseKey.endsWith("/") ? baseKey : `${baseKey}/`;
     return folderKey === baseKey || folderKey.startsWith(basePrefix);
 }
 

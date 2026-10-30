@@ -7,6 +7,7 @@ import {
     normalizeSkillPath,
     skillPathSep,
 } from "@/lib/chat/skill-paths";
+import { listSkillRoots } from "@/lib/chat/skill-roots";
 
 describe("skill-paths: normalizeSkillPath", () => {
     it("converts backslashes and drops trailing separators", () => {
@@ -18,9 +19,19 @@ describe("skill-paths: normalizeSkillPath", () => {
         expect(normalizeSkillPath("/home/dev/.claude/skills")).toBe("/home/dev/.claude/skills");
     });
 
-    it("preserves POSIX root even when repeated slashes are passed", () => {
+    it("preserves POSIX and Windows drive roots without collapsing C:\\ to drive-relative C:", () => {
         expect(normalizeSkillPath("/")).toBe("/");
         expect(normalizeSkillPath("///")).toBe("/");
+        expect(normalizeSkillPath("C:\\")).toBe("C:/");
+        expect(normalizeSkillPath("C:\\\\")).toBe("C:/");
+        expect(normalizeSkillPath("d:/")).toBe("d:/");
+        expect(normalizeSkillPath("C:")).toBe("C:");
+        const customRoots = listSkillRoots({
+            projectPath: null,
+            homeDir: null,
+            customFolders: ["C:\\"],
+        });
+        expect(customRoots.map((root) => root.path)).toEqual(["C:/", "C:/"]);
     });
 });
 
@@ -41,6 +52,9 @@ describe("skill-paths: skillPathSep / joinSkillPath", () => {
         expect(joinSkillPath("C:\\Users\\dev", "skills/pdf")).toBe("C:\\Users\\dev\\skills\\pdf");
         expect(joinSkillPath("/", ".claude/skills")).toBe("/.claude/skills");
         expect(joinSkillPath("///", "/.claude/skills")).toBe("/.claude/skills");
+        expect(joinSkillPath("C:\\", ".claude/skills")).toBe("C:\\.claude\\skills");
+        expect(joinSkillPath("C:\\\\", "")).toBe("C:\\");
+        expect(joinSkillPath("C:/", ".claude/skills")).toBe("C:/.claude/skills");
     });
 });
 
@@ -51,6 +65,10 @@ describe("skill-paths: isInsideSkillPath", () => {
         expect(isInsideSkillPath("/proj/.claude/skills/SKILL.md", "/")).toBe(true);
         expect(isInsideSkillPath("/", "/")).toBe(true);
         expect(isInsideSkillPath("C:\\proj\\SKILL.md", "/")).toBe(false);
+        expect(isInsideSkillPath("C:\\proj\\SKILL.md", "C:\\")).toBe(true);
+        expect(isInsideSkillPath("C:\\", "c:/")).toBe(true);
+        expect(isInsideSkillPath("C:relative\\SKILL.md", "C:\\")).toBe(false);
+        expect(isInsideSkillPath("D:\\proj\\SKILL.md", "C:\\")).toBe(false);
     });
 
     it("is false for parents, siblings, and prefix lookalikes", () => {
@@ -98,5 +116,9 @@ describe("skill-paths: displaySkillPath", () => {
             ".claude/skills/pdf/SKILL.md"
         );
         expect(displaySkillPath("/", "/", null)).toBe(".");
+        expect(displaySkillPath("C:\\.claude\\skills\\pdf\\SKILL.md", "C:\\", null)).toBe(
+            ".claude/skills/pdf/SKILL.md"
+        );
+        expect(displaySkillPath("C:\\", "C:\\", null)).toBe(".");
     });
 });

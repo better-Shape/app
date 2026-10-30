@@ -5,6 +5,14 @@
 
 const isPathSep = (char: string): boolean => char === "/" || char === "\\";
 
+const isAsciiLetter = (char: string): boolean => {
+    const lower = char.toLowerCase();
+    return lower >= "a" && lower <= "z";
+};
+
+const isDriveSpecifier = (value: string): boolean =>
+    value.length === 2 && value[1] === ":" && isAsciiLetter(value[0]);
+
 const trimLeadingSeparators = (value: string): string => {
     let start = 0;
     while (start < value.length && isPathSep(value[start])) start += 1;
@@ -15,6 +23,16 @@ const trimTrailingSeparators = (value: string): string => {
     let end = value.length;
     while (end > 0 && isPathSep(value[end - 1])) end -= 1;
     return value.slice(0, end);
+};
+
+const isTrimmedDriveRoot = (raw: string, trimmed: string): boolean =>
+    raw.length > 2 && isDriveSpecifier(trimmed);
+
+const trimRootAwareTrailingSeparators = (raw: string, sep: "\\" | "/"): string => {
+    if (!raw) return "";
+    const trimmed = trimTrailingSeparators(raw);
+    if (!trimmed) return sep;
+    return isTrimmedDriveRoot(raw, trimmed) ? `${trimmed}${sep}` : trimmed;
 };
 
 const collapseSeparators = (value: string, sep: "\\" | "/"): string => {
@@ -32,12 +50,13 @@ const collapseSeparators = (value: string, sep: "\\" | "/"): string => {
     return out;
 };
 
-/** Normalize separators to forward slashes and drop trailing slashes while preserving `/`. */
+const withTrailingSlash = (normalizedPath: string): string =>
+    normalizedPath.endsWith("/") ? normalizedPath : `${normalizedPath}/`;
+
+/** Normalize separators to forward slashes and drop trailing slashes while preserving `/` and `X:/`. */
 export function normalizeSkillPath(path: string): string {
     const forward = path.replaceAll("\\", "/");
-    if (!forward) return "";
-    const trimmed = trimTrailingSeparators(forward);
-    return trimmed === "" ? "/" : trimmed;
+    return trimRootAwareTrailingSeparators(forward, "/");
 }
 
 /** Return the path separator already used by `dir` (`\` on Windows paths, `/` otherwise). */
@@ -49,18 +68,20 @@ export function skillPathSep(dir: string): "\\" | "/" {
 export function joinSkillPath(dir: string, relativePath: string): string {
     const sep = skillPathSep(dir);
     const relative = collapseSeparators(trimLeadingSeparators(relativePath), sep);
-    const base = trimTrailingSeparators(dir);
-    if (!base && dir.length > 0) return `${sep}${relative}`;
-    return relative ? `${base}${sep}${relative}` : base;
+    const base = trimRootAwareTrailingSeparators(dir, sep);
+    if (!relative) return base;
+    return base.endsWith(sep) ? `${base}${relative}` : `${base}${sep}${relative}`;
 }
 
-/** Case-insensitive containment check for skill display paths, including `/` as parent. */
+/** Case-insensitive containment check for skill display paths, including `/` and `X:/` roots. */
 export function isInsideSkillPath(child: string, parent: string): boolean {
     const normalizedChild = normalizeSkillPath(child).toLowerCase();
     const normalizedParent = normalizeSkillPath(parent).toLowerCase();
     if (!normalizedChild || !normalizedParent) return false;
-    const prefix = normalizedParent === "/" ? "/" : `${normalizedParent}/`;
-    return normalizedChild === normalizedParent || normalizedChild.startsWith(prefix);
+    return (
+        normalizedChild === normalizedParent ||
+        normalizedChild.startsWith(withTrailingSlash(normalizedParent))
+    );
 }
 
 const stripParentPrefix = (normalizedFull: string, rawParent: string): string => {
