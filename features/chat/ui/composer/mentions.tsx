@@ -91,6 +91,107 @@ export const isPlainPickerConfirmKey = (
     return e.key === "Enter" || e.key === "Tab";
 };
 
+const PICKER_BASE_CHROME_PX = 44;
+const PICKER_BACK_ROW_PX = 34;
+const PICKER_MAX_LIST_PX = 332;
+
+export type MentionPickerPosition = {
+    left: number;
+    top: number;
+    width: number;
+    maxListHeight?: number;
+};
+
+/** Computes the list budget when the picker is pinned near the top viewport edge. */
+const computeTopPinnedListHeight = (
+    spaceAbove: number,
+    vh: number,
+    chromeHeight: number,
+): number => {
+    const budget =
+        spaceAbove >= chromeHeight + 48
+            ? spaceAbove - chromeHeight
+            : Math.max(48, vh - 16 - chromeHeight);
+    return Math.min(PICKER_MAX_LIST_PX, budget);
+};
+
+/** Checks whether the picker fits cleanly above the composer anchor. */
+const fitsAboveAnchor = (
+    aboveTop: number,
+    spaceAbove: number,
+    chromeHeight: number,
+): boolean => aboveTop >= 8 && spaceAbove >= chromeHeight + 48;
+
+/** Checks whether placing the picker below the anchor is preferable and fits. */
+const fitsBetterBelowAnchor = (
+    spaceAbove: number,
+    spaceBelow: number,
+    chromeHeight: number,
+): boolean => spaceBelow > spaceAbove && spaceBelow >= chromeHeight + 96;
+
+/** Computes bounded vertical placement and list height, accounting for the optional Back row. */
+const resolveVerticalPickerPlacement = (
+    rect: Pick<DOMRect, "top" | "bottom">,
+    vh: number,
+    menuHeight: number,
+    chromeHeight: number,
+): { top: number; maxListHeight: number } => {
+    const spaceAbove = rect.top - 14;
+    const spaceBelow = vh - rect.bottom - 14;
+    const aboveTop = rect.top - menuHeight - 6;
+    if (fitsAboveAnchor(aboveTop, spaceAbove, chromeHeight)) {
+        return {
+            top: aboveTop,
+            maxListHeight: Math.min(PICKER_MAX_LIST_PX, spaceAbove - chromeHeight),
+        };
+    }
+    if (fitsBetterBelowAnchor(spaceAbove, spaceBelow, chromeHeight)) {
+        return {
+            top: rect.bottom + 6,
+            maxListHeight: Math.min(PICKER_MAX_LIST_PX, spaceBelow - chromeHeight),
+        };
+    }
+    return {
+        top: 8,
+        maxListHeight: computeTopPinnedListHeight(spaceAbove, vh, chromeHeight),
+    };
+};
+
+/** Computes horizontal and vertical viewport-clamped geometry for `MentionPicker`. */
+export const computeMentionPickerPosition = (opts: {
+    rect: Pick<DOMRect, "left" | "top" | "bottom" | "width" | "height">;
+    viewportWidth: number;
+    viewportHeight: number;
+    menuHeight: number;
+    hasBackRow: boolean;
+}): MentionPickerPosition => {
+    const { rect, viewportWidth, viewportHeight, menuHeight, hasBackRow } = opts;
+    const maxAllowedWidth = Math.max(200, viewportWidth - 16);
+    const preferredWidth = rect.width > 0 ? Math.min(340, rect.width) : 320;
+    const width = Math.min(preferredWidth, maxAllowedWidth);
+    const left =
+        rect.width > 0
+            ? Math.max(8, Math.min(rect.left, viewportWidth - width - 8))
+            : rect.left;
+    if (rect.height === 0 && rect.top === 0) {
+        return { left, top: 8, width };
+    }
+    const chromeHeight =
+        PICKER_BASE_CHROME_PX + (hasBackRow ? PICKER_BACK_ROW_PX : 0);
+    const vertical = resolveVerticalPickerPlacement(
+        rect,
+        viewportHeight,
+        menuHeight,
+        chromeHeight,
+    );
+    return {
+        left,
+        top: Math.max(8, vertical.top),
+        width,
+        maxListHeight: vertical.maxListHeight,
+    };
+};
+
 /** Renders the MentionPicker UI component. */
 export const MentionPicker = ({
     open,
@@ -148,36 +249,19 @@ export const MentionPicker = ({
         const update = () => {
             if (!box) return;
             const rect = box.getBoundingClientRect();
-            const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
-            const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+            const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1024;
+            const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 768;
             const measured = menuEl?.offsetHeight;
             const menuHeight = measured && measured > 0 ? measured : 260;
-            const maxAllowedWidth = Math.max(200, vw - 16);
-            const preferredWidth = rect.width > 0 ? Math.min(340, rect.width) : 320;
-            const width = Math.min(preferredWidth, maxAllowedWidth);
-            const left = rect.width > 0 ? Math.max(8, Math.min(rect.left, vw - width - 8)) : rect.left;
-
-            if (rect.height === 0 && rect.top === 0) {
-                setPos({ left, top: 8, width });
-                return;
-            }
-
-            const spaceAbove = rect.top - 12;
-            const spaceBelow = vh - rect.bottom - 12;
-            let top = rect.top - menuHeight - 6;
-            let maxListHeight: number | undefined;
-
-            if (top >= 8) {
-                maxListHeight = Math.min(332, Math.max(120, spaceAbove - 44));
-            } else if (spaceBelow > spaceAbove && spaceBelow >= 140) {
-                top = rect.bottom + 6;
-                maxListHeight = Math.min(332, Math.max(120, spaceBelow - 44));
-            } else {
-                top = 8;
-                maxListHeight = Math.min(332, Math.max(110, rect.top - 52));
-            }
-
-            setPos({ left, top: Math.max(8, top), width, maxListHeight });
+            setPos(
+                computeMentionPickerPosition({
+                    rect,
+                    viewportWidth,
+                    viewportHeight,
+                    menuHeight,
+                    hasBackRow: mode === "mention" && Boolean(activeCategory),
+                }),
+            );
         };
         update();
         window.addEventListener("resize", update);

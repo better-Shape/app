@@ -9,6 +9,39 @@ const ASSISTANT_HIDDEN_BLOCK_AT_RE =
     /<(thinking|thought|think|analysis|rename_chat|todos)\b[^>]*>[\s\S]*?<\/\1>/yi;
 const ASSISTANT_EDIT_BLOCK_AT_RE = /<edit\b([^>]*)>[\s\S]*?<\/edit>/yi;
 const ASSISTANT_ACTION_TAG_AT_RE = /<bettershape_action\b[^>]*\/?>/yi;
+const QUOTED_NAME_ATTR_RE = /\bname=(?:"([^"]*)"|'([^']*)')/i;
+const QUOTED_FILE_ATTR_RE = /\bfile=(?:"([^"]*)"|'([^']*)')/i;
+
+/** Decodes basic XML attribute entities into plain text. */
+export const decodeBasicXmlEntities = (raw: string): string =>
+    raw
+        .replaceAll("&quot;", '"')
+        .replaceAll("&#39;", "'")
+        .replaceAll("&#x27;", "'")
+        .replaceAll("&#X27;", "'")
+        .replaceAll("&apos;", "'")
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&amp;", "&");
+
+/** Extracts and XML-decodes a single- or double-quoted attribute value. */
+const readDecodedQuotedAttr = (attrs: string, attrRe: RegExp): string => {
+    const match = attrs.match(attrRe);
+    if (!match) return "";
+    const raw = match[1] ?? match[2] ?? "";
+    return raw ? decodeBasicXmlEntities(raw).trim() : "";
+};
+
+/** Wraps `label` in a CommonMark inline code span that cannot collide with inner backticks. */
+const formatInlineCodeSpan = (label: string): string => {
+    if (!label.includes("`")) return `\`${label}\``;
+    let fence = "``";
+    while (label.includes(fence)) {
+        fence += "`";
+    }
+    const needsPad = label.startsWith("`") || label.endsWith("`");
+    return needsPad ? `${fence} ${label} ${fence}` : `${fence}${label}${fence}`;
+};
 
 export type AngleMatchReplacement = {
     replacement: string;
@@ -72,8 +105,8 @@ const readOpeningFenceAt = (
     return { char: parsed.char, len: parsed.len, afterLine };
 };
 
-/** Finds the offset immediately past the closing fence line, or `source.length` if unclosed. */
-const findClosingFenceEnd = (
+/** Finds the offset past a real closing fence line, or `-1` when the fence is unclosed. */
+const findExplicitClosingFenceEnd = (
     source: string,
     from: number,
     fenceChar: string,
@@ -95,11 +128,40 @@ const findClosingFenceEnd = (
         }
         cursor = afterLine;
     }
-    return source.length;
+    return -1;
+};
+
+/** Finds the offset immediately past the closing fence line, or `source.length` if unclosed. */
+const findClosingFenceEnd = (
+    source: string,
+    from: number,
+    fenceChar: string,
+    fenceLen: number,
+): number => {
+    const explicit = findExplicitClosingFenceEnd(source, from, fenceChar, fenceLen);
+    return explicit === -1 ? source.length : explicit;
+};
+
+/** Skips a closed fenced code block starting on the line at `cursor`, or returns `-1`. */
+const trySkipClosedFenceAt = (source: string, cursor: number): number => {
+    if (cursor !== 0 && source.charCodeAt(cursor - 1) !== 10) return -1;
+    const fence = readOpeningFenceAt(source, cursor);
+    return fence
+        ? findExplicitClosingFenceEnd(source, fence.afterLine, fence.char, fence.len)
+        : -1;
+};
+
+/** Skips a genuinely closed fenced or inline code span starting at `cursor`, or returns `-1`. */
+export const trySkipClosedCodeSpanAt = (source: string, cursor: number): number => {
+    const fencedEnd = trySkipClosedFenceAt(source, cursor);
+    if (fencedEnd !== -1) return fencedEnd;
+    if (source.charCodeAt(cursor) !== 96) return -1;
+    const runLen = countBacktickRun(source, cursor);
+    return findClosingInlineTicks(source, cursor + runLen, runLen);
 };
 
 /** Computes the next scanner stop at a newline boundary, inline backtick, or `<` character. */
-const findNextInterestingOffset = (source: string, from: number): number => {
+export const findNextInterestingOffset = (source: string, from: number): number => {
     let best = source.length;
     const nextNewline = source.indexOf("\n", from);
     if (nextNewline !== -1 && nextNewline + 1 < best) best = nextNewline + 1;
@@ -190,10 +252,8 @@ const matchAttachmentBlockAt = (
     const match = execStickyAt(ATTACHED_BLOCK_AT_RE, input, offset);
     if (!match) return null;
     const kind = match[1] || "file";
-    const attrs = match[2];
-    const nameMatch = attrs.match(/\bname=["']([^"']+)["']/i);
-    const label = nameMatch?.[1].trim() || kind;
-    attachmentNotes.push(`_Attached: \`${label}\`_`);
+    const label = readDecodedQuotedAttr(match[2], QUOTED_NAME_ATTR_RE) || kind;
+    attachmentNotes.push(`_Attached: ${formatInlineCodeSpan(label)}_`);
     return { replacement: "", end: offset + match[0].length };
 };
 
@@ -207,11 +267,9 @@ const matchAssistantControlAt = (
 
     const editMatch = execStickyAt(ASSISTANT_EDIT_BLOCK_AT_RE, input, offset);
     if (editMatch) {
-        const attrs = editMatch[1];
-        const fileMatch = attrs.match(/\bfile=["']([^"']+)["']/i);
-        const filePath = fileMatch?.[1].trim() ?? "";
+        const filePath = readDecodedQuotedAttr(editMatch[1], QUOTED_FILE_ATTR_RE);
         return {
-            replacement: filePath ? `\n> Edited \`${filePath}\`\n` : "",
+            replacement: filePath ? `\n> Edited ${formatInlineCodeSpan(filePath)}\n` : "",
             end: offset + editMatch[0].length,
         };
     }

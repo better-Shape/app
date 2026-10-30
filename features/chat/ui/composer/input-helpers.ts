@@ -1210,6 +1210,31 @@ const insertInlineContextMenuClipboard = (opts: {
   }
 };
 
+/** Reads clipboard text for the composer context-menu `Paste` item, warning when blocked. */
+export const readComposerClipboardTextWithFeedback = (
+  textarea: HTMLTextAreaElement | null,
+  onText: (text: string) => void,
+): void => {
+  textarea?.focus();
+  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+    notify.warn(
+      "Clipboard unavailable",
+      "Press Cmd+V or Ctrl+V to paste directly.",
+    );
+    return;
+  }
+  navigator.clipboard
+    .readText()
+    .then(onText)
+    .catch(() => {
+      textarea?.focus();
+      notify.warn(
+        "Clipboard access denied",
+        "Press Cmd+V or Ctrl+V to paste directly.",
+      );
+    });
+};
+
 /** Inserts clipboard text invoked from the custom context-menu `Paste` item. */
 export const pasteClipboardTextViaContextMenu = (opts: {
   text: string;
