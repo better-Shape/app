@@ -2,8 +2,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GraphSvgRow } from "@/features/git/ui/graph/svg-row";
-import { detectFreshGraphArrival, type GraphHeadSnapshot } from "@/features/git/ui/graph/graph";
-import type { GraphNode } from "@/lib/backend";
+import {
+    detectFreshGraphArrival,
+    useArrivingCommitHash,
+    type GraphHeadSnapshot,
+} from "@/features/git/ui/graph/graph";
+import type { GitLogEntry, GraphNode } from "@/lib/backend";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -101,5 +105,53 @@ describe("GraphSvgRow arrival stroke draw", () => {
                 parents: ["zzz999"],
             }),
         ).toBe(false);
+    });
+
+    it("ignores stale gitLogs carried over on the render where cacheKey switches", () => {
+        const makeLog = (hash: string, parents: string[]): GitLogEntry => ({
+            hash,
+            message: hash,
+            author: "Ada",
+            author_email: "ada@example.com",
+            date: "1700000000",
+            files_changed: 1,
+            insertions: 1,
+            deletions: 0,
+            refs: [],
+            parent_count: parents.length,
+            parents,
+        });
+
+        const headLogs = [makeLog("aaa111", [])];
+        const allBranchLogs = [makeLog("bbb222", ["aaa111"]), makeLog("aaa111", [])];
+
+        const Probe = ({ cacheKey, logs }: { cacheKey: string; logs: GitLogEntry[] }) => {
+            const arriving = useArrivingCommitHash(cacheKey, logs);
+            return <div data-arriving={arriving ?? ""} />;
+        };
+
+        act(() => {
+            root.render(<Probe cacheKey="/repo::head" logs={headLogs} />);
+        });
+        expect(container.querySelector("[data-arriving]")?.getAttribute("data-arriving")).toBe("");
+
+        // Render 1 of toggling showAllBranches: cacheKey flips while logs still holds headLogs.
+        act(() => {
+            root.render(<Probe cacheKey="/repo::all" logs={headLogs} />);
+        });
+        expect(container.querySelector("[data-arriving]")?.getAttribute("data-arriving")).toBe("");
+
+        // Render 2: cached descendant head bbb222 (parent aaa111) settles for /repo::all -> must NOT animate as new.
+        act(() => {
+            root.render(<Probe cacheKey="/repo::all" logs={allBranchLogs} />);
+        });
+        expect(container.querySelector("[data-arriving]")?.getAttribute("data-arriving")).toBe("");
+
+        // Subsequent real commit ccc333 on /repo::all -> animates!
+        const afterCommitLogs = [makeLog("ccc333", ["bbb222"]), ...allBranchLogs];
+        act(() => {
+            root.render(<Probe cacheKey="/repo::all" logs={afterCommitLogs} />);
+        });
+        expect(container.querySelector("[data-arriving]")?.getAttribute("data-arriving")).toBe("ccc333");
     });
 });

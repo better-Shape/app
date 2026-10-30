@@ -161,10 +161,13 @@ describe("Settings row accessible labelling", () => {
 });
 
 describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects Collapse", () => {
-    it("formats Windows drive roots and POSIX roots accurately in parentDir", () => {
+    it("formats Windows drive roots, UNC share roots, and POSIX roots accurately in parentDir", () => {
         expect(parentDir("C:\\repo")).toBe("C:\\");
         expect(parentDir("C:/repo")).toBe("C:/");
         expect(parentDir("C:\\Users\\ada\\repo\\")).toBe("C:\\Users\\ada");
+        expect(parentDir("\\\\server\\share")).toBe("\\\\server\\share");
+        expect(parentDir("\\\\server\\share\\")).toBe("\\\\server\\share");
+        expect(parentDir("\\\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("/repo")).toBe("/");
         expect(parentDir("/Users/ada/repo/")).toBe("/Users/ada");
     });

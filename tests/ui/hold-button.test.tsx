@@ -281,6 +281,193 @@ describe("HoldButton", () => {
         });
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
+
+        // Re-enable, arm via assistive click, then disable while armed -> resets to idle and stays disarmed.
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={500}
+                onConfirm={onConfirm}
+            />,
+        );
+        act(() => {
+            btn.click();
+        });
+        expect(btn.dataset.state).toBe("armed");
+
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={500}
+                disabled
+                onConfirm={onConfirm}
+            />,
+        );
+        expect(btn.dataset.state).toBe("idle");
+
+        render(
+            <HoldButton
+                ariaLabel="Cancel workflow run"
+                label="Cancel run"
+                holdMs={500}
+                onConfirm={onConfirm}
+            />,
+        );
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("confirms armed pointer presses only on pointerup inside the button and cancels on drag-out", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                armedLabel="Confirm"
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 40,
+            width: 80,
+            height: 30,
+            x: 10,
+            y: 10,
+            toJSON: () => ({}),
+        });
+
+        act(() => {
+            btn.click();
+        });
+        expect(btn.dataset.state).toBe("armed");
+
+        // Pressing down while armed must NOT fire on pointerdown (WCAG 2.5.2).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 9,
+                    clientX: 40,
+                    clientY: 25,
+                }),
+            );
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Dragging outside before releasing disarms without firing onConfirm.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 9,
+                    clientX: 160,
+                    clientY: 25,
+                }),
+            );
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 9,
+                    clientX: 160,
+                    clientY: 25,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Re-arm and release inside -> confirms on pointerup.
+        act(() => {
+            btn.click();
+        });
+        expect(btn.dataset.state).toBe("armed");
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 10,
+                    clientX: 40,
+                    clientY: 25,
+                }),
+            );
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 10,
+                    clientX: 40,
+                    clientY: 25,
+                }),
+            );
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("confirmed");
+    });
+
+    it("waits for async onConfirm before showing confirmed and returns to idle on rejection", async () => {
+        let resolveFirst!: () => void;
+        let rejectSecond!: (err: Error) => void;
+        const onConfirm = vi
+            .fn<() => Promise<void>>()
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((resolve) => {
+                        resolveFirst = resolve;
+                    }),
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectSecond = reject;
+                    }),
+            );
+
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                confirmedLabel="Done"
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.click();
+            btn.click();
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).not.toBe("confirmed");
+
+        await act(async () => {
+            resolveFirst();
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("confirmed");
+
+        act(() => {
+            vi.advanceTimersByTime(1500);
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        // Second async invocation rejects -> settles back to idle without flashing confirmed.
+        act(() => {
+            btn.click();
+            btn.click();
+        });
+        await act(async () => {
+            rejectSecond(new Error("git discard failed"));
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("idle");
     });
 
     it("clears click suppression on pointercancel so the next assistive click arms cleanly", () => {

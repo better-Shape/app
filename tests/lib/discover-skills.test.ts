@@ -428,6 +428,30 @@ describe("discoverSkills", () => {
 
         await expect(discoverItems()).resolves.toEqual([]);
     });
+
+    it("resolves Windows symlinked skill folders case-insensitively", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Users/Ada/Demo/Shared/Pdf-Skill/SKILL.md": skillFile(
+                    "pdf-win",
+                    "Windows skill.",
+                    "Steps.",
+                ),
+            },
+            {
+                homeDir: "C:/Users/Ada",
+                symlinks: {
+                    "C:/Users/Ada/Demo/.claude/skills/pdf": "C:/Users/Ada/Demo/Shared/Pdf-Skill",
+                },
+            },
+        );
+
+        mocks.getProjectPath.mockReturnValue("c:\\users\\ada\\demo");
+        const result = await discoverSkills();
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].name).toBe("pdf-win");
+    });
 });
 
 describe("reconcileImportedRow", () => {

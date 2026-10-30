@@ -30,21 +30,30 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
         while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
         return forward.slice(0, end);
     };
+    const isWindowsPath = (canonical: string): boolean =>
+        /^[A-Za-z]:/.test(canonical) || canonical.startsWith("//");
+    const pathCompareKey = (canonical: string): string =>
+        isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
+
     const links = new Map(
-        Object.entries(options.symlinks ?? {}).map(([from, to]) => [normalize(from), normalize(to)]),
+        Object.entries(options.symlinks ?? {}).map(([from, to]) => {
+            const normFrom = normalize(from);
+            return [pathCompareKey(normFrom), { from: normFrom, to: normalize(to) }];
+        }),
     );
     const canonicalize = (rawPath: string): string => {
         let current = normalize(rawPath);
         for (let depth = 0; depth < 8; depth += 1) {
             let replaced = false;
-            for (const [linkFrom, linkTo] of links.entries()) {
-                if (current === linkFrom) {
-                    current = linkTo;
+            const currentKey = pathCompareKey(current);
+            for (const [fromKey, link] of links.entries()) {
+                if (currentKey === fromKey) {
+                    current = link.to;
                     replaced = true;
                     break;
                 }
-                if (current.startsWith(`${linkFrom}/`)) {
-                    current = `${linkTo}${current.slice(linkFrom.length)}`;
+                if (currentKey.startsWith(`${fromKey}/`)) {
+                    current = `${link.to}${current.slice(link.from.length)}`;
                     replaced = true;
                     break;
                 }
@@ -55,6 +64,9 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
     };
 
     const normalized = new Map(Object.entries(files).map(([path, body]) => [normalize(path), body]));
+    const filesByKey = new Map(
+        [...normalized.entries()].map(([path, body]) => [pathCompareKey(path), body]),
+    );
     const directories = new Set<string>();
     for (const path of normalized.keys()) {
         const parts = path.split("/");
@@ -62,45 +74,48 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             directories.add(parts.slice(0, index).join("/") || "/");
         }
     }
-    for (const linkFrom of links.keys()) {
-        const parts = linkFrom.split("/");
+    for (const link of links.values()) {
+        const parts = link.from.split("/");
         for (let index = 1; index <= parts.length; index += 1) {
             directories.add(parts.slice(0, index).join("/") || "/");
         }
     }
+    const directoryKeys = new Map(
+        [...directories].map((dir) => [pathCompareKey(dir), dir]),
+    );
 
     mocks.lsDir.mockImplementation(async (path: string) => {
         const requestedDir = normalize(path);
-        const dir = canonicalize(requestedDir);
-        if (!directories.has(dir)) throw new Error(`no such directory: ${path}`);
-        const prefix = dir === "/" ? "/" : `${dir}/`;
+        const canonicalDir = canonicalize(requestedDir);
+        const dir = directoryKeys.get(pathCompareKey(canonicalDir));
+        if (!dir) throw new Error(`no such directory: ${path}`);
+        const prefixKey = pathCompareKey(dir === "/" ? "/" : `${dir}/`);
+        const dirKey = pathCompareKey(dir);
         const requestedPrefix = requestedDir === "/" ? "/" : `${requestedDir}/`;
         const names = new Set<string>();
         const entries: { name: string; path: string; is_dir: boolean }[] = [];
         for (const candidate of [...normalized.keys(), ...directories]) {
-            if (!candidate.startsWith(prefix) || candidate === dir) continue;
-            const rest = candidate.slice(prefix.length);
+            const candidateKey = pathCompareKey(candidate);
+            if (!candidateKey.startsWith(prefixKey) || candidateKey === dirKey) continue;
+            const rest = candidate.slice(prefixKey.length);
             if (!rest) continue;
             const [name, ...tail] = rest.split("/");
             if (names.has(name)) continue;
             names.add(name);
             const targetEntry = canonicalize(`${requestedPrefix}${name}`);
-            const isDir = tail.length > 0 || directories.has(targetEntry);
+            const isDir = tail.length > 0 || directoryKeys.has(pathCompareKey(targetEntry));
             entries.push({ name, path: `${requestedPrefix}${name}`, is_dir: isDir });
         }
         return entries.sort((a, b) => a.name.localeCompare(b.name));
     });
 
     const read = async (path: string) => {
-        const body = normalized.get(canonicalize(path));
+        const body = filesByKey.get(pathCompareKey(canonicalize(path)));
         if (body === undefined) throw new Error(`no such file: ${path}`);
         return body;
     };
 
     mocks.readFileFromDisk.mockImplementation(read);
-
-    const pathCompareKey = (canonical: string): string =>
-        /^[A-Za-z]:/.test(canonical) ? canonical.toLowerCase() : canonical;
 
     const inside = (child: string, parent: string) => {
         const file = pathCompareKey(canonicalize(child));

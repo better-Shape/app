@@ -20,6 +20,9 @@ import {
 } from "@/lib/workspace/repo-history";
 import { cn } from "@/lib/utils";
 
+const formatWithPathSeparators = (normalizedTarget: string, originalPath: string): string =>
+    originalPath.includes("\\") ? normalizedTarget.replaceAll("/", "\\") : normalizedTarget;
+
 /** Parent directory portion of a path, rendered with the path's own separators. */
 export const parentDir = (path: string): string => {
     const normalized = path.replaceAll("\\", "/");
@@ -27,14 +30,17 @@ export const parentDir = (path: string): string => {
     let end = normalized.length;
     while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;
     const trimmed = normalized.slice(0, end);
+    if (/^\/\/[^/]+\/[^/]+$/.test(trimmed)) {
+        return formatWithPathSeparators(trimmed, path);
+    }
     const idx = trimmed.lastIndexOf("/");
     if (idx < 0) return path;
-    if (idx === 0) return path.includes("\\") ? "\\" : "/";
+    if (idx === 0) return formatWithPathSeparators("/", path);
     const parent = trimmed.slice(0, idx);
     if (/^[A-Za-z]:$/.test(parent)) {
-        return path.includes("\\") ? `${parent}\\` : `${parent}/`;
+        return formatWithPathSeparators(`${parent}/`, path);
     }
-    return path.includes("\\") ? parent.replaceAll("/", "\\") : parent;
+    return formatWithPathSeparators(parent, path);
 };
 
 /** Single welcome-screen action tile (icon over label, +1 surface step on hover). */

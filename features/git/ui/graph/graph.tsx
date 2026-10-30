@@ -58,6 +58,8 @@ export type GraphHeadSnapshot = {
     cacheKey: string | null;
     topHash: string | null;
     known: Set<string>;
+    logsRef?: GitLogEntry[] | null;
+    ignoredLogsRef?: GitLogEntry[] | null;
 };
 
 export const detectFreshGraphArrival = (
@@ -74,27 +76,55 @@ export const detectFreshGraphArrival = (
  * Tracks a genuinely new head commit arriving in an already-loaded graph view.
  * Keyed by `cacheKey` and verified against parent lineage so cache/branch switches
  * and virtualized scroll recycling never replay the stroke draw on existing history.
+ * Ignores stale `gitLogs` array references carried over on the render where `cacheKey`
+ * changes before the new view's log state settles.
  */
 export const useArrivingCommitHash = (
     cacheKey: string | null,
     gitLogs: GitLogEntry[],
 ): string | null => {
     const topCommit = gitLogs[0];
-    const topHash = topCommit?.hash ?? null;
     const [prev, setPrev] = useState<GraphHeadSnapshot>({
         cacheKey: null,
         topHash: null,
         known: new Set(),
+        logsRef: null,
+        ignoredLogsRef: null,
     });
     const [arrivingHash, setArrivingHash] = useState<string | null>(null);
 
-    if (prev.cacheKey !== cacheKey || prev.topHash !== topHash) {
-        const fresh = detectFreshGraphArrival(prev, cacheKey, topCommit);
-        const nextKnown = prev.cacheKey === cacheKey ? new Set(prev.known) : new Set<string>();
-        for (const entry of gitLogs) nextKnown.add(entry.hash);
-        setPrev({ cacheKey, topHash, known: nextKnown });
-        if (fresh) setArrivingHash(topHash);
-        else if (prev.cacheKey !== cacheKey && arrivingHash !== null) setArrivingHash(null);
+    const keyChanged = prev.cacheKey !== cacheKey;
+    const nextIgnoredLogsRef = keyChanged
+        ? prev.cacheKey !== null && prev.logsRef === gitLogs && gitLogs.length > 0
+            ? gitLogs
+            : null
+        : prev.ignoredLogsRef === gitLogs
+          ? prev.ignoredLogsRef
+          : null;
+    const staleCarryOver = nextIgnoredLogsRef !== null && gitLogs === nextIgnoredLogsRef;
+    const effectiveTopCommit = staleCarryOver ? undefined : topCommit;
+    const effectiveTopHash = effectiveTopCommit?.hash ?? null;
+
+    if (
+        keyChanged ||
+        prev.topHash !== effectiveTopHash ||
+        prev.logsRef !== gitLogs ||
+        prev.ignoredLogsRef !== nextIgnoredLogsRef
+    ) {
+        const fresh = detectFreshGraphArrival(prev, cacheKey, effectiveTopCommit);
+        const nextKnown = keyChanged ? new Set<string>() : new Set(prev.known);
+        if (!staleCarryOver) {
+            for (const entry of gitLogs) nextKnown.add(entry.hash);
+        }
+        setPrev({
+            cacheKey,
+            topHash: effectiveTopHash,
+            known: nextKnown,
+            logsRef: gitLogs,
+            ignoredLogsRef: nextIgnoredLogsRef,
+        });
+        if (fresh) setArrivingHash(effectiveTopHash);
+        else if (keyChanged && arrivingHash !== null) setArrivingHash(null);
     }
 
     useEffect(() => {
@@ -149,7 +179,6 @@ export default function Graph({
     const cached = cacheKey ? graphCache[cacheKey] : null;
 
     const [gitLogs, setGitLogs] = useState<GitLogEntry[]>(cached?.logs || []);
-    const arrivingHash = useArrivingCommitHash(cacheKey, gitLogs);
     const [expandedCommits, setExpandedCommits] = useState<Set<string>>(cached?.expanded || new Set());
     const [commitFilesCache, setCommitFilesCache] = useState<Record<string, GitFileParams[]>>(cached?.filesCache || {});
     const [commitFilesLoaded, setCommitFilesLoaded] = useState<Record<string, boolean>>({});
@@ -259,6 +288,11 @@ export default function Graph({
         setCommitFilesLoaded({});
         setScrollTop(entry?.scrollTop ?? 0);
     }
+    const activeLogs =
+        cacheRestore !== null && cacheRestore.key === cacheKey
+            ? gitLogs
+            : (cached?.logs ?? []);
+    const arrivingHash = useArrivingCommitHash(cacheKey, activeLogs);
 
     useLayoutEffect(() => {
         scrollTopRef.current = cacheRestore?.scrollTop ?? 0;
