@@ -173,6 +173,29 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
     return dismissed.has(relPath);
 }
 
+/** Case-aware comparison key for canonicalized filesystem paths. */
+function canonicalPathKey(path: string): string {
+    const normalized = normalizeSkillPath(path);
+    return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * Confirms `dirPath` canonicalizes inside `projectPath` and returns that canonical
+ * path (falling back to `dirPath` when a test stub returns void). Returns `null`
+ * when the symlink target leaves `projectPath`.
+ */
+async function resolveProjectCanonicalDir(
+    dirPath: string,
+    projectPath: string,
+): Promise<string | null> {
+    try {
+        const resolved = await commands.ensurePathWithin(dirPath, projectPath);
+        return typeof resolved === "string" && resolved.length > 0 ? resolved : dirPath;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Scan every known skill location — the project's `.claude/skills`,
  * `.agents/skills`, `.github/skills` and `.bettershape/skills` folders, the loose
@@ -215,6 +238,7 @@ export async function discoverSkills(
     const discovered: DiscoveredSkill[] = [];
     /** Highest-precedence row per skill ID, used to note shadowed duplicates. */
     const bySkillId = new Map<string, DiscoveredSkill>();
+    const seenCanonicalRoots = new Set<string>();
     const seenPaths = new Set<string>();
 
     for (const root of roots) {
@@ -227,21 +251,33 @@ export async function discoverSkills(
             continue; // root doesn't exist or is unreadable
         }
 
+        let canonicalRoot: string | null = null;
         if (root.scope === "project" && projectPath) {
-            try {
-                await commands.ensurePathWithin(root.path, projectPath);
-            } catch {
-                continue; // the folder is a link that leaves the project
-            }
+            canonicalRoot = await resolveProjectCanonicalDir(root.path, projectPath);
+            if (!canonicalRoot) continue;
+            const rootKey = canonicalPathKey(canonicalRoot);
+            if (seenCanonicalRoots.has(rootKey)) continue;
+            seenCanonicalRoots.add(rootKey);
         }
 
         for (const file of files) {
             if (superseded()) return { projectPath, items: [] };
 
+            let canonicalFolder = canonicalRoot ?? file.folder;
+            if (root.scope === "project" && projectPath && file.folder !== root.path) {
+                const resolvedSubdir = await resolveProjectCanonicalDir(file.folder, projectPath);
+                if (!resolvedSubdir) continue;
+                canonicalFolder = resolvedSubdir;
+            }
+
             const relPath = displaySkillPath(file.filePath, projectPath, homeDir);
-            const normalizedFile = normalizeSkillPath(file.filePath);
-            if (seenPaths.has(normalizedFile)) continue;
-            seenPaths.add(normalizedFile);
+            const canonicalFile =
+                canonicalFolder !== file.folder
+                    ? joinSkillPath(canonicalFolder, file.fileName)
+                    : file.filePath;
+            const fileKey = canonicalPathKey(canonicalFile);
+            if (seenPaths.has(fileKey)) continue;
+            seenPaths.add(fileKey);
             if (isDismissed(dismissed, relPath)) continue;
 
             let raw: string;

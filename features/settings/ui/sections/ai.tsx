@@ -275,7 +275,12 @@ function ModelRow({
                     {unavailableReason ?? model.description}
                 </div>
             </div>
-            <SettingSwitch checked={enabled} onChange={onToggle} disabled={!!unavailableReason} />
+            <SettingSwitch
+                checked={enabled}
+                onChange={onToggle}
+                disabled={!!unavailableReason}
+                aria-label={model.name}
+            />
         </div>
     );
 }

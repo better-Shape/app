@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { commands, type GitFileParams } from "@/lib/backend";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Icon } from "@/components/ui/icon";
+import { HoldButton } from "@/components/ui/hold-button";
 
 import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
@@ -182,15 +183,13 @@ export function SingleFileDiffEditor({ tab }: { tab: FileDiffTabInfo }) {
                         >
                             {tab.staged ? "Unstage" : "Stage"}
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => void discard()}
-                            className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary"
-                            aria-label="Discard changes"
-                            title="Discard"
-                        >
-                            <Icon icon={ArrowUndo20Regular} />
-                        </button>
+                        <HoldButton
+                            size="icon"
+                            onConfirm={() => discard()}
+                            ariaLabel="Discard changes"
+                            title="Hold to discard changes"
+                            icon={<Icon icon={ArrowUndo20Regular} />}
+                        />
                     </>
                 ) : null}
                 <button

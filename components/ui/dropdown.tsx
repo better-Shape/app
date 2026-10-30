@@ -7,6 +7,7 @@ import { Circle20Regular } from "@fluentui/react-icons/headless/svg/circle";
 
 import * as React from "react";
 import { Icon } from "./icon";
+import { Collapse } from "./collapse";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as MenubarPrimitive from "@radix-ui/react-menubar";
 
@@ -417,20 +418,15 @@ const renderNestedMenuTrigger = <
 };
 
 /** Keep nested content mounted while making closed branches inert and hidden. */
-const NestedMenuContent = ({ children, isOpened }: NestedMenuContentProps) => {
-    return (
-        <div
-            aria-hidden={!isOpened}
-            inert={!isOpened}
-            className={cn(
-                "grid transition-[grid-template-rows,opacity] duration-[var(--transition-base)] ease-[var(--ease-out)]",
-                isOpened ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-            )}
-        >
-            <div className="overflow-hidden flex flex-col pl-1">{children}</div>
-        </div>
-    );
-};
+const NestedMenuContent = ({ children, isOpened }: NestedMenuContentProps) => (
+    <Collapse
+        open={Boolean(isOpened)}
+        variant="menu"
+        innerClassName="flex flex-col pl-1"
+    >
+        {children}
+    </Collapse>
+);
 
 const DropdownMenuNestedTrigger = React.forwardRef<
     React.ElementRef<typeof DropdownMenuItem>,

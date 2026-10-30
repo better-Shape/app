@@ -323,6 +323,60 @@ describe("discoverSkills", () => {
 
         await expect(discoverItems()).resolves.toHaveLength(1);
     });
+
+    it("deduplicates symlinked project skill roots (.claude/skills -> .agents/skills)", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.agents/skills/pdf/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills`]: `${PROJECT}/.agents/skills`,
+                },
+            },
+        );
+
+        const items = await discoverItems();
+        expect(items).toHaveLength(1);
+        expect(items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
+        expect(items[0].name).toBe("pdf-processing");
+    });
+
+    it("deduplicates symlinked individual skill subfolders across roots", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.claude/skills/pdf/SKILL.md`]: skillFile(
+                    "pdf-processing",
+                    "Work with PDFs.",
+                    "# PDF\n\nSteps.",
+                ),
+                [`${PROJECT}/.agents/skills/release/SKILL.md`]: skillFile(
+                    "release-notes",
+                    "Draft release notes.",
+                    "Body.",
+                ),
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.agents/skills/pdf`]: `${PROJECT}/.claude/skills/pdf`,
+                },
+            },
+        );
+
+        const items = await discoverItems();
+        expect(items.map((item) => item.relPath)).toEqual([
+            ".claude/skills/pdf/SKILL.md",
+            ".agents/skills/release/SKILL.md",
+        ]);
+    });
 });
 
 describe("reconcileImportedRow", () => {

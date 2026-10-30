@@ -16,6 +16,7 @@ import { discoverGitRepos, pickDefaultRepo } from "@/lib/git/repos";
 import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
+import { HoldButton } from "@/components/ui/hold-button";
 
 export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
 export const ALL_CHANGES_TAB_ID = "__all_changes__";
@@ -172,16 +173,13 @@ function LazyFileDiff({
                 >
                     Open File
                 </Button>
-                <Button
-                    type="button"
-                    onClick={() => void discard()}
-                    variant="ghost"
+                <HoldButton
                     size="icon"
-                    aria-label="Restore"
-                    title="Restore"
-                >
-                    <Icon icon={ArrowUndo20Regular} />
-                </Button>
+                    onConfirm={() => discard()}
+                    ariaLabel="Restore file"
+                    title="Hold to restore file"
+                    icon={<Icon icon={ArrowUndo20Regular} />}
+                />
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
@@ -196,15 +194,15 @@ function LazyFileDiff({
                         >
                             {file.staged ? "Unstage" : "Stage"}
                         </Button>
-                        <Button
-                            type="button"
-                            onClick={() => void discard()}
-                            variant="ghost"
-                            className="bg-surface-4"
+                        <HoldButton
                             size="xs"
-                        >
-                            Restore
-                        </Button>
+                            onConfirm={() => discard()}
+                            ariaLabel="Restore file"
+                            title="Hold to restore file"
+                            label="Restore"
+                            armedLabel="Confirm"
+                            className="bg-surface-4 text-text-primary"
+                        />
                     </div>
                 ) : null}
                 {!visible ? (

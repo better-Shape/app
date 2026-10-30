@@ -100,7 +100,29 @@ export class TerminalSessionStore {
     setPanel(next: { visible: boolean; cwd: string | null }) {
         if (this.panel.visible === next.visible && this.panel.cwd === next.cwd) return;
         this.panel = next;
+        for (const id of this.visibleTabIds()) {
+            this.unreadTabs.delete(id);
+        }
         this.notify();
+    }
+
+    /**
+     * Whether any terminal tab belonging to `cwd` carries unseen output.
+     * Used by the closed-dock toggle button so background builds and commands
+     * surface activity even while the terminal strip itself is hidden.
+     */
+    hasUnreadForProject(cwd: string | null | undefined): boolean {
+        if (!cwd || this.unreadTabs.size === 0) return false;
+        const normalizePath = (raw: string): string => {
+            const forward = raw.replaceAll("\\", "/");
+            let end = forward.length;
+            while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
+            return forward.slice(0, end);
+        };
+        const norm = normalizePath(cwd);
+        return this.tabs.some(
+            (tab) => this.unreadTabs.has(tab.id) && normalizePath(tab.cwd) === norm,
+        );
     }
 
     /**

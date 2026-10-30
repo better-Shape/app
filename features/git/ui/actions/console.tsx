@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Icon } from "@/components/ui/icon";
 
 import { Button } from "@/components/ui/button";
+import { HoldButton } from "@/components/ui/hold-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll";
 import { commands, useProjectState } from "@/lib/backend";
@@ -865,18 +866,20 @@ export function ActionsConsole({ focus }: { focus: ActionsFocus }) {
                                                 >
                                                     Run again…
                                                 </Button>
-                                                <Button
-                                                    variant="ghost"
+                                                <HoldButton
                                                     size="sm"
                                                     disabled={
                                                         !!busyAction ||
                                                         activeRun.status === "completed" ||
                                                         activeRun.status === "cancelled"
                                                     }
-                                                    onClick={() => void runAction("cancel")}
-                                                >
-                                                    Cancel
-                                                </Button>
+                                                    onConfirm={() => runAction("cancel")}
+                                                    ariaLabel="Cancel workflow run"
+                                                    title="Hold to cancel workflow run"
+                                                    label="Cancel run"
+                                                    armedLabel="Confirm"
+                                                    className="text-text-secondary"
+                                                />
                                                 <Button
                                                     variant="secondary"
                                                     size="sm"

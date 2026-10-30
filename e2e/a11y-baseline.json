@@ -3,9 +3,7 @@
     "/": {
         "target-size": 4
     },
-    "/settings": {
-        "button-name": 1
-    },
+    "/settings": {},
     "/git": {
         "target-size": 1
     }

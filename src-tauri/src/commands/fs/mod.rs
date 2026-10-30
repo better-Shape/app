@@ -449,14 +449,15 @@ pub async fn read_file_within(path: String, root: String) -> Result<String, AppE
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Confirm a directory's canonical path stays inside `root`. Used to drop a
-/// project skill folder that is a symlink out of the project.
-pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+/// Confirm a directory's canonical path stays inside `root` and return that
+/// canonical path so callers can deduplicate symlinked skill folders.
+pub fn ensure_path_within(path: String, root: String) -> Result<String, AppError> {
     crate::agent::security::paths::assert_ipc_path_allowed(&path)?;
     crate::agent::security::paths::assert_ipc_path_allowed(&root)?;
     let resolved_root = resolve_allowed_target(&root)?;
     let resolved = resolve_allowed_target(&path)?;
-    crate::agent::security::paths::assert_resolved_within(&resolved, &resolved_root)
+    crate::agent::security::paths::assert_resolved_within(&resolved, &resolved_root)?;
+    Ok(resolved.to_string_lossy().into_owned())
 }
 
 /// Read raw bytes for the IDE (images, previews) under the same path policy.

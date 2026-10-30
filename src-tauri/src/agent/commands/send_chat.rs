@@ -152,13 +152,7 @@ pub async fn send_chat_message(
     let family_prompt = prompts::family_prompt(family);
 
     // Case-insensitive so "visual" / "Visual" (and legacy "design") both attach DESIGN.md.
-    let mode_prompt = match mode_to_use.to_ascii_lowercase().as_str() {
-        "ask" => prompts::OPENUI_MD,
-        "plan" => prompts::PLAN_MD,
-        "visual" | "design" => prompts::DESIGN_MD,
-        "review" => prompts::REVIEW_MD,
-        _ => "",
-    };
+    let mode_prompt = mode_prompt_for(&mode_to_use);
     let _ = conversation_kind;
     if matches!(
         mode_to_use.to_ascii_lowercase().as_str(),
@@ -1056,3 +1050,39 @@ pub fn update_turn_policy(
 }
 
 // ----- helpers --------------------------------------------------------------------------
+
+pub(crate) fn mode_prompt_for(mode: &str) -> &'static str {
+    match mode.to_ascii_lowercase().as_str() {
+        "ask" => prompts::OPENUI_MD,
+        "plan" => prompts::PLAN_MD,
+        "visual" | "design" => prompts::DESIGN_MD,
+        "review" => prompts::REVIEW_MD,
+        _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mode_prompt_for;
+    use crate::agent::prompts;
+
+    #[test]
+    fn openui_prompt_is_attached_only_in_ask_mode() {
+        assert_eq!(mode_prompt_for("ask"), prompts::OPENUI_MD);
+        assert_eq!(mode_prompt_for("Ask"), prompts::OPENUI_MD);
+        assert_eq!(mode_prompt_for("ASK"), prompts::OPENUI_MD);
+
+        for non_ask in ["code", "Code", "plan", "visual", "design", "review", ""] {
+            let prompt = mode_prompt_for(non_ask);
+            assert_ne!(
+                prompt,
+                prompts::OPENUI_MD,
+                "mode '{non_ask}' must not attach OPENUI.MD"
+            );
+            assert!(
+                !prompt.contains("openui-lang"),
+                "mode '{non_ask}' leaked openui-lang instructions"
+            );
+        }
+    }
+}

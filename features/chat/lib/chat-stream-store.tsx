@@ -773,7 +773,9 @@ export function ChatStreamProvider({ children }: { children: React.ReactNode }) 
                     if (viewingIdRef.current === conversationId) reloadViewedMessages().catch(() => undefined);
                     return;
                 }
-                if (turnId && turnId !== current?.turnId) return;
+                if (!current || (turnId ? turnId !== current.turnId : Boolean(current.turnId))) {
+                    return;
+                }
                 if (!conversationId ? viewingIdRef.current === null : viewingIdRef.current === conversationId) {
                     if (streamFlushDirtyRef.current && current) {
                         messagesRef.current = current.messages;

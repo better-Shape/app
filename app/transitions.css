@@ -47,16 +47,9 @@
   --think-highlight: var(--text-primary);
   --think-ease: ease-in-out;
 
-  --reason-hold: 840ms;
-  --reason-step: 500ms;
-  --reason-lines: 2;
-  --reason-fade: 28px;
-  --reason-ease: cubic-bezier(0.22, 1, 0.36, 1);
-
-  --stream-fade: 350ms;
-  --stream-gap: 60ms;
-  --stream-blur: 1px;
-  --stream-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --hold-dur: 1100ms;
+  --hold-snap-dur: 200ms;
+  --graph-draw-dur: 360ms;
 
   --hint-swap: 380ms;
   --hint-distance: 10px;
@@ -544,48 +537,86 @@
   opacity: 0;
 }
 
-.t-reason {
+/* ── Hold-to-confirm destructive button ────────────────────
+   Compositor-driven `clip-path` wipe: linear while held so the progress tracks
+   physical time honestly, fast ease-out snap-back on early release so aborting
+   feels crisp and safe. Zero per-frame React state updates. */
+.t-hold {
   position: relative;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition:
+    transform var(--spring-tap-dur) var(--spring-tap),
+    background-color var(--spring-tap-dur) var(--spring-tap),
+    border-color var(--spring-tap-dur) var(--spring-tap),
+    color var(--spring-tap-dur) var(--spring-tap);
 }
 
-.t-reason-viewport {
+.t-hold[data-state="holding"] {
+  transform: scale(0.97);
+}
+
+.t-hold[data-state="armed"] {
+  background-color: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.t-hold__fill {
   position: absolute;
   inset: 0;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(
-    transparent 0,
-    black var(--reason-fade),
-    black calc(100% - var(--reason-fade)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    transparent 0,
-    black var(--reason-fade),
-    black calc(100% - var(--reason-fade)),
-    transparent 100%
-  );
+  pointer-events: none;
+  background-color: var(--danger);
+  color: var(--action-label);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path var(--hold-snap-dur) var(--ease-out);
 }
 
-.t-reason-scroll {
-  position: absolute;
-  left: 0;
-  right: 0;
-  transform: translateY(0);
-  will-change: transform;
+.t-hold[data-state="holding"] .t-hold__fill {
+  clip-path: inset(0 0 0 0);
+  transition: clip-path var(--hold-dur) linear;
 }
 
-.t-stream-w {
-  opacity: 0;
-  filter: blur(var(--stream-blur));
-  transition:
-    opacity var(--stream-fade) var(--stream-ease),
-    filter var(--stream-fade) var(--stream-ease);
+.t-hold[data-state="confirmed"] .t-hold__fill {
+  clip-path: inset(0 0 0 0);
+  transition: none;
 }
 
-.t-stream-w.is-in {
-  opacity: 1;
-  filter: blur(0);
+/* ── Git graph newest branch arrival ───────────────────────
+   One-shot `stroke-dashoffset` draw on `pathLength="100"` paths when a brand-new
+   commit arrives at the head of an open graph. Gap exceeds 100 so `stroke-linecap:
+   round` never peeks at t=0. */
+@keyframes t-graph-line-draw {
+  from {
+    stroke-dashoffset: 104;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.t-graph-line-draw {
+  stroke-dasharray: 100 114;
+  stroke-dashoffset: 104;
+  animation: t-graph-line-draw var(--graph-draw-dur) var(--ease-out) forwards;
+}
+
+@keyframes t-graph-node-arrive {
+  from {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.t-graph-node-arrive {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: t-graph-node-arrive var(--spring-tap-dur) var(--spring-tap) backwards;
 }
 
 .t-success-check {
@@ -933,10 +964,23 @@
     transform: none !important;
   }
   .t-step-enter,
-  .t-diff-reveal {
+  .t-diff-reveal,
+  .t-graph-node-arrive {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+  .t-graph-line-draw {
+    animation: none !important;
+    stroke-dasharray: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .t-hold {
+    transition: none !important;
+    transform: none !important;
+  }
+  .t-hold__fill {
+    transition: none !important;
   }
   /*
    * The exception layer over the blanket reset in `app/globals.css`. `reduce` means as
@@ -944,9 +988,6 @@
    * indistinguishable from a hung app, so motion that carries meaning slows down and
    * motion that only decorates stops. These target class names because a universal rule
    * would also strip focus and status transitions.
-   *
-   * `.onboard-orb` is the app's other infinite animation and nothing renders it. Wiring
-   * that blob up needs a guard here that also restores the keyframe's resting state.
    */
   .animate-pulse {
     animation: none !important;

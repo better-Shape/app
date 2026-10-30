@@ -18,6 +18,13 @@ import {
 
 const InSettingCard = React.createContext(false);
 
+interface SettingRowLabels {
+    titleId: string;
+    descriptionId?: string;
+}
+
+const SettingRowLabelContext = React.createContext<SettingRowLabels | null>(null);
+
 const settingCardClass = "overflow-hidden squircle-[18px] bg-settings-card";
 
 /** Shared chrome for settings action / select triggers. */
@@ -95,11 +102,15 @@ function SettingRowBody({
     title,
     description,
     icon,
+    titleId,
+    descriptionId,
     children,
 }: {
     title: string;
     description?: string;
     icon?: IconGlyph;
+    titleId: string;
+    descriptionId?: string;
     children: React.ReactNode;
 }) {
     return (
@@ -107,8 +118,14 @@ function SettingRowBody({
             <div className="flex min-w-0 flex-1 items-center gap-2.5">
                 {icon ? <Icon icon={icon} className="shrink-0 text-text-muted" /> : null}
                 <div className="min-w-0">
-                    <div className="text-sm font-medium text-text-primary">{title}</div>
-                    {description ? <div className="mt-0.5 text-xs leading-4 font-normal text-text-muted">{description}</div> : null}
+                    <div id={titleId} className="text-sm font-medium text-text-primary">
+                        {title}
+                    </div>
+                    {description ? (
+                        <div id={descriptionId} className="mt-0.5 text-xs leading-4 font-normal text-text-muted">
+                            {description}
+                        </div>
+                    ) : null}
                 </div>
             </div>
             <div className="flex shrink-0 items-center">{children}</div>
@@ -130,23 +147,47 @@ export function SettingRow({
     stack?: boolean;
 }) {
     const inCard = React.useContext(InSettingCard);
+    const titleId = React.useId();
+    const rawDescId = React.useId();
+    const descriptionId = description ? rawDescId : undefined;
+    const labels = React.useMemo(
+        () => ({ titleId, descriptionId }),
+        [titleId, descriptionId],
+    );
+
     if (stack) {
         const stacked = (
-            <div className="space-y-2.5 px-3.5 py-3">
-                <div>
-                    <div className="text-sm font-medium text-text-primary">{title}</div>
-                    {description ? <div className="mt-0.5 text-xs leading-4 text-text-muted">{description}</div> : null}
+            <SettingRowLabelContext.Provider value={labels}>
+                <div className="space-y-2.5 px-3.5 py-3">
+                    <div>
+                        <div id={titleId} className="text-sm font-medium text-text-primary">
+                            {title}
+                        </div>
+                        {description ? (
+                            <div id={descriptionId} className="mt-0.5 text-xs leading-4 text-text-muted">
+                                {description}
+                            </div>
+                        ) : null}
+                    </div>
+                    {children}
                 </div>
-                {children}
-            </div>
+            </SettingRowLabelContext.Provider>
         );
         return inCard ? stacked : <div className={settingCardClass}>{stacked}</div>;
     }
 
     const row = (
-        <SettingRowBody title={title} description={description} icon={icon}>
-            {children}
-        </SettingRowBody>
+        <SettingRowLabelContext.Provider value={labels}>
+            <SettingRowBody
+                title={title}
+                description={description}
+                icon={icon}
+                titleId={titleId}
+                descriptionId={descriptionId}
+            >
+                {children}
+            </SettingRowBody>
+        </SettingRowLabelContext.Provider>
     );
     return inCard ? row : <div className={settingCardClass}>{row}</div>;
 }
@@ -190,6 +231,7 @@ export function SettingSelect<T extends string>({
     "aria-label"?: string;
 }) {
     const label = options.find((o) => o.value === value)?.label ?? value;
+    const rowLabels = React.useContext(SettingRowLabelContext);
 
     return (
         <DropdownMenu>
@@ -199,6 +241,8 @@ export function SettingSelect<T extends string>({
                     size="sm"
                     disabled={disabled}
                     aria-label={ariaLabel}
+                    aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                    aria-describedby={rowLabels?.descriptionId}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
                     <span className="truncate">{label}</span>
@@ -224,16 +268,22 @@ export function SettingSwitch({
     checked,
     onChange,
     disabled,
+    "aria-label": ariaLabel,
 }: {
     checked: boolean;
     onChange: (v: boolean) => void;
     disabled?: boolean;
+    "aria-label"?: string;
 }) {
+    const rowLabels = React.useContext(SettingRowLabelContext);
     return (
         <Switch
             checked={checked}
             onCheckedChange={onChange}
             disabled={disabled}
+            aria-label={ariaLabel}
+            aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+            aria-describedby={rowLabels?.descriptionId}
             className="data-[state=checked]:bg-success data-[state=unchecked]:bg-white/20 [[data-theme=light]_&]:data-[state=unchecked]:bg-black/15"
         />
     );

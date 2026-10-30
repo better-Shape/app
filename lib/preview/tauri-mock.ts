@@ -134,6 +134,9 @@ export const PLUGIN_RESULTS: Record<string, unknown> = {
     "plugin:window|is_fullscreen": false,
     "plugin:window|is_maximized": false,
     "plugin:window|show": null,
+    "plugin:window|inner_size": { width: 1440, height: 900 },
+    "plugin:window|scale_factor": 1,
+    "plugin:window|set_min_size": null,
 };
 
 /**
@@ -615,7 +618,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         reveal_path: () => null,
         open_in_app: () => null,
         open_url_external: () => null,
-        ensure_path_within: () => null,
+        ensure_path_within: (args) => (typeof args?.path === "string" ? args.path : null),
         get_rust_deps: () => [],
 
         // ── git ──────────────────────────────────────────────────────────
@@ -933,6 +936,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             dev_dependencies: [],
         }),
         get_outline: () => null,
+        get_open_turn_journals: () => [],
     };
 
 

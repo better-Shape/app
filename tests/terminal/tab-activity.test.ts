@@ -156,4 +156,24 @@ describe("terminal tab activity", () => {
         terminalSessionStore.noteOutput(2);
         expect(terminalSessionStore.unreadTabs.size).toBe(0);
     });
+
+    it("clears newly visible tabs when the closed dock reopens while keeping background tabs unread", () => {
+        terminalSessionStore.setTabs(() => [tab("a", 1), tab("b", 2)]);
+        terminalSessionStore.setActive("/repo", "a");
+        terminalSessionStore.setPanel({ visible: false, cwd: "/repo" });
+
+        terminalSessionStore.noteOutput(1);
+        terminalSessionStore.noteOutput(2);
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/repo/")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/other")).toBe(false);
+
+        terminalSessionStore.setPanel({ visible: true, cwd: "/repo" });
+        expect(terminalSessionStore.unreadTabs.has("a")).toBe(false);
+        expect(terminalSessionStore.unreadTabs.has("b")).toBe(true);
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(true);
+
+        terminalSessionStore.setActive("/repo", "b");
+        expect(terminalSessionStore.hasUnreadForProject("/repo")).toBe(false);
+    });
 });

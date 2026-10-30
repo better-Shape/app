@@ -28,7 +28,7 @@ pub async fn read_file_within(path: String, root: String) -> Result<String, AppE
 }
 
 #[tauri::command]
-pub fn ensure_path_within(path: String, root: String) -> Result<(), AppError> {
+pub fn ensure_path_within(path: String, root: String) -> Result<String, AppError> {
     service::ensure_path_within(path, root)
 }
 

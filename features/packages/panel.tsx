@@ -20,6 +20,7 @@ import {
 import { Icon, type IconGlyph } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search";
+import { PanelStateMessage } from "@/components/ui/state-message";
 import { cn } from "@/lib/utils";
 import {
     FRESHNESS_LABEL,
@@ -47,15 +48,6 @@ const FRESHNESS_CLASS: Record<PackageFreshness, string> = {
     current: "text-success",
     behind: "text-warning",
 };
-
-function StateMessage({ title, detail }: { title: string; detail?: string }) {
-    return (
-        <div className="flex flex-col gap-1 px-3 py-4">
-            <p className="text-sm text-text-primary">{title}</p>
-            {detail ? <p className="text-xs text-text-muted">{detail}</p> : null}
-        </div>
-    );
-}
 
 function FreshnessBadge({ row }: { row: PackageRow }) {
     // "Update available" with no version beside it cannot be acted on: the user has
@@ -346,20 +338,32 @@ export function PackagesPanel({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {state.kind === "no-project" ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title="No project open"
                         detail="Open a folder with a package.json to manage its dependencies."
                     />
                 ) : state.kind === "blocked" ? (
-                    <StateMessage title="No package manifest" detail={state.detail ?? state.reason} />
+                    <PanelStateMessage title="No package manifest" detail={state.detail ?? state.reason} />
                 ) : state.kind === "loading" ? (
-                    <StateMessage title="Reading package.json..." />
+                    <PanelStateMessage title="Reading package.json..." />
                 ) : state.kind === "failed" ? (
-                    <StateMessage title="The package list could not be read" detail={state.message} />
+                    <PanelStateMessage
+                        title="The package list could not be read"
+                        detail={state.message}
+                        tone="error"
+                        actionLabel="Try again"
+                        onAction={onRefresh}
+                        actionDisabled={busy}
+                    />
                 ) : ready && visibleTotal === 0 && filter.trim() ? (
-                    <StateMessage title="No match" detail="No package name contains that text." />
+                    <PanelStateMessage
+                        title="No match"
+                        detail="No package name contains that text."
+                        actionLabel="Clear filter"
+                        onAction={() => onFilterChange("")}
+                    />
                 ) : ready && declaredTotal === 0 ? (
-                    <StateMessage
+                    <PanelStateMessage
                         title="No dependencies"
                         detail="package.json lists none, so there is nothing to install here."
                     />

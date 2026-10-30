@@ -4,6 +4,7 @@ import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevro
 
 
 import { Icon } from "./icon";
+import { Collapse } from "./collapse";
 import { useState, useCallback, useId } from "react";
 import { cn } from "@/lib/utils";
 
@@ -52,19 +53,6 @@ const chevronClass = (isOpen: boolean) =>
     cn(
         "transition-transform duration-[var(--spring-flick-dur)] ease-[var(--spring-flick)] text-text-muted",
         isOpen && "rotate-90 text-text-primary"
-    );
-
-/**
- * The body row's classes.
- *
- * The height animates as a grid track rather than a measured pixel height, which is what
- * lets the content size itself: the row goes from `0fr` to `1fr` while the opacity carries
- * the fade, and nothing has to know how tall the children are.
- */
-const bodyClass = (isOpen: boolean) =>
-    cn(
-        "grid transition-[grid-template-rows,opacity] duration-[var(--spring-quick-dur)] ease-[var(--spring-quick)] flex-1 min-h-0",
-        isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
     );
 
 /**
@@ -124,9 +112,15 @@ export const CollapsibleSection = ({
                 ) : null}
             </div>
 
-            <div id={contentId} aria-hidden={!isOpen} inert={!isOpen} className={bodyClass(isOpen)}>
-                <div className="overflow-hidden min-h-0 flex flex-col flex-1 h-full">{children}</div>
-            </div>
+            <Collapse
+                id={contentId}
+                open={isOpen}
+                variant="spring"
+                className="flex-1 min-h-0"
+                innerClassName="flex flex-col flex-1 h-full"
+            >
+                {children}
+            </Collapse>
         </section>
     );
 };

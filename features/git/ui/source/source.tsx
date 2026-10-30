@@ -42,7 +42,7 @@ import {
     ContextMenuSeparator,
     ContextMenuTrigger
 } from "@/components/ui/context";
-import { Checkmark } from "@/components/ui/checkmark";
+import { Checkmark, DrawnCheck } from "@/components/ui/checkmark";
 import {
     commands,
     useProjectState,
@@ -1681,16 +1681,18 @@ const RemoteActionButton = ({
     icon,
     onClick,
     className = "h-6 w-6",
+    copied = false,
 }: {
     content: string;
     label: string;
     icon: typeof Edit20Regular;
     onClick: () => void;
     className?: string;
+    copied?: boolean;
 }) => (
     <Tooltip content={content}>
         <Button variant="ghost" size="icon" className={className} onClick={onClick} aria-label={label}>
-            <Icon icon={icon} />
+            {copied ? <DrawnCheck className="size-3.5 text-success" motion="compact" /> : <Icon icon={icon} />}
         </Button>
     </Tooltip>
 );
@@ -1743,6 +1745,7 @@ const RemoteRow = ({
                         icon={Clipboard20Regular}
                         onClick={() => copy(remote.url, "Remote URL copied")}
                         className={cn("h-6 w-6", copied && "text-success")}
+                        copied={copied}
                     />
                     <RemoteActionButton content="Remove" label="Remove remote" icon={Delete20Filled} onClick={() => handleRemoveRemote(remote.name)} className="h-6 w-6 text-error" />
                 </div>
