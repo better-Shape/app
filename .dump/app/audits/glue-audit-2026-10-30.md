@@ -489,3 +489,54 @@ so the button did nothing. It now reuses the Browser tab's picked-element
 bridge and its `@element:` mention path, and the block says which tab the pick
 came from. `elementMentionBlock` also escapes page text now: raw `<script>` in a
 picked element's text reached the prompt unescaped.
+
+## Round 3 — the gaps named above, closed
+
+- **Multi-root workspaces are visible now.** The explorer lists each folder
+  added with "Add Folder to Workspace" as its own section, with a remove
+  control, an inline error when the folder cannot be read, and an "Empty
+  folder" line when it has no entries. The preview fixture seeds
+  `/preview/shared-lib` so the surface has a reproducible place to look, and
+  `scripts/qa/probe-feature-wiring.cjs` now asserts the row appears, its files
+  are listed, and removing it clears the stored folder list.
+- **Cross-window chat pins.** `lib/sidebar/chat-list-meta.ts` installs one pair
+  of listeners (its own custom events plus `storage`) that invalidates the
+  per-window caches and notifies subscribers. Local writes are counted so a
+  window never re-reads its own echo. Covered by
+  `tests/sidebar/chat-list-cross-window.test.ts`.
+
+## Round 3 — the audit was also wrong about imports
+
+`scripts/qa/audit-glue.mjs` matched `from "./x"`, `import("./x")` and
+`require("./x")` but not the side-effect form `import "./x"`. That reported
+`features/chat/ui/blocks/disable-openui-devtools.ts` as test-only even though
+`openui.tsx` imports it on line 3. The pattern now has a fourth alternative and
+the test-only count dropped from 7 to 6.
+
+What the six are, checked by hand:
+
+| Module | Status |
+| --- | --- |
+| `features/chat/ui/blocks/analysis.tsx` | superseded: `turn.tsx` renders the analysis line inline |
+| `features/chat/ui/blocks/style.tsx` | same shape, same supersession |
+| `features/chat/ui/blocks/thinking.tsx` | superseded by the reasoning rendering in `turn.tsx` |
+| `features/chat/ui/blocks/carousel.tsx` | superseded by `gallery.tsx`, which has the same navigation plus picking |
+| `features/preview/ui/preview-panel.tsx` | **keep**: it is the harness `tests/features/design-authorization.test.tsx` uses to exercise the design bridge's authorization rules |
+| `lib/preview/tauri-mock.ts` | expected: only the Browser Preview build imports it |
+
+The four superseded blocks are not deleted in this pass. Their tests assert
+accessibility invariants (`role="status"` outside `[aria-busy]`) against a
+surface the app no longer renders, so the honest fix is to retarget those
+assertions at `turn.tsx` and `gallery.tsx` before deleting the components —
+otherwise the invariants leave with the dead code.
+
+## Round 3 — environment note
+
+The sandbox lost `node_modules`, the Playwright browser tree and
+`/tmp/chrome-deps` between sessions. Recovered with `npm ci` and by
+brotli-unpacking `node_modules/@sparticuz/chromium/bin/al2023.tar.br` into
+`/tmp/chrome-deps/lib` (`PLAYWRIGHT_SANDBOX_LIBS`). Browser probes need the
+static preview build (`npm run build:preview && npm run preview:browser`), not
+`next dev`: the mocked IPC bridge only exists in the preview bundle, so against
+`next dev` every route renders the welcome screen and the workbench assertions
+time out.
