@@ -145,12 +145,17 @@ if (existsSync(storePath)) {
     // reported as `git.blame.enabled`. Reading only two levels would record the
     // `blame` group and never check the leaf anything actually reads.
     const groups = [];
+    const identifier = /^[A-Za-z_$][\w$]*$/;
     for (const line of region.split("\n")) {
-        const match = /^(\s*)([A-Za-z_$][\w$]*):\s*(.*)$/.exec(line);
-        if (!match) continue;
-        const [, indentText, name, rest] = match;
-        const indent = indentText.length;
-        if (indent === 0) continue;
+        // Parsed by index rather than matched: a `^\s*(...):\s*(.*)$` pattern
+        // backtracks super-linearly on long whitespace runs.
+        const trimmed = line.trimStart();
+        const indent = line.length - trimmed.length;
+        const colon = trimmed.indexOf(":");
+        if (indent === 0 || colon <= 0) continue;
+        const name = trimmed.slice(0, colon);
+        if (!identifier.test(name)) continue;
+        const rest = trimmed.slice(colon + 1).trim();
         while (groups.length > 0 && groups[groups.length - 1].indent >= indent) groups.pop();
         // `{}` and `[]` are empty values, not groups to descend into.
         if (rest.startsWith("{") && !rest.startsWith("{}")) {
