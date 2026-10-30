@@ -466,9 +466,7 @@ export const useArrivingCommitHashes = (
     return arrivingHashes;
 };
 
-/**
- * Convenience wrapper returning the newest arriving head commit hash (`null` when idle).
- */
+/** Returns the newest arriving head commit hash, or `null` when idle. */
 export const useArrivingCommitHash = (
     cacheKey: string | null,
     gitLogs: GitLogEntry[],
@@ -478,6 +476,7 @@ export const useArrivingCommitHash = (
     return first.done ? null : first.value;
 };
 
+/** Renders the repository commit graph with streamed log pagination, arrival strokes, and diffs. */
 export default function Graph({
     className,
     surface = "panel",

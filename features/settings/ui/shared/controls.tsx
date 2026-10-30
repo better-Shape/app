@@ -230,6 +230,7 @@ export function SettingActionRow({
     return inCard ? row : <div className={settingCardClass}>{row}</div>;
 }
 
+/** Dropdown trigger that composes row or explicit labels with the active option text for AT. */
 export function SettingSelect<T extends string>({
     value,
     options,
@@ -451,6 +452,7 @@ const formatMultiSelectSummary = (selectedLabels: readonly string[], placeholder
     return `${selectedLabels.length} selected`;
 };
 
+/** Multi-choice dropdown that binds enclosing row labels and summarizes active selections. */
 export function SettingMultiSelect({
     value,
     options,

@@ -23,6 +23,7 @@ const inputClass =
 /* Key field                                                                 */
 /* ------------------------------------------------------------------------ */
 
+/** Secret input that binds enclosing row labels and reflects OS-vault storage state. */
 export function KeyInput({
     value,
     placeholder,
@@ -156,6 +157,7 @@ export function KeyInput({
 /* Text field with optional reset                                            */
 /* ------------------------------------------------------------------------ */
 
+/** Controlled text input that binds enclosing row labels and offers default-value reset. */
 export function TextInput({
     value,
     placeholder,

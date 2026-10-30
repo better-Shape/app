@@ -179,10 +179,11 @@ function canonicalPathKey(path: string): string {
     return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
 }
 
-function isKeyWithinBase(folderKey: string, baseKey: string): boolean {
+/** Checks directory containment using a trailing slash so sibling stems never match. */
+const isKeyWithinBase = (folderKey: string, baseKey: string): boolean => {
     const basePrefix = baseKey.endsWith("/") ? baseKey : `${baseKey}/`;
     return folderKey === baseKey || folderKey.startsWith(basePrefix);
-}
+};
 
 /**
  * Chooses the confinement root passed to `readFileWithin`. When a skill subfolder

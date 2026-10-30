@@ -514,6 +514,9 @@ describe("discoverSkills", () => {
 
         const result = await discoverSkills();
         expect(result.items.map((item) => item.name)).toEqual(["deep-safe"]);
+        await expect(
+            mocks.ensurePathWithin(`${PROJECT}/.claude/skills/order-trap/sub`, PROJECT),
+        ).rejects.toThrow("outside root");
     });
 
     it("resolves relative symlinks mounted directly under POSIX root without UNC misparsing", async () => {
