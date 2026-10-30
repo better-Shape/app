@@ -467,3 +467,25 @@ The probe drives the settings page and the empty home in a real browser and
 writes `.qa-artifacts/feature-wiring/*.png`. Inline blame is proven against a
 jsdom editor, not against a real git repository in the packaged app, and ESLint
 `--fix` is proven through mocks, not through `npx eslint` on disk.
+
+## Round 2 — named, not done
+
+Two gaps found by the same event and symbol sweep are real but larger than a
+wiring fix, so they are named here instead of half-done:
+
+- **Multi-root workspaces.** "Add Folder to Workspace…" persists the folder,
+  calls `set_extra_workspace_folders`, and the Rust side turns the list into IPC
+  path grants — so the backend half works. The renderer half does not: the
+  explorer lists `lsDir(projectPath)` only, and `getWorkspaceRoots()` has no
+  caller anywhere. Adding a folder therefore widens file access with nothing on
+  screen to show for it.
+- **Cross-window chat pins.** `bettershape-chat-pins-changed` is dispatched and
+  in-page subscribers refresh, but nothing listens for the event, so a second
+  window keeps its stale pin set until it reloads.
+
+Also fixed in this round, found the same way: the design inspector's "Add to
+chat" dispatched `bettershape-composer-insert-mention`, which has no listener,
+so the button did nothing. It now reuses the Browser tab's picked-element
+bridge and its `@element:` mention path, and the block says which tab the pick
+came from. `elementMentionBlock` also escapes page text now: raw `<script>` in a
+picked element's text reached the prompt unescaped.
