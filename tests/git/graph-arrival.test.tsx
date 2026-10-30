@@ -294,5 +294,26 @@ describe("GraphSvgRow arrival stroke draw", () => {
         expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
             "new-3,new-2,new-1",
         );
+
+        // Appending older history on the same HEAD keeps the in-progress arrival set intact.
+        const chunkThree = [...chunkTwo, makeLog("older-0", [])];
+        act(() => {
+            root.render(<MultiProbe cacheKey="/repo::head" logs={chunkThree} />);
+        });
+        expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+            "new-3,new-2,new-1",
+        );
+
+        // Switching HEAD ref under the same cacheKey clears stale arrivals so shared rows stop animating.
+        const featureLogs = [
+            makeLog("feat-1", ["new-3"], ["HEAD -> feature"]),
+            makeLog("new-3", ["new-2"]),
+            makeLog("new-2", ["new-1"]),
+            makeLog("new-1", ["base-0"]),
+        ];
+        act(() => {
+            root.render(<MultiProbe cacheKey="/repo::head" logs={featureLogs} />);
+        });
+        expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
     });
 });

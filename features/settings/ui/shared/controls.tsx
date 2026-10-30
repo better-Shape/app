@@ -520,6 +520,32 @@ export function SettingMultiSelect({
     );
 }
 
+const parseExcludePatterns = (value: string): string[] => {
+    const seen = new Set<string>();
+    const patterns: string[] = [];
+    for (const raw of value.split(",")) {
+        const pattern = raw.trim();
+        if (pattern && !seen.has(pattern)) {
+            seen.add(pattern);
+            patterns.push(pattern);
+        }
+    }
+    return patterns;
+};
+
+const buildExcludeOptions = (active: readonly string[]) => {
+    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern));
+    const presets = COMMON_EXCLUDE_PATTERNS.map((entry) => ({
+        value: entry.pattern,
+        label: entry.label,
+    }));
+    const custom = active
+        .filter((pattern) => !known.has(pattern))
+        .map((pattern) => ({ value: pattern, label: pattern }));
+    return [...presets, ...custom];
+};
+
+/** Multi-select dropdown for workspace search exclude globs, preserving custom entries. */
 export function ExcludePatternsSelect({
     value,
     onChange,
@@ -529,21 +555,14 @@ export function ExcludePatternsSelect({
     onChange: (nextValue: string) => void;
     "aria-label"?: string;
 }) {
-    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern));
-    const active = value
-        .split(",")
-        .map((segment) => segment.trim())
-        .filter((pattern) => pattern && known.has(pattern));
+    const active = parseExcludePatterns(value);
 
     return (
         <SettingMultiSelect
             value={active}
             placeholder="None excluded"
             aria-label={ariaLabel}
-            options={COMMON_EXCLUDE_PATTERNS.map((entry) => ({
-                value: entry.pattern,
-                label: entry.label,
-            }))}
+            options={buildExcludeOptions(active)}
             onChange={(next) => onChange(next.join(","))}
         />
     );

@@ -400,6 +400,22 @@ const hasSnapshotChanged = (
 ): boolean =>
     keyChanged || prev.logsRef !== gitLogs || prev.ignoredLogsRef !== nextIgnoredLogsRef;
 
+const hasArrivalContextShifted = (prev: GraphHeadSnapshot, next: GraphHeadSnapshot): boolean =>
+    prev.cacheKey !== next.cacheKey ||
+    prev.headRef !== next.headRef ||
+    prev.topHash !== next.topHash;
+
+const resolveNextArrivingState = (
+    current: ReadonlySet<string>,
+    freshHashes: ReadonlySet<string>,
+    prev: GraphHeadSnapshot,
+    next: GraphHeadSnapshot,
+): ReadonlySet<string> => {
+    if (freshHashes.size > 0) return freshHashes;
+    if (current.size > 0 && hasArrivalContextShifted(prev, next)) return EMPTY_ARRIVAL_SET;
+    return current;
+};
+
 /**
  * Tracks all genuinely new head commits arriving in an already-loaded graph view.
  * Keyed by `cacheKey` + checked-out `HEAD` ref, verified against parent lineage, and
@@ -432,8 +448,13 @@ export const useArrivingCommitHashes = (
             nextIgnoredLogsRef,
         );
         setPrev(nextSnapshot);
-        if (freshHashes.size > 0) setArrivingHashes(freshHashes);
-        else if (keyChanged && arrivingHashes.size > 0) setArrivingHashes(EMPTY_ARRIVAL_SET);
+        const nextArriving = resolveNextArrivingState(
+            arrivingHashes,
+            freshHashes,
+            prev,
+            nextSnapshot,
+        );
+        if (nextArriving !== arrivingHashes) setArrivingHashes(nextArriving);
     }
 
     useEffect(() => {

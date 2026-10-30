@@ -219,6 +219,37 @@ describe("Settings row accessible labelling", () => {
         expect(baseUrlInput.value).toBe("https://api.openai.example/v1");
     });
 
+    it("preserves custom comma-separated patterns when toggling presets in ExcludePatternsSelect", () => {
+        const changes: string[] = [];
+        render(
+            <SettingCard>
+                <SettingRow title="Exclude">
+                    <ExcludePatternsSelect
+                        value="**/node_modules, **/vendor/**"
+                        onChange={(next) => changes.push(next)}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = findButton("node_modules, **/vendor/**");
+        act(() => {
+            trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+
+        const distItem = Array.from(document.body.querySelectorAll('[role="menuitemcheckbox"]')).find(
+            (el) => el.textContent?.trim() === "dist",
+        );
+        if (!(distItem instanceof HTMLElement)) {
+            throw new Error("Expected dist preset option in ExcludePatternsSelect menu");
+        }
+        act(() => {
+            distItem.click();
+        });
+
+        expect(changes).toEqual(["**/node_modules,**/vendor/**,**/dist"]);
+    });
+
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {
         updateSettingSection("ai", {
             providers: defaultProvidersSettings(),
