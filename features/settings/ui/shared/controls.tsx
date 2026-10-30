@@ -19,6 +19,7 @@ import {
 const InSettingCard = React.createContext(false);
 
 interface SettingRowLabels {
+    title?: string;
     titleId: string;
     descriptionId?: string;
 }
@@ -148,6 +149,7 @@ function SettingRowBody({
     );
 }
 
+/** Labelled settings row that provides accessible title and description IDs to child controls. */
 export function SettingRow({
     title,
     description,
@@ -166,8 +168,8 @@ export function SettingRow({
     const rawDescId = React.useId();
     const descriptionId = description ? rawDescId : undefined;
     const labels = React.useMemo(
-        () => ({ titleId, descriptionId }),
-        [titleId, descriptionId],
+        () => ({ title, titleId, descriptionId }),
+        [title, titleId, descriptionId],
     );
 
     if (stack) {

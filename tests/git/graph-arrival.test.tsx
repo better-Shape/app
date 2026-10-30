@@ -316,4 +316,78 @@ describe("GraphSvgRow arrival stroke draw", () => {
         });
         expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
     });
+
+    it("retains baseline across streamed merge slices so side-branch commits animate when appended", () => {
+        vi.useFakeTimers();
+        const makeLog = (
+            hash: string,
+            parents: string[],
+            refs: string[] = [],
+        ): GitLogEntry => ({
+            hash,
+            message: hash,
+            author: "Ada",
+            author_email: "ada@example.com",
+            date: "1700000000",
+            files_changed: 1,
+            insertions: 1,
+            deletions: 0,
+            refs,
+            parent_count: parents.length,
+            parents,
+        });
+
+        const baseLogs = [makeLog("base-0", [], ["HEAD -> main"])];
+        // Chunk 1: merge-head connects to base-0 via parent 1, while parent 2 (side-2) is omitted.
+        const mergeChunkOne = [
+            makeLog("merge-head", ["base-0", "side-2"], ["HEAD -> main"]),
+            makeLog("base-0", []),
+        ];
+        // Chunk 2: appendLogs delivers side-2 -> side-1 -> base-0.
+        const mergeChunkTwo = [
+            ...mergeChunkOne,
+            makeLog("side-2", ["side-1"]),
+            makeLog("side-1", ["base-0"]),
+        ];
+
+        const MultiProbe = ({ cacheKey, logs }: { cacheKey: string; logs: GitLogEntry[] }) => {
+            const arriving = useArrivingCommitHashes(cacheKey, logs);
+            return <div data-arrivals={Array.from(arriving).join(",")} />;
+        };
+
+        try {
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={baseLogs} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={mergeChunkOne} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+                "merge-head",
+            );
+
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={mergeChunkTwo} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe(
+                "merge-head,side-2,side-1",
+            );
+
+            act(() => {
+                vi.advanceTimersByTime(520);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+
+            // Later pagination after the arrival window settles must not re-animate merge-head.
+            const laterPage = [...mergeChunkTwo, makeLog("older-0", [])];
+            act(() => {
+                root.render(<MultiProbe cacheKey="/repo::head" logs={laterPage} />);
+            });
+            expect(container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals")).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

@@ -199,6 +199,39 @@ describe("Settings row accessible labelling", () => {
         );
     });
 
+    it("appends an API key role suffix when KeyInput shares a SettingRow whose title omits key", () => {
+        render(
+            <SettingCard>
+                <SettingRow
+                    title="Web search"
+                    description="Uses your own search account."
+                >
+                    <div>
+                        <SettingSelect
+                            value="tavily"
+                            options={[
+                                { value: "none", label: "Disabled" },
+                                { value: "tavily", label: "Tavily" },
+                            ]}
+                            onChange={() => {}}
+                        />
+                        <KeyInput value="" placeholder="tvly-..." onChange={() => {}} />
+                    </div>
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const passwordInput = container.querySelector('input[type="password"]');
+        if (!(passwordInput instanceof HTMLInputElement)) {
+            throw new Error("Expected password input inside shared SettingRow");
+        }
+        const labelIds = (passwordInput.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean);
+        expect(labelIds.map((id) => document.getElementById(id)?.textContent)).toEqual([
+            "Web search",
+            "API key",
+        ]);
+    });
+
     it("exposes explicit provider-scoped aria-label attributes on standalone ProviderCard API key and base URL inputs", () => {
         const providers = defaultProvidersSettings();
         providers.connections.openai = {

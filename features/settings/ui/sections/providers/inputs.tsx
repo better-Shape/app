@@ -23,6 +23,27 @@ const inputClass =
 /* Key field                                                                 */
 /* ------------------------------------------------------------------------ */
 
+const KEY_LABEL_WORD_RE = /\bkey\b/i;
+
+const needsKeyRoleSuffix = (
+    ariaLabel: string | undefined,
+    rowTitle: string | undefined,
+    rowTitleId: string | undefined,
+): boolean => {
+    if (ariaLabel || !rowTitleId) return false;
+    return !rowTitle || !KEY_LABEL_WORD_RE.test(rowTitle);
+};
+
+const resolveKeyInputLabelledBy = (
+    ariaLabel: string | undefined,
+    rowTitleId: string | undefined,
+    appendRoleSuffix: boolean,
+    roleSuffixId: string,
+): string | undefined => {
+    if (ariaLabel || !rowTitleId) return undefined;
+    return appendRoleSuffix ? `${rowTitleId} ${roleSuffixId}` : rowTitleId;
+};
+
 /** Secret input that binds enclosing row labels and reflects OS-vault storage state. */
 export function KeyInput({
     value,
@@ -46,6 +67,18 @@ export function KeyInput({
     const [visible, setVisible] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
     const rowLabels = useSettingRowLabels();
+    const keyRoleId = React.useId();
+    const appendKeyRoleSuffix = needsKeyRoleSuffix(
+        ariaLabel,
+        rowLabels?.title,
+        rowLabels?.titleId,
+    );
+    const keyLabelledBy = resolveKeyInputLabelledBy(
+        ariaLabel,
+        rowLabels?.titleId,
+        appendKeyRoleSuffix,
+        keyRoleId,
+    );
 
     const pasteFromClipboard = async () => {
         try {
@@ -92,11 +125,16 @@ export function KeyInput({
                         autoComplete="off"
                         data-form-type="other"
                         aria-label={ariaLabel}
-                        aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                        aria-labelledby={keyLabelledBy}
                         aria-describedby={rowLabels?.descriptionId}
                         onChange={(event) => onChange(event.target.value)}
                         className={cn(inputClass, savedInVault && !value && "pr-16 text-text-muted")}
                     />
+                    {appendKeyRoleSuffix ? (
+                        <span id={keyRoleId} className="sr-only">
+                            API key
+                        </span>
+                    ) : null}
                     {savedInVault && !value ? (
                         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-sm bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success">
                             Saved
