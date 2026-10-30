@@ -369,21 +369,13 @@ const useAgentLayoutWindowChannels = ({
                 /* ignore */
             }
         };
-        /** Opens the Pull Requests workspace tab and clears any overlay. */
-        const onPrs = () => {
-            setOverlay(null);
-            persistWorkspace(true);
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "prs" }));
-        };
         window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
         window.addEventListener("bettershape-layout-toggle", onToggle as EventListener);
         window.addEventListener("bettershape-agent-overlay", onOverlay as EventListener);
-        window.addEventListener("bettershape-open-pull-requests", onPrs);
         return () => {
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
             window.removeEventListener("bettershape-layout-toggle", onToggle as EventListener);
             window.removeEventListener("bettershape-agent-overlay", onOverlay as EventListener);
-            window.removeEventListener("bettershape-open-pull-requests", onPrs);
         };
     }, [persistWorkspace, projectPath, setOverlay, setSidebarOpen, toggleSidebar, toggleWorkspace]);
 

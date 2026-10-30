@@ -1067,19 +1067,9 @@ const Terminal = ({
         // Commands requested while the panel was closed replay from here.
         const detachCommandHost = attachTerminalCommandHost();
 
-        // Accepts only the two views this panel renders; anything else leaves the
-        // active view where it was.
-        const handleTerminalView = (e: Event) => {
-            const view = (e as CustomEvent<string>).detail;
-            if (view === "tests" || view === "terminal") {
-                setActiveView(view);
-            }
-        };
-        window.addEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         return () => {
             detachCommandHost();
             window.removeEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
-            window.removeEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         };
     }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal, clearActiveTerminal]);
 
