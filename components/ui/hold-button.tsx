@@ -122,12 +122,16 @@ const clearAllTimers = (timers: HoldTimers) => {
  * - Quick tap (< 240ms) or assistive-tech `.click()` enters `armed` so keyboard, switch-access,
  *   and motor-impaired users can confirm with a second non-timed press (WCAG 2.2.1 & 2.5.2).
  */
+const isPromiseLike = (value: unknown): value is PromiseLike<void> =>
+    Boolean(value && typeof (value as PromiseLike<void>).then === "function");
+
 const useHoldState = (
     onConfirm: () => void | Promise<void>,
     holdMs: number,
     disabled: boolean,
 ) => {
     const [state, setState] = React.useState<HoldButtonState>("idle");
+    const [pending, setPending] = React.useState(false);
     const stateRef = React.useRef<HoldButtonState>("idle");
     const onConfirmRef = React.useRef(onConfirm);
     const disabledRef = React.useRef(disabled);
@@ -192,12 +196,34 @@ const useHoldState = (
         }, CONFIRMED_RESET_MS);
     }, [writeState]);
 
+    const awaitAsyncConfirm = React.useCallback(
+        (promise: PromiseLike<void>) => {
+            confirmInFlightRef.current = true;
+            setPending(true);
+            writeState("idle");
+            void Promise.resolve(promise).then(
+                () => {
+                    confirmInFlightRef.current = false;
+                    if (mountedRef.current) setPending(false);
+                    finishConfirmed();
+                },
+                () => {
+                    confirmInFlightRef.current = false;
+                    if (mountedRef.current) {
+                        setPending(false);
+                        writeState("idle");
+                    }
+                },
+            );
+        },
+        [finishConfirmed, writeState],
+    );
+
     const fireConfirm = React.useCallback(() => {
-        if (disabledRef.current) {
-            cancelHold();
+        if (disabledRef.current || confirmInFlightRef.current) {
+            if (disabledRef.current) cancelHold();
             return;
         }
-        if (confirmInFlightRef.current) return;
         clearTimerSlot(timersRef.current, "hold");
         clearTimerSlot(timersRef.current, "reset");
         sourceRef.current = null;
@@ -213,22 +239,12 @@ const useHoldState = (
             writeState("idle");
             return;
         }
-        if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-            confirmInFlightRef.current = true;
-            void Promise.resolve(result).then(
-                () => {
-                    confirmInFlightRef.current = false;
-                    finishConfirmed();
-                },
-                () => {
-                    confirmInFlightRef.current = false;
-                    if (mountedRef.current) writeState("idle");
-                },
-            );
+        if (isPromiseLike(result)) {
+            awaitAsyncConfirm(result);
             return;
         }
         finishConfirmed();
-    }, [cancelHold, finishConfirmed, scheduleClickGuardClear, writeState]);
+    }, [awaitAsyncConfirm, cancelHold, finishConfirmed, scheduleClickGuardClear, writeState]);
 
     const enterArmed = React.useCallback(() => {
         clearTimerSlot(timersRef.current, "hold");
@@ -343,6 +359,7 @@ const useHoldState = (
 
     return {
         state,
+        pending,
         beginPress,
         releasePress,
         cancelHold,
@@ -377,6 +394,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
     ) => {
         const {
             state,
+            pending,
             beginPress,
             releasePress,
             cancelHold,
@@ -388,6 +406,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
         } = useHoldState(onConfirm, holdMs, disabled);
 
         const activeState = disabled ? "idle" : state;
+        const isBusy = !disabled && pending;
         const faceText = resolveFaceText(activeState, label, armedLabel, confirmedLabel);
         const computedAria = resolveAriaLabel(activeState, ariaLabel, armedAriaLabel);
         const customHoldVar =
@@ -400,6 +419,7 @@ export const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
                 ref={ref}
                 type="button"
                 disabled={disabled}
+                aria-busy={isBusy || undefined}
                 data-state={activeState}
                 aria-label={computedAria}
                 style={customHoldVar}

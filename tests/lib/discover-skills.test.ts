@@ -378,10 +378,12 @@ describe("discoverSkills", () => {
         ]);
     });
 
-    it("discovers symlinked skill subfolders pointing elsewhere inside the project even when lstat reports non-dir", async () => {
+    it("discovers symlinked skill subfolders pointing elsewhere inside the project and skips extensionless files", async () => {
         serveSkillFs(
             mocks,
             {
+                [`${PROJECT}/.claude/skills/LICENSE`]: "MIT",
+                [`${PROJECT}/.claude/skills/Makefile`]: "all:",
                 [`${PROJECT}/shared/pdf-skill/SKILL.md`]: skillFile(
                     "pdf-processing",
                     "Work with PDFs.",
@@ -395,21 +397,14 @@ describe("discoverSkills", () => {
                 },
             },
         );
-        const baseLs = mocks.lsDir.getMockImplementation()!;
-        mocks.lsDir.mockImplementation(async (dir: string) => {
-            const entries = await baseLs(dir);
-            if (dir === `${PROJECT}/.claude/skills`) {
-                return entries.map((entry: { name: string; path: string; is_dir: boolean }) =>
-                    entry.name === "pdf" ? { ...entry, is_dir: false } : entry,
-                );
-            }
-            return entries;
-        });
 
         const items = await discoverItems();
         expect(items).toHaveLength(1);
         expect(items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
         expect(items[0].rootPath).toBe(`${PROJECT}/shared/pdf-skill`);
+        const listedPaths = mocks.lsDir.mock.calls.map(([dir]) => dir);
+        expect(listedPaths).not.toContain(`${PROJECT}/.claude/skills/LICENSE`);
+        expect(listedPaths).not.toContain(`${PROJECT}/.claude/skills/Makefile`);
     });
 
     it("rejects POSIX sibling symlinks that differ only by directory case", async () => {

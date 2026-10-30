@@ -1718,7 +1718,7 @@ const RemoteRow = ({
     // toast only fires once the write has landed.
     const { copied, failed, copiedText, copy } = useCopyToClipboard({ resetMs: 1200 });
     const urlCopied = Boolean(remote.url) && copied && copiedText === remote.url;
-    const urlFailed = Boolean(remote.url) && failed;
+    const urlFailed = Boolean(remote.url) && failed && copiedText === remote.url;
     const copyLabel = urlCopied ? "Copied" : urlFailed ? "Couldn't copy" : "Copy URL";
 
     return (

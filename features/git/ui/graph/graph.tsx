@@ -58,68 +58,124 @@ export type GraphHeadSnapshot = {
     cacheKey: string | null;
     topHash: string | null;
     known: Set<string>;
+    headRef?: string | null;
     logsRef?: GitLogEntry[] | null;
     ignoredLogsRef?: GitLogEntry[] | null;
+};
+
+const parseSingleHeadRef = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    const match = /^head\s*->\s*(.+)$/i.exec(trimmed);
+    if (match) return `branch:${match[1].trim()}`;
+    return trimmed.toLowerCase() === "head" ? "detached" : null;
+};
+
+const extractEntryHeadRef = (refs: readonly string[] | undefined): string | null => {
+    if (!refs) return null;
+    for (const ref of refs) {
+        const parsed = parseSingleHeadRef(ref);
+        if (parsed) return parsed;
+    }
+    return null;
+};
+
+export const resolveGraphHeadRef = (
+    logs: readonly Pick<GitLogEntry, "refs">[],
+): string | null => {
+    for (const entry of logs) {
+        const found = extractEntryHeadRef(entry.refs);
+        if (found) return found;
+    }
+    return null;
+};
+
+const hasMatchingGraphContext = (
+    prev: GraphHeadSnapshot,
+    cacheKey: string | null,
+    nextHeadRef: string | null,
+): boolean => {
+    if (!cacheKey || prev.cacheKey !== cacheKey || !prev.topHash) return false;
+    return (prev.headRef ?? null) === nextHeadRef;
 };
 
 export const detectFreshGraphArrival = (
     prev: GraphHeadSnapshot,
     cacheKey: string | null,
     topCommit: Pick<GitLogEntry, "hash" | "parents"> | undefined,
+    nextHeadRef: string | null = null,
 ): boolean => {
-    if (!cacheKey || !topCommit || prev.cacheKey !== cacheKey || !prev.topHash) return false;
+    if (!topCommit || !hasMatchingGraphContext(prev, cacheKey, nextHeadRef)) return false;
     if (prev.known.has(topCommit.hash)) return false;
     return topCommit.parents.some((parent) => prev.known.has(parent));
 };
 
+const resolveIgnoredLogsRef = (
+    prev: GraphHeadSnapshot,
+    keyChanged: boolean,
+    gitLogs: GitLogEntry[],
+): GitLogEntry[] | null => {
+    if (!keyChanged) {
+        return prev.ignoredLogsRef === gitLogs ? prev.ignoredLogsRef : null;
+    }
+    const carriedOver = prev.cacheKey !== null && prev.logsRef === gitLogs && gitLogs.length > 0;
+    return carriedOver ? gitLogs : null;
+};
+
+const buildNextKnownSet = (
+    prevKnown: Set<string>,
+    keyChanged: boolean,
+    staleCarryOver: boolean,
+    gitLogs: GitLogEntry[],
+): Set<string> => {
+    const nextKnown = keyChanged ? new Set<string>() : new Set(prevKnown);
+    if (staleCarryOver) return nextKnown;
+    for (const entry of gitLogs) nextKnown.add(entry.hash);
+    return nextKnown;
+};
+
 /**
  * Tracks a genuinely new head commit arriving in an already-loaded graph view.
- * Keyed by `cacheKey` and verified against parent lineage so cache/branch switches
- * and virtualized scroll recycling never replay the stroke draw on existing history.
- * Ignores stale `gitLogs` array references carried over on the render where `cacheKey`
- * changes before the new view's log state settles.
+ * Keyed by `cacheKey` + checked-out `HEAD` ref and verified against parent lineage so
+ * cache switches, branch checkouts, and virtualized scroll recycling never replay the
+ * stroke draw on existing history.
  */
 export const useArrivingCommitHash = (
     cacheKey: string | null,
     gitLogs: GitLogEntry[],
 ): string | null => {
-    const topCommit = gitLogs[0];
     const [prev, setPrev] = useState<GraphHeadSnapshot>({
         cacheKey: null,
         topHash: null,
         known: new Set(),
+        headRef: null,
         logsRef: null,
         ignoredLogsRef: null,
     });
     const [arrivingHash, setArrivingHash] = useState<string | null>(null);
 
     const keyChanged = prev.cacheKey !== cacheKey;
-    const nextIgnoredLogsRef = keyChanged
-        ? prev.cacheKey !== null && prev.logsRef === gitLogs && gitLogs.length > 0
-            ? gitLogs
-            : null
-        : prev.ignoredLogsRef === gitLogs
-          ? prev.ignoredLogsRef
-          : null;
-    const staleCarryOver = nextIgnoredLogsRef !== null && gitLogs === nextIgnoredLogsRef;
-    const effectiveTopCommit = staleCarryOver ? undefined : topCommit;
+    const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
+    const staleCarryOver = nextIgnoredLogsRef !== null;
+    const effectiveTopCommit = staleCarryOver ? undefined : gitLogs[0];
     const effectiveTopHash = effectiveTopCommit?.hash ?? null;
+    const effectiveHeadRef = staleCarryOver ? null : resolveGraphHeadRef(gitLogs);
 
-    if (
+    const snapshotChanged =
         keyChanged ||
-        prev.topHash !== effectiveTopHash ||
         prev.logsRef !== gitLogs ||
-        prev.ignoredLogsRef !== nextIgnoredLogsRef
-    ) {
-        const fresh = detectFreshGraphArrival(prev, cacheKey, effectiveTopCommit);
-        const nextKnown = keyChanged ? new Set<string>() : new Set(prev.known);
-        if (!staleCarryOver) {
-            for (const entry of gitLogs) nextKnown.add(entry.hash);
-        }
+        prev.ignoredLogsRef !== nextIgnoredLogsRef;
+    if (snapshotChanged) {
+        const fresh = detectFreshGraphArrival(
+            prev,
+            cacheKey,
+            effectiveTopCommit,
+            effectiveHeadRef,
+        );
         setPrev({
             cacheKey,
             topHash: effectiveTopHash,
-            known: nextKnown,
+            known: buildNextKnownSet(prev.known, keyChanged, staleCarryOver, gitLogs),
+            headRef: effectiveHeadRef,
             logsRef: gitLogs,
             ignoredLogsRef: nextIgnoredLogsRef,
         });

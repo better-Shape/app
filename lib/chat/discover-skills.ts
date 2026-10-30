@@ -141,14 +141,8 @@ async function listSkillDirFiles(root: SkillRoot): Promise<SkillFile[]> {
         files.push({ fileName: SKILL_FILE_NAME, filePath: rootFile, folder: root.path });
     }
 
-    const isCandidateSubdir = (entry: { name: string; is_dir: boolean }) =>
-        entry.is_dir ||
-        (entry.name !== SKILL_FILE_NAME &&
-            !entry.name.startsWith(".") &&
-            !entry.name.includes("."));
-
     const dirs = entries
-        .filter(isCandidateSubdir)
+        .filter((entry) => entry.is_dir)
         .map((entry) => entry.name)
         .sort((a, b) => a.localeCompare(b));
 

@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { terminalSessionStore, type TerminalTab } from "@/features/terminal/session";
+import {
+    lookupByProjectPath,
+    sameProjectPath,
+    terminalSessionStore,
+    type TerminalTab,
+} from "@/features/terminal/session";
 
 /**
  * The terminal strip's unread dot. The store sits on the pty output path, so the
@@ -194,5 +199,10 @@ describe("terminal tab activity", () => {
 
         terminalSessionStore.setPanel({ visible: true, cwd: "c:/users/ada/repo" });
         expect(terminalSessionStore.unreadTabs.has("win")).toBe(false);
+        expect(sameProjectPath("C:\\Users\\Ada\\Repo", "c:/users/ada/repo/")).toBe(true);
+        expect(sameProjectPath("/home/ada/Repo", "/home/ada/repo")).toBe(false);
+
+        terminalSessionStore.setActive("c:/users/ada/repo", "win-next");
+        expect(lookupByProjectPath(terminalSessionStore.activeProjectTabs, "C:\\Users\\Ada\\Repo")).toBe("win-next");
     });
 });

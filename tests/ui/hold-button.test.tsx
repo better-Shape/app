@@ -445,13 +445,22 @@ describe("HoldButton", () => {
             btn.click();
         });
         expect(onConfirm).toHaveBeenCalledTimes(1);
-        expect(btn.dataset.state).not.toBe("confirmed");
+        expect(btn.dataset.state).toBe("idle");
+        expect(btn.getAttribute("aria-busy")).toBe("true");
+        expect(btn.getAttribute("aria-label")).toBe("Discard changes");
+
+        // Duplicate clicks while in-flight are ignored.
+        act(() => {
+            btn.click();
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
 
         await act(async () => {
             resolveFirst();
             await Promise.resolve();
         });
         expect(btn.dataset.state).toBe("confirmed");
+        expect(btn.getAttribute("aria-busy")).toBeNull();
 
         act(() => {
             vi.advanceTimersByTime(1500);

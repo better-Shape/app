@@ -17,6 +17,7 @@ const SAMPLE_NODE: GraphNode = {
     color: "#6ea8fe",
     isMerge: false,
     paths: [
+        { fromX: 2, toX: 0, color: "#ffd43b", type: "incoming" },
         { fromX: 0, toX: 0, color: "#6ea8fe", type: "outgoing" },
         { fromX: 1, toX: 1, color: "#8ce99a", type: "passthrough" },
     ],
@@ -56,7 +57,7 @@ describe("GraphSvgRow arrival stroke draw", () => {
             root.render(
                 <GraphSvgRow
                     node={SAMPLE_NODE}
-                    isFirst
+                    isFirst={false}
                     isLast={false}
                     isHead
                     arriving
@@ -65,45 +66,66 @@ describe("GraphSvgRow arrival stroke draw", () => {
         });
 
         const drawnPaths = Array.from(container.querySelectorAll("path.t-graph-line-draw"));
-        // Shadow + coloured stroke on the outgoing segment only; passthrough lane stays static.
-        expect(drawnPaths).toHaveLength(2);
+        // Shadow + coloured stroke for both incoming (#ffd43b) and outgoing (#6ea8fe) segments.
+        expect(drawnPaths).toHaveLength(4);
         for (const path of drawnPaths) {
             expect(path.getAttribute("pathLength")).toBe("100");
         }
+        const drawnColors = Array.from(
+            container.querySelectorAll("path.graph-line.t-graph-line-draw"),
+        ).map((el) => el.getAttribute("stroke"));
+        expect(drawnColors).toEqual(["#ffd43b", "#6ea8fe"]);
         const staticLines = container.querySelectorAll("path.graph-line:not(.t-graph-line-draw)");
         expect(staticLines).toHaveLength(1);
         expect(container.querySelector("g.t-graph-node-arrive")).not.toBeNull();
     });
 
-    it("animates only commits extending loaded history in the same cacheKey, not cache or branch switches", () => {
+    it("animates only commits extending loaded history on the same checked-out HEAD ref", () => {
         const prev: GraphHeadSnapshot = {
             cacheKey: "/repo::head",
             topHash: "aaa111",
             known: new Set(["aaa111", "bbb222"]),
+            headRef: "branch:main",
         };
 
-        // Genuine new commit on top of aaa111 in the same cacheKey -> animates.
+        // Genuine new commit on top of aaa111 on the same branch -> animates.
         expect(
-            detectFreshGraphArrival(prev, "/repo::head", {
-                hash: "ccc333",
-                parents: ["aaa111"],
-            }),
+            detectFreshGraphArrival(
+                prev,
+                "/repo::head",
+                { hash: "ccc333", parents: ["aaa111"] },
+                "branch:main",
+            ),
         ).toBe(true);
+
+        // Checking out an existing descendant branch without changing cacheKey -> stays static.
+        expect(
+            detectFreshGraphArrival(
+                prev,
+                "/repo::head",
+                { hash: "fff999", parents: ["aaa111"] },
+                "branch:feature",
+            ),
+        ).toBe(false);
 
         // Toggling showAllBranches switches cacheKey (/repo::all) -> never animates existing history.
         expect(
-            detectFreshGraphArrival(prev, "/repo::all", {
-                hash: "ddd444",
-                parents: ["aaa111"],
-            }),
+            detectFreshGraphArrival(
+                prev,
+                "/repo::all",
+                { hash: "ddd444", parents: ["aaa111"] },
+                "branch:main",
+            ),
         ).toBe(false);
 
         // Switching to an unrelated branch tip whose parents are outside loaded history -> stays static.
         expect(
-            detectFreshGraphArrival(prev, "/repo::head", {
-                hash: "eee555",
-                parents: ["zzz999"],
-            }),
+            detectFreshGraphArrival(
+                prev,
+                "/repo::head",
+                { hash: "eee555", parents: ["zzz999"] },
+                "branch:main",
+            ),
         ).toBe(false);
     });
 
