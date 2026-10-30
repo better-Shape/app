@@ -17,7 +17,7 @@
  * Run: node scripts/qa/audit-glue.mjs
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const CODE_ROOTS = ["app", "components", "features", "lib", "core"];
@@ -42,7 +42,7 @@ const files = CODE_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(
 // they import is not app-reachable, but it is not dead either.
 const CONSUMER_ROOTS = ["tests", "e2e", "scripts"];
 const consumerFiles = CONSUMER_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(join(ROOT, root)) : []));
-const isRouteFile = (file) => file.startsWith(join(ROOT, "app")) && ROUTE_FILES.has(file.split("/").pop());
+const isRouteFile = (file) => file.startsWith(join(ROOT, "app")) && ROUTE_FILES.has(basename(file));
 
 const resolveSpecifier = (fromFile, specifier) => {
     let base;
@@ -138,16 +138,28 @@ const storePath = join(ROOT, "lib/settings/store.ts");
 const settingsKeys = [];
 if (existsSync(storePath)) {
     const store = readFileSync(storePath, "utf8");
-    const region = store.slice(store.indexOf("DEFAULT_SETTINGS"), store.indexOf("DEFAULT_SETTINGS") + 6000);
-    let section = null;
+    const start = store.indexOf("DEFAULT_SETTINGS");
+    const end = start < 0 ? -1 : store.indexOf("\n};", start);
+    const region = start < 0 ? "" : store.slice(start, end < 0 ? undefined : end);
+    // Indentation is the nesting: `git: { blame: { enabled: false } }` has to be
+    // reported as `git.blame.enabled`. Reading only two levels would record the
+    // `blame` group and never check the leaf anything actually reads.
+    const groups = [];
     for (const line of region.split("\n")) {
-        const sectionMatch = /^ {4}(\w+):\s*\{/.exec(line);
-        if (sectionMatch) {
-            section = sectionMatch[1];
+        const match = /^(\s*)([A-Za-z_$][\w$]*):\s*(.*)$/.exec(line);
+        if (!match) continue;
+        const [, indentText, name, rest] = match;
+        const indent = indentText.length;
+        if (indent === 0) continue;
+        while (groups.length > 0 && groups[groups.length - 1].indent >= indent) groups.pop();
+        // `{}` and `[]` are empty values, not groups to descend into.
+        if (rest.startsWith("{") && !rest.startsWith("{}")) {
+            groups.push({ indent, name });
             continue;
         }
-        const keyMatch = /^ {8}(\w+):/.exec(line);
-        if (section && keyMatch) settingsKeys.push({ section, key: keyMatch[1] });
+        const path = [...groups.map((group) => group.name), name];
+        if (path.length < 2) continue;
+        settingsKeys.push({ section: path.slice(0, -1).join("."), key: path[path.length - 1] });
     }
 }
 // Three kinds of reader, because they prove different amounts:
@@ -169,10 +181,25 @@ const readSources = (predicate) =>
         .map((file) => ({ file: relative(ROOT, file), source: withoutDefaults(readFileSync(file, "utf8")) }));
 const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
 const mappingSources = readSources((file) => file.startsWith(settingsLayer));
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * True when `source` reads `section.key`.
+ *
+ * A top-level key also matches on its own name, because code destructures
+ * (`const { fontSize } = settings.editor`). A nested key has to be qualified by
+ * its parent: a leaf named `enabled` or `timeout` would otherwise match any
+ * unrelated code and report a dead setting as wired.
+ */
 const mentions = (entry, section, key) => {
-    const pattern = new RegExp(`\\b${section}\\.${key}\\b`);
-    const keyPattern = new RegExp(`\\b${key}\\b`);
-    return pattern.test(entry.source) || keyPattern.test(entry.source);
+    const dotted = new RegExp(`\\b${escapeRegExp(`${section}.${key}`)}\\b`);
+    if (dotted.test(entry.source)) return true;
+    const nested = section.split(".");
+    if (nested.length > 1) {
+        const qualified = new RegExp(`\\b${escapeRegExp(`${nested[nested.length - 1]}.${key}`)}\\b`);
+        return qualified.test(entry.source);
+    }
+    const bare = new RegExp(`\\b${escapeRegExp(key)}\\b`);
+    return bare.test(entry.source);
 };
 const unreadSettings = [];
 const mappedOnlySettings = [];

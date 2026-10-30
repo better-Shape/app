@@ -15,6 +15,10 @@ const assert = require("node:assert/strict");
 const { default: sparticuz } = require("@sparticuz/chromium");
 const { applySandboxLibs } = require("./sandbox-libs.cjs");
 
+// PROBE_URL is what lets this run against a preview build on another port; a
+// hard-coded host would silently test whatever happens to answer on 48921.
+const BASE_URL = (process.env.PROBE_URL || "http://127.0.0.1:48921").replace(/\/$/, "");
+
 (async () => {
   applySandboxLibs();
   const browser = await chromium.launch({
@@ -27,44 +31,50 @@ const { applySandboxLibs } = require("./sandbox-libs.cjs");
   page.on("pageerror", (e) => errors.push(String(e)));
 
   // 1. Voice settings page
-  await page.goto("http://127.0.0.1:48921/settings?category=voice", { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.goto(`${BASE_URL}/settings?category=voice`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(2500);
   const voiceNav = page.getByRole("button", { name: "Voice" });
   const voiceCount = await voiceNav.count();
-  if (voiceCount) await voiceNav.first().click();
+  assert.equal(voiceCount, 1, "Settings has no Voice nav leaf");
+  await voiceNav.first().click();
   await page.waitForTimeout(800);
   const micHeading = await page.getByText("Microphone", { exact: true }).count();
   await page.screenshot({ path: ".qa-artifacts/voice-settings.png", fullPage: false });
   console.log(JSON.stringify({ voiceNav: voiceCount, microphoneHeading: micHeading }));
-  assert.equal(voiceCount, 1, "Settings has no Voice nav leaf");
   assert.equal(micHeading, 1, "The Voice page does not render the Microphone section");
 
   // 2. Workspace tabs: design + all changes
-  await page.goto("http://127.0.0.1:48921/?seed=project", { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(3000);
   const newTab = page.getByRole("button", { name: "New tab" });
-  console.log("newTab buttons", await newTab.count());
-  if (await newTab.count()) {
-    await newTab.first().click();
-    await page.waitForTimeout(400);
-    const design = page.getByRole("menuitem", { name: "Design" });
-    const allChanges = page.getByRole("menuitem", { name: "All changes" });
-    console.log("menu items", await design.count(), await allChanges.count());
-    assert.equal(await design.count(), 1, "The new-tab menu has no Design entry");
-    assert.equal(await allChanges.count(), 1, "The new-tab menu has no All changes entry");
-    if (await design.count()) {
-      await design.first().click();
-      await page.waitForTimeout(2500);
-      await page.screenshot({ path: ".qa-artifacts/design-tab.png" });
-    }
-    await newTab.first().click();
-    await page.waitForTimeout(400);
-    if (await allChanges.count()) {
-      await allChanges.first().click();
-      await page.waitForTimeout(2500);
-      await page.screenshot({ path: ".qa-artifacts/all-changes-tab.png" });
-    }
-  }
+  const newTabCount = await newTab.count();
+  // Every step is an assertion: skipping the block when the control is missing
+  // is exactly the case where Design and All changes are unreachable.
+  assert.equal(newTabCount, 1, "The workbench has no New tab control");
+  await newTab.first().click();
+  await page.waitForTimeout(400);
+  const design = page.getByRole("menuitem", { name: "Design" });
+  const allChanges = page.getByRole("menuitem", { name: "All changes" });
+  assert.equal(await design.count(), 1, "The new-tab menu has no Design entry");
+  assert.equal(await allChanges.count(), 1, "The new-tab menu has no All changes entry");
+  await design.first().click();
+  await page.waitForTimeout(2500);
+  assert.equal(
+    await page.getByRole("tab", { name: "Design", selected: true }).count(),
+    1,
+    "Clicking Design did not activate the Design tab",
+  );
+  await page.screenshot({ path: ".qa-artifacts/design-tab.png" });
+  await newTab.first().click();
+  await page.waitForTimeout(400);
+  await allChanges.first().click();
+  await page.waitForTimeout(2500);
+  assert.equal(
+    await page.getByRole("tab", { name: "All changes", selected: true }).count(),
+    1,
+    "Clicking All changes did not activate the All changes tab",
+  );
+  await page.screenshot({ path: ".qa-artifacts/all-changes-tab.png" });
   // 3. Status bar notifications menu (mounted next to the editor status items)
   const notifications = page.getByRole("button", { name: /^Notifications/ });
   const notificationCount = await notifications.count();
