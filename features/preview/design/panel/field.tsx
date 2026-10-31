@@ -63,15 +63,18 @@ export function Field({
     }
     const hasPrefix = Boolean(label || icon);
     const tokenable = hasPrefix && isTokenProperty(property);
+    /** Returns whether the field actually stepped, so the caller only swallows
+     * the wheel when it did: a value like `auto` leaves the panel scrollable. */
     const stepBy = (delta: number, magnitude: number) => {
         const parsed = parseNumericDraft(draft);
-        if (!parsed) return;
+        if (!parsed) return false;
         const unit = parsed.unit;
         const next = Math.round((Number.parseFloat(parsed.value) + delta) * magnitude) / magnitude;
         const text = `${next}${unit}`;
         setDraft(text);
         onPreview({ [property]: mapValue(text) });
         onCommit({ [property]: mapValue(text) });
+        return true;
     };
     const wheelEnabled = controls.enable && controls.wheelOnInputs;
     const stepRef = useRef(stepBy);
@@ -85,8 +88,8 @@ export function Field({
         const onWheel = (event: WheelEvent) => {
             if (event.deltaY === 0) return;
             const direction = event.deltaY > 0 ? -1 : 1;
-            event.preventDefault();
-            stepRef.current(direction * (event.shiftKey ? 0.1 : 1), event.shiftKey ? 10 : 1);
+            const stepped = stepRef.current(direction * (event.shiftKey ? 0.1 : 1), event.shiftKey ? 10 : 1);
+            if (stepped) event.preventDefault();
         };
         input.addEventListener("wheel", onWheel, { passive: false });
         return () => input.removeEventListener("wheel", onWheel);

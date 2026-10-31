@@ -47,6 +47,10 @@ export function MicrophoneSettings() {
 
     useEffect(() => {
         let disposed = false;
+        // Strict mode runs the effect, its cleanup, then the effect again on the
+        // same ref, so the flag has to be cleared here or the second pass would
+        // think the component is gone and quietly drop every result.
+        disposedRef.current = false;
         void listMicrophones().then(next => {
             if (!disposed) setOptions(next);
         }).catch(cause => {
