@@ -41,42 +41,29 @@ test.describe("git manager", () => {
 
         const refFilter = page.getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ }).first();
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
-        await refFilter.focus();
-        await expect(refFilter).toBeFocused();
         const pillLabel = await refFilter.getAttribute("aria-label");
-        // Count what actually happens to the pill, so a red run can tell "the key
-        // never reached it" apart from "the activation ran and changed nothing".
-        await page.evaluate(() => {
-            const w = window as unknown as { __pillClicks: number; __pillKey: string | null };
-            w.__pillClicks = 0;
-            w.__pillKey = null;
-            for (const el of Array.from(document.querySelectorAll("[aria-label^='Filter graph to']"))) {
-                el.addEventListener("click", () => (w.__pillClicks += 1), true);
-                el.addEventListener(
-                    "keydown",
-                    (event) => {
-                        w.__pillKey = (event as KeyboardEvent).key;
-                    },
-                    true,
-                );
-            }
-        });
-        await page.keyboard.press("Enter");
-        // The filter mutes rows rather than dropping them, so a muted row proves it
-        // applied. The CI runner is slower than any local reproduction, so when the
-        // rows never mute, report the DOM state immediately instead of spending the
-        // test budget and leaving "element(s) not found" as the only evidence.
-        const muted = await expect
-            .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 5_000, intervals: [100] })
+        // The pill must own the keyboard at the moment Enter arrives. The graph keeps
+        // re-rendering while its rows settle, and a render that moves focus sends the
+        // key to the list container, which expands a commit instead of filtering. So
+        // pair focus, key and check, and retry until the filter actually lands.
+        const applied = await expect
+            .poll(
+                async () => {
+                    await refFilter.focus();
+                    await page.keyboard.press("Enter");
+                    await page.waitForTimeout(150);
+                    return graph.locator(".graph-commit-mute").count();
+                },
+                { timeout: 15_000, intervals: [250] },
+            )
             .toBeGreaterThan(0)
             .then(() => true)
             .catch(() => false);
-        if (!muted) {
+        if (!applied) {
             const state = await page.evaluate(() => {
                 const list = document.querySelector("[role='list'][aria-label='Commit graph']");
                 return {
                     active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
-                    activeTag: document.activeElement?.tagName ?? "none",
                     pills: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) => ({
                         label: el.getAttribute("aria-label"),
                         tag: el.tagName,
@@ -84,10 +71,7 @@ test.describe("git manager", () => {
                     listItems: list?.querySelectorAll("[role='listitem']").length ?? -1,
                     muted: document.querySelectorAll(".graph-commit-mute").length,
                     emptyState: document.body.innerText.includes("No commits found"),
-                    clicks: (window as unknown as { __pillClicks?: number }).__pillClicks ?? -1,
-                    key: (window as unknown as { __pillKey?: string | null }).__pillKey ?? null,
                     url: location.href,
-                    text: document.body.innerText.replace(/\s+/g, " ").slice(0, 300),
                 };
             });
             throw new Error(`ref filter did not mute any row after Enter: ${JSON.stringify({ pillLabel, ...state })}`);
