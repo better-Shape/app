@@ -132,6 +132,7 @@ export function CodeMirrorEditor({
         // Settings -> Git -> Inline Git Blame can be flipped while a file is
         // open, so the annotation lives in its own compartment.
         const blameCompartment = new Compartment();
+        let blameEnabled = getSettings().git.blame.enabled;
         // Seed from Settings -> Editor. `getEditorOptionsFromSettings()` is the
         // tested settings->editor mapper; before this it had no production caller
         // and every editor setting except font family/size was inert.
@@ -268,8 +269,9 @@ export function CodeMirrorEditor({
                 optionsCompartment.of(optionExtensions(editorOptions)),
                 blameCompartment.of(
                     inlineBlame({
-                        enabled: getSettings().git.blame.enabled,
+                        enabled: blameEnabled,
                         getPath: () => pathRef.current,
+                        isDirty: () => isDirtyRef.current,
                     }),
                 ),
                 dropCursor(),
@@ -373,17 +375,24 @@ export function CodeMirrorEditor({
         viewRef.current = view;
         // A settings change reaches the open document, not only the next one.
         const unsubscribeSettings = subscribeSettings(() => {
-            view.dispatch({
-                effects: [
-                    optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings())),
+            const effects = [optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings()))];
+            const nextBlame = getSettings().git.blame.enabled;
+            // Reconfiguring the compartment throws away the reporter and builds
+            // a new one, which blanks the status segment and repeats the blame
+            // fetch. Only a real change is worth that.
+            if (nextBlame !== blameEnabled) {
+                blameEnabled = nextBlame;
+                effects.push(
                     blameCompartment.reconfigure(
                         inlineBlame({
-                            enabled: getSettings().git.blame.enabled,
+                            enabled: nextBlame,
                             getPath: () => pathRef.current,
+                            isDirty: () => isDirtyRef.current,
                         }),
                     ),
-                ],
-            });
+                );
+            }
+            view.dispatch({ effects });
         });
         pathRef.current = path;
 

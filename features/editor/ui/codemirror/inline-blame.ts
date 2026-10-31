@@ -120,14 +120,22 @@ function blameReporter() {
  * shows. The path is read through a getter because switching files reuses the
  * same `EditorView`.
  */
-function blameLoader(getPath: () => string | null) {
+function blameLoader(getPath: () => string | null, isDirty: () => boolean) {
     return ViewPlugin.fromClass(
         class {
             private path: string | null = null;
             private timer: number | null = null;
             private destroyed = false;
 
+            /** Reloads after a save: the file on disk now matches the buffer. */
+            private readonly onSaved = (event: Event) => {
+                const detail = (event as CustomEvent<{ path?: string }>).detail;
+                if (!detail?.path || detail.path !== this.path) return;
+                this.schedule();
+            };
+
             constructor(private readonly view: EditorView) {
+                window.addEventListener("bettershape-file-saved", this.onSaved);
                 this.schedule();
             }
 
@@ -163,6 +171,10 @@ function blameLoader(getPath: () => string | null) {
                     if (!this.destroyed) this.view.dispatch({ effects: setBlameRegions.of([]) });
                     return;
                 }
+                // `git_blame_file` reads the file on disk. Blaming it while the
+                // buffer holds unsaved edits would annotate shifted lines, so the
+                // annotation stays off until the file is saved.
+                if (isDirty()) return;
                 const project = getProjectPath();
                 if (!project) return;
                 try {
@@ -179,6 +191,7 @@ function blameLoader(getPath: () => string | null) {
 
             destroy() {
                 this.destroyed = true;
+                window.removeEventListener("bettershape-file-saved", this.onSaved);
                 if (this.timer !== null) window.clearTimeout(this.timer);
             }
         },
@@ -190,7 +203,15 @@ function blameLoader(getPath: () => string | null) {
  * Blame. Returns an empty extension when switched off so the compartment can
  * reconfigure a live editor.
  */
-export function inlineBlame({ enabled, getPath }: { enabled: boolean; getPath: () => string | null }) {
+export function inlineBlame({
+    enabled,
+    getPath,
+    isDirty = () => false,
+}: {
+    enabled: boolean;
+    getPath: () => string | null;
+    isDirty?: () => boolean;
+}) {
     if (!enabled) return [];
-    return [blameRegions, blameDecoration, blameLoader(getPath), blameReporter()];
+    return [blameRegions, blameDecoration, blameLoader(getPath, isDirty), blameReporter()];
 }

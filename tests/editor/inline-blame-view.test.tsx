@@ -128,6 +128,50 @@ describe("inline blame in the editor", () => {
         }
     });
 
+    // `git_blame_file` reads the file on disk, so blaming a dirty buffer would
+    // annotate shifted lines. The annotation waits for the save instead.
+    it("waits for a save before blaming a buffer with unsaved edits", async () => {
+        updateSettingSection("git", { blame: { enabled: true } });
+        dirty.current = true;
+        try {
+            await mountEditor();
+            await settle();
+            expect(backend.gitBlameFile).not.toHaveBeenCalled();
+            expect(host.querySelector(".cm-inline-blame")).toBeNull();
+
+            dirty.current = false;
+            act(() => {
+                window.dispatchEvent(new CustomEvent("bettershape-file-saved", { detail: { path: "/repo/a.ts" } }));
+            });
+            await settle();
+            expect(backend.gitBlameFile).toHaveBeenCalledTimes(1);
+            expect(host.querySelector(".cm-inline-blame")?.textContent).toContain("Grace");
+        } finally {
+            dirty.current = false;
+        }
+    });
+
+    it("keeps the published label through an unrelated settings change", async () => {
+        updateSettingSection("git", { blame: { enabled: true } });
+        const published: string[] = [];
+        const listen = (event: Event) => {
+            const detail = (event as CustomEvent<{ blame?: string }>).detail;
+            if (typeof detail?.blame === "string") published.push(detail.blame);
+        };
+        window.addEventListener("bettershape-editor-status", listen);
+        try {
+            await mountEditor();
+            await settle();
+            expect(published.at(-1)).toContain("Grace");
+            const before = published.length;
+            // Rebuilding the reporter would blank the segment and refetch.
+            act(() => updateSettingSection("editor", { tabSize: 2 }));
+            expect(published.slice(before)).not.toContain("");
+        } finally {
+            window.removeEventListener("bettershape-editor-status", listen);
+        }
+    });
+
     it("stays out of the way when the setting is off", async () => {
         await mountEditor();
         await settle();
