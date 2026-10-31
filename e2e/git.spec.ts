@@ -39,69 +39,18 @@ test.describe("git manager", () => {
         await expect(firstCommit).toHaveAttribute("aria-posinset", /^[1-9]\d*$/);
         await expect(firstCommit).toHaveAttribute("aria-setsize", /^[1-9]\d*$/);
 
-        const refFilter = page.getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ }).first();
+        // Targeted by attribute, not by accessible name: the commit row is itself a
+        // `role="button"`, and on the CI runner's browser the row's computed name
+        // picks up the pill's `aria-label` text, so a name-based locator resolved to
+        // the row and the keyboard press expanded a commit instead of filtering.
+        const refFilter = page.locator("button[aria-label^='Filter graph to']").first();
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
-        const pillLabel = await refFilter.getAttribute("aria-label");
-        // Activating the pill filters the graph, which mutes rather than drops the
-        // rows that fall outside the filter (the topology stays readable).
-        //
-        // The step used to focus the pill and press Enter. On the CI runners that
-        // does not reach the pill: focus lands on the surrounding commit row (which
-        // is itself a `role="button"` with its own key handling), so Enter expanded
-        // the commit instead of filtering and the assertion failed there while
-        // passing everywhere else, including under a 12x CPU throttle. Activating it
-        // directly keeps the filter contract covered; the focus fallback on that row
-        // is an accessibility question of its own and is not something this test can
-        // answer.
-        // Clicked through the element itself rather than at its coordinates: on the
-        // CI runners the pointer lands on the commit row underneath the pill, so a
-        // coordinate click selected the row and never reached the handler. The
-        // handler is the same one a pointer click would run.
-        // Clicked through the element rather than at its coordinates: on the CI
-        // runners the pointer lands on the commit row underneath the pill, so a
-        // coordinate click selected the row and never reached the handler.
-        const probe = await refFilter.evaluate((element) => {
-            const node = element as HTMLButtonElement & { [key: string]: unknown };
-            const describe = (target: Element | null) =>
-                target ? `${target.tagName}:${target.getAttribute("aria-label") ?? "-"}` : "none";
-            const labelled = document.querySelector("[aria-label^='Filter graph to']");
-            const before = {
-                label: node.getAttribute("aria-label"),
-                title: node.getAttribute("title"),
-                tag: node.tagName,
-                html: node.outerHTML.slice(0, 220),
-                sameAsLabelled: node === labelled,
-                labelledTag: describe(labelled),
-                pointerEvents: getComputedStyle(node).pointerEvents,
-                box: [Math.round(node.getBoundingClientRect().width), Math.round(node.getBoundingClientRect().height)],
-            };
-            const reactKey = Object.keys(node).find((key) => key.startsWith("__reactProps$"));
-            const props = reactKey ? (node[reactKey] as { onClick?: unknown } | undefined) : undefined;
-            node.click();
-            return { ...before, hasOnClick: typeof props?.onClick === "function", connected: node.isConnected };
-        });
-        const applied = await expect
-            .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 15_000, intervals: [150] })
-            .toBeGreaterThan(0)
-            .then(() => true)
-            .catch(() => false);
-        if (!applied) {
-            const state = await page.evaluate(() => {
-                const list = document.querySelector("[role='list'][aria-label='Commit graph']");
-                return {
-                    active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
-                    pills: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) => ({
-                        label: el.getAttribute("aria-label"),
-                        tag: el.tagName,
-                    })),
-                    listItems: list?.querySelectorAll("[role='listitem']").length ?? -1,
-                    muted: document.querySelectorAll(".graph-commit-mute").length,
-                    emptyState: document.body.innerText.includes("No commits found"),
-                    url: location.href,
-                };
-            });
-            throw new Error(`ref filter did not mute any row: ${JSON.stringify({ pillLabel, probe, ...state })}`);
-        }
+        await refFilter.focus();
+        await expect(refFilter).toBeFocused();
+        await page.keyboard.press("Enter");
+        // The filter mutes rows instead of dropping them, keeping the lane topology.
+        const muted = page.locator(".graph-commit-mute");
+        await expect(muted.first()).toBeVisible({ timeout: 15_000 });
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
 
@@ -109,7 +58,9 @@ test.describe("git manager", () => {
         // the file command with nothing, so the panel put `null` in state and the
         // whole Git surface was replaced by its error boundary.
         await graph.getByRole("listitem").first().click();
-        await expect(graph.getByRole("button", { name: /App\.tsx/ }).first()).toBeVisible({ timeout: 10_000 });
+        // Native <button> only: the row around it is a div with role="button" whose
+        // name includes every file it lists, so a role query would match the row.
+        await expect(graph.locator("button").filter({ hasText: "App.tsx" }).first()).toBeVisible({ timeout: 10_000 });
         await expect(page.getByRole("heading", { name: "This page hit an error" })).toHaveCount(0);
         expectNoPageErrors();
     });
