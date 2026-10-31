@@ -46,6 +46,8 @@ describe("skill-paths: skillPathSep / joinSkillPath", () => {
         expect(skillPathSep("/home/dev/project")).toBe("/");
         expect(skillPathSep("/home/dev/dir\\name")).toBe("/");
         expect(skillPathSep("C:\\Users\\dev\\project")).toBe("\\");
+        expect(skillPathSep("C:")).toBe("\\");
+        expect(skillPathSep("C:/Users/dev")).toBe("/");
     });
 
     it("joins with one separator even when both sides carry one", () => {
@@ -65,6 +67,9 @@ describe("skill-paths: skillPathSep / joinSkillPath", () => {
         expect(joinSkillPath("C:\\", ".claude/skills")).toBe("C:\\.claude\\skills");
         expect(joinSkillPath("C:\\\\", "")).toBe("C:\\");
         expect(joinSkillPath("C:/", ".claude/skills")).toBe("C:/.claude/skills");
+        expect(joinSkillPath("C:", "skills")).toBe("C:skills");
+        expect(joinSkillPath("C:", "/.claude/skills")).toBe("C:.claude\\skills");
+        expect(joinSkillPath("C:work", "skills/pdf")).toBe("C:work\\skills\\pdf");
     });
 });
 

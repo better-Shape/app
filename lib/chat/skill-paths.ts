@@ -78,19 +78,30 @@ export function normalizeSkillPath(path: string): string {
     return trimRootAwareTrailingSeparators(forward, "/", isForwardSep);
 }
 
-/** Return the path separator already used by `dir` (`\` on Windows backslash paths, `/` otherwise). */
+const usesWindowsBackslashSep = (dir: string): boolean => {
+    if (dir.startsWith("/")) return false;
+    return dir.includes("\\") || (WINDOWS_DRIVE_PREFIX_RE.test(dir) && !dir.includes("/"));
+};
+
+/** Return the path separator already used by `dir` (`\` on Windows backslash/drive paths, `/` otherwise). */
 export function skillPathSep(dir: string): "\\" | "/" {
-    return !dir.startsWith("/") && dir.includes("\\") ? "\\" : "/";
+    return usesWindowsBackslashSep(dir) ? "\\" : "/";
 }
 
-/** Join `dir` and `relativePath` using `dir`'s separator while preserving POSIX literal backslashes. */
+const needsJoinSeparator = (base: string, sep: "\\" | "/"): boolean =>
+    Boolean(base) && !base.endsWith(sep) && !isDriveSpecifier(base);
+
+/**
+ * Join `dir` and `relativePath` using `dir`'s separator while preserving POSIX literal
+ * backslashes and `X:` drive-relative prefixes.
+ */
 export function joinSkillPath(dir: string, relativePath: string): string {
     const sep = skillPathSep(dir);
     const isSep = isCaseInsensitiveSkillPath(dir) ? isAnyPathSep : isForwardSep;
     const relative = collapseSeparators(trimLeadingSeparators(relativePath, isSep), sep, isSep);
     const base = trimRootAwareTrailingSeparators(dir, sep, isSep);
     if (!relative) return base;
-    return base.endsWith(sep) ? `${base}${relative}` : `${base}${sep}${relative}`;
+    return needsJoinSeparator(base, sep) ? `${base}${sep}${relative}` : `${base}${relative}`;
 }
 
 const toContainmentPair = (
