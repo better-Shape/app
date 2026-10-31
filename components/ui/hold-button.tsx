@@ -10,8 +10,12 @@ export type HoldConfirmResult = void | boolean | Promise<void | boolean>;
 
 type NativeHoldButtonAttributes = Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
-    "type" | "children"
+    "type" | "children" | "onClick"
 >;
+
+type HoldButtonSlotAttributes = NativeHoldButtonAttributes & {
+    onClick?: React.MouseEventHandler<HTMLButtonElement>;
+};
 
 export interface HoldButtonProps extends NativeHoldButtonAttributes {
     onConfirm: () => HoldConfirmResult;
@@ -416,12 +420,12 @@ const useHoldState = ({
         else settleSyncConfirm(result);
     }, [awaitAsyncConfirm, settleSyncConfirm, writeState]);
 
-    const fireConfirm = React.useCallback(() => {
+    const fireConfirm = React.useCallback((): boolean => {
         if (isButtonDisabled()) {
             cancelHold();
-            return;
+            return false;
         }
-        if (activeConfirmsRef.current > 0) return;
+        if (activeConfirmsRef.current > 0) return false;
         clearTimerSlot(timersRef.current, "hold");
         clearTimerSlot(timersRef.current, "reset");
         detachPointerListeners();
@@ -432,6 +436,7 @@ const useHoldState = ({
         startedAtRef.current = 0;
         scheduleClickGuardClear();
         dispatchConfirmCallback();
+        return true;
     }, [
         cancelHold,
         detachDismissListeners,
@@ -608,15 +613,16 @@ const useHoldState = ({
         [isButtonDisabled],
     );
 
-    const handleClick = React.useCallback(() => {
+    const handleClick = React.useCallback((): boolean => {
         if (suppressClickRef.current) {
             clearTimerSlot(timersRef.current, "clickGuard");
             suppressClickRef.current = false;
-            return;
+            return false;
         }
-        if (isClickIgnored()) return;
-        if (stateRef.current === "armed") fireConfirm();
-        else enterArmed();
+        if (isClickIgnored()) return false;
+        if (stateRef.current === "armed") return fireConfirm();
+        enterArmed();
+        return false;
     }, [enterArmed, fireConfirm, isClickIgnored]);
 
     const handlePointerLeave = React.useCallback(
@@ -663,10 +669,10 @@ type HoldController = ReturnType<typeof useHoldState>;
 
 /** Composes external button event handlers (such as Radix Slot props) with HoldButton logic. */
 const composeHoldButtonEvents = (
-    external: NativeHoldButtonAttributes,
+    external: HoldButtonSlotAttributes,
     hold: HoldController,
     activeState: HoldButtonState,
-): NativeHoldButtonAttributes => ({
+): React.ButtonHTMLAttributes<HTMLButtonElement> => ({
     onContextMenu: (event) => {
         external.onContextMenu?.(event);
         if (!hold.shouldSuppressContextMenu()) return;
@@ -727,9 +733,8 @@ const composeHoldButtonEvents = (
         hold.handleBlur();
     },
     onClick: (event) => {
-        external.onClick?.(event);
         event.stopPropagation();
-        hold.handleClick();
+        if (hold.handleClick()) external.onClick?.(event);
     },
 });
 

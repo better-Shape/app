@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, cloneElement, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -891,6 +891,31 @@ describe("HoldButton", () => {
             expect(onConfirm).toHaveBeenCalledTimes(1);
             expect(btn.dataset.state).toBe("confirmed");
             expect(states).toEqual(["armed", "confirmed"]);
+
+            // Runtime Slot-injected onClick never fires on initial arming click; only on confirm.
+            const slotOnClick = vi.fn();
+            const slottedElement = cloneElement(
+                <HoldButton
+                    ariaLabel="Delete tag"
+                    label="Delete"
+                    armedLabel="Confirm"
+                    holdMs={500}
+                    onConfirm={onConfirm}
+                /> as ReactElement<{ onClick?: () => void }>,
+                { onClick: slotOnClick },
+            );
+            render(slottedElement);
+            const slottedBtn = getButton();
+            act(() => {
+                slottedBtn.click();
+            });
+            expect(slottedBtn.dataset.state).toBe("armed");
+            expect(slotOnClick).not.toHaveBeenCalled();
+            act(() => {
+                slottedBtn.click();
+            });
+            expect(slottedBtn.dataset.state).toBe("confirmed");
+            expect(slotOnClick).toHaveBeenCalledTimes(1);
         } finally {
             globalThis.ResizeObserver = prevResizeObserver;
         }
