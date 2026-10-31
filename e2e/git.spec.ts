@@ -57,18 +57,28 @@ test.describe("git manager", () => {
         // CI runners the pointer lands on the commit row underneath the pill, so a
         // coordinate click selected the row and never reached the handler. The
         // handler is the same one a pointer click would run.
+        // Clicked through the element rather than at its coordinates: on the CI
+        // runners the pointer lands on the commit row underneath the pill, so a
+        // coordinate click selected the row and never reached the handler.
         const probe = await refFilter.evaluate((element) => {
             const node = element as HTMLButtonElement & { [key: string]: unknown };
+            const describe = (target: Element | null) =>
+                target ? `${target.tagName}:${target.getAttribute("aria-label") ?? "-"}` : "none";
+            const labelled = document.querySelector("[aria-label^='Filter graph to']");
+            const before = {
+                label: node.getAttribute("aria-label"),
+                title: node.getAttribute("title"),
+                tag: node.tagName,
+                html: node.outerHTML.slice(0, 220),
+                sameAsLabelled: node === labelled,
+                labelledTag: describe(labelled),
+                pointerEvents: getComputedStyle(node).pointerEvents,
+                box: [Math.round(node.getBoundingClientRect().width), Math.round(node.getBoundingClientRect().height)],
+            };
             const reactKey = Object.keys(node).find((key) => key.startsWith("__reactProps$"));
             const props = reactKey ? (node[reactKey] as { onClick?: unknown } | undefined) : undefined;
             node.click();
-            return {
-                hasReactProps: Boolean(reactKey),
-                hasOnClick: typeof props?.onClick === "function",
-                connected: node.isConnected,
-                ownerIsDocument: node.ownerDocument === document,
-                label: node.getAttribute("aria-label"),
-            };
+            return { ...before, hasOnClick: typeof props?.onClick === "function", connected: node.isConnected };
         });
         const applied = await expect
             .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 15_000, intervals: [150] })
