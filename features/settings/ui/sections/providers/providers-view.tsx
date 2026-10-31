@@ -147,6 +147,12 @@ const formatUsableProvidersSummary = (usableCount: number): string => {
     return `${usableCount} usable ${usableCount === 1 ? "provider" : "providers"}`;
 };
 
+const formatSearchKeyLabel = (providerId: string): string => {
+    const label = SEARCH_PROVIDERS.find((provider) => provider.id === providerId)?.label;
+    return `${label ?? "Web search"} API key`;
+};
+
+/** Provider connection manager for model credentials, routing defaults, and search keys. */
 export function ProvidersSettingsView() {
     const settings = useSettings();
     const providers = settings.ai.providers;
@@ -312,6 +318,7 @@ export function ProvidersSettingsView() {
                         <input
                             type="search"
                             value={query}
+                            aria-label="Search providers and models"
                             placeholder="Search providers and models..."
                             spellCheck={false}
                             onChange={(e) => setQuery(e.target.value)}
@@ -468,6 +475,7 @@ export function ProvidersSettingsView() {
                     >
                         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                             <SettingSelect
+                                aria-label="Web search provider"
                                 value={providers.services.search.provider}
                                 onChange={(value) =>
                                     update({
@@ -485,6 +493,9 @@ export function ProvidersSettingsView() {
                             {providers.services.search.provider !== "none" ? (
                                 <div className="w-full sm:w-64">
                                     <KeyInput
+                                        aria-label={formatSearchKeyLabel(
+                                            providers.services.search.provider,
+                                        )}
                                         value={providers.services.search.apiKey}
                                         placeholder={
                                             SEARCH_PROVIDERS.find(
@@ -665,6 +676,7 @@ function AddProviderBox({
                             <input
                                 type="search"
                                 value={query}
+                                aria-label="Filter available providers"
                                 placeholder="Filter available providers..."
                                 onChange={(e) => onQueryChange(e.target.value)}
                                 className="h-8 w-full squircle-lg border border-border-secondary bg-input-bg pl-9 pr-2.5 text-sm text-text-primary placeholder:text-input-placeholder outline-none transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:border-border-focus [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"

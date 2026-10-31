@@ -221,11 +221,19 @@ describe("discoverSkills", () => {
         await expect(discoverItems()).resolves.toHaveLength(1);
     });
 
-    it("keeps case-sensitive project paths apart in dismissal keys", async () => {
-        serve({ [`${PROJECT}/.agents/guide.md`]: "agent body" });
+    it("keeps case-sensitive project paths apart in dismissal keys and display paths", async () => {
+        mocks.listCustomSkillFolders.mockReturnValue(["/home/dev/DEMO"]);
+        serve({
+            [`${PROJECT}/.agents/guide.md`]: "agent body",
+            "/home/dev/DEMO/extra.md": "external body",
+        });
         dismissDiscoveredFile("/home/dev/DEMO", ".agents/guide.md");
 
-        await expect(discoverItems()).resolves.toHaveLength(1);
+        const items = await discoverItems();
+        expect(items.map((item) => item.relPath)).toEqual([
+            ".agents/guide.md",
+            "~/DEMO/extra.md",
+        ]);
     });
 
     it("treats Windows project paths case-insensitively for dismissals", async () => {
@@ -315,6 +323,150 @@ describe("discoverSkills", () => {
         mocks.ensurePathWithin.mockRejectedValue(new Error("outside"));
 
         await expect(discoverItems()).resolves.toEqual([]);
+    });
+
+    it("shares dismissals across UNC case variants and still reads and restores legacy mixed-case UNC keys", async () => {
+        const uncUpper = "\\\\Server\\Share\\Demo";
+        const uncLower = "\\\\server\\share\\demo";
+        mocks.getProjectPath.mockReturnValue(uncUpper);
+        serveSkillFs(
+            mocks,
+            {
+                [`${uncUpper}\\.agents\\guide.md`]: "guide body",
+                [`${uncUpper}\\.agents\\legacy.md`]: "legacy body",
+            },
+            { homeDir: HOME },
+        );
+        localStorage.setItem(
+            "bettershape-dismissed-discovered://Server/Share/Demo",
+            JSON.stringify([".agents/legacy.md"]),
+        );
+        dismissDiscoveredFile(uncLower, ".agents/guide.md");
+
+        await expect(discoverItems()).resolves.toEqual([]);
+        expect(localStorage.getItem("bettershape-dismissed-discovered://Server/Share/Demo")).toBeNull();
+
+        localStorage.setItem(
+            "bettershape-dismissed-discovered://Server/Share/Demo",
+            JSON.stringify([".agents/legacy.md"]),
+        );
+        restoreDismissedFiles(uncLower);
+        await expect(discoverItems()).resolves.toHaveLength(2);
+
+        // On POSIX, leading `//` paths remain case-sensitive and keep separate dismissals.
+        const uaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+        try {
+            dismissDiscoveredFile("//opt/Repo", ".agents/guide.md");
+            mocks.getProjectPath.mockReturnValue("//opt/repo");
+            serveSkillFs(
+                mocks,
+                { "//opt/repo/.agents/guide.md": "guide body" },
+                { homeDir: HOME },
+            );
+            await expect(discoverItems()).resolves.toHaveLength(1);
+        } finally {
+            uaSpy.mockRestore();
+        }
+    });
+
+    it("matches forward-slash UNC files and symlink-only UNC roots case-insensitively on Windows", async () => {
+        const winUaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        try {
+            mocks.getProjectPath.mockReturnValue("//server/share/demo");
+            serveSkillFs(
+                mocks,
+                {
+                    "//Server/Share/Demo/Shared/Pdf-Skill/SKILL.md": skillFile(
+                        "unc-forward-pdf",
+                        "UNC skill.",
+                        "Steps.",
+                    ),
+                },
+                {
+                    homeDir: "C:/Users/Ada",
+                    symlinks: {
+                        "//Server/Share/Demo/.claude/skills/pdf":
+                            "//Server/Share/Demo/Shared/Pdf-Skill",
+                    },
+                },
+            );
+            const forwardResult = await discoverSkills();
+            expect(forwardResult.items.map((item) => item.name)).toEqual(["unc-forward-pdf"]);
+        } finally {
+            winUaSpy.mockRestore();
+        }
+
+        // UNC roots present only in `symlinks` (with drive-rooted `files`) also fold case.
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Shared/Pdf-Skill/SKILL.md": skillFile(
+                    "unc-symlink-only",
+                    "UNC symlink skill.",
+                    "Steps.",
+                ),
+            },
+            {
+                homeDir: "C:/Users/Ada",
+                symlinks: {
+                    "\\\\Server\\Share\\Custom\\pdf": "C:/Shared/Pdf-Skill",
+                },
+            },
+        );
+        await expect(
+            mocks.readFileWithin("\\\\server\\share\\custom\\pdf\\SKILL.md", "C:/Shared"),
+        ).resolves.toContain("unc-symlink-only");
+
+        // Mixed fixture: simulated UNC share + POSIX `//` paths keep POSIX `//` case-sensitive.
+        const linuxUaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+        try {
+            serveSkillFs(
+                mocks,
+                {
+                    "\\\\Server\\Share\\Demo\\.agents\\unc.md": "unc-body",
+                    "//opt/Repo/.agents/guide.md": "upper-posix",
+                    "//opt/repo/.agents/guide.md": "lower-posix",
+                },
+                { homeDir: HOME },
+            );
+            await expect(
+                mocks.readFileWithin("//opt/Repo/.agents/guide.md", "//opt/Repo"),
+            ).resolves.toBe("upper-posix");
+            await expect(
+                mocks.readFileWithin("//opt/repo/.agents/guide.md", "//opt/repo"),
+            ).resolves.toBe("lower-posix");
+            await expect(
+                mocks.readFileWithin("//opt/Repo/.agents/guide.md", "//opt/repo"),
+            ).rejects.toThrow("outside root");
+            await expect(
+                mocks.readFileWithin("\\\\server\\share\\demo\\.agents\\unc.md", "\\\\SERVER\\SHARE\\DEMO"),
+            ).resolves.toBe("unc-body");
+        } finally {
+            linuxUaSpy.mockRestore();
+        }
+    });
+
+    it("resolves multi-segment descendants through a symlink targeting POSIX root without misclassifying as UNC", async () => {
+        serveSkillFs(
+            mocks,
+            { "/etc/secrets/token.txt": "top-secret" },
+            {
+                homeDir: HOME,
+                symlinks: { [`${PROJECT}/root-link`]: "/" },
+            },
+        );
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/root-link/etc/secrets/token.txt`, "/etc"),
+        ).resolves.toBe("top-secret");
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/root-link/etc/secrets/token.txt`, PROJECT),
+        ).rejects.toThrow("outside root");
     });
 
     it("survives stored skills without a name", async () => {
@@ -472,6 +624,99 @@ describe("discoverSkills", () => {
         const result = await discoverSkills();
         expect(result.items).toHaveLength(1);
         expect(result.items[0].name).toBe("pdf-win");
+        await expect(mocks.ensurePathWithin("C:\\", "C:\\")).resolves.toBe("C:/");
+        await expect(
+            mocks.ensurePathWithin("C:/Users/Ada/Demo/Shared/Pdf-Skill", "C:"),
+        ).rejects.toThrow("outside root");
+    });
+
+    it("resolves deep >8-hop symlink chains, enforces leftmost prefix precedence, and tolerates symlink cycles alongside valid skills", async () => {
+        const symlinks: Record<string, string> = {};
+        // 13-hop chain (escape-chain -> hop-1..hop-12 -> /outside) must resolve all 13 symlinks and be rejected.
+        symlinks[`${PROJECT}/.claude/skills/escape-chain`] = `${PROJECT}/hops/hop-1`;
+        for (let step = 1; step < 12; step += 1) {
+            symlinks[`${PROJECT}/hops/hop-${step}`] = `${PROJECT}/hops/hop-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/hops/hop-12`] = "/outside/stolen-skill";
+
+        // 13-hop chain (safe-chain -> hop-1..hop-12 -> shared/deep-safe) must resolve all 13 symlinks and load.
+        symlinks[`${PROJECT}/.claude/skills/safe-chain`] = `${PROJECT}/safe-hops/hop-1`;
+        for (let step = 1; step < 12; step += 1) {
+            symlinks[`${PROJECT}/safe-hops/hop-${step}`] = `${PROJECT}/safe-hops/hop-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/safe-hops/hop-12`] = `${PROJECT}/shared/deep-safe`;
+
+        // Adversarial insertion order: nested child inserted BEFORE outer parent symlink to /outside.
+        symlinks[`${PROJECT}/.claude/skills/order-trap/sub`] = `${PROJECT}/shared/deep-safe`;
+        symlinks[`${PROJECT}/.claude/skills/order-trap`] = "/outside";
+
+        // Symlink cycle alongside valid skills -> must not crash lsDir for valid siblings.
+        symlinks[`${PROJECT}/.claude/skills/loop-a`] = `${PROJECT}/.claude/skills/loop-b`;
+        symlinks[`${PROJECT}/.claude/skills/loop-b`] = `${PROJECT}/.claude/skills/loop-a`;
+
+        serveSkillFs(
+            mocks,
+            {
+                "/outside/stolen-skill/SKILL.md": skillFile("stolen", "Outside.", "Body."),
+                "/outside/sub/SKILL.md": skillFile("trap", "Outside trap.", "Body."),
+                [`${PROJECT}/shared/deep-safe/SKILL.md`]: skillFile(
+                    "deep-safe",
+                    "Safe 13-hop skill.",
+                    "Steps.",
+                ),
+            },
+            { homeDir: "/Users/dev", symlinks },
+        );
+
+        const result = await discoverSkills();
+        expect(result.items.map((item) => item.name)).toEqual(["deep-safe"]);
+        await expect(
+            mocks.ensurePathWithin(`${PROJECT}/.claude/skills/order-trap/sub`, PROJECT),
+        ).rejects.toThrow("outside root");
+    });
+
+    it("accepts a 40-hop symlink chain and rejects a 41-hop chain", async () => {
+        const symlinks: Record<string, string> = {};
+        for (let step = 0; step < 40; step += 1) {
+            symlinks[`${PROJECT}/chain-${step}`] = `${PROJECT}/chain-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/chain-40`] = `${PROJECT}/real/doc.md`;
+
+        serveSkillFs(
+            mocks,
+            { [`${PROJECT}/real/doc.md`]: "forty-hops-ok" },
+            { homeDir: HOME, symlinks },
+        );
+
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/chain-1`, PROJECT),
+        ).resolves.toBe("forty-hops-ok");
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/chain-0`, PROJECT),
+        ).rejects.toThrow("too many levels of symbolic links");
+    });
+
+    it("resolves relative symlinks mounted directly under POSIX root without UNC misparsing", async () => {
+        serveSkillFs(
+            mocks,
+            {
+                "/real-claude/skills/root-tool/SKILL.md": skillFile(
+                    "root-tool",
+                    "Root relative symlink.",
+                    "Body.",
+                ),
+            },
+            {
+                homeDir: null,
+                symlinks: {
+                    "/.claude": "real-claude",
+                },
+            },
+        );
+
+        mocks.getProjectPath.mockReturnValue("/");
+        const result = await discoverSkills();
+        expect(result.items.map((item) => item.name)).toEqual(["root-tool"]);
     });
 });
 
@@ -529,5 +774,140 @@ describe("listSkills", () => {
         );
 
         expect(listSkills().map((skill) => skill.id)).toEqual(["good"]);
+    });
+});
+
+describe("canonical root scan filters and resilient dismissal parsing", () => {
+    it("discovers .mdc rules when .claude symlinks to .agents without duplicating .md files", async () => {
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.agents/shared.md`]: "# Shared MD\nBody md.",
+                [`${PROJECT}/.agents/cursor-style.mdc`]: "# Cursor Rule\nBody mdc.",
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude`]: `${PROJECT}/.agents`,
+                },
+            },
+        );
+
+        const scan = await discoverSkills();
+        expect(scan.items.map((item) => item.relPath)).toEqual([
+            ".agents/shared.md",
+            ".claude/cursor-style.mdc",
+        ]);
+    });
+
+    it("tolerates non-array or mixed-type dismissal JSON in localStorage without dropping valid paths", async () => {
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serve({
+            [`${PROJECT}/.agents/keep-hidden.md`]: "# Hidden\nDismissed body.",
+            [`${PROJECT}/.agents/visible.md`]: "# Visible\nShown body.",
+        });
+
+        localStorage.setItem(
+            `bettershape-dismissed-discovered:${PROJECT}`,
+            JSON.stringify([42, null, ".agents/keep-hidden.md", ""]),
+        );
+
+        const scan = await discoverSkills();
+        expect(scan.items.map((item) => item.relPath)).toEqual([".agents/visible.md"]);
+
+        localStorage.setItem(
+            `bettershape-dismissed-discovered:${PROJECT}`,
+            JSON.stringify({ corrupted: true }),
+        );
+        const recovered = await discoverSkills();
+        expect(recovered.items.map((item) => item.relPath)).toEqual([
+            ".agents/keep-hidden.md",
+            ".agents/visible.md",
+        ]);
+    });
+
+    it("deduplicates case-variant Windows lsDir entries and preserves POSIX leading-backslash relative symlink targets", async () => {
+        mocks.getProjectPath.mockReturnValue("C:\\Work\\App");
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Work/App/.agents/Guide.md": "# Guide\nFirst.",
+                "c:/work/app/.agents/guide.md": "# Guide\nUpdated.",
+            },
+            { homeDir: "C:/Users/dev" },
+        );
+
+        const winScan = await discoverSkills();
+        expect(winScan.items).toHaveLength(1);
+        expect(winScan.items[0]?.body).toContain("Updated.");
+
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.claude/skills/\\escaped-target/SKILL.md`]: "# Escaped\nPOSIX backslash folder.",
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/alias`]: "\\escaped-target",
+                },
+            },
+        );
+        const posixScan = await discoverSkills();
+        expect(posixScan.items.some((item) => item.body.includes("POSIX backslash folder."))).toBe(true);
+
+        mocks.getProjectPath.mockReturnValue("C:\\");
+        serveSkillFs(
+            mocks,
+            { "C:/shared/pdf/SKILL.md": "# DriveRoot\nAnchored to C drive root." },
+            {
+                homeDir: "C:/Users/dev",
+                symlinks: { "C:/\\.claude/skills/pdf": "\\shared\\pdf" },
+            },
+        );
+        const driveRootScan = await discoverSkills();
+        expect(
+            driveRootScan.items.some((item) => item.body.includes("Anchored to C drive root.")),
+        ).toBe(true);
+    });
+
+    it("degrades gracefully when localStorage access throws on case-insensitive project paths", async () => {
+        const winProject = "C:\\Work\\BlockedStorage";
+        mocks.getProjectPath.mockReturnValue(winProject);
+        serveSkillFs(
+            mocks,
+            { [`${winProject}\\.agents\\guide.md`]: "# Guide\nStill discovered." },
+            { homeDir: "C:/Users/dev" },
+        );
+
+        const lengthSpy = vi
+            .spyOn(Storage.prototype, "length", "get")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+        const setItemSpy = vi
+            .spyOn(Storage.prototype, "setItem")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+        const removeItemSpy = vi
+            .spyOn(Storage.prototype, "removeItem")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+
+        try {
+            expect(() => dismissDiscoveredFile(winProject, ".agents/guide.md")).not.toThrow();
+            expect(() => restoreDismissedFiles(winProject)).not.toThrow();
+            const result = await discoverSkills();
+            expect(result.items).toHaveLength(1);
+            expect(result.items[0]?.body).toContain("Still discovered.");
+        } finally {
+            lengthSpy.mockRestore();
+            setItemSpy.mockRestore();
+            removeItemSpy.mockRestore();
+        }
     });
 });

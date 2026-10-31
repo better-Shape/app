@@ -530,6 +530,7 @@ const CommitMessageComposer = ({
         <div className="relative flex items-center">
             <Input
                 value={title}
+                aria-label="Commit message"
                 placeholder="Message"
                 className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
                 disabled={busy}
@@ -548,6 +549,7 @@ const CommitMessageComposer = ({
         {description || descriptionOpen ? (
             <textarea
                 value={description}
+                aria-label="Commit description"
                 placeholder="Description (optional)"
                 disabled={busy}
                 rows={2}
@@ -1080,6 +1082,7 @@ const CreateBranchDialog = ({
                 <AlertDialogBody>
                     <Input
                         value={branchName}
+                        aria-label="New branch name"
                         placeholder="feature/branch-name"
                         spellCheck={false}
                         onChange={(event) => setBranchName(event.target.value)}
@@ -1289,6 +1292,7 @@ function PublishRepoDialog({
                     {step === "repository" ? (
                         <Input
                             value={name}
+                            aria-label={githubUser ? "Repository name" : "Remote repository URL"}
                             placeholder={githubUser ? "Repository name" : "https://github.com/you/repo.git"}
                             onChange={(event) => setName(event.target.value)}
                         />

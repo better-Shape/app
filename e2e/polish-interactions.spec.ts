@@ -46,20 +46,51 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
         await gotoRoute(page, "/settings");
         await expectPreviewActive(page, "welcome");
 
-        for (const navLabel of ["Providers", "Models", "Editor", "Git", "Terminal"]) {
+        for (const navLabel of [
+            "Providers",
+            "Models",
+            "Instructions",
+            "Context",
+            "Editor",
+            "Git",
+            "Terminal",
+            "Data Control",
+        ]) {
             const navButton = page.locator("nav button", { hasText: navLabel }).first();
-            if (await navButton.count()) {
-                await navButton.click();
+            await expect(navButton).toBeVisible();
+            await navButton.click();
+            if (navLabel === "Providers") {
+                const openAiHeader = page.getByRole("button", { name: /^OpenAI\b/ }).first();
+                if ((await openAiHeader.getAttribute("aria-expanded")) === "false") {
+                    await openAiHeader.click();
+                }
+                await page.getByRole("button", { name: /chat models?\b/i }).first().click();
+                await page.getByRole("button", { name: /Request headers & auth/i }).first().click();
+                await expect(page.getByRole("textbox", { name: "Extra headers" })).toBeVisible();
             }
             if (navLabel === "Models") {
                 await expect(
                     page.getByRole("button", { name: /^Auto-run mode\s+\S+/ }),
                 ).toBeVisible();
             }
+            if (navLabel === "Editor") {
+                await expect(
+                    page.getByRole("button", { name: /^Exclude\s+\S+/ }),
+                ).toBeVisible();
+            }
+            if (navLabel === "Data Control") {
+                await page.getByRole("button", { name: "Report", exact: true }).click();
+                await expect(
+                    page.getByRole("textbox", { name: "Problem description" }),
+                ).toBeVisible();
+            }
             const axe = await new AxeBuilder({ page })
-                .withRules(["button-name"])
+                .withRules(["button-name", "label", "aria-toggle-field-name"])
                 .analyze();
-            expect(axe.violations, `button-name violations on ${navLabel}`).toEqual([]);
+            expect(axe.violations, `a11y label violations on ${navLabel}`).toEqual([]);
+            if (navLabel === "Data Control") {
+                await page.keyboard.press("Escape");
+            }
         }
 
         expectNoPageErrors();
@@ -80,14 +111,27 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
 
             // Open Commit menu and navigate via keyboard ArrowDown + Enter to open SingleFileDiffEditor.
             await page.getByRole("button", { name: /^Commit\b/ }).click();
-            const appMenuItem = page
-                .locator("[data-radix-popper-content-wrapper]")
-                .getByRole("menuitem", { name: /App\.tsx/ });
+            const commitMenu = page.locator("[data-radix-popper-content-wrapper] [role='menu']");
+            const appMenuItem = commitMenu.getByRole("menuitem", { name: /App\.tsx/ });
             await expect(appMenuItem).toBeVisible();
-            for (let step = 0; step < 6; step += 1) {
+            await expect
+                .poll(() =>
+                    commitMenu.evaluate((menu) => {
+                        const active = document.activeElement;
+                        return menu === active || menu.contains(active);
+                    }),
+                )
+                .toBe(true);
+            for (let step = 0; step < 8; step += 1) {
                 const highlighted = await appMenuItem.getAttribute("data-highlighted");
                 if (highlighted !== null) break;
                 await page.keyboard.press("ArrowDown");
+                await page.evaluate(
+                    () =>
+                        new Promise<null>((resolve) => {
+                            requestAnimationFrame(() => setTimeout(() => resolve(null), 0));
+                        }),
+                );
             }
             await expect(appMenuItem).toHaveAttribute("data-highlighted", "");
             await page.keyboard.press("Enter");
@@ -96,13 +140,76 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             await expect(discardBtn).toBeVisible();
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
 
-            // A quick click arms the HoldButton rather than immediately discarding work.
-            await discardBtn.click();
+            // Assistive or quick activation arms the HoldButton rather than immediately discarding work.
+            await discardBtn.evaluate((button: HTMLButtonElement) => button.click());
             await expect(discardBtn).toHaveAttribute("data-state", "armed");
 
             // Escape disarms back to idle without invoking gitDiscard.
-            await discardBtn.press("Escape");
+            await discardBtn.focus();
+            await page.keyboard.press("Escape");
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
+            await expect(discardBtn).not.toHaveAttribute("aria-busy", "true");
+
+            // Pressing inside enters holding, and dragging outside aborts without CDP timer races.
+            const dragStates = await discardBtn.evaluate(async (button: HTMLButtonElement) => {
+                const flushCommit = () =>
+                    new Promise<void>((resolve) => {
+                        requestAnimationFrame(() => setTimeout(resolve, 0));
+                    });
+                const waitForState = async (expected: string) => {
+                    if (button.getAttribute("data-state") === expected) return;
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                    for (let frame = 0; frame < 6; frame += 1) {
+                        if (button.getAttribute("data-state") === expected) return;
+                        await flushCommit();
+                    }
+                };
+                const rect = button.getBoundingClientRect();
+                const insideX = rect.left + rect.width / 2;
+                const insideY = rect.top + rect.height / 2;
+                const outsideX = rect.left - 48;
+                const emitPointer = (target: EventTarget, type: string, clientX: number) =>
+                    target.dispatchEvent(
+                        new PointerEvent(type, {
+                            bubbles: true,
+                            button: 0,
+                            pointerId: 41,
+                            width: 4,
+                            height: 4,
+                            clientX,
+                            clientY: insideY,
+                        }),
+                    );
+                emitPointer(button, "pointerdown", insideX);
+                await waitForState("holding");
+                const afterDown = button.getAttribute("data-state");
+                emitPointer(document.body, "pointermove", outsideX);
+                await waitForState("idle");
+                const afterLeave = button.getAttribute("data-state");
+                emitPointer(document.body, "pointerup", outsideX);
+                await flushCommit();
+                const preview = (
+                    window as unknown as {
+                        __BETTERSHAPE_PREVIEW__?: { invokes: Array<{ cmd: string }> };
+                    }
+                ).__BETTERSHAPE_PREVIEW__;
+                const discardInvoked =
+                    preview?.invokes.some((entry) => entry.cmd === "git_discard_changes") ?? false;
+                return {
+                    afterDown,
+                    afterLeave,
+                    afterUp: button.getAttribute("data-state"),
+                    ariaBusy: button.getAttribute("aria-busy"),
+                    discardInvoked,
+                };
+            });
+            expect(dragStates).toEqual({
+                afterDown: "holding",
+                afterLeave: "idle",
+                afterUp: "idle",
+                ariaBusy: null,
+                discardInvoked: false,
+            });
 
             // Switch to Search workspace tab and verify empty-state recovery action.
             await page.evaluate(() => {

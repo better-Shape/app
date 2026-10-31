@@ -4,7 +4,13 @@ import { commands } from "@/lib/backend/commands";
 import { getProjectPath } from "@/lib/backend/project-state";
 import { getHomeDir, listCustomSkillFolders } from "@/lib/chat/skill-folders";
 import { parseSkillDocument } from "@/lib/chat/skill-frontmatter";
-import { displaySkillPath, joinSkillPath, normalizeSkillPath } from "@/lib/chat/skill-paths";
+import {
+    displaySkillPath,
+    isCaseInsensitiveSkillPath,
+    isInsideSkillPath,
+    joinSkillPath,
+    normalizeSkillPath,
+} from "@/lib/chat/skill-paths";
 import { SKILL_FILE_NAME, listSkillRoots, type SkillRoot, type SkillRootScope } from "@/lib/chat/skill-roots";
 import { listSkills, skillIdFromName, skillTitle, type Skill } from "@/lib/chat/skills";
 
@@ -47,11 +53,6 @@ export type SkillScan = {
 /** Prefix for the per-project localStorage key holding dismissed files. */
 const DISMISSED_KEY_PREFIX = "bettershape-dismissed-discovered:";
 
-/** Windows paths are case-insensitive; POSIX ones (Linux) are not. */
-function isCaseInsensitivePath(projectPath: string): boolean {
-    return projectPath.includes("\\") || /^[a-zA-Z]:/.test(projectPath);
-}
-
 /**
  * LocalStorage key storing dismissed paths for one project. The path keeps its
  * case everywhere except case-insensitive filesystems, so `/home/dev/Repo` and
@@ -59,7 +60,8 @@ function isCaseInsensitivePath(projectPath: string): boolean {
  */
 function dismissedKey(projectPath: string): string {
     const scoped = normalizeSkillPath(projectPath);
-    return DISMISSED_KEY_PREFIX + (isCaseInsensitivePath(scoped) ? scoped.toLowerCase() : scoped);
+    const folded = isCaseInsensitiveSkillPath(projectPath) ? scoped.toLowerCase() : scoped;
+    return DISMISSED_KEY_PREFIX + folded;
 }
 
 /** True when `fileName` ends with one of `extensions`, ignoring case. */
@@ -72,28 +74,69 @@ function hasExtension(fileName: string, extensions: readonly string[]): boolean 
 function dismissedFilesFromKey(key: string): Set<string> {
     try {
         const raw = window.localStorage.getItem(key);
-        return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+        if (!raw) return new Set();
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return new Set();
+        return new Set(
+            parsed.filter((item): item is string => typeof item === "string" && item.length > 0),
+        );
     } catch {
         return new Set();
     }
 }
 
+const isLegacyCaseVariantKey = (
+    candidate: string | null,
+    primaryKey: string,
+): candidate is string =>
+    candidate !== null && candidate !== primaryKey && candidate.toLowerCase() === primaryKey;
+
+/** Collect legacy mixed-case localStorage keys matching `primaryKey`. */
+function collectCaseVariantKeys(primaryKey: string): string[] {
+    try {
+        const extras: string[] = [];
+        for (let idx = 0; idx < window.localStorage.length; idx += 1) {
+            const candidate = window.localStorage.key(idx);
+            if (isLegacyCaseVariantKey(candidate, primaryKey)) extras.push(candidate);
+        }
+        return extras;
+    } catch {
+        return [];
+    }
+}
+
+/** Return the canonical dismissal key plus any legacy mixed-case keys for `projectPath`. */
+function matchingDismissedKeys(projectPath: string): [string, ...string[]] {
+    const primaryKey = dismissedKey(projectPath);
+    if (!isCaseInsensitiveSkillPath(projectPath)) return [primaryKey];
+    return [primaryKey, ...collectCaseVariantKeys(primaryKey)];
+}
+
 /**
  * Paths dismissed in a project. Dismissing `.claude/skills/guide/SKILL.md`
- * leaves every other skill file visible.
+ * leaves every other skill file visible; also reads any legacy mixed-case UNC key.
  */
 function dismissedFiles(projectPath: string): Set<string> {
     if (typeof window === "undefined") return new Set();
-    return dismissedFilesFromKey(dismissedKey(projectPath));
+    const set = new Set<string>();
+    for (const key of matchingDismissedKeys(projectPath)) {
+        for (const entry of dismissedFilesFromKey(key)) set.add(entry);
+    }
+    return set;
 }
 
 /** Dismiss a discovered file for the project it was shown in. */
 export function dismissDiscoveredFile(projectPath: string, relPath: string) {
     if (typeof window === "undefined") return;
-    const key = dismissedKey(projectPath);
-    const set = dismissedFilesFromKey(key);
+    const [primaryKey, ...legacyKeys] = matchingDismissedKeys(projectPath);
+    const set = dismissedFiles(projectPath);
     set.add(relPath);
-    window.localStorage.setItem(key, JSON.stringify([...set]));
+    try {
+        window.localStorage.setItem(primaryKey, JSON.stringify([...set]));
+        for (const legacyKey of legacyKeys) window.localStorage.removeItem(legacyKey);
+    } catch {
+        // Ignore storage write errors in restricted webviews or private browsing modes.
+    }
 }
 
 /** How many files the user dismissed in this project. */
@@ -104,7 +147,13 @@ export function countDismissedFiles(projectPath: string): number {
 /** Bring every dismissed file back into the Discovered list. */
 export function restoreDismissedFiles(projectPath: string): void {
     if (typeof window === "undefined") return;
-    window.localStorage.removeItem(dismissedKey(projectPath));
+    for (const key of matchingDismissedKeys(projectPath)) {
+        try {
+            window.localStorage.removeItem(key);
+        } catch {
+            // Ignore storage removal errors when localStorage access is blocked.
+        }
+    }
 }
 
 /** Candidate skill files under one root, as `{ fileName, filePath, folder }`. */
@@ -173,11 +222,37 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
     return dismissed.has(relPath);
 }
 
-/** Case-aware comparison key for canonicalized filesystem paths. */
-function canonicalPathKey(path: string): string {
-    const normalized = normalizeSkillPath(path);
-    return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
+/** True when `path` or its originating `contextPath` belongs to a case-insensitive root. */
+function isCaseInsensitiveContext(path: string, contextPath?: string | null): boolean {
+    if (isCaseInsensitiveSkillPath(path)) return true;
+    return contextPath ? isCaseInsensitiveSkillPath(contextPath) : false;
 }
+
+/** Case-aware comparison key for canonicalized filesystem paths. */
+function canonicalPathKey(path: string, contextPath?: string | null): string {
+    const normalized = normalizeSkillPath(path);
+    return isCaseInsensitiveContext(path, contextPath) ? normalized.toLowerCase() : normalized;
+}
+
+/** Deduplication key for project roots that preserves distinct scan kinds and extension filters. */
+function canonicalRootScanKey(
+    canonicalRoot: string,
+    root: SkillRoot,
+    projectPath: string,
+): string {
+    const extensions =
+        root.kind === "flat"
+            ? [...(root.extensions ?? [".md"])]
+                  .map((ext) => ext.toLowerCase())
+                  .sort((a, b) => a.localeCompare(b))
+                  .join(",")
+            : "";
+    return `${canonicalPathKey(canonicalRoot, projectPath)}\0${root.kind}\0${extensions}`;
+}
+
+/** Checks directory containment while keeping sibling stems and bare `X:` disjoint. */
+const isKeyWithinBase = (folderKey: string, baseKey: string): boolean =>
+    isInsideSkillPath(folderKey, baseKey);
 
 /**
  * Chooses the confinement root passed to `readFileWithin`. When a skill subfolder
@@ -192,10 +267,10 @@ function resolveSkillReadRoot(
     canonicalFolder: string,
 ): string {
     if (fileFolder === rootPath || canonicalFolder === fileFolder) return rootPath;
-    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath);
-    const folderKey = canonicalPathKey(canonicalFolder);
-    if (folderKey === baseKey || folderKey.startsWith(`${baseKey}/`)) return rootPath;
-    return canonicalFolder;
+    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath, rootPath);
+    return isKeyWithinBase(canonicalPathKey(canonicalFolder, rootPath), baseKey)
+        ? rootPath
+        : canonicalFolder;
 }
 
 /**
@@ -274,7 +349,7 @@ export async function discoverSkills(
         if (root.scope === "project" && projectPath) {
             canonicalRoot = await resolveProjectCanonicalDir(root.path, projectPath);
             if (!canonicalRoot) continue;
-            const rootKey = canonicalPathKey(canonicalRoot);
+            const rootKey = canonicalRootScanKey(canonicalRoot, root, projectPath);
             if (seenCanonicalRoots.has(rootKey)) continue;
             seenCanonicalRoots.add(rootKey);
         }
@@ -296,7 +371,7 @@ export async function discoverSkills(
                 canonicalFolder !== file.folder
                     ? joinSkillPath(canonicalFolder, file.fileName)
                     : file.filePath;
-            const fileKey = canonicalPathKey(canonicalFile);
+            const fileKey = canonicalPathKey(canonicalFile, root.path);
             if (seenPaths.has(fileKey)) continue;
             seenPaths.add(fileKey);
             if (isDismissed(dismissed, relPath)) continue;

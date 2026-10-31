@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { DrawnCheck } from "@/components/ui/checkmark";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
@@ -14,6 +13,7 @@ import { getSettings, updateSettingSection, areSecretsVaulted } from "@/lib/sett
 import {
     SettingRow,
     SettingSelect,
+    SettingTextarea,
     SETTING_CONTROL_BTN,
 } from "../../shared/controls";
 import {
@@ -497,6 +497,7 @@ const ProviderBaseUrlField = ({
             <TextInput
                 value={baseUrl}
                 placeholder={preset.baseUrl || "https://host/v1"}
+                aria-label={`${preset.label} base URL`}
                 onChange={onChange}
                 onReset={onReset}
                 defaultValue={preset.baseUrl}
@@ -543,6 +544,7 @@ const ProviderCredentialsGrid = ({
             <KeyInput
                 value={connection.apiKey}
                 placeholder={preset.keyHint || "API key"}
+                aria-label={`${preset.label} API key`}
                 onChange={handleApiKeyChange}
                 warning={keyFormatWarning(id, connection.apiKey)}
                 savedInVault={savedInVault}
@@ -756,6 +758,7 @@ const ExtraModelInputRow = ({
             <Input
                 type="text"
                 value={value}
+                aria-label="Add model ID"
                 placeholder="Add model id (e.g. llama3.1)"
                 spellCheck={false}
                 onChange={handleInput}
@@ -942,7 +945,7 @@ const ProviderAdvancedSection = ({
                         title="Extra headers"
                         description="One Name: value per line. Values are stored in the OS keychain beside the key."
                     >
-                        <Textarea
+                        <SettingTextarea
                             value={formatHeaderLines(connection.headers)}
                             placeholder={"HTTP-Referer: https://example.com\nX-Tenant: acme"}
                             spellCheck={false}

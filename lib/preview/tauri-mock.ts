@@ -178,6 +178,14 @@ note = Callout("Local fixture", "This saved conversation does not contact an AI 
     },
 ];
 
+/** Files the seeded commits touch, sliced to each commit's change count. */
+const previewCommitFiles = (filesChanged: number) =>
+    [
+        { path: "src/App.tsx", status: "M", staged: false },
+        { path: "README.md", status: "M", staged: false },
+        { path: "src/main.ts", status: "A", staged: false },
+    ].slice(0, Math.max(0, filesChanged));
+
 /** Seeded Git history, newest first, in the backend's wire shape. */
 const previewLogEntries = () => {
     const now = Date.now();
@@ -686,6 +694,12 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
         git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
+        git_commit_files: (args) => {
+            const hash = typeof args?.hash === "string" ? args.hash : "";
+            if (!hash) return previewCommitFiles(1);
+            const entry = state.logEntries.find((candidate) => candidate.hash === hash);
+            return entry ? previewCommitFiles(entry.files_changed) : [];
+        },
         // Stateful paging: every page must advance, or the graph appends
         // duplicate commits with duplicate row keys.
         // The Rust backend keys streamers by callerId (STREAMERS map), so

@@ -28,6 +28,110 @@ import { RefPill, type RefInfo } from "./ref-pill";
 import { GraphSvgRow } from "./svg-row";
 import { CreateBranchFromCommitInline } from "./create-branch";
 
+const COMMIT_FILE_STATUS_LABEL: Record<string, string> = {
+    M: "Modified",
+    A: "Added",
+    D: "Deleted",
+    R: "Renamed",
+};
+
+const COMMIT_FILE_STATUS_COLOR: Record<string, string> = {
+    C: "var(--git-conflict)",
+    M: "var(--git-modified)",
+    A: "var(--git-added)",
+    U: "var(--git-added)",
+    D: "var(--git-deleted)",
+};
+
+/** Splits a commit file path into basename and optional directory prefix. */
+const splitCommitFilePath = (filePath: string): { name: string; folder: string } => {
+    const slashIdx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+    if (slashIdx < 0) return { name: filePath, folder: "" };
+    return {
+        name: filePath.slice(slashIdx + 1),
+        folder: filePath.slice(0, slashIdx),
+    };
+};
+
+type CommitFileRowProps = {
+    commitHash: string;
+    file: GitFileParams;
+    onShowCommitDiff: (hash: string, path: string) => void;
+    onOpenFile: (path: string) => void;
+};
+
+/** Renders a single changed-file row inside an expanded graph commit entry. */
+const CommitFileRow = ({
+    commitHash,
+    file,
+    onShowCommitDiff,
+    onOpenFile,
+}: CommitFileRowProps) => {
+    const { name, folder } = splitCommitFilePath(file.path);
+    const statusLabel = COMMIT_FILE_STATUS_LABEL[file.status] ?? "Changed";
+    const statusColor = COMMIT_FILE_STATUS_COLOR[file.status] ?? "var(--git-added)";
+    const copyFilePath = () => {
+        navigator.clipboard
+            .writeText(file.path)
+            .then(() => {
+                notify.success("Copied", "File path copied");
+            })
+            .catch(() => {});
+    };
+
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <Tooltip
+                    content={`${file.path} • ${statusLabel}`}
+                    side="bottom"
+                    align="start"
+                    delayDuration={400}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onShowCommitDiff(commitHash, file.path);
+                        }}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            onOpenFile(file.path);
+                        }}
+                        className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-[var(--row-hover)] group/file cursor-pointer"
+                        style={{ height: 22 }}
+                    >
+                        <div className="w-3.5 flex justify-center opacity-80 shrink-0">
+                            <FileIcon name={name} className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="max-w-[50%] shrink-0 truncate whitespace-nowrap text-sm text-text-secondary transition-colors group-hover/file:text-text-primary">
+                            {name}
+                        </span>
+                        {folder ? (
+                            <span className="min-w-0 flex-1 truncate whitespace-nowrap pr-2 text-left text-sm text-text-muted opacity-60">
+                                {folder}
+                            </span>
+                        ) : null}
+                        <span
+                            className="text-sm font-medium w-4 text-center shrink-0 ml-auto"
+                            style={{ color: statusColor }}
+                        >
+                            {file.status}
+                        </span>
+                    </button>
+                </Tooltip>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+                <ContextMenuItem onClick={() => onShowCommitDiff(commitHash, file.path)}>
+                    Open Changes
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => onOpenFile(file.path)}>Open File</ContextMenuItem>
+                <ContextMenuItem onClick={copyFilePath}>Copy Path</ContextMenuItem>
+            </ContextMenuContent>
+        </ContextMenu>
+    );
+};
+
 export const GraphCommitRow = React.memo(function GraphCommitRow({
     log, node, repoPath, index, total, isExpanded,
     onToggleExpand, onShowCommitDiff, onOpenFile, onRefresh,
@@ -113,12 +217,14 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         return list.slice(0, 3);
     }, [allRefs, compact]);
     const extraRefCount = Math.max(0, allRefs.filter((r) => r.label.toLowerCase() !== "head").length - visibleRefs.length);
+    const interactiveRefPills = isManager && Boolean(onRefActivate);
+    const safeFiles = Array.isArray(files) ? files : [];
 
     const triggerFileLoad = useCallback(() => {
         if (!filesLoaded && repoPath && !filesLoadingRef.current) {
             filesLoadingRef.current = true;
             commands.gitCommitFiles(repoPath, log.hash).then(results => {
-                onFilesLoaded(log.hash, results);
+                onFilesLoaded(log.hash, Array.isArray(results) ? results : []);
                 filesLoadingRef.current = false;
             }).catch(() => {
                 filesLoadingRef.current = false;
@@ -132,6 +238,25 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         onToggleExpand(log.hash);
         if (!filesLoaded && repoPath && !isExpanded) triggerFileLoad();
     }, [filesLoaded, isExpanded, log.hash, onSelect, onToggleExpand, repoPath, triggerFileLoad]);
+
+    const handleRowClick = useCallback(
+        (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation();
+            activateRow();
+        },
+        [activateRow],
+    );
+
+    const handleRowKeyDown = useCallback(
+        (event: React.KeyboardEvent<HTMLButtonElement>) => {
+            if (event.target !== event.currentTarget || event.repeat) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            activateRow();
+        },
+        [activateRow],
+    );
 
     const handleOpenGitHub = async (e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
@@ -170,53 +295,84 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                 <ContextMenuTrigger asChild>
                     <div
                         className={cn(
-                            "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
+                            "relative z-0 flex items-center whitespace-nowrap group @container",
                             isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
                             !isExpanded && selected && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={isExpanded}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            activateRow();
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key !== "Enter" && e.key !== " ") return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            activateRow();
-                        }}
                     >
                         {compact ? (
                             laneAvatarUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img src={laneAvatarUrl} alt="" className="ml-2 size-5 shrink-0 rounded-full object-cover" />
+                                <img
+                                    src={laneAvatarUrl}
+                                    alt=""
+                                    className={cn(
+                                        "pointer-events-none ml-2 size-5 shrink-0",
+                                        "rounded-full object-cover",
+                                    )}
+                                />
                             ) : null
                         ) : (
-                        <GraphSvgRow
-                            node={node}
-                            isFirst={isFirst}
-                            isLast={isLast}
-                            isHead={isHead}
-                            muted={muted}
-                            avatarUrl={laneAvatarUrl}
-                            avatarKey={log.hash}
-                            arriving={arriving}
-                        />
+                        <div className="pointer-events-none shrink-0">
+                            <GraphSvgRow
+                                node={node}
+                                isFirst={isFirst}
+                                isLast={isLast}
+                                isHead={isHead}
+                                muted={muted}
+                                avatarUrl={laneAvatarUrl}
+                                avatarKey={log.hash}
+                                arriving={arriving}
+                            />
+                        </div>
                         )}
-                        <div className={cn("flex min-w-0 flex-1 items-center overflow-hidden pr-2 @container", compact ? "gap-2" : "gap-1.5", compact && !laneAvatarUrl && "pl-2")}>
-                            {visibleRefs.map((refInfo) => (
-                                <RefPill
+                        <div
+                            className={cn(
+                                "flex min-w-0 flex-1 items-center overflow-hidden pr-2",
+                                compact ? "gap-2" : "gap-1.5",
+                                compact && !laneAvatarUrl && "pl-2",
+                            )}
+                        >
+                            {interactiveRefPills && visibleRefs.map((refInfo) => (
+                                <span
                                     key={refInfo.label}
-                                    refInfo={refInfo}
-                                    color={node.color}
-                                    emphasized={refInfo.isHead || isHead}
-                                    hoverOnly={isManager}
-                                    onActivate={isManager ? onRefActivate : undefined}
-                                />
+                                    className="relative z-10 inline-flex shrink-0"
+                                >
+                                    <RefPill
+                                        refInfo={refInfo}
+                                        color={node.color}
+                                        emphasized={refInfo.isHead || isHead}
+                                        hoverOnly={isManager}
+                                        onActivate={onRefActivate}
+                                    />
+                                </span>
                             ))}
+                            <button
+                                type="button"
+                                data-commit-row-trigger=""
+                                aria-expanded={isExpanded}
+                                onClick={handleRowClick}
+                                onKeyDown={handleRowKeyDown}
+                                className={cn(
+                                    "flex h-full min-w-0 flex-1 cursor-pointer items-center",
+                                    "overflow-hidden bg-transparent p-0 text-left outline-none",
+                                    compact ? "gap-2" : "gap-1.5",
+                                    "before:absolute before:inset-0 before:z-0",
+                                    "before:rounded-[inherit] before:content-['']",
+                                    "focus-visible:before:ring-1 focus-visible:before:ring-inset",
+                                    "focus-visible:before:ring-border-focus",
+                                )}
+                            >
+                                {!interactiveRefPills && visibleRefs.map((refInfo) => (
+                                    <RefPill
+                                        key={refInfo.label}
+                                        refInfo={refInfo}
+                                        color={node.color}
+                                        emphasized={refInfo.isHead || isHead}
+                                        hoverOnly={isManager}
+                                    />
+                                ))}
                             {!compact && extraRefCount > 0 && (
                                 isManager ? (
                                     <span
@@ -283,6 +439,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                         id={`tooltip-content-${log.hash}`}
                                         role="presentation"
                                         className="flex max-w-[240px] flex-col gap-2 p-0.5"
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
                                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={() => {
                                             isDraggingRef.current = true;
@@ -359,18 +517,33 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             </Tooltip>
                             )}
                             <Tooltip content={log.author} side="top" delayDuration={250}>
-                                <span className="hidden max-w-[100px] shrink-0 truncate whitespace-nowrap text-right text-sm text-text-muted @[380px]:inline">
+                                <span
+                                    className={cn(
+                                        "hidden max-w-[100px] shrink-0 truncate whitespace-nowrap",
+                                        "text-right text-sm text-text-muted @[408px]:inline",
+                                    )}
+                                >
                                     {log.author}
                                 </span>
                             </Tooltip>
-                            <span className="hidden w-[52px] shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-text-muted @[320px]:inline">
+                            <span
+                                className={cn(
+                                    "hidden w-[52px] shrink-0 whitespace-nowrap text-right",
+                                    "text-sm tabular-nums text-text-muted @[348px]:inline",
+                                )}
+                            >
                                 {getRelativeTime(log.date)}
                             </span>
+                            </button>
                             <Tooltip content={hashCopied ? "Copied" : log.hash} side="top" delayDuration={250}>
                                 <button
                                     type="button"
                                     className={cn(
-                                        "hidden w-[52px] shrink-0 cursor-default whitespace-nowrap text-right font-mono text-xs tabular-nums transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] @[480px]:inline",
+                                        "relative z-10 hidden w-[52px] shrink-0 cursor-default",
+                                        "whitespace-nowrap text-right font-mono text-xs",
+                                        "tabular-nums transition-colors",
+                                        "duration-[var(--spring-tap-dur)]",
+                                        "ease-[var(--spring-tap)] @[508px]:inline",
                                         hashCopied ? "text-success opacity-100" : "text-text-disabled opacity-70",
                                     )}
                                     onClick={(e) => {
@@ -398,7 +571,10 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                     <ContextMenuItem onClick={async () => {
                         if (!repoPath) return;
                         try {
-                            const commitFiles = filesLoaded ? files : await commands.gitCommitFiles(repoPath, log.hash);
+                            const rawFiles = filesLoaded
+                                ? safeFiles
+                                : await commands.gitCommitFiles(repoPath, log.hash);
+                            const commitFiles = Array.isArray(rawFiles) ? rawFiles : [];
                             commitFiles.forEach((file: GitFileParams) => onShowCommitDiff(log.hash, file.path));
                         } catch (e) { notify.error("Git Error", String(e)); }
                     }}>
@@ -527,67 +703,16 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
             <div className={isExpanded ? "block" : "hidden"}>
                 <div className="relative">
                     <div style={{ paddingLeft: compact ? 8 : Math.max((rowMaxLane + 1) * LANE_WIDTH, 28) }} className="pr-1 py-0.5 space-y-0 relative z-10">
-                        {files.length > 0 ? (
-                            files.map((file: GitFileParams) => {
-                                const name = file.path.split(/[\\\/]/).pop() || "";
-                                const folder = file.path.substring(0, file.path.length - name.length - 1);
-                                return (
-                                    <ContextMenu key={file.path}>
-                                        <ContextMenuTrigger asChild>
-                                            <Tooltip
-                                                content={`${file.path} • ${file.status === 'M' ? 'Modified' : file.status === 'A' ? 'Added' : file.status === 'D' ? 'Deleted' : file.status === 'R' ? 'Renamed' : 'Changed'}`}
-                                                side="bottom"
-                                                align="start"
-                                                delayDuration={400}
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => { e.stopPropagation(); onShowCommitDiff(log.hash, file.path); }}
-                                                    onDoubleClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onOpenFile(file.path);
-                                                    }}
-                                                    className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-[var(--row-hover)] group/file cursor-pointer"
-                                                    style={{ height: 22 }}
-                                                >
-                                                    <div className="w-3.5 flex justify-center opacity-80 shrink-0">
-                                                        <FileIcon name={name} className="w-3.5 h-3.5" />
-                                                    </div>
-                                                    <span className="max-w-[50%] shrink-0 truncate whitespace-nowrap text-sm text-text-secondary transition-colors group-hover/file:text-text-primary">{name}</span>
-                                                    {folder && (
-                                                        <span className="min-w-0 flex-1 truncate whitespace-nowrap pr-2 text-left text-sm text-text-muted opacity-60">{folder}</span>
-                                                    )}
-                                                    <span
-                                                        className="text-sm font-medium w-4 text-center shrink-0 ml-auto"
-                                                        style={{
-                                                            color: file.status === "C" ? "var(--git-conflict)" :
-                                                                file.status === "M" ? "var(--git-modified)" :
-                                                                file.status === "A" || file.status === "U" ? "var(--git-added)" :
-                                                                    file.status === "D" ? "var(--git-deleted)" : "var(--git-added)"
-                                                        }}
-                                                    >
-                                                        {file.status}
-                                                    </span>
-                                                </button>
-                                            </Tooltip>
-                                        </ContextMenuTrigger>
-                                        <ContextMenuContent>
-                                            <ContextMenuItem onClick={() => onShowCommitDiff(log.hash, file.path)}>
-                                                Open Changes
-                                            </ContextMenuItem>
-                                            <ContextMenuItem onClick={() => onOpenFile(file.path)}>
-                                                Open File
-                                            </ContextMenuItem>
-                                            <ContextMenuItem onClick={() => {
-                                                void navigator.clipboard.writeText(file.path);
-                                                notify.success("Copied", "File path copied");
-                                            }}>
-                                                Copy Path
-                                            </ContextMenuItem>
-                                        </ContextMenuContent>
-                                    </ContextMenu>
-                                );
-                            })
+                        {safeFiles.length > 0 ? (
+                            safeFiles.map((file: GitFileParams) => (
+                                <CommitFileRow
+                                    key={file.path}
+                                    commitHash={log.hash}
+                                    file={file}
+                                    onShowCommitDiff={onShowCommitDiff}
+                                    onOpenFile={onOpenFile}
+                                />
+                            ))
                         ) : (
                             <div className="flex flex-col gap-1 py-1 pl-2" aria-busy={!filesLoaded}>
                                 {!filesLoaded ? (

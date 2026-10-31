@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { test, expect, expectPreviewActive, gotoRoute } from "./fixtures";
 
 test.use({ seedMode: "project" });
@@ -28,7 +29,11 @@ test.describe("git manager", () => {
         });
     }
 
-    test("virtualized graph exposes full positions and supports keyboard ref filtering", async ({ page, expectNoPageErrors }) => {
+    test("virtualized graph exposes full positions and supports keyboard ref filtering", async ({
+        page,
+        expectNoPageErrors,
+        expectNoConsoleErrors,
+    }) => {
         await gotoRoute(page, "/git?section=graph");
         await expectPreviewActive(page, "project");
         await expect(page.getByLabel("Loading Git Manager")).toBeHidden({ timeout: 30_000 });
@@ -39,7 +44,14 @@ test.describe("git manager", () => {
         await expect(firstCommit).toHaveAttribute("aria-posinset", /^[1-9]\d*$/);
         await expect(firstCommit).toHaveAttribute("aria-setsize", /^[1-9]\d*$/);
 
-        const refFilter = page.getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ }).first();
+        const axe = await new AxeBuilder({ page })
+            .withRules(["nested-interactive", "button-name"])
+            .analyze();
+        expect(axe.violations).toEqual([]);
+
+        const refFilter = page
+            .getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ })
+            .first();
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
@@ -47,6 +59,14 @@ test.describe("git manager", () => {
         await expect(graph.locator(".graph-commit-mute").first()).toBeVisible();
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
+
+        const rowTrigger = firstCommit.locator("button[data-commit-row-trigger]");
+        await expect(rowTrigger).toHaveAttribute("aria-expanded", "false");
+        await rowTrigger.focus();
+        await page.keyboard.press("Enter");
+        await expect(rowTrigger).toHaveAttribute("aria-expanded", "true");
+
         expectNoPageErrors();
+        expectNoConsoleErrors();
     });
 });

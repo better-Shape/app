@@ -186,6 +186,7 @@ function AddMcpDialog({
                     <div className={cn("flex flex-col gap-3", mode === "registry" && "hidden")}>
                         <Textarea
                             value={paste}
+                            aria-label="MCP server URL or JSON configuration"
                             onChange={(event) => setPaste(event.target.value)}
                             placeholder={'https://example.com/mcp\n\nor\n\n{ "url": "https://example.com/mcp" }'}
                             className="min-h-32 font-mono text-sm"

@@ -7,6 +7,7 @@ import { DrawnCheck } from "@/components/ui/checkmark";
 import { Tooltip } from "@/components/ui/tooltip";
 import { notify } from "@/features/notifications";
 import { cn } from "@/lib/utils";
+import { useSettingRowLabels } from "../../shared/controls";
 import {
     ArrowReset20Regular,
     Clipboard20Regular,
@@ -22,6 +23,28 @@ const inputClass =
 /* Key field                                                                 */
 /* ------------------------------------------------------------------------ */
 
+const KEY_LABEL_WORD_RE = /\bkey\b/i;
+
+const needsKeyRoleSuffix = (
+    ariaLabel: string | undefined,
+    rowTitle: string | undefined,
+    rowTitleId: string | undefined,
+): boolean => {
+    if (ariaLabel || !rowTitleId) return false;
+    return !rowTitle || !KEY_LABEL_WORD_RE.test(rowTitle);
+};
+
+const resolveKeyInputLabelledBy = (
+    ariaLabel: string | undefined,
+    rowTitleId: string | undefined,
+    appendRoleSuffix: boolean,
+    roleSuffixId: string,
+): string | undefined => {
+    if (ariaLabel || !rowTitleId) return undefined;
+    return appendRoleSuffix ? `${rowTitleId} ${roleSuffixId}` : rowTitleId;
+};
+
+/** Secret input that binds enclosing row labels and reflects OS-vault storage state. */
 export function KeyInput({
     value,
     placeholder,
@@ -31,6 +54,7 @@ export function KeyInput({
     /** When true, a key is stored in the OS keychain for this field even if
      *  the value is blanked in the UI. Renders a small "Saved" indicator. */
     savedInVault,
+    "aria-label": ariaLabel,
 }: {
     value: string;
     placeholder: string;
@@ -38,9 +62,23 @@ export function KeyInput({
     disabled?: boolean;
     warning?: string | null;
     savedInVault?: boolean;
+    "aria-label"?: string;
 }) {
     const [visible, setVisible] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
+    const rowLabels = useSettingRowLabels();
+    const keyRoleId = React.useId();
+    const appendKeyRoleSuffix = needsKeyRoleSuffix(
+        ariaLabel,
+        rowLabels?.title,
+        rowLabels?.titleId,
+    );
+    const keyLabelledBy = resolveKeyInputLabelledBy(
+        ariaLabel,
+        rowLabels?.titleId,
+        appendKeyRoleSuffix,
+        keyRoleId,
+    );
 
     const pasteFromClipboard = async () => {
         try {
@@ -86,9 +124,17 @@ export function KeyInput({
                         spellCheck={false}
                         autoComplete="off"
                         data-form-type="other"
-                        onChange={(e) => onChange(e.target.value)}
+                        aria-label={ariaLabel}
+                        aria-labelledby={keyLabelledBy}
+                        aria-describedby={rowLabels?.descriptionId}
+                        onChange={(event) => onChange(event.target.value)}
                         className={cn(inputClass, savedInVault && !value && "pr-16 text-text-muted")}
                     />
+                    {appendKeyRoleSuffix ? (
+                        <span id={keyRoleId} className="sr-only">
+                            API key
+                        </span>
+                    ) : null}
                     {savedInVault && !value ? (
                         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-sm bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success">
                             Saved
@@ -149,6 +195,7 @@ export function KeyInput({
 /* Text field with optional reset                                            */
 /* ------------------------------------------------------------------------ */
 
+/** Controlled text input that binds enclosing row labels and offers default-value reset. */
 export function TextInput({
     value,
     placeholder,
@@ -156,6 +203,7 @@ export function TextInput({
     onReset,
     defaultValue,
     mono = false,
+    "aria-label": ariaLabel,
 }: {
     value: string;
     placeholder: string;
@@ -165,8 +213,10 @@ export function TextInput({
     /** Default value used to decide whether to show the reset button. */
     defaultValue?: string;
     mono?: boolean;
+    "aria-label"?: string;
 }) {
     const canReset = Boolean(onReset) && value !== (defaultValue ?? "");
+    const rowLabels = useSettingRowLabels();
     return (
         <div className="flex w-full items-center gap-1.5">
             <input
@@ -175,7 +225,10 @@ export function TextInput({
                 placeholder={placeholder}
                 spellCheck={false}
                 autoComplete="off"
-                onChange={(e) => onChange(e.target.value)}
+                aria-label={ariaLabel}
+                aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+                aria-describedby={rowLabels?.descriptionId}
+                onChange={(event) => onChange(event.target.value)}
                 className={`${inputClass} ${mono ? "font-mono text-xs" : ""}`}
             />
             {canReset ? (

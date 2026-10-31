@@ -63,6 +63,18 @@ describe("preview invoke handler", () => {
         const status = handle("git_status", { path: PREVIEW_PROJECT_PATH }) as Array<{ status: string }>;
         expect(status.length).toBeGreaterThan(0);
         for (const file of status) expect(file.status).toMatch(/^[MACDUR?!]$/);
+        const logWithCounts = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            hash: string;
+            files_changed: number;
+        }>;
+        for (const entry of logWithCounts) {
+            const commitFiles = handle("git_commit_files", {
+                path: PREVIEW_PROJECT_PATH,
+                hash: entry.hash,
+            }) as Array<{ path: string }>;
+            expect(commitFiles).toHaveLength(entry.files_changed);
+        }
+        expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "unknown" })).toEqual([]);
     });
 
     it("never throws for unmocked commands, safe defaults by shape", () => {

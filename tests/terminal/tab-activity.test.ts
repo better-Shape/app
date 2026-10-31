@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     lookupByProjectPath,
+    projectPathKey,
     sameProjectPath,
     terminalSessionStore,
     type TerminalTab,
@@ -206,5 +207,13 @@ describe("terminal tab activity", () => {
 
         terminalSessionStore.setActive("c:/users/ada/repo", "win-next");
         expect(lookupByProjectPath(terminalSessionStore.activeProjectTabs, "C:\\Users\\Ada\\Repo")).toBe("win-next");
+
+        // Windows drive roots stay distinct from bare drive-relative specifiers, and POSIX literal backslashes stay intact.
+        expect(projectPathKey("C:\\")).toBe("c:/");
+        expect(projectPathKey("C:")).toBe("c:");
+        expect(sameProjectPath("C:\\", "C:")).toBe(false);
+        expect(sameProjectPath("C:\\Users\\\\Ada\\Repo\\", "c:/users/ada/repo")).toBe(true);
+        expect(sameProjectPath("/home/Ada/my\\repo", "/home/ada/my\\repo")).toBe(false);
+        expect(sameProjectPath("/home/Ada//my\\repo/", "/home/Ada/my\\repo")).toBe(true);
     });
 });

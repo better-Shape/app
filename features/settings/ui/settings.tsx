@@ -747,6 +747,7 @@ function FeedbackSection() {
                                 </select>
                                 <Textarea
                                     value={message}
+                                    aria-label="Problem description"
                                     onChange={(e) => setMessage(e.target.value)}
                                     placeholder="What were you doing?"
                                     className="min-h-32"
