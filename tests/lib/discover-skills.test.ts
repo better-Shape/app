@@ -420,6 +420,36 @@ describe("discoverSkills", () => {
         await expect(
             mocks.readFileWithin("\\\\server\\share\\custom\\pdf\\SKILL.md", "C:/Shared"),
         ).resolves.toContain("unc-symlink-only");
+
+        // Mixed fixture: simulated UNC share + POSIX `//` paths keep POSIX `//` case-sensitive.
+        const linuxUaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+        try {
+            serveSkillFs(
+                mocks,
+                {
+                    "\\\\Server\\Share\\Demo\\.agents\\unc.md": "unc-body",
+                    "//opt/Repo/.agents/guide.md": "upper-posix",
+                    "//opt/repo/.agents/guide.md": "lower-posix",
+                },
+                { homeDir: HOME },
+            );
+            await expect(
+                mocks.readFileWithin("//opt/Repo/.agents/guide.md", "//opt/Repo"),
+            ).resolves.toBe("upper-posix");
+            await expect(
+                mocks.readFileWithin("//opt/repo/.agents/guide.md", "//opt/repo"),
+            ).resolves.toBe("lower-posix");
+            await expect(
+                mocks.readFileWithin("//opt/Repo/.agents/guide.md", "//opt/repo"),
+            ).rejects.toThrow("outside root");
+            await expect(
+                mocks.readFileWithin("\\\\server\\share\\demo\\.agents\\unc.md", "\\\\SERVER\\SHARE\\DEMO"),
+            ).resolves.toBe("unc-body");
+        } finally {
+            linuxUaSpy.mockRestore();
+        }
     });
 
     it("resolves multi-segment descendants through a symlink targeting POSIX root without misclassifying as UNC", async () => {
