@@ -524,6 +524,8 @@ export function SettingMultiSelect({
     );
 }
 
+const CUSTOM_EXCLUDE_PATTERNS_KEY = "bettershape-custom-exclude-patterns";
+
 const parseExcludePatterns = (value: string): string[] => {
     const seen = new Set<string>();
     const patterns: string[] = [];
@@ -538,14 +540,53 @@ const parseExcludePatterns = (value: string): string[] => {
 };
 
 const collectMissingCustomPatterns = (
-    active: readonly string[],
+    candidates: readonly string[],
     remembered: readonly string[],
 ): string[] => {
-    const known = new Set<string>([
+    const seen = new Set<string>([
         ...COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern),
         ...remembered,
     ]);
-    return active.filter((pattern) => !known.has(pattern));
+    const added: string[] = [];
+    for (const raw of candidates) {
+        const pattern = raw.trim();
+        if (!pattern || seen.has(pattern)) continue;
+        seen.add(pattern);
+        added.push(pattern);
+    }
+    return added;
+};
+
+const parseJsonArray = (raw: string | null): unknown[] => {
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+};
+
+const readStoredExcludeArray = (): unknown[] => {
+    if (typeof window === "undefined") return [];
+    try {
+        return parseJsonArray(window.localStorage.getItem(CUSTOM_EXCLUDE_PATTERNS_KEY));
+    } catch {
+        return [];
+    }
+};
+
+const loadInitialCustomPatterns = (active: readonly string[]): string[] => {
+    const stored = collectMissingCustomPatterns(
+        readStoredExcludeArray().filter((item): item is string => typeof item === "string"),
+        [],
+    );
+    return [...stored, ...collectMissingCustomPatterns(active, stored)];
+};
+
+const writeStoredCustomExcludePatterns = (patterns: readonly string[]): void => {
+    if (typeof window === "undefined" || patterns.length === 0) return;
+    try {
+        window.localStorage.setItem(CUSTOM_EXCLUDE_PATTERNS_KEY, JSON.stringify(patterns));
+    } catch {
+        // Storage quota or private-mode rejection is non-fatal; in-memory state still works.
+    }
 };
 
 const buildExcludeOptions = (customPatterns: readonly string[]) => {
@@ -569,12 +610,16 @@ export function ExcludePatternsSelect({
 }) {
     const active = parseExcludePatterns(value);
     const [customPatterns, setCustomPatterns] = React.useState<string[]>(() =>
-        collectMissingCustomPatterns(active, []),
+        loadInitialCustomPatterns(active),
     );
     const missingCustom = collectMissingCustomPatterns(active, customPatterns);
     const allCustom =
         missingCustom.length > 0 ? [...customPatterns, ...missingCustom] : customPatterns;
     if (missingCustom.length > 0) setCustomPatterns(allCustom);
+
+    React.useLayoutEffect(() => {
+        writeStoredCustomExcludePatterns(customPatterns);
+    }, [customPatterns]);
 
     return (
         <SettingMultiSelect

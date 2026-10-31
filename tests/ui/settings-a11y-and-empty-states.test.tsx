@@ -65,6 +65,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+    localStorage.clear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -252,10 +253,10 @@ describe("Settings row accessible labelling", () => {
         expect(baseUrlInput.value).toBe("https://api.openai.example/v1");
     });
 
-    it("retains custom globs across preset toggles and uncheck/re-check cycles", () => {
+    it("retains custom globs across preset toggles, unmounts, and re-check cycles", () => {
         const changes: string[] = [];
-        const Harness = () => {
-            const [val, setVal] = useState("**/node_modules, **/vendor/**");
+        const Harness = ({ initial }: { initial: string }) => {
+            const [val, setVal] = useState(initial);
             return (
                 <SettingCard>
                     <SettingRow title="Exclude">
@@ -270,7 +271,7 @@ describe("Settings row accessible labelling", () => {
                 </SettingCard>
             );
         };
-        render(<Harness />);
+        render(<Harness initial="**/node_modules, **/vendor/**" />);
 
         const findMenuCheckbox = (label: string): HTMLElement | undefined =>
             Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'))
@@ -298,12 +299,15 @@ describe("Settings row accessible labelling", () => {
         });
         expect(changes).toEqual(["**/node_modules,**/vendor/**,**/dist"]);
 
-        // Unchecking custom **/vendor/** keeps it listed so the user can re-enable it.
+        // Unchecking custom **/vendor/** and unmounting still keeps it listed on remount.
         const activeCustom = openMenuAndFind("**/vendor/**");
         act(() => {
             activeCustom.click();
         });
         expect(changes.at(-1)).toBe("**/node_modules,**/dist");
+
+        render(<div />);
+        render(<Harness initial="**/node_modules,**/dist" />);
 
         const uncheckedCustom = openMenuAndFind("**/vendor/**");
         expect(uncheckedCustom.getAttribute("aria-checked")).toBe("false");
