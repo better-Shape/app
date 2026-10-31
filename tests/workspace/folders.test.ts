@@ -110,5 +110,8 @@ describe("workspace folders", () => {
         expect(isSameWorkspacePath("C:\\Work\\Repo", "c:/work/repo")).toBe(true);
         expect(isSameWorkspacePath("/repo", "/repo-2")).toBe(false);
         expect(isSameWorkspacePath("", "")).toBe(false);
+        // Linux keeps the two apart; only a Windows path folds case.
+        expect(isSameWorkspacePath("/repo", "/Repo")).toBe(false);
+        expect(isSameWorkspacePath("/Repo/", "/Repo")).toBe(true);
     });
 });
