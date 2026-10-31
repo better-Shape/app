@@ -36,6 +36,10 @@ import { updateSettingSection } from "@/lib/settings";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { SettingActionRow, SettingCard, SettingSection, SETTING_CONTROL_BTN } from "../shared/controls";
 
+const WORKFLOW_PILL_ACTIVE_CLASS =
+    "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary";
+const WORKFLOW_PILL_IDLE_CLASS = "text-text-muted hover:bg-[var(--row-hover)]";
+
 export function WorkflowsEditor({ value }: { value: AgentWorkflow[] }) {
     const [open, setOpen] = React.useState(false);
     const [editing, setEditing] = React.useState<AgentWorkflow | null>(null);
@@ -202,6 +206,8 @@ function WorkflowDialog({
         });
     }, [tools]);
 
+    const toolsValueId = React.useId();
+
     if (!draft) return null;
 
     const canSave = draft.name.trim() && draft.trigger.trim() && draft.prompt.trim();
@@ -223,55 +229,68 @@ function WorkflowDialog({
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="flex max-h-[min(70vh,560px)] flex-col gap-3 overflow-y-auto px-1 pb-2">
-                    <Field label="Name">
-                        <Input
-                            value={draft.name}
-                            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                            placeholder="e.g. Summarize my emails"
-                            className="bg-panel-hover"
-                        />
-                    </Field>
-                    <Field label="When">
-                        <div className="flex flex-wrap gap-1.5">
-                            {(
-                                [
-                                    ["both", "Slash or phrase"],
-                                    ["slash", "Slash only"],
-                                    ["phrase", "Phrase in the message"],
-                                ] as const
-                            ).map(([id, label]) => (
-                                <button
-                                    key={id}
-                                    type="button"
-                                    onClick={() => setDraft({ ...draft, when: id })}
-                                    className={cn(
-                                        "rounded-full px-2.5 py-1 text-xs",
-                                        (draft.when ?? "both") === id
-                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
-                                            : "text-text-muted hover:bg-[var(--row-hover)]",
-                                    )}
-                                >
-                                    {label}
-                                </button>
-                            ))}
-                        </div>
-                    </Field>
-                    <Field label="Trigger">
-                        <Input
-                            value={draft.trigger}
-                            onChange={(e) => setDraft({ ...draft, trigger: e.target.value })}
-                            placeholder="/test or “send proposal”"
-                            className="bg-panel-hover"
-                        />
-                    </Field>
-                    <Field label="Prompt">
-                        <Textarea
-                            value={draft.prompt}
-                            onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
-                            placeholder="Tell BetterShape what to do when this routine runs."
-                            className="min-h-28 bg-panel-hover"
-                        />
-                    </Field>
+                    <WorkflowField label="Name">
+                        {(id) => (
+                            <Input
+                                id={id}
+                                value={draft.name}
+                                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                                placeholder="e.g. Summarize my emails"
+                                className="bg-panel-hover"
+                            />
+                        )}
+                    </WorkflowField>
+                    <WorkflowGroupField label="When" group>
+                        {() => (
+                            <div className="flex flex-wrap gap-1.5">
+                                {(
+                                    [
+                                        ["both", "Slash or phrase"],
+                                        ["slash", "Slash only"],
+                                        ["phrase", "Phrase in the message"],
+                                    ] as const
+                                ).map(([id, label]) => {
+                                    const active = (draft.when ?? "both") === id;
+                                    const pillTone = active
+                                        ? WORKFLOW_PILL_ACTIVE_CLASS
+                                        : WORKFLOW_PILL_IDLE_CLASS;
+                                    return (
+                                        <button
+                                            key={id}
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => setDraft({ ...draft, when: id })}
+                                            className={cn("rounded-full px-2.5 py-1 text-xs", pillTone)}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </WorkflowGroupField>
+                    <WorkflowField label="Trigger">
+                        {(id) => (
+                            <Input
+                                id={id}
+                                value={draft.trigger}
+                                onChange={(e) => setDraft({ ...draft, trigger: e.target.value })}
+                                placeholder="/test or “send proposal”"
+                                className="bg-panel-hover"
+                            />
+                        )}
+                    </WorkflowField>
+                    <WorkflowField label="Prompt">
+                        {(id) => (
+                            <Textarea
+                                id={id}
+                                value={draft.prompt}
+                                onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
+                                placeholder="Tell BetterShape what to do when this routine runs."
+                                className="min-h-28 bg-panel-hover"
+                            />
+                        )}
+                    </WorkflowField>
                     <div className="grid grid-cols-2 gap-2">
                         <label className="flex items-center justify-between rounded-xl bg-panel-hover px-3 py-2 text-sm">
                             <span>Web search</span>
@@ -292,91 +311,105 @@ function WorkflowDialog({
                             />
                         </label>
                     </div>
-                    <Field label="Mode">
-                        <div className="flex flex-wrap gap-1.5">
-                            {([undefined, "Ask", "Code", "Plan", "Visual"] as const).map((id) => (
-                                <button
-                                    key={id ?? "any"}
-                                    type="button"
-                                    onClick={() => setDraft({ ...draft, mode: id })}
-                                    className={cn(
-                                        "rounded-full px-2.5 py-1 text-xs",
-                                        draft.mode === id
-                                            ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)] text-text-primary"
-                                            : "text-text-muted hover:bg-[var(--row-hover)]",
-                                    )}
-                                >
-                                    {id ?? "Any"}
-                                </button>
-                            ))}
-                        </div>
-                    </Field>
-                    <Field label="Plugin">
-                        <PluginPicker
-                            plugins={connected}
-                            selected={selected}
-                            onChange={(toolkit) =>
-                                setDraft({
-                                    ...draft,
-                                    pluginToolkit: toolkit,
-                                    pluginTool: undefined,
-                                    pluginTools: undefined,
-                                })
-                            }
-                        />
-                    </Field>
+                    <WorkflowGroupField label="Mode" group>
+                        {() => (
+                            <div className="flex flex-wrap gap-1.5">
+                                {(
+                                    [undefined, "Ask", "Code", "Plan", "Visual"] as const
+                                ).map((id) => {
+                                    const active = draft.mode === id;
+                                    const pillTone = active
+                                        ? WORKFLOW_PILL_ACTIVE_CLASS
+                                        : WORKFLOW_PILL_IDLE_CLASS;
+                                    return (
+                                        <button
+                                            key={id ?? "any"}
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => setDraft({ ...draft, mode: id })}
+                                            className={cn("rounded-full px-2.5 py-1 text-xs", pillTone)}
+                                        >
+                                            {id ?? "Any"}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </WorkflowGroupField>
+                    <WorkflowGroupField label="Plugin">
+                        {(labelId) => (
+                            <PluginPicker
+                                labelId={labelId}
+                                plugins={connected}
+                                selected={selected}
+                                onChange={(toolkit) =>
+                                    setDraft({
+                                        ...draft,
+                                        pluginToolkit: toolkit,
+                                        pluginTool: undefined,
+                                        pluginTools: undefined,
+                                    })
+                                }
+                            />
+                        )}
+                    </WorkflowGroupField>
                     {draft.pluginToolkit ? (
-                        <Field label="Tools">
-                            <DropdownMenu modal={false}>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="secondary"
-                                        size="md"
-                                        className="w-full justify-between gap-2 bg-panel-hover!"
+                        <WorkflowGroupField label="Tools">
+                            {(labelId) => (
+                                <DropdownMenu modal={false}>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant="secondary"
+                                            size="md"
+                                            aria-labelledby={`${labelId} ${toolsValueId}`}
+                                            className="w-full justify-between gap-2 bg-panel-hover!"
+                                        >
+                                            <span id={toolsValueId} className="truncate">
+                                                {selectedToolNames.length
+                                                    ? selectedToolNames.join(", ")
+                                                    : "Select tools to auto-run"}
+                                            </span>
+                                            <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                        portalled={false}
+                                        align="start"
+                                        className="w-[var(--radix-dropdown-menu-trigger-width)]"
                                     >
-                                        <span className="truncate">
-                                            {selectedToolNames.length
-                                                ? selectedToolNames.join(", ")
-                                                : "Select tools to auto-run"}
-                                        </span>
-                                        <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    portalled={false}
-                                    align="start"
-                                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
-                                >
-                                    {uniqueTools.length === 0 ? (
-                                        <div className="px-2 py-1.5 text-sm text-text-muted">
-                                            No tools found
-                                        </div>
-                                    ) : (
-                                        (() => {
-                                            const toolKey = createOccurrenceKeyer();
-                                            return uniqueTools.map((t) => (
-                                                <DropdownMenuCheckboxItem
-                                                    key={toolKey(t.slug)}
-                                                    checked={selectedSlugs.includes(t.slug)}
-                                                onCheckedChange={(checked) => {
-                                                    const next = checked
-                                                        ? [...selectedSlugs, t.slug]
-                                                        : selectedSlugs.filter((s) => s !== t.slug);
-                                                    setDraft({
-                                                        ...draft,
-                                                        pluginTools: next,
-                                                        pluginTool: next[0],
-                                                    });
-                                                }}
-                                            >
-                                                {t.name || t.slug}
-                                            </DropdownMenuCheckboxItem>
-                                        ));
-                                        })()
-                                    )}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </Field>
+                                        {uniqueTools.length === 0 ? (
+                                            <div className="px-2 py-1.5 text-sm text-text-muted">
+                                                No tools found
+                                            </div>
+                                        ) : (
+                                            (() => {
+                                                const toolKey = createOccurrenceKeyer();
+                                                return uniqueTools.map((t) => (
+                                                    <DropdownMenuCheckboxItem
+                                                        key={toolKey(t.slug)}
+                                                        checked={selectedSlugs.includes(t.slug)}
+                                                        onCheckedChange={(checked) => {
+                                                            const next = checked
+                                                                ? [...selectedSlugs, t.slug]
+                                                                : selectedSlugs.filter(
+                                                                      (s) => s !== t.slug,
+                                                                  );
+                                                            setDraft({
+                                                                ...draft,
+                                                                pluginTools: next,
+                                                                pluginTool: next[0],
+                                                            });
+                                                        }}
+                                                    >
+                                                        {t.name || t.slug}
+                                                    </DropdownMenuCheckboxItem>
+                                                ));
+                                            })()
+                                        )}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
+                        </WorkflowGroupField>
                     ) : null}
                     <div className="rounded-xl bg-panel-hover px-3 py-2.5">
                         <div className="text-xs font-medium text-text-secondary">See how</div>
@@ -403,42 +436,48 @@ function WorkflowDialog({
 }
 
 function PluginPicker({
+    labelId,
     plugins,
     selected,
     onChange,
 }: {
+    labelId: string;
     plugins: PluginRow[];
     selected?: PluginRow;
     onChange: (toolkit: string | undefined) => void;
 }) {
+    const valueId = React.useId();
     return (
-            <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn(SETTING_CONTROL_BTN, "w-full")}
-                    >
-                        <span className="flex min-w-0 items-center gap-2">
-                            {selected ? (
-                                <PluginLogo
-                                    toolkit={selected.toolkit}
-                                    name={selected.name}
-                                    logo={selected.logo}
-                                    size={18}
-                                    className="rounded-sm"
-                                />
-                            ) : null}
-                            <span className="truncate">{selected?.name ?? "None"}</span>
-                        </span>
-                        <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    portalled={false}
-                    align="start"
-                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
+        <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-labelledby={`${labelId} ${valueId}`}
+                    className={cn(SETTING_CONTROL_BTN, "w-full")}
                 >
+                    <span className="flex min-w-0 items-center gap-2">
+                        {selected ? (
+                            <PluginLogo
+                                toolkit={selected.toolkit}
+                                name={selected.name}
+                                logo={selected.logo}
+                                size={18}
+                                className="rounded-sm"
+                            />
+                        ) : null}
+                        <span id={valueId} className="truncate">
+                            {selected?.name ?? "None"}
+                        </span>
+                    </span>
+                    <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+                portalled={false}
+                align="start"
+                className="w-[var(--radix-dropdown-menu-trigger-width)]"
+            >
                 <DropdownMenuItem onSelect={() => onChange(undefined)}>None</DropdownMenuItem>
                 {plugins.length === 0 ? (
                     <div className="px-2 py-1.5 text-sm text-text-muted">
@@ -467,11 +506,46 @@ function PluginPicker({
     );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/** Pairs a single form control with an explicit `htmlFor` label outside sibling popovers. */
+function WorkflowField({
+    label,
+    children,
+}: {
+    label: string;
+    children: (controlId: string) => React.ReactNode;
+}) {
+    const controlId = React.useId();
     return (
-        <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-text-secondary">{label}</span>
-            {children}
-        </label>
+        <div className="flex flex-col gap-1.5 text-sm">
+            <label htmlFor={controlId} className="font-medium text-text-secondary">
+                {label}
+            </label>
+            {children(controlId)}
+        </div>
+    );
+}
+
+/** Pairs a pill group or menu trigger with a stable heading `id` instead of `<label>`. */
+function WorkflowGroupField({
+    label,
+    group = false,
+    children,
+}: {
+    label: string;
+    group?: boolean;
+    children: (labelId: string) => React.ReactNode;
+}) {
+    const labelId = React.useId();
+    return (
+        <div
+            role={group ? "group" : undefined}
+            aria-labelledby={group ? labelId : undefined}
+            className="flex flex-col gap-1.5 text-sm"
+        >
+            <span id={labelId} className="font-medium text-text-secondary">
+                {label}
+            </span>
+            {children(labelId)}
+        </div>
     );
 }

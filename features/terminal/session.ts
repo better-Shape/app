@@ -39,18 +39,39 @@ function createTabId() {
         : randomSuffix(9);
 }
 
+const isSingleSlashPosixPath = (raw: string): boolean =>
+    raw.startsWith("/") && !raw.startsWith("//");
+
 const isWindowsProjectPath = (raw: string): boolean => {
+    if (isSingleSlashPosixPath(raw)) return false;
     if (raw.includes("\\") || /^[A-Za-z]:/.test(raw)) return true;
     return raw.startsWith("//") && getPlatform() === "windows";
 };
 
+const collapseProjectSlashes = (forward: string): string => {
+    const prefix = forward.startsWith("//") && !forward.startsWith("///") ? "//" : "";
+    const body = forward.slice(prefix.length).replace(/\/+/g, "/");
+    return `${prefix}${body}`;
+};
+
+const resolveMinProjectRootLength = (collapsed: string): number => {
+    if (/^[A-Za-z]:\//.test(collapsed)) return 3;
+    return collapsed.startsWith("//") ? 2 : 1;
+};
+
+const stripTrailingProjectSlashes = (collapsed: string): string => {
+    const minLength = resolveMinProjectRootLength(collapsed);
+    let end = collapsed.length;
+    while (end > minLength && collapsed.charCodeAt(end - 1) === 47) end -= 1;
+    return collapsed.slice(0, end);
+};
+
 /** Exported so the Terminal UI and session store agree on project path identity. */
 export const projectPathKey = (raw: string): string => {
+    if (!raw) return "";
     const isWindows = isWindowsProjectPath(raw);
-    const forward = raw.replaceAll("\\", "/");
-    let end = forward.length;
-    while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
-    const trimmed = forward.slice(0, end);
+    const forward = isSingleSlashPosixPath(raw) ? raw : raw.replaceAll("\\", "/");
+    const trimmed = stripTrailingProjectSlashes(collapseProjectSlashes(forward));
     return isWindows ? trimmed.toLowerCase() : trimmed;
 };
 

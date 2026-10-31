@@ -776,3 +776,86 @@ describe("listSkills", () => {
         expect(listSkills().map((skill) => skill.id)).toEqual(["good"]);
     });
 });
+
+describe("canonical root scan filters and resilient dismissal parsing", () => {
+    it("discovers .mdc rules when .claude symlinks to .agents without duplicating .md files", async () => {
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.agents/shared.md`]: "# Shared MD\nBody md.",
+                [`${PROJECT}/.agents/cursor-style.mdc`]: "# Cursor Rule\nBody mdc.",
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude`]: `${PROJECT}/.agents`,
+                },
+            },
+        );
+
+        const scan = await discoverSkills();
+        expect(scan.items.map((item) => item.relPath)).toEqual([
+            ".agents/shared.md",
+            ".claude/cursor-style.mdc",
+        ]);
+    });
+
+    it("tolerates non-array or mixed-type dismissal JSON in localStorage without dropping valid paths", async () => {
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serve({
+            [`${PROJECT}/.agents/keep-hidden.md`]: "# Hidden\nDismissed body.",
+            [`${PROJECT}/.agents/visible.md`]: "# Visible\nShown body.",
+        });
+
+        localStorage.setItem(
+            `bettershape-dismissed-discovered:${PROJECT}`,
+            JSON.stringify([42, null, ".agents/keep-hidden.md", ""]),
+        );
+
+        const scan = await discoverSkills();
+        expect(scan.items.map((item) => item.relPath)).toEqual([".agents/visible.md"]);
+
+        localStorage.setItem(
+            `bettershape-dismissed-discovered:${PROJECT}`,
+            JSON.stringify({ corrupted: true }),
+        );
+        const recovered = await discoverSkills();
+        expect(recovered.items.map((item) => item.relPath)).toEqual([
+            ".agents/keep-hidden.md",
+            ".agents/visible.md",
+        ]);
+    });
+
+    it("deduplicates case-variant Windows lsDir entries and preserves POSIX leading-backslash relative symlink targets", async () => {
+        mocks.getProjectPath.mockReturnValue("C:\\Work\\App");
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Work/App/.agents/Guide.md": "# Guide\nFirst.",
+                "c:/work/app/.agents/guide.md": "# Guide\nUpdated.",
+            },
+            { homeDir: "C:/Users/dev" },
+        );
+
+        const winScan = await discoverSkills();
+        expect(winScan.items).toHaveLength(1);
+        expect(winScan.items[0]?.body).toContain("Updated.");
+
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serveSkillFs(
+            mocks,
+            {
+                [`${PROJECT}/.claude/skills/\\escaped-target/SKILL.md`]: "# Escaped\nPOSIX backslash folder.",
+            },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/alias`]: "\\escaped-target",
+                },
+            },
+        );
+        const posixScan = await discoverSkills();
+        expect(posixScan.items.some((item) => item.body.includes("POSIX backslash folder."))).toBe(true);
+    });
+});

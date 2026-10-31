@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { DrawnCheck } from "@/components/ui/checkmark";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { commands } from "@/lib/backend";
@@ -14,6 +13,7 @@ import { getSettings, updateSettingSection, areSecretsVaulted } from "@/lib/sett
 import {
     SettingRow,
     SettingSelect,
+    SettingTextarea,
     SETTING_CONTROL_BTN,
 } from "../../shared/controls";
 import {
@@ -758,6 +758,7 @@ const ExtraModelInputRow = ({
             <Input
                 type="text"
                 value={value}
+                aria-label="Add model ID"
                 placeholder="Add model id (e.g. llama3.1)"
                 spellCheck={false}
                 onChange={handleInput}
@@ -944,7 +945,7 @@ const ProviderAdvancedSection = ({
                         title="Extra headers"
                         description="One Name: value per line. Values are stored in the OS keychain beside the key."
                     >
-                        <Textarea
+                        <SettingTextarea
                             value={formatHeaderLines(connection.headers)}
                             placeholder={"HTTP-Referer: https://example.com\nX-Tenant: acme"}
                             spellCheck={false}

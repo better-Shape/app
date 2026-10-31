@@ -23,21 +23,24 @@ import { Tooltip } from "@/components/ui/tooltip";
 export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
 export const ALL_CHANGES_TAB_ID = "__all_changes__";
 
+/** Extracts the trailing file name from a slash- or backslash-delimited path. */
 function fileName(path: string) {
     return path.split(/[\\/]/).pop() || path;
 }
 
+/** Extracts the parent directory portion of a relative path. */
 function fileDir(path: string) {
-    const parts = path.replace(/\\/g, "/").split("/");
+    const parts = path.replaceAll("\\", "/").split("/");
     if (parts.length <= 1) return "";
     return parts.slice(0, -1).join("/");
 }
 
+/** Loads original (`HEAD`) and current working-tree text for a changed file. */
 async function loadSides(
     repo: string,
     file: GitFileParams,
 ): Promise<{ original: string; current: string }> {
-    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replaceAll("\\", "/")}`;
     let current = "";
     try {
         current = await commands.readFile(abs);
@@ -75,8 +78,12 @@ function LazyFileDiff({
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
     const [hover, setHover] = useState(false);
+    const [holdActive, setHoldActive] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
-    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
+    const [diff, setDiff] = useScopedState<FileDiff | null>(
+        [visible, repo, key],
+        () => (visible && repo ? { file, original: "", current: "", loading: true } : null),
+    );
     const dir = fileDir(file.path);
     const name = fileName(file.path);
     const domId = `md-file-${file.path.replace(/[\\/]/g, "-")}`;
@@ -102,10 +109,12 @@ function LazyFileDiff({
     useEffect(() => {
         if (!visible || !repo) return;
         let cancelled = false;
-        void loadSides(repo, file).then((sides) => {
-            if (cancelled) return;
-            setDiff({ file, ...sides, loading: false });
-        });
+        loadSides(repo, file)
+            .then((sides) => {
+                if (cancelled) return;
+                setDiff({ file, ...sides, loading: false });
+            })
+            .catch(() => undefined);
         return () => {
             cancelled = true;
         };
@@ -131,9 +140,11 @@ function LazyFileDiff({
         });
 
     const openFile = async () => {
-        const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+        const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replaceAll("\\", "/")}`;
         await openProjectFile(abs, name);
     };
+
+    const showOverlay = hover || holdActive;
 
     return (
         <section
@@ -161,13 +172,17 @@ function LazyFileDiff({
                     type="button"
                     variant="ghost"
                     size="xs"
-                    onClick={() => void toggleStage()}
+                    onClick={() => {
+                        toggleStage().catch(() => undefined);
+                    }}
                 >
                     {file.staged ? "Unstage" : "Stage"}
                 </Button>
                 <Button
                     type="button"
-                    onClick={() => void openFile()}
+                    onClick={() => {
+                        openFile().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                     title="Open File"
@@ -185,11 +200,13 @@ function LazyFileDiff({
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
-                {hover ? (
+                {showOverlay ? (
                     <div className="absolute right-3 top-2 z-[2] flex gap-1">
                         <Button
                             type="button"
-                            onClick={() => void toggleStage()}
+                            onClick={() => {
+                                toggleStage().catch(() => undefined);
+                            }}
                             variant="ghost"
                             className="bg-surface-4"
                             size="xs"
@@ -199,6 +216,7 @@ function LazyFileDiff({
                         <HoldButton
                             size="xs"
                             onConfirm={() => discard()}
+                            onStateChange={(next) => setHoldActive(next !== "idle")}
                             ariaLabel="Restore file"
                             label="Restore"
                             armedLabel="Confirm"
@@ -226,6 +244,7 @@ function LazyFileDiff({
     );
 }
 
+/** Renders a scrollable stacked diff view across all modified repository files. */
 export function MultiDiffEditor({
     projectPath,
     focusPath,
@@ -238,18 +257,26 @@ export function MultiDiffEditor({
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
 
-    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
-            const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
-            setRepo(path);
-            const list = await commands.gitStatus(path);
-            setFiles(list);
-    }).catch(() => {
-            setFiles([]);
-    }), [projectPath]);
+    const refresh = useCallback(
+        () =>
+            discoverGitRepos(projectPath)
+                .then(async (repos) => {
+                    const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
+                    setRepo(path);
+                    const list = await commands.gitStatus(path);
+                    setFiles(list);
+                })
+                .catch(() => {
+                    setFiles([]);
+                }),
+        [projectPath],
+    );
 
     useEffect(() => {
-        void refresh();
-        const on = () => void refresh();
+        refresh().catch(() => undefined);
+        const on = () => {
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", on);
         return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
@@ -316,6 +343,8 @@ export function MultiDiffEditor({
         return [...unstaged, ...staged];
     }, [files]);
 
+    const normalizedFocusPath = focusPath ? focusPath.replaceAll("\\", "/") : null;
+
     return (
         <div className="flex h-full min-h-0 flex-col bg-panel">
             <div className="flex h-9 shrink-0 items-center gap-1 px-3 text-sm bg-panel">
@@ -335,7 +364,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || !files.some((f) => !f.staged)}
-                    onClick={() => void stageAll()}
+                    onClick={() => {
+                        stageAll().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                 >
@@ -344,7 +375,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || !files.some((f) => f.staged)}
-                    onClick={() => void unstageAll()}
+                    onClick={() => {
+                        unstageAll().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                 >
@@ -353,7 +386,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || files.length === 0}
-                    onClick={() => void commit()}
+                    onClick={() => {
+                        commit().catch(() => undefined);
+                    }}
                     variant="default"
                     className="bg-success/20 text-success"
                     size="xs"
@@ -371,8 +406,8 @@ export function MultiDiffEditor({
                     {ordered.map((file) => {
                         const key = `${file.staged ? "s" : "u"}:${file.path}`;
                         const focused =
-                            Boolean(focusPath) &&
-                            file.path.replace(/\\/g, "/") === focusPath!.replace(/\\/g, "/");
+                            normalizedFocusPath !== null &&
+                            file.path.replaceAll("\\", "/") === normalizedFocusPath;
                         return (
                             <LazyFileDiff
                                 key={key}

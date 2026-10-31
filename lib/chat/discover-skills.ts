@@ -74,7 +74,12 @@ function hasExtension(fileName: string, extensions: readonly string[]): boolean 
 function dismissedFilesFromKey(key: string): Set<string> {
     try {
         const raw = window.localStorage.getItem(key);
-        return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+        if (!raw) return new Set();
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return new Set();
+        return new Set(
+            parsed.filter((item): item is string => typeof item === "string" && item.length > 0),
+        );
     } catch {
         return new Set();
     }
@@ -217,6 +222,19 @@ function canonicalPathKey(path: string, contextPath?: string | null): string {
     return isCaseInsensitiveContext(path, contextPath) ? normalized.toLowerCase() : normalized;
 }
 
+/** Deduplication key for project roots that preserves distinct scan kinds and extension filters. */
+function canonicalRootScanKey(
+    canonicalRoot: string,
+    root: SkillRoot,
+    projectPath: string,
+): string {
+    const extensions =
+        root.kind === "flat"
+            ? [...(root.extensions ?? [".md"])].map((ext) => ext.toLowerCase()).sort().join(",")
+            : "";
+    return `${canonicalPathKey(canonicalRoot, projectPath)}\0${root.kind}\0${extensions}`;
+}
+
 /** Checks directory containment while keeping sibling stems and bare `X:` disjoint. */
 const isKeyWithinBase = (folderKey: string, baseKey: string): boolean =>
     isInsideSkillPath(folderKey, baseKey);
@@ -316,7 +334,7 @@ export async function discoverSkills(
         if (root.scope === "project" && projectPath) {
             canonicalRoot = await resolveProjectCanonicalDir(root.path, projectPath);
             if (!canonicalRoot) continue;
-            const rootKey = canonicalPathKey(canonicalRoot, projectPath);
+            const rootKey = canonicalRootScanKey(canonicalRoot, root, projectPath);
             if (seenCanonicalRoots.has(rootKey)) continue;
             seenCanonicalRoots.add(rootKey);
         }

@@ -20,12 +20,17 @@ import {
 } from "@/lib/workspace/repo-history";
 import { cn } from "@/lib/utils";
 
+const isPosixAbsolutePath = (raw: string): boolean =>
+    raw.startsWith("/") && !raw.startsWith("//");
+
 const formatWithPathSeparators = (normalizedTarget: string, originalPath: string): string =>
-    originalPath.includes("\\") ? normalizedTarget.replaceAll("/", "\\") : normalizedTarget;
+    !isPosixAbsolutePath(originalPath) && originalPath.includes("\\")
+        ? normalizedTarget.replaceAll("/", "\\")
+        : normalizedTarget;
 
 /** Parent directory portion of a path, rendered with the path's own separators. */
 export const parentDir = (path: string): string => {
-    const normalized = path.replaceAll("\\", "/");
+    const normalized = isPosixAbsolutePath(path) ? path : path.replaceAll("\\", "/");
     if (normalized === "/" || /^[A-Za-z]:\/+$/.test(normalized)) return path;
     let end = normalized.length;
     while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;

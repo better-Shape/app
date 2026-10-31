@@ -424,14 +424,16 @@ const resolveNextPendingBaseline = (
 ): GraphPendingBaseline | null =>
     evaluation.hasMissingParent ? toPendingBaseline(baseline, evaluation.confirmedHashes) : null;
 
-const resolveEffectiveSlice = (
-    gitLogs: GitLogEntry[],
-    staleCarryOver: boolean,
-): {
+type EffectiveGraphSlice = {
     effectiveLogs: GitLogEntry[];
     effectiveTopHash: string | null;
     effectiveHeadRef: string | null;
-} => {
+};
+
+const resolveEffectiveSlice = (
+    gitLogs: GitLogEntry[],
+    staleCarryOver: boolean,
+): EffectiveGraphSlice => {
     if (staleCarryOver) {
         return { effectiveLogs: EMPTY_ARRAY, effectiveTopHash: null, effectiveHeadRef: null };
     }
@@ -449,6 +451,35 @@ const isUnstreamedHeadSlice = (
     effectiveTopHash: string | null,
 ): boolean => !keyChanged && !staleCarryOver && logCount > 0 && effectiveTopHash === null;
 
+/** Evaluates arrival lineage against `baseline`, falling back to `prev` when HEAD outgrew it. */
+const resolveEffectiveArrivalEvaluation = (
+    prev: GraphHeadSnapshot,
+    baseline: GraphPendingBaseline,
+    cacheKey: string | null,
+    slice: EffectiveGraphSlice,
+): { activeBaseline: GraphPendingBaseline; evaluation: GraphArrivalEvaluation } => {
+    const primary = evaluateFreshGraphLineage(
+        baseline,
+        cacheKey,
+        slice.effectiveLogs,
+        slice.effectiveHeadRef,
+    );
+    const headAdvancedPastPending =
+        baseline !== prev &&
+        slice.effectiveTopHash !== null &&
+        slice.effectiveTopHash !== prev.pendingTopHash;
+    if (!headAdvancedPastPending || primary.confirmedHashes.size > 0) {
+        return { activeBaseline: baseline, evaluation: primary };
+    }
+    const fallback = evaluateFreshGraphLineage(
+        prev,
+        cacheKey,
+        slice.effectiveLogs,
+        slice.effectiveHeadRef,
+    );
+    return { activeBaseline: prev, evaluation: fallback };
+};
+
 const computeNextSnapshot = (
     prev: GraphHeadSnapshot,
     cacheKey: string | null,
@@ -460,10 +491,8 @@ const computeNextSnapshot = (
 } => {
     const keyChanged = prev.cacheKey !== cacheKey;
     const staleCarryOver = nextIgnoredLogsRef !== null;
-    const { effectiveLogs, effectiveTopHash, effectiveHeadRef } = resolveEffectiveSlice(
-        gitLogs,
-        staleCarryOver,
-    );
+    const slice = resolveEffectiveSlice(gitLogs, staleCarryOver);
+    const { effectiveLogs, effectiveTopHash, effectiveHeadRef } = slice;
     const nextKnown = buildNextKnownSet(prev.known, keyChanged, staleCarryOver, gitLogs);
     if (isUnstreamedHeadSlice(keyChanged, staleCarryOver, effectiveLogs.length, effectiveTopHash)) {
         return {
@@ -482,13 +511,13 @@ const computeNextSnapshot = (
         effectiveTopHash,
         effectiveHeadRef,
     );
-    const evaluation = evaluateFreshGraphLineage(
+    const { activeBaseline, evaluation } = resolveEffectiveArrivalEvaluation(
+        prev,
         baseline,
         cacheKey,
-        effectiveLogs,
-        effectiveHeadRef,
+        slice,
     );
-    const nextPending = resolveNextPendingBaseline(baseline, evaluation);
+    const nextPending = resolveNextPendingBaseline(activeBaseline, evaluation);
     return {
         freshHashes: evaluation.freshHashes,
         nextSnapshot: {

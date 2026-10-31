@@ -46,10 +46,28 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
         await gotoRoute(page, "/settings");
         await expectPreviewActive(page, "welcome");
 
-        for (const navLabel of ["Providers", "Models", "Editor", "Git", "Terminal"]) {
+        for (const navLabel of [
+            "Providers",
+            "Models",
+            "Instructions",
+            "Context",
+            "Editor",
+            "Git",
+            "Terminal",
+            "Data Control",
+        ]) {
             const navButton = page.locator("nav button", { hasText: navLabel }).first();
             await expect(navButton).toBeVisible();
             await navButton.click();
+            if (navLabel === "Providers") {
+                const openAiHeader = page.getByRole("button", { name: /^OpenAI\b/ }).first();
+                if ((await openAiHeader.getAttribute("aria-expanded")) === "false") {
+                    await openAiHeader.click();
+                }
+                await page.getByRole("button", { name: /chat models?\b/i }).first().click();
+                await page.getByRole("button", { name: /Request headers & auth/i }).first().click();
+                await expect(page.getByRole("textbox", { name: "Extra headers" })).toBeVisible();
+            }
             if (navLabel === "Models") {
                 await expect(
                     page.getByRole("button", { name: /^Auto-run mode\s+\S+/ }),
@@ -60,10 +78,19 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
                     page.getByRole("button", { name: /^Exclude\s+\S+/ }),
                 ).toBeVisible();
             }
+            if (navLabel === "Data Control") {
+                await page.getByRole("button", { name: "Report", exact: true }).click();
+                await expect(
+                    page.getByRole("textbox", { name: "Problem description" }),
+                ).toBeVisible();
+            }
             const axe = await new AxeBuilder({ page })
                 .withRules(["button-name", "label", "aria-toggle-field-name"])
                 .analyze();
             expect(axe.violations, `a11y label violations on ${navLabel}`).toEqual([]);
+            if (navLabel === "Data Control") {
+                await page.keyboard.press("Escape");
+            }
         }
 
         expectNoPageErrors();

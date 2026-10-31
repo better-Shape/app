@@ -318,6 +318,7 @@ export function ProvidersSettingsView() {
                         <input
                             type="search"
                             value={query}
+                            aria-label="Search providers and models"
                             placeholder="Search providers and models..."
                             spellCheck={false}
                             onChange={(e) => setQuery(e.target.value)}
@@ -675,6 +676,7 @@ function AddProviderBox({
                             <input
                                 type="search"
                                 value={query}
+                                aria-label="Filter available providers"
                                 placeholder="Filter available providers..."
                                 onChange={(e) => onQueryChange(e.target.value)}
                                 className="h-8 w-full squircle-lg border border-border-secondary bg-input-bg pl-9 pr-2.5 text-sm text-text-primary placeholder:text-input-placeholder outline-none transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:border-border-focus [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"

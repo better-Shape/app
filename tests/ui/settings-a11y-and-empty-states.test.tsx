@@ -12,6 +12,7 @@ import {
 import { KeyInput, TextInput } from "@/features/settings/ui/sections/providers/inputs";
 import { ProviderCard } from "@/features/settings/ui/sections/providers/provider-card";
 import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
+import { WorkflowsEditor } from "@/features/settings/ui/sections/workflows";
 import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
 import { getSettings, updateSettingSection } from "@/lib/settings";
@@ -352,6 +353,81 @@ describe("Settings row accessible labelling", () => {
         expect(getModelSwitch("GPT-4o").getAttribute("aria-checked")).toBe("true");
         expect(getModelSwitch("GPT-4o").disabled).toBe(true);
     });
+
+    it("labels expanded ProviderCard disclosures and AI Rules textareas programmatically", () => {
+        const providers = defaultProvidersSettings();
+        render(
+            <>
+                <ProviderCard
+                    id="custom"
+                    providers={providers}
+                    query=""
+                    defaultExpanded
+                    onReset={() => {}}
+                />
+                <AiSettingsPanel settings={getSettings()} page="rules" />
+            </>,
+        );
+
+        const modelsDisclosure = Array.from(container.querySelectorAll("button")).find((btn) =>
+            btn.textContent?.trim().startsWith("Models"),
+        );
+        const advancedDisclosure = Array.from(container.querySelectorAll("button")).find((btn) =>
+            btn.textContent?.includes("Request headers & auth"),
+        );
+        if (!modelsDisclosure || !advancedDisclosure) {
+            throw new Error("Expected Models and Request headers & auth disclosures on ProviderCard");
+        }
+        act(() => {
+            modelsDisclosure.click();
+            advancedDisclosure.click();
+        });
+
+        expect(container.querySelector('input[aria-label="Add model ID"]')).not.toBeNull();
+        const extraHeaders = container.querySelector<HTMLTextAreaElement>(
+            'textarea[placeholder*="HTTP-Referer"]',
+        );
+        if (!extraHeaders) throw new Error("Expected Extra headers textarea");
+        const labelledById = extraHeaders.getAttribute("aria-labelledby") ?? "";
+        expect(document.getElementById(labelledById)?.textContent?.trim()).toBe("Extra headers");
+
+        expect(
+            container.querySelector('textarea[aria-label="Compaction instructions"]'),
+        ).not.toBeNull();
+        expect(
+            container.querySelector('textarea[aria-label="Custom instructions"]'),
+        ).not.toBeNull();
+    });
+
+    it("labels WorkflowDialog fields with htmlFor/group/aria-labelledby without wrapping button groups in <label>", async () => {
+        render(<WorkflowsEditor value={[]} />);
+
+        const addBtn = findButton("Add workflow");
+        await act(async () => {
+            addBtn.click();
+            await Promise.resolve();
+        });
+
+        const dialog = document.body.querySelector('[role="alertdialog"]');
+        if (!dialog) throw new Error("Expected New workflow dialog to open");
+
+        for (const label of Array.from(dialog.querySelectorAll("label"))) {
+            expect(label.querySelectorAll("button")).toHaveLength(0);
+        }
+
+        const groups = Array.from(dialog.querySelectorAll('[role="group"]'));
+        expect(groups.length).toBeGreaterThanOrEqual(2);
+
+        const slashOnlyBtn = Array.from(dialog.querySelectorAll("button")).find(
+            (btn) => btn.textContent?.trim() === "Slash only",
+        );
+        if (!slashOnlyBtn) throw new Error("Expected Slash only pill button");
+        expect(slashOnlyBtn.getAttribute("aria-pressed")).toBe("false");
+        act(() => {
+            slashOnlyBtn.click();
+        });
+        expect(slashOnlyBtn.getAttribute("aria-pressed")).toBe("true");
+    });
 });
 
 describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects Collapse", () => {
@@ -364,6 +440,7 @@ describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects
         expect(parentDir("\\\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("/repo")).toBe("/");
         expect(parentDir("/Users/ada/repo/")).toBe("/Users/ada");
+        expect(parentDir("/Users/ada/my\\work/repo")).toBe("/Users/ada/my\\work");
     });
 
     it("uses +1 surface step hover without light-fill inversion and reveals overflow projects via Collapse", () => {

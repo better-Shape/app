@@ -151,8 +151,14 @@ export function serveSkillFs(
         return joinRootAndStack(root, collapseSegments(rest, clampAtRoot));
     };
 
-    const isSelfAnchoredTarget = (raw: string): boolean => {
-        const forward = toForwardPath(raw);
+    const isWindowsPath = (canonical: string): boolean =>
+        DRIVE_PREFIX_RE.test(canonical) || matchUncShareRoot(canonical) !== null;
+    const pathCompareKey = (canonical: string): string =>
+        isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
+
+    const isSelfAnchoredTarget = (normFrom: string, rawTo: string): boolean => {
+        if (!isWindowsPath(normFrom)) return rawTo.startsWith("/");
+        const forward = toForwardPath(rawTo);
         return forward.startsWith("/") || DRIVE_PREFIX_RE.test(forward);
     };
 
@@ -164,16 +170,14 @@ export function serveSkillFs(
     };
 
     const resolveLinkTarget = (normFrom: string, rawTo: string): string => {
-        if (isSelfAnchoredTarget(rawTo)) return normalize(rawTo);
+        if (isSelfAnchoredTarget(normFrom, rawTo)) return normalize(rawTo);
         const parent = resolveLinkParent(normFrom);
-        const joined = joinsDirectlyToRoot(parent) ? `${parent}${rawTo}` : `${parent}/${rawTo}`;
+        const targetSegment = isWindowsPath(normFrom) ? rawTo.replaceAll("\\", "/") : rawTo;
+        const joined = joinsDirectlyToRoot(parent)
+            ? `${parent}${targetSegment}`
+            : `${parent}/${targetSegment}`;
         return normalize(joined);
     };
-
-    const isWindowsPath = (canonical: string): boolean =>
-        DRIVE_PREFIX_RE.test(canonical) || matchUncShareRoot(canonical) !== null;
-    const pathCompareKey = (canonical: string): string =>
-        isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
 
     const links = new Map(
         Object.entries(options.symlinks ?? {}).map(([from, to]) => {
@@ -260,6 +264,7 @@ export function serveSkillFs(
         const requestedPrefix = joinsDirectlyToRoot(requestedDir)
             ? requestedDir
             : `${requestedDir}/`;
+        const caseInsensitiveDir = isWindowsPath(dir);
         const names = new Set<string>();
         const entries: { name: string; path: string; is_dir: boolean }[] = [];
         for (const candidate of [...normalized.keys(), ...directories, ...linkPaths]) {
@@ -272,8 +277,9 @@ export function serveSkillFs(
             const rest = candidate.slice(prefixKey.length);
             if (!rest) continue;
             const [name, ...tail] = rest.split("/");
-            if (names.has(name)) continue;
-            names.add(name);
+            const nameKey = caseInsensitiveDir ? name.toLowerCase() : name;
+            if (names.has(nameKey)) continue;
+            names.add(nameKey);
             const entryPath = `${requestedPrefix}${name}`;
             const isDir = resolveEntryIsDir(entryPath, tail.length > 0);
             entries.push({ name, path: entryPath, is_dir: isDir });

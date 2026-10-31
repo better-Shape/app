@@ -6,6 +6,7 @@ import { Icon, type IconGlyph } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 
 import { loadCustomEditorFont } from "@/lib/editor/custom-fonts";
@@ -319,6 +320,37 @@ export function SettingSwitch({
     );
 }
 
+/** Multiline settings field inheriting accessible title and description IDs from `SettingRow`. */
+export const SettingTextarea = React.forwardRef<
+    HTMLTextAreaElement,
+    React.ComponentPropsWithoutRef<typeof Textarea>
+>(
+    (
+        {
+            "aria-label": ariaLabel,
+            "aria-labelledby": ariaLabelledBy,
+            "aria-describedby": ariaDescribedBy,
+            ...props
+        },
+        ref,
+    ) => {
+        const rowLabels = useSettingRowLabels();
+        const resolvedLabelledBy = ariaLabelledBy ?? (!ariaLabel ? rowLabels?.titleId : undefined);
+        const resolvedDescribedBy = ariaDescribedBy ?? rowLabels?.descriptionId;
+        return (
+            <Textarea
+                ref={ref}
+                aria-label={ariaLabel}
+                aria-labelledby={resolvedLabelledBy}
+                aria-describedby={resolvedDescribedBy}
+                {...props}
+            />
+        );
+    },
+);
+
+SettingTextarea.displayName = "SettingTextarea";
+
 export function SettingNumberSelect({
     value,
     options,
@@ -448,7 +480,10 @@ export function FontFamilySelect({
     );
 }
 
-const formatMultiSelectSummary = (selectedLabels: readonly string[], placeholder: string): string => {
+const formatMultiSelectSummary = (
+    selectedLabels: readonly string[],
+    placeholder: string,
+): string => {
     if (selectedLabels.length === 0) return placeholder;
     if (selectedLabels.length <= 2) return selectedLabels.join(", ");
     return `${selectedLabels.length} selected`;

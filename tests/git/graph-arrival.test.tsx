@@ -481,4 +481,40 @@ describe("GraphSvgRow arrival stroke draw", () => {
             vi.useRealTimers();
         }
     });
+
+    it("recovers from an unanchored deep pull so subsequent local commits animate cleanly", () => {
+        vi.useFakeTimers();
+        const initialSlice = [makeLog("old-head", [], ["HEAD -> main"])];
+        // Deep pull where old-head is pushed off the loaded window (pull-1's parent pull-0 is missing).
+        const deepPullSlice = [
+            makeLog("pull-2", ["pull-1"], ["HEAD -> main"]),
+            makeLog("pull-1", ["pull-0"]),
+        ];
+        // User creates a new local commit on top of pull-2 without ever paging down to old-head.
+        const localCommitSlice = [
+            makeLog("local-1", ["pull-2"], ["HEAD -> main"]),
+            makeLog("pull-2", ["pull-1"]),
+            makeLog("pull-1", ["pull-0"]),
+        ];
+        const secondLocalSlice = [
+            makeLog("local-2", ["local-1"], ["HEAD -> main"]),
+            makeLog("local-1", ["pull-2"]),
+            makeLog("pull-2", ["pull-1"]),
+            makeLog("pull-1", ["pull-0"]),
+        ];
+
+        try {
+            expect(renderArrivals(initialSlice)).toBe("");
+            // Unanchored pull stays suppressed while old-head is not yet reachable.
+            expect(renderArrivals(deepPullSlice)).toBe("");
+            // Subsequent local commit connects to pull-2 in prev.known and animates cleanly.
+            expect(renderArrivals(localCommitSlice)).toBe("local-1");
+            act(() => {
+                vi.advanceTimersByTime(520);
+            });
+            expect(renderArrivals(secondLocalSlice)).toBe("local-2");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

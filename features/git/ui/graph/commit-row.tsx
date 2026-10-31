@@ -28,6 +28,110 @@ import { RefPill, type RefInfo } from "./ref-pill";
 import { GraphSvgRow } from "./svg-row";
 import { CreateBranchFromCommitInline } from "./create-branch";
 
+const COMMIT_FILE_STATUS_LABEL: Record<string, string> = {
+    M: "Modified",
+    A: "Added",
+    D: "Deleted",
+    R: "Renamed",
+};
+
+const COMMIT_FILE_STATUS_COLOR: Record<string, string> = {
+    C: "var(--git-conflict)",
+    M: "var(--git-modified)",
+    A: "var(--git-added)",
+    U: "var(--git-added)",
+    D: "var(--git-deleted)",
+};
+
+/** Splits a commit file path into basename and optional directory prefix. */
+const splitCommitFilePath = (filePath: string): { name: string; folder: string } => {
+    const slashIdx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+    if (slashIdx < 0) return { name: filePath, folder: "" };
+    return {
+        name: filePath.slice(slashIdx + 1),
+        folder: filePath.slice(0, slashIdx),
+    };
+};
+
+type CommitFileRowProps = {
+    commitHash: string;
+    file: GitFileParams;
+    onShowCommitDiff: (hash: string, path: string) => void;
+    onOpenFile: (path: string) => void;
+};
+
+/** Renders a single changed-file row inside an expanded graph commit entry. */
+const CommitFileRow = ({
+    commitHash,
+    file,
+    onShowCommitDiff,
+    onOpenFile,
+}: CommitFileRowProps) => {
+    const { name, folder } = splitCommitFilePath(file.path);
+    const statusLabel = COMMIT_FILE_STATUS_LABEL[file.status] ?? "Changed";
+    const statusColor = COMMIT_FILE_STATUS_COLOR[file.status] ?? "var(--git-added)";
+    const copyFilePath = () => {
+        navigator.clipboard
+            .writeText(file.path)
+            .then(() => {
+                notify.success("Copied", "File path copied");
+            })
+            .catch(() => {});
+    };
+
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <Tooltip
+                    content={`${file.path} • ${statusLabel}`}
+                    side="bottom"
+                    align="start"
+                    delayDuration={400}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onShowCommitDiff(commitHash, file.path);
+                        }}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            onOpenFile(file.path);
+                        }}
+                        className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-[var(--row-hover)] group/file cursor-pointer"
+                        style={{ height: 22 }}
+                    >
+                        <div className="w-3.5 flex justify-center opacity-80 shrink-0">
+                            <FileIcon name={name} className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="max-w-[50%] shrink-0 truncate whitespace-nowrap text-sm text-text-secondary transition-colors group-hover/file:text-text-primary">
+                            {name}
+                        </span>
+                        {folder ? (
+                            <span className="min-w-0 flex-1 truncate whitespace-nowrap pr-2 text-left text-sm text-text-muted opacity-60">
+                                {folder}
+                            </span>
+                        ) : null}
+                        <span
+                            className="text-sm font-medium w-4 text-center shrink-0 ml-auto"
+                            style={{ color: statusColor }}
+                        >
+                            {file.status}
+                        </span>
+                    </button>
+                </Tooltip>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+                <ContextMenuItem onClick={() => onShowCommitDiff(commitHash, file.path)}>
+                    Open Changes
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => onOpenFile(file.path)}>Open File</ContextMenuItem>
+                <ContextMenuItem onClick={copyFilePath}>Copy Path</ContextMenuItem>
+            </ContextMenuContent>
+        </ContextMenu>
+    );
+};
+
 export const GraphCommitRow = React.memo(function GraphCommitRow({
     log, node, repoPath, index, total, isExpanded,
     onToggleExpand, onShowCommitDiff, onOpenFile, onRefresh,
@@ -145,6 +249,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
 
     const handleRowKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLButtonElement>) => {
+            if (event.target !== event.currentTarget || event.repeat) return;
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
             event.stopPropagation();
@@ -335,6 +440,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                         role="presentation"
                                         className="flex max-w-[240px] flex-col gap-2 p-0.5"
                                         onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
                                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={() => {
                                             isDraggingRef.current = true;
@@ -598,66 +704,15 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                 <div className="relative">
                     <div style={{ paddingLeft: compact ? 8 : Math.max((rowMaxLane + 1) * LANE_WIDTH, 28) }} className="pr-1 py-0.5 space-y-0 relative z-10">
                         {safeFiles.length > 0 ? (
-                            safeFiles.map((file: GitFileParams) => {
-                                const name = file.path.split(/[\\\/]/).pop() || "";
-                                const folder = file.path.substring(0, file.path.length - name.length - 1);
-                                return (
-                                    <ContextMenu key={file.path}>
-                                        <ContextMenuTrigger asChild>
-                                            <Tooltip
-                                                content={`${file.path} • ${file.status === 'M' ? 'Modified' : file.status === 'A' ? 'Added' : file.status === 'D' ? 'Deleted' : file.status === 'R' ? 'Renamed' : 'Changed'}`}
-                                                side="bottom"
-                                                align="start"
-                                                delayDuration={400}
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => { e.stopPropagation(); onShowCommitDiff(log.hash, file.path); }}
-                                                    onDoubleClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onOpenFile(file.path);
-                                                    }}
-                                                    className="flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 hover:bg-[var(--row-hover)] group/file cursor-pointer"
-                                                    style={{ height: 22 }}
-                                                >
-                                                    <div className="w-3.5 flex justify-center opacity-80 shrink-0">
-                                                        <FileIcon name={name} className="w-3.5 h-3.5" />
-                                                    </div>
-                                                    <span className="max-w-[50%] shrink-0 truncate whitespace-nowrap text-sm text-text-secondary transition-colors group-hover/file:text-text-primary">{name}</span>
-                                                    {folder && (
-                                                        <span className="min-w-0 flex-1 truncate whitespace-nowrap pr-2 text-left text-sm text-text-muted opacity-60">{folder}</span>
-                                                    )}
-                                                    <span
-                                                        className="text-sm font-medium w-4 text-center shrink-0 ml-auto"
-                                                        style={{
-                                                            color: file.status === "C" ? "var(--git-conflict)" :
-                                                                file.status === "M" ? "var(--git-modified)" :
-                                                                file.status === "A" || file.status === "U" ? "var(--git-added)" :
-                                                                    file.status === "D" ? "var(--git-deleted)" : "var(--git-added)"
-                                                        }}
-                                                    >
-                                                        {file.status}
-                                                    </span>
-                                                </button>
-                                            </Tooltip>
-                                        </ContextMenuTrigger>
-                                        <ContextMenuContent>
-                                            <ContextMenuItem onClick={() => onShowCommitDiff(log.hash, file.path)}>
-                                                Open Changes
-                                            </ContextMenuItem>
-                                            <ContextMenuItem onClick={() => onOpenFile(file.path)}>
-                                                Open File
-                                            </ContextMenuItem>
-                                            <ContextMenuItem onClick={() => {
-                                                void navigator.clipboard.writeText(file.path);
-                                                notify.success("Copied", "File path copied");
-                                            }}>
-                                                Copy Path
-                                            </ContextMenuItem>
-                                        </ContextMenuContent>
-                                    </ContextMenu>
-                                );
-                            })
+                            safeFiles.map((file: GitFileParams) => (
+                                <CommitFileRow
+                                    key={file.path}
+                                    commitHash={log.hash}
+                                    file={file}
+                                    onShowCommitDiff={onShowCommitDiff}
+                                    onOpenFile={onOpenFile}
+                                />
+                            ))
                         ) : (
                             <div className="flex flex-col gap-1 py-1 pl-2" aria-busy={!filesLoaded}>
                                 {!filesLoaded ? (

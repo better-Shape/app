@@ -706,6 +706,7 @@ export function PluginsSettingsView() {
                                     <Button
                                         variant="ghost"
                                         size="sm"
+                                        aria-label={`Filter plugins by category: ${categoryLabel}`}
                                         className={SETTING_CONTROL_BTN}
                                     >
                                         {categoryLabel}

@@ -180,13 +180,59 @@ describe("commit row activation", () => {
         expect(onFilesLoaded).toHaveBeenCalledWith("abc1234", []);
     });
 
-    it("ignores unrelated keys", () => {
-        renderRow();
-        const event = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true });
-        act(() => {
-            rowTrigger().dispatchEvent(event);
-        });
-        expect(event.defaultPrevented).toBe(false);
-        expect(onSelect).not.toHaveBeenCalled();
+    it("ignores unrelated keys, auto-repeated keydown, and portalled tooltip button keystrokes", () => {
+        const prevResizeObserver = globalThis.ResizeObserver;
+        globalThis.ResizeObserver = class ResizeObserverStub {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        } as unknown as typeof ResizeObserver;
+        vi.useFakeTimers();
+        try {
+            renderRow();
+            const event = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true });
+            act(() => {
+                rowTrigger().dispatchEvent(event);
+            });
+            expect(event.defaultPrevented).toBe(false);
+            expect(onSelect).not.toHaveBeenCalled();
+
+            // Holding Enter/Space (event.repeat === true) must not strobe-toggle the row.
+            const repeatEnter = new KeyboardEvent("keydown", {
+                key: "Enter",
+                repeat: true,
+                bubbles: true,
+                cancelable: true,
+            });
+            act(() => {
+                rowTrigger().dispatchEvent(repeatEnter);
+            });
+            expect(repeatEnter.defaultPrevented).toBe(false);
+            expect(onToggleExpand).not.toHaveBeenCalled();
+
+            // Open the commit message tooltip and press Enter on an action button inside the portal.
+            const tooltipTrigger = rowTrigger().querySelector("span[data-state]");
+            act(() => {
+                tooltipTrigger?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+                tooltipTrigger?.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
+                vi.advanceTimersByTime(350);
+            });
+            const tooltipBox = document.getElementById("tooltip-content-abc1234");
+            const authorBtn = tooltipBox?.querySelector("button");
+            if (!authorBtn) throw new Error("Expected author action button inside commit tooltip");
+            const tooltipKey = new KeyboardEvent("keydown", {
+                key: "Enter",
+                bubbles: true,
+                cancelable: true,
+            });
+            act(() => {
+                authorBtn.dispatchEvent(tooltipKey);
+            });
+            expect(tooltipKey.defaultPrevented).toBe(false);
+            expect(onToggleExpand).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+            globalThis.ResizeObserver = prevResizeObserver;
+        }
     });
 });

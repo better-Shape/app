@@ -2,7 +2,14 @@ import { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HoldButton } from "@/components/ui/hold-button";
+import { HoldButton, type HoldButtonState } from "@/components/ui/hold-button";
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from "@/components/ui/context";
+import { Tooltip } from "@/components/ui/tooltip";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -831,5 +838,223 @@ describe("HoldButton", () => {
             await Promise.resolve();
         });
         expect(btn.dataset.state).toBe("idle");
+    });
+
+    it("composes Radix TooltipTrigger Slot props without overwriting data-state and reports onStateChange", () => {
+        const prevResizeObserver = globalThis.ResizeObserver;
+        globalThis.ResizeObserver = class ResizeObserverStub {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        } as unknown as typeof ResizeObserver;
+        try {
+            const onConfirm = vi.fn();
+            const states: HoldButtonState[] = [];
+            render(
+                <Tooltip content="Hold to restore file" delayDuration={0}>
+                    <HoldButton
+                        ariaLabel="Restore file"
+                        label="Restore"
+                        armedLabel="Confirm"
+                        holdMs={500}
+                        onConfirm={onConfirm}
+                        onStateChange={(next) => states.push(next)}
+                    />
+                </Tooltip>,
+            );
+
+            const btn = getButton();
+            expect(btn.dataset.state).toBe("idle");
+
+            act(() => {
+                btn.focus();
+                vi.advanceTimersByTime(50);
+            });
+            expect(document.body.textContent).toContain("Hold to restore file");
+            expect(btn.dataset.state).toBe("idle");
+
+            act(() => {
+                btn.click();
+            });
+            expect(btn.dataset.state).toBe("armed");
+            expect(states).toEqual(["armed"]);
+
+            act(() => {
+                btn.click();
+            });
+            expect(onConfirm).toHaveBeenCalledTimes(1);
+            expect(btn.dataset.state).toBe("confirmed");
+            expect(states).toEqual(["armed", "confirmed"]);
+        } finally {
+            globalThis.ResizeObserver = prevResizeObserver;
+        }
+    });
+
+    it("disarms unfocused pointer holds on document Escape, suppresses trailing click, and aborts on window blur or visibility hidden", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                armedLabel="Confirm"
+                holdMs={600}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const outside = document.createElement("button");
+        container.append(outside);
+        outside.focus();
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            x: 10,
+            y: 10,
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 40,
+            width: 80,
+            height: 30,
+            toJSON: () => ({}),
+        });
+
+        // Start a pointer hold without focusing the HoldButton (WKWebView/Safari behavior).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 51,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(200);
+        });
+        expect(btn.dataset.state).toBe("holding");
+
+        // Pressing Escape on the unfocused document disarms immediately, and releasing the mouse inside does NOT arm.
+        act(() => {
+            outside.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
+        expect(btn.dataset.state).toBe("idle");
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 51,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Window blur mid-hold cancels before holdMs expires.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 52,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(250);
+            window.dispatchEvent(new Event("blur"));
+            vi.advanceTimersByTime(500);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Document visibility hidden mid-hold also cancels cleanly.
+        const visSpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        try {
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerdown", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 53,
+                        clientX: 40,
+                        clientY: 20,
+                    }),
+                );
+                document.dispatchEvent(new Event("visibilitychange"));
+                vi.advanceTimersByTime(700);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+        } finally {
+            visSpy.mockRestore();
+        }
+    });
+
+    it("stops touch/pen pointerdown propagation so ancestor ContextMenuTrigger does not open at 700ms", () => {
+        const onConfirm = vi.fn();
+        const onRowClick = vi.fn();
+        render(
+            <ContextMenu>
+                <ContextMenuTrigger asChild>
+                    <div onClick={onRowClick}>
+                        <HoldButton
+                            ariaLabel="Discard changes"
+                            label="Discard"
+                            holdMs={1200}
+                            onConfirm={onConfirm}
+                        />
+                    </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                    <ContextMenuItem>Reload Window</ContextMenuItem>
+                </ContextMenuContent>
+            </ContextMenu>,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            right: 80,
+            bottom: 32,
+            width: 80,
+            height: 32,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        } as DOMRect);
+
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 41,
+                    pointerType: "touch",
+                    clientX: 30,
+                    clientY: 16,
+                }),
+            );
+            vi.advanceTimersByTime(800);
+        });
+        expect(document.body.textContent).not.toContain("Reload Window");
+        expect(btn.dataset.state).toBe("holding");
+
+        act(() => {
+            vi.advanceTimersByTime(450);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(document.body.textContent).not.toContain("Reload Window");
+
+        act(() => {
+            btn.click();
+        });
+        expect(onRowClick).not.toHaveBeenCalled();
     });
 });
