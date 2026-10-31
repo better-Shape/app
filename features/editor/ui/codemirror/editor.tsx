@@ -786,16 +786,13 @@ export function CodeMirrorEditor({
                     Redo
                 </ContextMenuItem>
                 <ContextMenuSeparator />
+                {/* The menubar dispatches the same three actions; one
+                    implementation keeps the failure handling honest (the old
+                    inline cut dropped the edit when the clipboard refused). */}
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        const sel = v.state.selection.main;
-                        const text = v.state.sliceDoc(sel.from, sel.to);
-                        if (!text) return;
-                        void navigator.clipboard.writeText(text).then(() => {
-                            v.dispatch({ changes: { from: sel.from, to: sel.to, insert: "" } });
-                        });
+                        if (v) runClipboardAction(v, "cut");
                     }}
                 >
                     Cut
@@ -803,10 +800,7 @@ export function CodeMirrorEditor({
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        const sel = v.state.selection.main;
-                        const text = v.state.sliceDoc(sel.from, sel.to);
-                        if (text) void navigator.clipboard.writeText(text);
+                        if (v) runClipboardAction(v, "copy");
                     }}
                 >
                     Copy
@@ -814,10 +808,7 @@ export function CodeMirrorEditor({
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        void navigator.clipboard.readText().then((text) => {
-                            v.dispatch(v.state.replaceSelection(text));
-                        });
+                        if (v) runClipboardAction(v, "paste");
                     }}
                 >
                     Paste

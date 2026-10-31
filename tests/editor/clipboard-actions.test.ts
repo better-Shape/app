@@ -38,13 +38,37 @@ describe("clipboard actions", () => {
         view.destroy();
     });
 
-    it("cuts the selection and keeps the edit undoable", () => {
+    it("cuts the selection once the clipboard accepted it", async () => {
         const view = mountView("hello world", 0, 6);
 
         runClipboardAction(view, "cut");
 
         expect(writeText).toHaveBeenCalledWith("hello ");
-        expect(view.state.doc.toString()).toBe("world");
+        await vi.waitFor(() => expect(view.state.doc.toString()).toBe("world"));
+        view.destroy();
+    });
+
+    it("keeps the text when the clipboard refuses the write", async () => {
+        writeText.mockRejectedValueOnce(new Error("denied"));
+        const view = mountView("hello world", 0, 6);
+
+        runClipboardAction(view, "cut");
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(view.state.doc.toString()).toBe("hello world");
+        view.destroy();
+    });
+
+    it("does nothing without a clipboard at all", () => {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+        const view = mountView("hello world", 0, 6);
+
+        runClipboardAction(view, "cut");
+        runClipboardAction(view, "copy");
+
+        expect(writeText).not.toHaveBeenCalled();
+        expect(view.state.doc.toString()).toBe("hello world");
         view.destroy();
     });
 

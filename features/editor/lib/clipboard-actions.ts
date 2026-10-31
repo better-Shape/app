@@ -28,9 +28,17 @@ export function runClipboardAction(view: EditorView, action: ClipboardAction): v
 
     if (selection.empty) return;
     const text = view.state.sliceDoc(selection.from, selection.to);
-    if (!text) return;
-    if (clipboard?.writeText) void clipboard.writeText(text).catch(() => undefined);
-    if (action === "cut") {
-        view.dispatch({ changes: { from: selection.from, to: selection.to, insert: "" } });
+    if (!text || !clipboard?.writeText) return;
+    if (action === "copy") {
+        void clipboard.writeText(text).catch(() => undefined);
+        return;
     }
+    // Cut removes the text only once the clipboard accepted it: a denied write
+    // used to take the selection with it.
+    void clipboard
+        .writeText(text)
+        .then(() => {
+            view.dispatch({ changes: { from: selection.from, to: selection.to, insert: "" } });
+        })
+        .catch(() => undefined);
 }
