@@ -371,6 +371,57 @@ describe("discoverSkills", () => {
         }
     });
 
+    it("matches forward-slash UNC files and symlink-only UNC roots case-insensitively on Windows", async () => {
+        const winUaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        try {
+            mocks.getProjectPath.mockReturnValue("//server/share/demo");
+            serveSkillFs(
+                mocks,
+                {
+                    "//Server/Share/Demo/Shared/Pdf-Skill/SKILL.md": skillFile(
+                        "unc-forward-pdf",
+                        "UNC skill.",
+                        "Steps.",
+                    ),
+                },
+                {
+                    homeDir: "C:/Users/Ada",
+                    symlinks: {
+                        "//Server/Share/Demo/.claude/skills/pdf":
+                            "//Server/Share/Demo/Shared/Pdf-Skill",
+                    },
+                },
+            );
+            const forwardResult = await discoverSkills();
+            expect(forwardResult.items.map((item) => item.name)).toEqual(["unc-forward-pdf"]);
+        } finally {
+            winUaSpy.mockRestore();
+        }
+
+        // UNC roots present only in `symlinks` (with drive-rooted `files`) also fold case.
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Shared/Pdf-Skill/SKILL.md": skillFile(
+                    "unc-symlink-only",
+                    "UNC symlink skill.",
+                    "Steps.",
+                ),
+            },
+            {
+                homeDir: "C:/Users/Ada",
+                symlinks: {
+                    "\\\\Server\\Share\\Custom\\pdf": "C:/Shared/Pdf-Skill",
+                },
+            },
+        );
+        await expect(
+            mocks.readFileWithin("\\\\server\\share\\custom\\pdf\\SKILL.md", "C:/Shared"),
+        ).resolves.toContain("unc-symlink-only");
+    });
+
     it("resolves multi-segment descendants through a symlink targeting POSIX root without misclassifying as UNC", async () => {
         serveSkillFs(
             mocks,

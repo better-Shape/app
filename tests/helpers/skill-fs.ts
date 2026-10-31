@@ -1,4 +1,5 @@
 import type { Mock } from "vitest";
+import { isWindows } from "@/lib/platform";
 
 export type SkillFsMocks = {
     lsDir: Mock;
@@ -15,6 +16,29 @@ export type SkillFsOptions = {
     symlinks?: Record<string, string>;
 };
 
+const UNC_SHARE_RE = /^\/\/[^/\\]+\/[^/\\]+/;
+
+/** True when `raw` is a backslash UNC path or a Windows-host `//server/share` UNC path. */
+const isUncRootPath = (raw: string): boolean => {
+    if (raw.startsWith("\\\\")) return true;
+    return isWindows() && UNC_SHARE_RE.test(raw);
+};
+
+/** Collects configured virtual paths so UNC detection covers files, symlinks, and homeDir. */
+const collectConfiguredPaths = (
+    files: Record<string, string>,
+    options: SkillFsOptions,
+): string[] => {
+    const symlinks = options.symlinks ?? {};
+    const paths = [
+        ...Object.keys(files),
+        ...Object.keys(symlinks),
+        ...Object.values(symlinks),
+    ];
+    if (options.homeDir) paths.push(options.homeDir);
+    return paths;
+};
+
 /**
  * Serve `commands.lsDir` / `commands.readFileFromDisk` (and optionally
  * `homeDir`) from a virtual tree of absolute paths.
@@ -24,7 +48,7 @@ export type SkillFsOptions = {
  * `/proj/.claude/skills`. Reads outside the tree reject, as the real backend does.
  */
 export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>, options: SkillFsOptions = {}) {
-    const hasUncRoots = Object.keys(files).some((raw) => raw.startsWith("\\\\"));
+    const hasUncRoots = collectConfiguredPaths(files, options).some(isUncRootPath);
 
     const splitRootAndRest = (forward: string): { root: string; rest: string } => {
         const unc = hasUncRoots ? /^\/\/[^/]+\/[^/]+/.exec(forward) : null;
