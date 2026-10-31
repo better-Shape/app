@@ -91,10 +91,17 @@ function useBreadcrumbOutline(path: string, enabled = true) {
         };
 
         const handleStatus = (event: Event) => {
-            const custom = event as CustomEvent;
-            if (custom.detail) {
-                setState(prev => ({ ...prev, cursorPos: { line: custom.detail.line, col: custom.detail.column } }));
-            }
+            // Status events carry only the segments that changed: inline blame
+            // announces its own label with no line, and treating that as "the
+            // cursor is nowhere" collapsed the symbol chain to the file name.
+            const detail = (event as CustomEvent<{ line?: number; column?: number }>).detail;
+            if (!detail || typeof detail.line !== "number") return;
+            const { line, column } = detail;
+            if (typeof line !== "number") return;
+            setState(prev => ({
+                ...prev,
+                cursorPos: { line, col: typeof column === "number" ? column : prev.cursorPos.col },
+            }));
         };
 
         window.addEventListener("bettershape-editor-buffer", handleBuffer);
