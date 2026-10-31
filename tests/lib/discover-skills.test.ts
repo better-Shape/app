@@ -590,6 +590,27 @@ describe("discoverSkills", () => {
         ).rejects.toThrow("outside root");
     });
 
+    it("accepts a 40-hop symlink chain and rejects a 41-hop chain", async () => {
+        const symlinks: Record<string, string> = {};
+        for (let step = 0; step < 40; step += 1) {
+            symlinks[`${PROJECT}/chain-${step}`] = `${PROJECT}/chain-${step + 1}`;
+        }
+        symlinks[`${PROJECT}/chain-40`] = `${PROJECT}/real/doc.md`;
+
+        serveSkillFs(
+            mocks,
+            { [`${PROJECT}/real/doc.md`]: "forty-hops-ok" },
+            { homeDir: HOME, symlinks },
+        );
+
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/chain-1`, PROJECT),
+        ).resolves.toBe("forty-hops-ok");
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/chain-0`, PROJECT),
+        ).rejects.toThrow("too many levels of symbolic links");
+    });
+
     it("resolves relative symlinks mounted directly under POSIX root without UNC misparsing", async () => {
         serveSkillFs(
             mocks,

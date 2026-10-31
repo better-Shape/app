@@ -100,13 +100,15 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
         return null;
     };
 
+    const MAX_SYMLINK_HOPS = 40;
     const canonicalize = (rawPath: string): string => {
         let current = normalize(rawPath);
-        for (let depth = 0; depth < 40; depth += 1) {
+        for (let hops = 0; hops < MAX_SYMLINK_HOPS; hops += 1) {
             const next = stepSymlinkSubstitution(current);
             if (next === null) return current;
             current = next;
         }
+        if (stepSymlinkSubstitution(current) === null) return current;
         throw new Error(`too many levels of symbolic links: ${rawPath}`);
     };
 
