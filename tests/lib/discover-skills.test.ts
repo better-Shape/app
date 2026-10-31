@@ -871,6 +871,28 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
         expect(
             driveRootScan.items.some((item) => item.body.includes("Anchored to C drive root.")),
         ).toBe(true);
+
+        mocks.getProjectPath.mockReturnValue(PROJECT);
+        serveSkillFs(
+            mocks,
+            { [`${PROJECT}/.claude/skills/valid/SKILL.md`]: "# Valid\nHealthy skill." },
+            {
+                homeDir: HOME,
+                symlinks: {
+                    [`${PROJECT}/.claude/skills/broken`]: `${PROJECT}/missing-dir`,
+                    [`${PROJECT}/.claude/skills/broken/nested`]: `${PROJECT}/.claude/skills/valid`,
+                    [`${PROJECT}/.claude/skills/cycle`]: `${PROJECT}/.claude/skills/cycle`,
+                    [`${PROJECT}/.claude/skills/cycle/nested`]: `${PROJECT}/.claude/skills/valid`,
+                },
+            },
+        );
+        const skillEntries: { name: string; is_dir: boolean }[] = await mocks.lsDir(
+            `${PROJECT}/.claude/skills`,
+        );
+        expect(skillEntries.find((entry) => entry.name === "broken")?.is_dir).toBe(false);
+        expect(skillEntries.find((entry) => entry.name === "cycle")?.is_dir).toBe(false);
+        await expect(mocks.lsDir(`${PROJECT}/.claude/skills/broken`)).rejects.toThrow();
+        await expect(mocks.lsDir(`${PROJECT}/.claude/skills/cycle`)).rejects.toThrow();
     });
 
     it("degrades gracefully when localStorage access throws on case-insensitive project paths", async () => {

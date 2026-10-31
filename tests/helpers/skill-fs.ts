@@ -256,8 +256,7 @@ export function serveSkillFs(
         [...directories].map((dir) => [pathCompareKey(dir), dir]),
     );
 
-    const resolveEntryIsDir = (entryPath: string, hasNestedSegments: boolean): boolean => {
-        if (hasNestedSegments) return true;
+    const resolveEntryIsDir = (entryPath: string): boolean => {
         try {
             const targetEntry = canonicalize(entryPath);
             return directoryKeys.has(pathCompareKey(targetEntry));
@@ -288,13 +287,12 @@ export function serveSkillFs(
             if (!candidateKey.startsWith(prefixKey) || candidateKey === dirKey) continue;
             const rest = candidate.slice(prefixKey.length);
             if (!rest) continue;
-            const [name, ...tail] = rest.split("/");
+            const [name] = rest.split("/");
             const nameKey = caseInsensitiveDir ? name.toLowerCase() : name;
             if (names.has(nameKey)) continue;
             names.add(nameKey);
             const entryPath = `${requestedPrefix}${name}`;
-            const isDir = resolveEntryIsDir(entryPath, tail.length > 0);
-            entries.push({ name, path: entryPath, is_dir: isDir });
+            entries.push({ name, path: entryPath, is_dir: resolveEntryIsDir(entryPath) });
         }
         return entries.sort((a, b) => a.name.localeCompare(b.name));
     });
