@@ -65,6 +65,27 @@ describe("preview invoke handler", () => {
         for (const file of status) expect(file.status).toMatch(/^[MACDUR?!]$/);
     });
 
+    it("lists a commit's files, and a list rather than nothing for an unknown hash", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const log = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{ hash: string; files_changed: number }>;
+        const head = log[0];
+        const files = handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: head.hash }) as Array<{
+            path: string;
+            status: string;
+            staged: boolean;
+        }>;
+        expect(files).toHaveLength(head.files_changed);
+        for (const file of files) {
+            expect(typeof file.path).toBe("string");
+            expect(file.path.length).toBeGreaterThan(0);
+            expect(file.status).toMatch(/^[MACDUR?!]$/);
+            expect(file.staged).toBe(false);
+        }
+        // An unknown hash still answers with a list: the commit panel stores this
+        // straight into state and renders `.length` from it.
+        expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "nope" })).toEqual([]);
+    });
+
     it("blames a fixture file with the author the git log shows", () => {
         const { handle } = createPreviewInvokeHandler("project");
         const regions = handle("git_blame_file", {
