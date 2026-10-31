@@ -893,6 +893,28 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
         expect(skillEntries.find((entry) => entry.name === "cycle")?.is_dir).toBe(false);
         await expect(mocks.lsDir(`${PROJECT}/.claude/skills/broken`)).rejects.toThrow();
         await expect(mocks.lsDir(`${PROJECT}/.claude/skills/cycle`)).rejects.toThrow();
+
+        const uaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+        try {
+            mocks.getProjectPath.mockReturnValue("//");
+            serveSkillFs(
+                mocks,
+                {
+                    "//.claude/skills/double-root/SKILL.md": "# DoubleRoot\nExact // root.",
+                    "/.claude/skills/single-root/SKILL.md": "# SingleRoot\nDisjoint / root.",
+                },
+                { homeDir: "/home/dev" },
+            );
+            const doubleRootScan = await discoverSkills();
+            expect(doubleRootScan.items).toHaveLength(1);
+            expect(doubleRootScan.items[0]?.rootPath).toBe("//.claude/skills");
+            expect(doubleRootScan.items[0]?.folder).toBe("//.claude/skills/double-root");
+            expect(doubleRootScan.items[0]?.relPath).toBe(".claude/skills/double-root/SKILL.md");
+        } finally {
+            uaSpy.mockRestore();
+        }
     });
 
     it("degrades gracefully when localStorage access throws on case-insensitive project paths", async () => {

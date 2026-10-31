@@ -41,6 +41,11 @@ const trimTrailingSeparators = (value: string, isSep: SepPredicate): string => {
 const isTrimmedDriveRoot = (raw: string, trimmed: string): boolean =>
     raw.length > 2 && isDriveSpecifier(trimmed);
 
+/** Preserves exact two-separator roots (`//` / `\\`) while collapsing 3+ separators to one. */
+const formatAllSeparatorRoot = (raw: string, sep: "\\" | "/"): string =>
+    raw.length === 2 ? `${sep}${sep}` : sep;
+
+/** Trims trailing separators while preserving `/`, `//`, and `X:/` root prefixes. */
 const trimRootAwareTrailingSeparators = (
     raw: string,
     sep: "\\" | "/",
@@ -48,7 +53,7 @@ const trimRootAwareTrailingSeparators = (
 ): string => {
     if (!raw) return "";
     const trimmed = trimTrailingSeparators(raw, isSep);
-    if (!trimmed) return sep;
+    if (!trimmed) return formatAllSeparatorRoot(raw, sep);
     return isTrimmedDriveRoot(raw, trimmed) ? `${trimmed}${sep}` : trimmed;
 };
 

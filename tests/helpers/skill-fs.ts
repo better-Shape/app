@@ -17,7 +17,7 @@ export type SkillFsOptions = {
 };
 
 const UNC_SHARE_RE = /^\/\/[^/\\]+\/[^/\\]+/;
-const POSIX_DOUBLE_SLASH_RE = /^\/\/(?=[^/])/;
+const POSIX_DOUBLE_SLASH_RE = /^\/\/(?!\/)/;
 const DRIVE_ROOT_RE = /^[A-Za-z]:\//;
 const DRIVE_PREFIX_RE = /^[A-Za-z]:/;
 const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
