@@ -43,28 +43,33 @@ test.describe("git manager", () => {
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
+        const pillLabel = await refFilter.getAttribute("aria-label");
         await page.keyboard.press("Enter");
         // The filter mutes rows rather than dropping them, so a muted row proves it
-        // applied. When this fails, say which of the two things went wrong instead
-        // of leaving "element(s) not found" — the CI runner is slower than any
-        // local reproduction and the DOM state is the only evidence available.
-        const mutedRows = graph.locator(".graph-commit-mute");
-        const applied = await expect
-            .poll(() => mutedRows.count(), { timeout: 30_000, intervals: [200] })
+        // applied. The CI runner is slower than any local reproduction, so when the
+        // rows never mute, report the DOM state immediately instead of spending the
+        // test budget and leaving "element(s) not found" as the only evidence.
+        const muted = await expect
+            .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 5_000, intervals: [100] })
             .toBeGreaterThan(0)
             .then(() => true)
             .catch(() => false);
-        if (!applied) {
-            const state = await page.evaluate(() => ({
-                activeLabel:
-                    document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
-                pillLabels: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) =>
-                    el.getAttribute("aria-label"),
-                ),
-                rowCount: document.querySelectorAll("[aria-label='Commit graph'] [role='listitem']").length,
-                pillCount: document.querySelectorAll("[aria-label^='Filter graph to']").length,
-            }));
-            throw new Error(`ref filter did not mute any row after Enter: ${JSON.stringify({ pill: await refFilter.getAttribute("aria-label"), ...state })}`);
+        if (!muted) {
+            const state = await page.evaluate(() => {
+                const list = document.querySelector("[role='list'][aria-label='Commit graph']");
+                return {
+                    active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
+                    activeTag: document.activeElement?.tagName ?? "none",
+                    pills: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) => ({
+                        label: el.getAttribute("aria-label"),
+                        tag: el.tagName,
+                    })),
+                    listItems: list?.querySelectorAll("[role='listitem']").length ?? -1,
+                    muted: document.querySelectorAll(".graph-commit-mute").length,
+                    emptyState: document.body.innerText.includes("No commits found"),
+                };
+            });
+            throw new Error(`ref filter did not mute any row after Enter: ${JSON.stringify({ pillLabel, ...state })}`);
         }
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
