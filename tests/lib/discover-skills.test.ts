@@ -624,6 +624,10 @@ describe("discoverSkills", () => {
         const result = await discoverSkills();
         expect(result.items).toHaveLength(1);
         expect(result.items[0].name).toBe("pdf-win");
+        await expect(mocks.ensurePathWithin("C:\\", "C:\\")).resolves.toBe("C:/");
+        await expect(
+            mocks.ensurePathWithin("C:/Users/Ada/Demo/Shared/Pdf-Skill", "C:"),
+        ).rejects.toThrow("outside root");
     });
 
     it("resolves deep >8-hop symlink chains, enforces leftmost prefix precedence, and tolerates symlink cycles alongside valid skills", async () => {

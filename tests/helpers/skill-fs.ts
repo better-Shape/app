@@ -18,6 +18,9 @@ export type SkillFsOptions = {
 
 const UNC_SHARE_RE = /^\/\/[^/\\]+\/[^/\\]+/;
 const POSIX_DOUBLE_SLASH_RE = /^\/\/(?=[^/])/;
+const DRIVE_ROOT_RE = /^[A-Za-z]:\//;
+const DRIVE_PREFIX_RE = /^[A-Za-z]:/;
+const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
 
 /** True when `raw` uses backslash UNC syntax or `//server/share` on a Windows host. */
 const isRawUncCandidate = (raw: string): boolean =>
@@ -64,6 +67,14 @@ const toForwardPath = (raw: string): string => {
     return raw.startsWith("/") ? raw : raw.replaceAll("\\", "/");
 };
 
+/** Splits `X:/...` drive-root paths separately from bare `X:...` drive-relative paths. */
+const splitDrivePrefix = (forward: string): { root: string; rest: string } | null => {
+    const driveRoot = DRIVE_ROOT_RE.exec(forward);
+    if (driveRoot) return { root: driveRoot[0], rest: forward.slice(3) };
+    const driveRelative = DRIVE_PREFIX_RE.exec(forward);
+    return driveRelative ? { root: driveRelative[0], rest: forward.slice(2) } : null;
+};
+
 /** Splits non-UNC slash-rooted or relative paths while keeping POSIX `//` distinct from `/`. */
 const splitSlashRoot = (forward: string): { root: string; rest: string } => {
     if (POSIX_DOUBLE_SLASH_RE.test(forward)) {
@@ -74,11 +85,36 @@ const splitSlashRoot = (forward: string): { root: string; rest: string } => {
         : { root: "", rest: forward };
 };
 
-/** Joins a parsed root prefix (`""`, `"/"`, `"//"`, `"X:"`, or `"//server/share"`) and segments. */
+/** True when `root` joins directly to its first segment without inserting an extra `/`. */
+const joinsDirectlyToRoot = (root: string): boolean =>
+    root.endsWith("/") || DRIVE_SPECIFIER_RE.test(root);
+
+/** Joins a parsed root (`""`, `"/"`, `"//"`, `"X:/"`, `"X:"`, or `"//server/share"`) and stack. */
 const joinRootAndStack = (root: string, stack: string[]): string => {
     if (!root) return stack.join("/");
-    if (root.endsWith("/")) return `${root}${stack.join("/")}`;
+    if (joinsDirectlyToRoot(root)) return `${root}${stack.join("/")}`;
     return stack.length > 0 ? `${root}/${stack.join("/")}` : root;
+};
+
+/** Resolves a `..` segment against `stack`, clamping at rooted prefixes. */
+const applyParentSegment = (stack: string[], clampAtRoot: boolean): void => {
+    if (clampAtRoot) {
+        stack.pop();
+        return;
+    }
+    if (stack.length > 0 && stack[stack.length - 1] !== "..") stack.pop();
+    else stack.push("..");
+};
+
+/** Collapses `.`, `..`, and empty segments in `rest`. */
+const collapseSegments = (rest: string, clampAtRoot: boolean): string[] => {
+    const stack: string[] = [];
+    for (const part of rest.split("/")) {
+        if (!part || part === ".") continue;
+        if (part === "..") applyParentSegment(stack, clampAtRoot);
+        else stack.push(part);
+    }
+    return stack;
 };
 
 /**
@@ -105,25 +141,19 @@ export function serveSkillFs(
     const splitRootAndRest = (forward: string): { root: string; rest: string } => {
         const uncRoot = matchUncShareRoot(forward);
         if (uncRoot) return { root: uncRoot, rest: forward.slice(uncRoot.length) };
-        const drive = /^[A-Za-z]:/.exec(forward);
-        if (drive) return { root: drive[0], rest: forward.slice(2) };
-        return splitSlashRoot(forward);
+        const drive = splitDrivePrefix(forward);
+        return drive ?? splitSlashRoot(forward);
     };
 
     const normalize = (path: string): string => {
         const { root, rest } = splitRootAndRest(toForwardPath(path));
-        const stack: string[] = [];
-        for (const part of rest.split("/")) {
-            if (!part || part === ".") continue;
-            if (part === "..") stack.pop();
-            else stack.push(part);
-        }
-        return joinRootAndStack(root, stack);
+        const clampAtRoot = Boolean(root) && !DRIVE_SPECIFIER_RE.test(root);
+        return joinRootAndStack(root, collapseSegments(rest, clampAtRoot));
     };
 
-    const isAbsolute = (raw: string): boolean => {
+    const isSelfAnchoredTarget = (raw: string): boolean => {
         const forward = toForwardPath(raw);
-        return forward.startsWith("/") || /^[A-Za-z]:/.test(forward);
+        return forward.startsWith("/") || DRIVE_PREFIX_RE.test(forward);
     };
 
     const resolveLinkParent = (normFrom: string): string => {
@@ -134,14 +164,14 @@ export function serveSkillFs(
     };
 
     const resolveLinkTarget = (normFrom: string, rawTo: string): string => {
-        if (isAbsolute(rawTo)) return normalize(rawTo);
+        if (isSelfAnchoredTarget(rawTo)) return normalize(rawTo);
         const parent = resolveLinkParent(normFrom);
-        const joined = parent.endsWith("/") ? `${parent}${rawTo}` : `${parent}/${rawTo}`;
+        const joined = joinsDirectlyToRoot(parent) ? `${parent}${rawTo}` : `${parent}/${rawTo}`;
         return normalize(joined);
     };
 
     const isWindowsPath = (canonical: string): boolean =>
-        /^[A-Za-z]:/.test(canonical) || matchUncShareRoot(canonical) !== null;
+        DRIVE_PREFIX_RE.test(canonical) || matchUncShareRoot(canonical) !== null;
     const pathCompareKey = (canonical: string): string =>
         isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
 
@@ -153,7 +183,7 @@ export function serveSkillFs(
         }),
     );
     const appendNormalizedSuffix = (base: string, suffix: string): string =>
-        normalize(base.endsWith("/") ? `${base}${suffix}` : `${base}/${suffix}`);
+        normalize(joinsDirectlyToRoot(base) ? `${base}${suffix}` : `${base}/${suffix}`);
 
     const stepSymlinkSubstitution = (current: string): string | null => {
         const { root, rest } = splitRootAndRest(current);
@@ -163,7 +193,7 @@ export function serveSkillFs(
         }
         let prefix = "";
         for (let index = 0; index < segments.length; index += 1) {
-            const firstPrefix = root.endsWith("/")
+            const firstPrefix = joinsDirectlyToRoot(root)
                 ? `${root}${segments[0]}`
                 : `${root}/${segments[0]}`;
             prefix = index === 0 ? firstPrefix : `${prefix}/${segments[index]}`;
@@ -225,14 +255,19 @@ export function serveSkillFs(
         const canonicalDir = canonicalize(requestedDir);
         const dir = directoryKeys.get(pathCompareKey(canonicalDir));
         if (!dir) throw new Error(`no such directory: ${path}`);
-        const prefixKey = pathCompareKey(dir.endsWith("/") ? dir : `${dir}/`);
+        const prefixKey = pathCompareKey(joinsDirectlyToRoot(dir) ? dir : `${dir}/`);
         const dirKey = pathCompareKey(dir);
-        const requestedPrefix = requestedDir.endsWith("/") ? requestedDir : `${requestedDir}/`;
+        const requestedPrefix = joinsDirectlyToRoot(requestedDir)
+            ? requestedDir
+            : `${requestedDir}/`;
         const names = new Set<string>();
         const entries: { name: string; path: string; is_dir: boolean }[] = [];
         for (const candidate of [...normalized.keys(), ...directories, ...linkPaths]) {
             const candidateKey = pathCompareKey(candidate);
             if (dirKey === "/" && candidateKey.startsWith("//")) continue;
+            if (DRIVE_SPECIFIER_RE.test(dirKey) && candidateKey.startsWith(`${dirKey}/`)) {
+                continue;
+            }
             if (!candidateKey.startsWith(prefixKey) || candidateKey === dirKey) continue;
             const rest = candidate.slice(prefixKey.length);
             if (!rest) continue;
@@ -259,6 +294,9 @@ export function serveSkillFs(
         const root = pathCompareKey(canonicalize(parent));
         if (file === root) return true;
         if (root === "/") return file.startsWith("/") && !file.startsWith("//");
+        if (DRIVE_SPECIFIER_RE.test(root)) {
+            return file.startsWith(root) && !file.startsWith(`${root}/`);
+        }
         const prefix = root.endsWith("/") ? root : `${root}/`;
         return file.startsWith(prefix);
     };
