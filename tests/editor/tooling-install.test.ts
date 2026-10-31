@@ -100,7 +100,32 @@ describe("tooling install preference", () => {
         expect(notify.error).toHaveBeenCalledWith(
             "Prettier could not be installed",
             "EACCES: permission denied",
+            expect.objectContaining({ action: expect.objectContaining({ label: "Try again" }) }),
         );
         expect(notify.success).not.toHaveBeenCalled();
+    });
+
+    // Autosave calls this on every write, so a failed automatic install has to
+    // stop after one attempt: each retry starts a package-manager process in the
+    // user's project and raises another toast.
+    it("does not retry a failed automatic install on the next save", async () => {
+        updateSettingSection("workspace", { toolingInstall: "auto" });
+        backend.npmInstall.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+        await offerPrettierInstall("/repo");
+        await offerPrettierInstall("/repo");
+
+        expect(backend.npmInstall).toHaveBeenCalledTimes(1);
+        expect(notify.error).toHaveBeenCalledTimes(1);
+    });
+
+    it("still installs automatically for a different project", async () => {
+        updateSettingSection("workspace", { toolingInstall: "auto" });
+        backend.npmInstall.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+        await offerPrettierInstall("/repo");
+        await offerPrettierInstall("/other");
+
+        expect(backend.npmInstall).toHaveBeenCalledTimes(2);
     });
 });

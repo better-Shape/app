@@ -28,21 +28,31 @@ export function isMissingPrettierFailure(message: string): boolean {
 const installing = new Set<string>();
 /** Projects the user has already been offered the install for. */
 const offered = new Set<string>();
+/**
+ * Projects where an automatic install already failed. With autosave on, every
+ * save would otherwise start another package-manager process and another error
+ * toast. The toast's own button is the way to ask for a second attempt.
+ */
+const failedAuto = new Set<string>();
 
-async function install(projectPath: string): Promise<void> {
-    if (!projectPath || installing.has(projectPath)) return;
+async function install(projectPath: string): Promise<boolean> {
+    if (!projectPath || installing.has(projectPath)) return false;
     installing.add(projectPath);
     try {
         await commands.npmInstall(projectPath, PACKAGE, true);
+        failedAuto.delete(projectPath);
         notify.success(
             "Prettier installed",
             "The next save formats with the project's own Prettier.",
         );
+        return true;
     } catch (error) {
         notify.error(
             "Prettier could not be installed",
             error instanceof Error ? error.message : String(error),
+            { action: { label: "Try again", onClick: () => void install(projectPath) } },
         );
+        return false;
     } finally {
         installing.delete(projectPath);
     }
@@ -58,7 +68,8 @@ async function install(projectPath: string): Promise<void> {
 export async function offerPrettierInstall(projectPath: string): Promise<void> {
     const mode = getSettings().workspace.toolingInstall;
     if (mode === "auto") {
-        await install(projectPath);
+        if (failedAuto.has(projectPath)) return;
+        if (!(await install(projectPath))) failedAuto.add(projectPath);
         return;
     }
     if (offered.has(projectPath)) return;
@@ -79,4 +90,5 @@ export async function offerPrettierInstall(projectPath: string): Promise<void> {
 export function resetToolingInstallForTests(): void {
     installing.clear();
     offered.clear();
+    failedAuto.clear();
 }
