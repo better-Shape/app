@@ -537,15 +537,23 @@ const parseExcludePatterns = (value: string): string[] => {
     return patterns;
 };
 
-const buildExcludeOptions = (active: readonly string[]) => {
-    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern));
+const collectMissingCustomPatterns = (
+    active: readonly string[],
+    remembered: readonly string[],
+): string[] => {
+    const known = new Set<string>([
+        ...COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern),
+        ...remembered,
+    ]);
+    return active.filter((pattern) => !known.has(pattern));
+};
+
+const buildExcludeOptions = (customPatterns: readonly string[]) => {
     const presets = COMMON_EXCLUDE_PATTERNS.map((entry) => ({
         value: entry.pattern,
         label: entry.label,
     }));
-    const custom = active
-        .filter((pattern) => !known.has(pattern))
-        .map((pattern) => ({ value: pattern, label: pattern }));
+    const custom = customPatterns.map((pattern) => ({ value: pattern, label: pattern }));
     return [...presets, ...custom];
 };
 
@@ -560,13 +568,20 @@ export function ExcludePatternsSelect({
     "aria-label"?: string;
 }) {
     const active = parseExcludePatterns(value);
+    const [customPatterns, setCustomPatterns] = React.useState<string[]>(() =>
+        collectMissingCustomPatterns(active, []),
+    );
+    const missingCustom = collectMissingCustomPatterns(active, customPatterns);
+    const allCustom =
+        missingCustom.length > 0 ? [...customPatterns, ...missingCustom] : customPatterns;
+    if (missingCustom.length > 0) setCustomPatterns(allCustom);
 
     return (
         <SettingMultiSelect
             value={active}
             placeholder="None excluded"
             aria-label={ariaLabel}
-            options={buildExcludeOptions(active)}
+            options={buildExcludeOptions(allCustom)}
             onChange={(next) => onChange(next.join(","))}
         />
     );

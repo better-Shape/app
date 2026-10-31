@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -252,35 +252,65 @@ describe("Settings row accessible labelling", () => {
         expect(baseUrlInput.value).toBe("https://api.openai.example/v1");
     });
 
-    it("preserves custom comma-separated patterns when toggling presets in ExcludePatternsSelect", () => {
+    it("retains custom globs across preset toggles and uncheck/re-check cycles", () => {
         const changes: string[] = [];
-        render(
-            <SettingCard>
-                <SettingRow title="Exclude">
-                    <ExcludePatternsSelect
-                        value="**/node_modules, **/vendor/**"
-                        onChange={(next) => changes.push(next)}
-                    />
-                </SettingRow>
-            </SettingCard>,
-        );
+        const Harness = () => {
+            const [val, setVal] = useState("**/node_modules, **/vendor/**");
+            return (
+                <SettingCard>
+                    <SettingRow title="Exclude">
+                        <ExcludePatternsSelect
+                            value={val}
+                            onChange={(next) => {
+                                changes.push(next);
+                                setVal(next);
+                            }}
+                        />
+                    </SettingRow>
+                </SettingCard>
+            );
+        };
+        render(<Harness />);
 
-        const trigger = findButton("node_modules, **/vendor/**");
+        const findMenuCheckbox = (label: string): HTMLElement | undefined =>
+            Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'))
+                .find((el) => el.textContent?.trim() === label);
+
+        const openMenuAndFind = (label: string): HTMLElement => {
+            const existing = findMenuCheckbox(label);
+            if (existing) return existing;
+            const trigger = container.querySelector<HTMLButtonElement>(
+                'button[aria-haspopup="menu"]',
+            );
+            act(() => {
+                trigger?.dispatchEvent(
+                    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+                );
+            });
+            const found = findMenuCheckbox(label);
+            if (!found) throw new Error(`Missing ${label} option in ExcludePatternsSelect menu`);
+            return found;
+        };
+
+        const distOption = openMenuAndFind("dist");
         act(() => {
-            trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            distOption.click();
         });
-
-        const distItem = Array.from(document.body.querySelectorAll('[role="menuitemcheckbox"]')).find(
-            (el) => el.textContent?.trim() === "dist",
-        );
-        if (!(distItem instanceof HTMLElement)) {
-            throw new Error("Expected dist preset option in ExcludePatternsSelect menu");
-        }
-        act(() => {
-            distItem.click();
-        });
-
         expect(changes).toEqual(["**/node_modules,**/vendor/**,**/dist"]);
+
+        // Unchecking custom **/vendor/** keeps it listed so the user can re-enable it.
+        const activeCustom = openMenuAndFind("**/vendor/**");
+        act(() => {
+            activeCustom.click();
+        });
+        expect(changes.at(-1)).toBe("**/node_modules,**/dist");
+
+        const uncheckedCustom = openMenuAndFind("**/vendor/**");
+        expect(uncheckedCustom.getAttribute("aria-checked")).toBe("false");
+        act(() => {
+            uncheckedCustom.click();
+        });
+        expect(changes.at(-1)).toBe("**/node_modules,**/dist,**/vendor/**");
     });
 
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {
