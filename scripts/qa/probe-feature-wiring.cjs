@@ -129,7 +129,7 @@ async function isSwitchOn(locator) {
   await page.goto(`${BASE_URL}/settings?category=git`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.waitForTimeout(2000);
   const blameSwitch = rowSwitch(page, "Inline Git Blame");
-  assert.equal(await isSwitchOn(blameSwitch), false, "inline blame starts on");
+  assert.equal(await isSwitchOn(blameSwitch), false, "inline blame starts off");
   await blameSwitch.click();
   await page.waitForTimeout(500);
   await page.goto(`${BASE_URL}/?seed=project`, { waitUntil: "domcontentloaded", timeout: 120000 });
@@ -262,8 +262,8 @@ async function isSwitchOn(locator) {
   await rowSwitch(page, "Show welcome page on startup").click();
   await page.waitForTimeout(400);
 
-  const ignored = errors.filter((text) => /favicon|Download the React DevTools/i.test(text));
-  assert.deepEqual(ignored, [], `console errors: ${ignored.join(" | ")}`);
+  const unexpected = errors.filter((text) => !/favicon|Download the React DevTools/i.test(text));
+  assert.deepEqual(unexpected, [], `console errors: ${unexpected.join(" | ")}`);
 
   await browser.close();
   console.log(
