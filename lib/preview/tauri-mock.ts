@@ -720,6 +720,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // unstaged reads so the two sides are not blank or identical.
         git_get_item_content: (args) => itemContent(args),
         git_file_diff: () => "diff --git a/src/App.tsx b/src/App.tsx\n+// preview fixture change\n",
+        git_commit_files: () => [{ path: "src/App.tsx", status: "M", staged: false }],
         git_list_hunks: (args) => ({ path: String(args.path ?? ""), staged: false, hunks: [] }),
         git_stash_list: () => [],
         git_list_tags: () => [],

@@ -107,7 +107,7 @@ export function GraphDetailPanel({
         void commands
             .gitCommitFiles(repoPath, log.hash)
             .then((files) => {
-                if (!cancelled) setCommitFiles(files);
+                if (!cancelled) setCommitFiles(Array.isArray(files) ? files : []);
             })
             .catch(() => {
                 if (!cancelled) setCommitFiles([]);

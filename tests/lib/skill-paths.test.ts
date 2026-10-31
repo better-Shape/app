@@ -21,12 +21,12 @@ describe("skill-paths: normalizeSkillPath", () => {
         expect(normalizeSkillPath("/home/dev/dir\\name/")).toBe("/home/dev/dir\\name");
         expect(normalizeSkillPath("/home/dev/trailing\\")).toBe("/home/dev/trailing\\");
         expect(isCaseInsensitiveSkillPath("/home/dev/dir\\name")).toBe(false);
-        expect(isCaseInsensitiveSkillPath("//opt/Skills/Demo")).toBe(false);
         expect(isCaseInsensitiveSkillPath("\\\\Server\\Share\\Demo")).toBe(true);
-        const uaSpy = vi
-            .spyOn(window.navigator, "userAgent", "get")
-            .mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        const uaSpy = vi.spyOn(window.navigator, "userAgent", "get");
         try {
+            uaSpy.mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+            expect(isCaseInsensitiveSkillPath("//opt/Skills/Demo")).toBe(false);
+            uaSpy.mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
             expect(isCaseInsensitiveSkillPath("//Server/Share/Demo")).toBe(true);
         } finally {
             uaSpy.mockRestore();

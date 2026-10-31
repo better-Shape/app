@@ -113,12 +113,14 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         return list.slice(0, 3);
     }, [allRefs, compact]);
     const extraRefCount = Math.max(0, allRefs.filter((r) => r.label.toLowerCase() !== "head").length - visibleRefs.length);
+    const interactiveRefPills = isManager && Boolean(onRefActivate);
+    const safeFiles = Array.isArray(files) ? files : [];
 
     const triggerFileLoad = useCallback(() => {
         if (!filesLoaded && repoPath && !filesLoadingRef.current) {
             filesLoadingRef.current = true;
             commands.gitCommitFiles(repoPath, log.hash).then(results => {
-                onFilesLoaded(log.hash, results);
+                onFilesLoaded(log.hash, Array.isArray(results) ? results : []);
                 filesLoadingRef.current = false;
             }).catch(() => {
                 filesLoadingRef.current = false;
@@ -132,6 +134,24 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         onToggleExpand(log.hash);
         if (!filesLoaded && repoPath && !isExpanded) triggerFileLoad();
     }, [filesLoaded, isExpanded, log.hash, onSelect, onToggleExpand, repoPath, triggerFileLoad]);
+
+    const handleRowClick = useCallback(
+        (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation();
+            activateRow();
+        },
+        [activateRow],
+    );
+
+    const handleRowKeyDown = useCallback(
+        (event: React.KeyboardEvent<HTMLButtonElement>) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            activateRow();
+        },
+        [activateRow],
+    );
 
     const handleOpenGitHub = async (e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
@@ -170,53 +190,84 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                 <ContextMenuTrigger asChild>
                     <div
                         className={cn(
-                            "relative z-0 flex cursor-pointer items-center whitespace-nowrap outline-none group",
+                            "relative z-0 flex items-center whitespace-nowrap group @container",
                             isExpanded ? "rounded-none bg-transparent" : "rounded-lg hover:bg-[var(--row-hover)]",
                             !isExpanded && selected && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={isExpanded}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            activateRow();
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key !== "Enter" && e.key !== " ") return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            activateRow();
-                        }}
                     >
                         {compact ? (
                             laneAvatarUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img src={laneAvatarUrl} alt="" className="ml-2 size-5 shrink-0 rounded-full object-cover" />
+                                <img
+                                    src={laneAvatarUrl}
+                                    alt=""
+                                    className={cn(
+                                        "pointer-events-none ml-2 size-5 shrink-0",
+                                        "rounded-full object-cover",
+                                    )}
+                                />
                             ) : null
                         ) : (
-                        <GraphSvgRow
-                            node={node}
-                            isFirst={isFirst}
-                            isLast={isLast}
-                            isHead={isHead}
-                            muted={muted}
-                            avatarUrl={laneAvatarUrl}
-                            avatarKey={log.hash}
-                            arriving={arriving}
-                        />
+                        <div className="pointer-events-none shrink-0">
+                            <GraphSvgRow
+                                node={node}
+                                isFirst={isFirst}
+                                isLast={isLast}
+                                isHead={isHead}
+                                muted={muted}
+                                avatarUrl={laneAvatarUrl}
+                                avatarKey={log.hash}
+                                arriving={arriving}
+                            />
+                        </div>
                         )}
-                        <div className={cn("flex min-w-0 flex-1 items-center overflow-hidden pr-2 @container", compact ? "gap-2" : "gap-1.5", compact && !laneAvatarUrl && "pl-2")}>
-                            {visibleRefs.map((refInfo) => (
-                                <RefPill
+                        <div
+                            className={cn(
+                                "flex min-w-0 flex-1 items-center overflow-hidden pr-2",
+                                compact ? "gap-2" : "gap-1.5",
+                                compact && !laneAvatarUrl && "pl-2",
+                            )}
+                        >
+                            {interactiveRefPills && visibleRefs.map((refInfo) => (
+                                <span
                                     key={refInfo.label}
-                                    refInfo={refInfo}
-                                    color={node.color}
-                                    emphasized={refInfo.isHead || isHead}
-                                    hoverOnly={isManager}
-                                    onActivate={isManager ? onRefActivate : undefined}
-                                />
+                                    className="relative z-10 inline-flex shrink-0"
+                                >
+                                    <RefPill
+                                        refInfo={refInfo}
+                                        color={node.color}
+                                        emphasized={refInfo.isHead || isHead}
+                                        hoverOnly={isManager}
+                                        onActivate={onRefActivate}
+                                    />
+                                </span>
                             ))}
+                            <button
+                                type="button"
+                                data-commit-row-trigger=""
+                                aria-expanded={isExpanded}
+                                onClick={handleRowClick}
+                                onKeyDown={handleRowKeyDown}
+                                className={cn(
+                                    "flex h-full min-w-0 flex-1 cursor-pointer items-center",
+                                    "overflow-hidden bg-transparent p-0 text-left outline-none",
+                                    compact ? "gap-2" : "gap-1.5",
+                                    "before:absolute before:inset-0 before:z-0",
+                                    "before:rounded-[inherit] before:content-['']",
+                                    "focus-visible:before:ring-1 focus-visible:before:ring-inset",
+                                    "focus-visible:before:ring-border-focus",
+                                )}
+                            >
+                                {!interactiveRefPills && visibleRefs.map((refInfo) => (
+                                    <RefPill
+                                        key={refInfo.label}
+                                        refInfo={refInfo}
+                                        color={node.color}
+                                        emphasized={refInfo.isHead || isHead}
+                                        hoverOnly={isManager}
+                                    />
+                                ))}
                             {!compact && extraRefCount > 0 && (
                                 isManager ? (
                                     <span
@@ -283,6 +334,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                         id={`tooltip-content-${log.hash}`}
                                         role="presentation"
                                         className="flex max-w-[240px] flex-col gap-2 p-0.5"
+                                        onClick={(e) => e.stopPropagation()}
                                         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={() => {
                                             isDraggingRef.current = true;
@@ -359,18 +411,33 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             </Tooltip>
                             )}
                             <Tooltip content={log.author} side="top" delayDuration={250}>
-                                <span className="hidden max-w-[100px] shrink-0 truncate whitespace-nowrap text-right text-sm text-text-muted @[380px]:inline">
+                                <span
+                                    className={cn(
+                                        "hidden max-w-[100px] shrink-0 truncate whitespace-nowrap",
+                                        "text-right text-sm text-text-muted @[408px]:inline",
+                                    )}
+                                >
                                     {log.author}
                                 </span>
                             </Tooltip>
-                            <span className="hidden w-[52px] shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-text-muted @[320px]:inline">
+                            <span
+                                className={cn(
+                                    "hidden w-[52px] shrink-0 whitespace-nowrap text-right",
+                                    "text-sm tabular-nums text-text-muted @[348px]:inline",
+                                )}
+                            >
                                 {getRelativeTime(log.date)}
                             </span>
+                            </button>
                             <Tooltip content={hashCopied ? "Copied" : log.hash} side="top" delayDuration={250}>
                                 <button
                                     type="button"
                                     className={cn(
-                                        "hidden w-[52px] shrink-0 cursor-default whitespace-nowrap text-right font-mono text-xs tabular-nums transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] @[480px]:inline",
+                                        "relative z-10 hidden w-[52px] shrink-0 cursor-default",
+                                        "whitespace-nowrap text-right font-mono text-xs",
+                                        "tabular-nums transition-colors",
+                                        "duration-[var(--spring-tap-dur)]",
+                                        "ease-[var(--spring-tap)] @[508px]:inline",
                                         hashCopied ? "text-success opacity-100" : "text-text-disabled opacity-70",
                                     )}
                                     onClick={(e) => {
@@ -398,7 +465,10 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                     <ContextMenuItem onClick={async () => {
                         if (!repoPath) return;
                         try {
-                            const commitFiles = filesLoaded ? files : await commands.gitCommitFiles(repoPath, log.hash);
+                            const rawFiles = filesLoaded
+                                ? safeFiles
+                                : await commands.gitCommitFiles(repoPath, log.hash);
+                            const commitFiles = Array.isArray(rawFiles) ? rawFiles : [];
                             commitFiles.forEach((file: GitFileParams) => onShowCommitDiff(log.hash, file.path));
                         } catch (e) { notify.error("Git Error", String(e)); }
                     }}>
@@ -527,8 +597,8 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
             <div className={isExpanded ? "block" : "hidden"}>
                 <div className="relative">
                     <div style={{ paddingLeft: compact ? 8 : Math.max((rowMaxLane + 1) * LANE_WIDTH, 28) }} className="pr-1 py-0.5 space-y-0 relative z-10">
-                        {files.length > 0 ? (
-                            files.map((file: GitFileParams) => {
+                        {safeFiles.length > 0 ? (
+                            safeFiles.map((file: GitFileParams) => {
                                 const name = file.path.split(/[\\\/]/).pop() || "";
                                 const folder = file.path.substring(0, file.path.length - name.length - 1);
                                 return (
