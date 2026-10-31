@@ -60,9 +60,14 @@ async function fingerprintProject(projectPath: string): Promise<string> {
     return parts.join("|");
 }
 
+/** ToInt32 without the `| 0` idiom (Sonar S7767); `Math.imul(1, n)` truncates to int32. */
+const toInt32 = (value: number) => Math.imul(1, value);
+
 function hashStr(s: string): string {
     let h = 0;
-    for (let i = 0; i < Math.min(s.length, 8000); i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+    for (let i = 0; i < Math.min(s.length, 8000); i++) {
+        h = toInt32(Math.imul(h, 31) + s.charCodeAt(i));
+    }
     return (h >>> 0).toString(36);
 }
 

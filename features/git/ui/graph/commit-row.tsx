@@ -126,6 +126,13 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         }
     }, [filesLoaded, repoPath, log.hash, onFilesLoaded]);
 
+    /** Select and expand this commit, loading its files on first open. */
+    const activateRow = useCallback(() => {
+        onSelect?.(log.hash);
+        onToggleExpand(log.hash);
+        if (!filesLoaded && repoPath && !isExpanded) triggerFileLoad();
+    }, [filesLoaded, isExpanded, log.hash, onSelect, onToggleExpand, repoPath, triggerFileLoad]);
+
     const handleOpenGitHub = async (e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
         if (!repoPath) return;
@@ -168,11 +175,18 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             !isExpanded && selected && "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]",
                         )}
                         style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
                         onClick={(e) => {
                             e.stopPropagation();
-                            onSelect?.(log.hash);
-                            onToggleExpand(log.hash);
-                            if (!filesLoaded && repoPath && !isExpanded) triggerFileLoad();
+                            activateRow();
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            activateRow();
                         }}
                     >
                         {compact ? (

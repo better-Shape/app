@@ -154,6 +154,17 @@ export const splitLeadingQuoteBlock = (text: string): { quotes: string[]; rest: 
     return { quotes: cleanedQuotes, rest };
 };
 
+let quoteSequence = 0;
+
+/** A unique quote id that never falls back to `Math.random` (Sonar S2245). */
+const createQuoteId = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    quoteSequence += 1;
+    return `${Date.now()}-${quoteSequence.toString(36)}`;
+};
+
 /** Dispatches a quoted excerpt to the active chat composer. */
 export const dispatchChatQuote = (text: string) => {
     const trimmed = text.trim();
@@ -164,7 +175,7 @@ export const dispatchChatQuote = (text: string) => {
             : `${trimmed.slice(0, MAX_QUOTE_CHARS - 3).trimEnd()}...`;
     window.dispatchEvent(
         new CustomEvent("bettershape-chat-quote-selection", {
-            detail: { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, text: capped },
+            detail: { id: createQuoteId(), text: capped },
         }),
     );
 };

@@ -17,4 +17,13 @@ describe("proposed-edits path matching", () => {
         expect(editContentHash("hello\n")).toBe(editContentHash("hello\n"));
         expect(editContentHash("hello\n")).not.toBe(editContentHash("hello\r\nworld"));
     });
+
+    // Pins the int32 hash used to match accepted/rejected edits. A refactor away from
+    // `| 0` must keep these values or persisted edit statuses stop matching.
+    it("keeps the int32 fingerprint for existing content", () => {
+        expect(editContentHash("")).toBe("0:0");
+        expect(editContentHash("hello")).toBe("5:1n1e4y");
+        expect(editContentHash("hello\n")).toBe("6:-k6wvpk");
+        expect(editContentHash("hello\r\nworld")).toBe("11:j968ey");
+    });
 });

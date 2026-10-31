@@ -47,6 +47,18 @@ it("stages unique open rows and only closes on release, suppressing the syntheti
     expect(sweep.closing).toBe(false);
 });
 
+it("swallows the synthetic click on the list once after a sweep commit", async () => {
+    start(); move("2");
+    await act(async () => { window.dispatchEvent(pointer("pointerup", { clientY: 30 })); });
+    const target = host.querySelector('[data-pr-id="2"]')!;
+    const first = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    act(() => { target.dispatchEvent(first); });
+    expect(first.defaultPrevented).toBe(true);
+    const second = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    act(() => { target.dispatchEvent(second); });
+    expect(second.defaultPrevented).toBe(false);
+});
+
 it("leaves ordinary clicks to the accessible button action", async () => {
     start();
     await act(async () => { window.dispatchEvent(pointer("pointerup")); });

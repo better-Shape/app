@@ -122,5 +122,21 @@ export function usePrCloseSweep(list: RefObject<HTMLDivElement | null>, repo: st
         suppressUntil.current = 0;
         return suppress;
     }, []);
+    // A drag that ends outside the staged rows still fires a click on the row under the
+    // pointer. Swallow exactly that click in the capture phase. The listener is attached
+    // natively rather than through JSX because the scroll container is not an interactive
+    // control and an `onClickCapture` prop makes assistive tooling treat it as one.
+    useLayoutEffect(() => {
+        const element = list.current;
+        if (!element) return;
+        const onClickCapture = (event: MouseEvent) => {
+            if (event.detail > 0 && suppressClick()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        };
+        element.addEventListener("click", onClickCapture, true);
+        return () => element.removeEventListener("click", onClickCapture, true);
+    }, [list, suppressClick]);
     return { selected, closing, start, suppressClick, resetClickSuppression };
 }
