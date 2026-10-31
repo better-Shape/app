@@ -102,7 +102,34 @@ export const resolveGraphHeadRef = (
     return null;
 };
 
-type GraphCommitLineage = Pick<GitLogEntry, "hash" | "parents">;
+type GraphCommitLineage = Pick<GitLogEntry, "hash" | "parents"> & {
+    readonly refs?: readonly string[];
+};
+
+const findHeadDecoratedCommitHash = (
+    commits: readonly GraphCommitLineage[],
+): string | null => {
+    for (const commit of commits) {
+        if (extractEntryHeadRef(commit.refs)) return commit.hash;
+    }
+    return null;
+};
+
+const hasAnyRefDecoration = (commits: readonly GraphCommitLineage[]): boolean => {
+    for (const commit of commits) {
+        if (commit.refs && commit.refs.length > 0) return true;
+    }
+    return false;
+};
+
+const resolveGraphHeadCommitHash = (
+    commits: readonly GraphCommitLineage[],
+): string | null => {
+    if (commits.length === 0) return null;
+    const decorated = findHeadDecoratedCommitHash(commits);
+    if (decorated) return decorated;
+    return hasAnyRefDecoration(commits) ? null : commits[0].hash;
+};
 
 const isLineageList = (
     value: GraphCommitLineage | readonly GraphCommitLineage[],
@@ -272,20 +299,23 @@ const resolveConfirmedEvaluation = (
     };
 };
 
+const resolveExcludedArrivals = (prev: GraphPendingBaseline): ReadonlySet<string> =>
+    prev.animated ?? EMPTY_ARRIVAL_SET;
+
 const evaluateFreshGraphLineage = (
     prev: GraphPendingBaseline,
     cacheKey: string | null,
     commits: readonly GraphCommitLineage[],
     nextHeadRef: string | null,
 ): GraphArrivalEvaluation => {
-    if (commits.length === 0 || !hasMatchingGraphContext(prev, cacheKey, nextHeadRef)) {
+    if (!hasMatchingGraphContext(prev, cacheKey, nextHeadRef)) {
         return EMPTY_ARRIVAL_EVALUATION;
     }
-    const topHash = commits[0].hash;
-    if (prev.known.has(topHash)) return EMPTY_ARRIVAL_EVALUATION;
+    const headHash = resolveGraphHeadCommitHash(commits);
+    if (!headHash || prev.known.has(headHash)) return EMPTY_ARRIVAL_EVALUATION;
     const freshByHash = indexFreshLineage(commits, prev.known);
-    const forward = walkForwardFreshCommits(topHash, freshByHash, prev.known);
-    return resolveConfirmedEvaluation(forward, prev.animated ?? EMPTY_ARRIVAL_SET);
+    const forward = walkForwardFreshCommits(headHash, freshByHash, prev.known);
+    return resolveConfirmedEvaluation(forward, resolveExcludedArrivals(prev));
 };
 
 /**
@@ -407,10 +437,17 @@ const resolveEffectiveSlice = (
     }
     return {
         effectiveLogs: gitLogs,
-        effectiveTopHash: gitLogs.length > 0 ? gitLogs[0].hash : null,
+        effectiveTopHash: resolveGraphHeadCommitHash(gitLogs),
         effectiveHeadRef: resolveGraphHeadRef(gitLogs),
     };
 };
+
+const isUnstreamedHeadSlice = (
+    keyChanged: boolean,
+    staleCarryOver: boolean,
+    logCount: number,
+    effectiveTopHash: string | null,
+): boolean => !keyChanged && !staleCarryOver && logCount > 0 && effectiveTopHash === null;
 
 const computeNextSnapshot = (
     prev: GraphHeadSnapshot,
@@ -427,6 +464,18 @@ const computeNextSnapshot = (
         gitLogs,
         staleCarryOver,
     );
+    const nextKnown = buildNextKnownSet(prev.known, keyChanged, staleCarryOver, gitLogs);
+    if (isUnstreamedHeadSlice(keyChanged, staleCarryOver, effectiveLogs.length, effectiveTopHash)) {
+        return {
+            freshHashes: EMPTY_ARRIVAL_SET,
+            nextSnapshot: {
+                ...prev,
+                known: nextKnown,
+                logsRef: gitLogs,
+                ignoredLogsRef: nextIgnoredLogsRef,
+            },
+        };
+    }
     const baseline = resolveArrivalBaseline(
         prev,
         keyChanged,
@@ -445,7 +494,7 @@ const computeNextSnapshot = (
         nextSnapshot: {
             cacheKey,
             topHash: effectiveTopHash,
-            known: buildNextKnownSet(prev.known, keyChanged, staleCarryOver, gitLogs),
+            known: nextKnown,
             headRef: effectiveHeadRef,
             logsRef: gitLogs,
             ignoredLogsRef: nextIgnoredLogsRef,

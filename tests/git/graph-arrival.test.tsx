@@ -454,4 +454,31 @@ describe("GraphSvgRow arrival stroke draw", () => {
             vi.useRealTimers();
         }
     });
+
+    it("tracks checked-out HEAD rather than other branches under Show all branches", () => {
+        vi.useFakeTimers();
+        const remoteTip = makeLog("remote-1", ["shared-0"], ["origin/feature"]);
+        const remoteNewer = makeLog("remote-2", ["remote-1"], ["origin/feature"]);
+        const headBase = makeLog("main-1", ["shared-0"], ["HEAD -> main"]);
+        const sharedRoot = makeLog("shared-0", []);
+
+        try {
+            expect(renderArrivals([remoteTip, headBase, sharedRoot], "/repo::all")).toBe("");
+
+            // Fetching a newer commit on origin/feature at index 0 must not animate as HEAD.
+            const afterFetch = [remoteNewer, remoteTip, headBase, sharedRoot];
+            expect(renderArrivals(afterFetch, "/repo::all")).toBe("");
+
+            // New commit on HEAD -> main behind a newer-dated remote tip still animates.
+            const mainCommit = makeLog("main-2", ["main-1"], ["HEAD -> main"]);
+            const mainDemoted = makeLog("main-1", ["shared-0"]);
+            const afterMainCommit = [remoteNewer, mainCommit, remoteTip, mainDemoted, sharedRoot];
+            expect(renderArrivals(afterMainCommit, "/repo::all")).toBe("main-2");
+
+            // Resetting HEAD -> main back to main-1 clears active arrival even with remote-2 first.
+            expect(renderArrivals(afterFetch, "/repo::all")).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
