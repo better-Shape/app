@@ -178,6 +178,7 @@ const useHoldState = (
     const suppressClickRef = React.useRef(false);
     const pointerLeftBoundsRef = React.useRef(false);
     const pointerCleanupRef = React.useRef<(() => void) | null>(null);
+    const confirmEpochRef = React.useRef(0);
 
     const isButtonDisabled = React.useCallback(
         () => disabledRef.current || Boolean(buttonRef.current?.disabled),
@@ -243,12 +244,19 @@ const useHoldState = (
         [buttonRef, detachPointerListeners, scheduleClickGuardClear],
     );
 
+    const invalidateInFlightConfirm = React.useCallback(() => {
+        if (!confirmInFlightRef.current) return;
+        confirmEpochRef.current += 1;
+        confirmInFlightRef.current = false;
+        setPending(false);
+    }, []);
+
     React.useLayoutEffect(() => {
         disabledRef.current = disabled;
-        if (disabled && (stateRef.current !== "idle" || armedPressRef.current)) {
-            cancelHold();
-        }
-    }, [disabled, cancelHold]);
+        if (!disabled) return;
+        invalidateInFlightConfirm();
+        if (stateRef.current !== "idle" || armedPressRef.current) cancelHold();
+    }, [disabled, cancelHold, invalidateInFlightConfirm]);
 
     React.useEffect(() => {
         const timers = timersRef.current;
@@ -285,21 +293,24 @@ const useHoldState = (
 
     const awaitAsyncConfirm = React.useCallback(
         (promise: PromiseLike<void | boolean>) => {
+            confirmEpochRef.current += 1;
+            const epoch = confirmEpochRef.current;
             confirmInFlightRef.current = true;
             setPending(true);
             writeState("idle");
             Promise.resolve(promise)
                 .then((outcome) => {
+                    if (confirmEpochRef.current !== epoch) return;
                     confirmInFlightRef.current = false;
                     if (mountedRef.current) setPending(false);
                     settleSyncConfirm(outcome);
                 })
                 .catch(() => {
+                    if (confirmEpochRef.current !== epoch) return;
                     confirmInFlightRef.current = false;
-                    if (mountedRef.current) {
-                        setPending(false);
-                        writeState("idle");
-                    }
+                    if (!mountedRef.current) return;
+                    setPending(false);
+                    writeState("idle");
                 });
         },
         [settleSyncConfirm, writeState],

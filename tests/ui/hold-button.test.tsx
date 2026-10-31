@@ -793,13 +793,7 @@ describe("HoldButton", () => {
                 onConfirm={onConfirm}
             />,
         );
-        await act(async () => {
-            resolveAsync?.();
-            await Promise.resolve();
-        });
-        expect(btn.dataset.state).toBe("idle");
-
-        // Re-enabling must stay idle rather than revealing a latent confirmed state.
+        // Re-enable BEFORE the stale in-flight promise settles; settling afterward must stay idle.
         render(
             <HoldButton
                 ariaLabel="Delete branch"
@@ -808,6 +802,11 @@ describe("HoldButton", () => {
                 onConfirm={onConfirm}
             />,
         );
+        expect(btn.getAttribute("aria-busy")).toBeNull();
+        await act(async () => {
+            resolveAsync?.();
+            await Promise.resolve();
+        });
         expect(btn.dataset.state).toBe("idle");
     });
 });
