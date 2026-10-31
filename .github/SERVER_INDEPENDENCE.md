@@ -5,7 +5,9 @@ still talks to on the network, how each remaining server-shaped feature is (or
 will be) handled, and the BYOK surface that exists today. Every line was checked
 against the tree; file references are the evidence.
 
-Last verified: commit `71b776d` (BYOK depth + editor-status/spill fixes).
+Last verified: commit `47d6be3` (editor-surface pass: minimap, clipboard, action contract,
+design-pick notice). Gaps 5-9 were re-checked against the tree; each line below
+says what closed it.
 
 ## Method
 
@@ -59,27 +61,35 @@ preview iframe from inside the app. They are not a remote service.
    way provider base URLs are overridable.
 4. **Composio self-hosting.** The base URL is hardcoded to `backend.composio.dev`.
    A user running their own Composio deployment should be able to point at it.
-5. **Windows dictation is unreachable.** `core/mic.rs` implements local
-   (PowerShell) speech recognition and emits `dictation-text` /
-   `dictation-error`; nothing in the frontend calls `dictation_start` and nothing
-   listens for the events. Wire it to the composer or delete the module.
-6. **`agent-design-pick-pending` has no listener.** The design gallery renders
-   inline and the pick is submitted through `select_design_preview`, so the flow
-   works — but the turn is *blocked* while waiting and, if the user scrolled
-   away, nothing says so. `lib/agent-preview/store.ts` records the pending pick
-   and no component reads it: either drive a toast/status from it or drop it.
-7. **`chat_renamed` is a duplicate of `chat_title`.** The sidebar already
-   updates from `chat_title` (`use-chat-session.ts:1654`). Keep one.
-8. **Status bar is never mounted.** `features/agent/workbench/status/*` is
-   complete (line/column, git, python interpreter, notifications) and upstream
-   does not mount it either. Now that the editor publishes
-   `bettershape-editor-status`, mounting it is a one-line layout change plus a
-   design pass.
+5. ~~**Windows dictation is unreachable.**~~ **Closed.** The composer's
+   `dictation-button.tsx` drives the whole cycle: `dictation_start` /
+   `dictation_push` / `dictation_stop` (`lib/backend/commands.ts:1136-1139`),
+   capture and WAV encoding in `lib/editor/dictation.ts`, and a `dictation-text`
+   listener that hands the phrase to the composer through
+   `bettershape-dictation-text` (`features/chat/ui/composer/input.tsx:605`).
+6. ~~**`agent-design-pick-pending` has no listener.**~~ **Closed.** The chat
+   session listens for the event and raises a notification when no gallery is on
+   screen (`features/chat/lib/use-chat-session.ts`, decision in
+   `lib/agent-preview/pending-notice.ts`, which reads the gallery's own
+   `data-pending-approval-kind` marker).
+7. ~~**`chat_renamed` is a duplicate of `chat_title`.**~~ **Not a duplicate any
+   more.** `chat_renamed` is an inline transcript marker the backend writes into
+   the message (`src-tauri/src/agent/commands/titles.rs:432`), parsed in
+   `features/chat/ui/message/item.tsx:267` and hidden from search; the sidebar
+   title comes from the separate `chat_title` event.
+8. ~~**Status bar is never mounted.**~~ **Closed.** `features/agent/layout.tsx:1002`
+   renders it for any project, and it carries line/column, git, the python
+   interpreter, run status and the notifications menu.
 9. **Editor menu items with no engine.** Go to Definition, References, Rename,
    Quick Fix, Organize Imports and Inline Edit dispatch
    `bettershape-editor-action` and the CodeMirror handler ignores them: there is
    no language server in the repo (no `lib/lsp`, no Rust LSP). Either hide them,
    or build the LSP client — do not leave them as silent no-ops.
+   **Hidden, and enforced:** `lib/editor/action-contract.ts` declares the ids
+   with the reason, the command palette filters against it, and
+   `tests/editor/action-dispatch-coverage.test.ts` fails if any surface
+   dispatches an id that is neither answered nor declared. Building the client
+   is still the way to bring the rows back.
 
 ## BYOK surface today
 
