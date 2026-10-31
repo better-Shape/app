@@ -86,26 +86,41 @@ test.describe("workbench (seeded project)", () => {
             .not.toBe("none");
 
         const workspaceTabOrder = () =>
-            page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label]").evaluateAll((elements) =>
-                elements
-                    .map((element) => element.getAttribute("aria-label"))
-                    .filter((label) => label === "Graph" || label === "Files"),
-            );
+            page
+                .locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label]")
+                .evaluateAll((elements) =>
+                    elements
+                        .map((element) => element.getAttribute("aria-label"))
+                        .filter((label) => label === "Graph" || label === "Files"),
+                );
         const originalTabOrder = await workspaceTabOrder();
         expect(originalTabOrder).toEqual(["Graph", "Files"]);
-        const graphTab = page.locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']");
+        const graphTab = page.locator(
+            "#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']",
+        );
+        const filesSortableTab = page.locator(
+            "#bettershape-workbench [aria-roledescription='sortable'][aria-label='Files']",
+        );
+        const parseTranslateX = (element: Element): number => {
+            const offset = /translate3d\((-?[\d.]+)px/.exec(
+                (element as HTMLElement).style.transform,
+            )?.[1];
+            return Number(offset ?? 0);
+        };
         await graphTab.focus();
         await page.keyboard.press("Space");
-        await expect.poll(() => graphTab.evaluate((element) => (element as HTMLElement).style.zIndex)).toBe("20");
-        await page.keyboard.press("ArrowRight");
         await expect
-            .poll(() =>
-                graphTab.evaluate((element) => {
-                    const offset = /translate3d\((-?[\d.]+)px/.exec((element as HTMLElement).style.transform)?.[1];
-                    return Number(offset ?? 0);
-                }),
-            )
-            .toBeGreaterThan(0);
+            .poll(() => graphTab.evaluate((element) => (element as HTMLElement).style.zIndex))
+            .toBe("20");
+        // KeyboardSensor registers its document keydown listener on setTimeout(0) after Space.
+        await page.evaluate(
+            () => new Promise<null>((resolve) => setTimeout(() => resolve(null), 0)),
+        );
+        await page.keyboard.press("ArrowRight");
+        // Wait for both Graph (+x) and Files (-x) transforms so DndContext's passive setOver
+        // commit updates sensorContext.current.over before Enter drops the tab.
+        await expect.poll(() => graphTab.evaluate(parseTranslateX)).toBeGreaterThan(0);
+        await expect.poll(() => filesSortableTab.evaluate(parseTranslateX)).toBeLessThan(0);
         await page.keyboard.press("Enter");
         await expect.poll(workspaceTabOrder).toEqual(["Files", "Graph"]);
 

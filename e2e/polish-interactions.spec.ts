@@ -84,14 +84,27 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
 
             // Open Commit menu and navigate via keyboard ArrowDown + Enter to open SingleFileDiffEditor.
             await page.getByRole("button", { name: /^Commit\b/ }).click();
-            const appMenuItem = page
-                .locator("[data-radix-popper-content-wrapper]")
-                .getByRole("menuitem", { name: /App\.tsx/ });
+            const commitMenu = page.locator("[data-radix-popper-content-wrapper] [role='menu']");
+            const appMenuItem = commitMenu.getByRole("menuitem", { name: /App\.tsx/ });
             await expect(appMenuItem).toBeVisible();
-            for (let step = 0; step < 6; step += 1) {
+            await expect
+                .poll(() =>
+                    commitMenu.evaluate((menu) => {
+                        const active = document.activeElement;
+                        return menu === active || menu.contains(active);
+                    }),
+                )
+                .toBe(true);
+            for (let step = 0; step < 8; step += 1) {
                 const highlighted = await appMenuItem.getAttribute("data-highlighted");
                 if (highlighted !== null) break;
                 await page.keyboard.press("ArrowDown");
+                await page.evaluate(
+                    () =>
+                        new Promise<null>((resolve) => {
+                            requestAnimationFrame(() => setTimeout(() => resolve(null), 0));
+                        }),
+                );
             }
             await expect(appMenuItem).toHaveAttribute("data-highlighted", "");
             await page.keyboard.press("Enter");
@@ -111,7 +124,18 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
 
             // Pressing inside enters holding, and dragging outside aborts without CDP timer races.
             const dragStates = await discardBtn.evaluate(async (button: HTMLButtonElement) => {
-                const flushTick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+                const flushCommit = () =>
+                    new Promise<void>((resolve) => {
+                        requestAnimationFrame(() => setTimeout(resolve, 0));
+                    });
+                const waitForState = async (expected: string) => {
+                    if (button.getAttribute("data-state") === expected) return;
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                    for (let frame = 0; frame < 6; frame += 1) {
+                        if (button.getAttribute("data-state") === expected) return;
+                        await flushCommit();
+                    }
+                };
                 const rect = button.getBoundingClientRect();
                 const insideX = rect.left + rect.width / 2;
                 const insideY = rect.top + rect.height / 2;
@@ -129,13 +153,13 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
                         }),
                     );
                 emitPointer(button, "pointerdown", insideX);
-                await flushTick();
+                await waitForState("holding");
                 const afterDown = button.getAttribute("data-state");
                 emitPointer(document.body, "pointermove", outsideX);
-                await flushTick();
+                await waitForState("idle");
                 const afterLeave = button.getAttribute("data-state");
                 emitPointer(document.body, "pointerup", outsideX);
-                await flushTick();
+                await flushCommit();
                 return { afterDown, afterLeave, afterUp: button.getAttribute("data-state") };
             });
             expect(dragStates).toEqual({
