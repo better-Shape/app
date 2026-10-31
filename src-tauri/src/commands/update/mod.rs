@@ -52,12 +52,11 @@ fn client_failure(error: reqwest::Error) -> AppError {
 }
 
 /// Numeric segments of a version, ignoring a leading `v` and any pre-release
-/// suffix (`1.4.0-beta.2` reads as 1.4.0).
+/// or build suffix: `1.4.0-beta.2` reads as 1.4.0, not as 1.4.0.2.
 fn version_segments(version: &str) -> Vec<u64> {
-    version
-        .trim()
-        .trim_start_matches('v')
-        .split('.')
+    let core = version.trim().trim_start_matches('v');
+    let core = core.split(['-', '+']).next().unwrap_or("");
+    core.split('.')
         .map(|part| {
             let digits: String = part
                 .chars()
@@ -165,6 +164,8 @@ mod tests {
     fn ignores_the_prefix_and_the_prerelease_suffix() {
         assert!(!is_newer_version("1.0.3", "v1.0.3"));
         assert!(!is_newer_version("1.4.0", "1.4.0-beta.2"));
+        assert!(!is_newer_version("1.4.0", "1.4.0-rc.1"));
+        assert!(!is_newer_version("1.4.0", "1.4.0+build.7"));
         assert!(is_newer_version("1.4.0-beta.2", "1.4.1"));
         assert!(!is_newer_version("1.2.0", "1.2"));
     }
