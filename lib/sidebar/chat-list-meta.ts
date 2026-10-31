@@ -116,6 +116,7 @@ function invalidate(keys: readonly string[]) {
     }
     if (keys.includes(PIN_KEY)) for (const listener of pinListeners) listener();
     if (keys.includes(UNREAD_KEY)) for (const listener of unreadListeners) listener();
+    if (keys.includes(COLOR_KEY)) for (const listener of colorListeners) listener();
     if (keys.includes(COLLECTION_KEY)) for (const listener of collectionListeners) listener();
 }
 
@@ -134,6 +135,7 @@ function ensureCrossWindowSync() {
     window.addEventListener("bettershape-chat-pins-changed", reload);
     window.addEventListener("bettershape-chat-unread-changed", reload);
     window.addEventListener("bettershape-chat-collections-changed", reload);
+    window.addEventListener("bettershape-chat-colors-changed", reload);
     window.addEventListener("storage", reload);
 }
 
@@ -229,6 +231,7 @@ function readColors(): Readonly<Record<string, ChatColor>> {
 const colorListeners = new Set<() => void>();
 
 export function subscribeChatColors(cb: () => void) {
+    ensureCrossWindowSync();
     colorListeners.add(cb);
     return () => {
         colorListeners.delete(cb);
@@ -236,6 +239,9 @@ export function subscribeChatColors(cb: () => void) {
 }
 
 export function getChatColors(): Readonly<Record<string, ChatColor>> {
+    // A window that only reads colours still has to hear about a write made in
+    // the other one, so the sync is installed on read as well as on subscribe.
+    ensureCrossWindowSync();
     if (!colorCache) colorCache = readColors();
     return colorCache;
 }
@@ -373,7 +379,7 @@ export function setChatColor(id: string, color: ChatColor | null) {
     }
     colorCache = Object.keys(next).length === 0 ? EMPTY_COLORS : next;
     for (const l of colorListeners) l();
-    announce("bettershape-chat-pins-changed");
+    announce("bettershape-chat-colors-changed");
 }
 
 export function clearChatUnread(id: string) {

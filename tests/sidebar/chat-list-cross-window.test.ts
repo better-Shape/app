@@ -48,6 +48,40 @@ describe("chat list cross-window sync", () => {
         expect(meta.getPinnedChatIds().has("chat-3")).toBe(true);
     });
 
+    it("re-reads colours written by another window and wakes their subscribers", async () => {
+        const meta = await import("@/lib/sidebar/chat-list-meta");
+        const seen = vi.fn();
+        meta.subscribeChatColors(seen);
+        expect(meta.getChatColors()["chat-1"]).toBeUndefined();
+
+        localStorage.setItem("bettershape-sidebar-chat-colors", JSON.stringify({ "chat-1": "blue" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "bettershape-sidebar-chat-colors" }));
+
+        expect(meta.getChatColors()["chat-1"]).toBe("blue");
+        expect(seen).toHaveBeenCalled();
+    });
+
+    it("installs the cross-window sync for a window that only reads colours", async () => {
+        const meta = await import("@/lib/sidebar/chat-list-meta");
+        // A read, with no subscription: the popout that only paints colours.
+        meta.getChatColors();
+        localStorage.setItem("bettershape-sidebar-chat-colors", JSON.stringify({ "chat-2": "green" }));
+        window.dispatchEvent(new CustomEvent("bettershape-chat-colors-changed"));
+
+        expect(meta.getChatColors()["chat-2"]).toBe("green");
+    });
+
+    it("announces a colour write as a colour change, not a pin change", async () => {
+        const meta = await import("@/lib/sidebar/chat-list-meta");
+        const pins = vi.fn();
+        window.addEventListener("bettershape-chat-pins-changed", pins);
+        meta.setChatColor("chat-4", "rose");
+        window.removeEventListener("bettershape-chat-pins-changed", pins);
+
+        expect(pins).not.toHaveBeenCalled();
+        expect(meta.getChatColors()["chat-4"]).toBe("rose");
+    });
+
     it("ignores storage keys that are not sidebar state", async () => {
         const meta = await import("@/lib/sidebar/chat-list-meta");
         const seen = vi.fn();
