@@ -49,6 +49,7 @@ test.describe("git manager", () => {
         const applied = await expect
             .poll(
                 async () => {
+                    await refFilter.scrollIntoViewIfNeeded();
                     await refFilter.focus();
                     await page.keyboard.press("Enter");
                     await page.waitForTimeout(150);
@@ -61,13 +62,20 @@ test.describe("git manager", () => {
             .catch(() => false);
         if (!applied) {
             const state = await page.evaluate(() => {
-                const list = document.querySelector("[role='list'][aria-label='Commit graph']");
+                const lists = Array.from(document.querySelectorAll("[role='list'][aria-label='Commit graph']"));
+                const list = lists[0];
                 return {
                     active: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
-                    pills: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) => ({
-                        label: el.getAttribute("aria-label"),
-                        tag: el.tagName,
-                    })),
+                    activeHtml: document.activeElement?.outerHTML.slice(0, 140) ?? "none",
+                    graphCount: lists.length,
+                    pills: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) => {
+                        const box = el.getBoundingClientRect();
+                        return {
+                            label: el.getAttribute("aria-label"),
+                            tag: el.tagName,
+                            box: [Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height)],
+                        };
+                    }),
                     listItems: list?.querySelectorAll("[role='listitem']").length ?? -1,
                     muted: document.querySelectorAll(".graph-commit-mute").length,
                     emptyState: document.body.innerText.includes("No commits found"),
