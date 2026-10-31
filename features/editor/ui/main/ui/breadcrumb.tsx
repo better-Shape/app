@@ -95,9 +95,9 @@ function useBreadcrumbOutline(path: string, enabled = true) {
             // announces its own label with no line, and treating that as "the
             // cursor is nowhere" collapsed the symbol chain to the file name.
             const detail = (event as CustomEvent<{ line?: number; column?: number }>).detail;
-            if (!detail || typeof detail.line !== "number") return;
-            const { line, column } = detail;
+            const line = detail?.line;
             if (typeof line !== "number") return;
+            const column = detail?.column;
             setState(prev => ({
                 ...prev,
                 cursorPos: { line, col: typeof column === "number" ? column : prev.cursorPos.col },
