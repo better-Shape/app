@@ -245,8 +245,8 @@ const useHoldState = (
     );
 
     const invalidateInFlightConfirm = React.useCallback(() => {
-        if (!confirmInFlightRef.current) return;
         confirmEpochRef.current += 1;
+        if (!confirmInFlightRef.current) return;
         confirmInFlightRef.current = false;
         setPending(false);
     }, []);
@@ -292,9 +292,11 @@ const useHoldState = (
     );
 
     const awaitAsyncConfirm = React.useCallback(
-        (promise: PromiseLike<void | boolean>) => {
-            confirmEpochRef.current += 1;
-            const epoch = confirmEpochRef.current;
+        (promise: PromiseLike<void | boolean>, epoch: number) => {
+            if (confirmEpochRef.current !== epoch || isButtonDisabled()) {
+                writeState("idle");
+                return;
+            }
             confirmInFlightRef.current = true;
             setPending(true);
             writeState("idle");
@@ -313,10 +315,12 @@ const useHoldState = (
                     writeState("idle");
                 });
         },
-        [settleSyncConfirm, writeState],
+        [isButtonDisabled, settleSyncConfirm, writeState],
     );
 
     const dispatchConfirmCallback = React.useCallback(() => {
+        confirmEpochRef.current += 1;
+        const callEpoch = confirmEpochRef.current;
         let result: HoldConfirmResult;
         try {
             result = onConfirmRef.current();
@@ -324,7 +328,7 @@ const useHoldState = (
             writeState("idle");
             return;
         }
-        if (isPromiseLike(result)) awaitAsyncConfirm(result);
+        if (isPromiseLike(result)) awaitAsyncConfirm(result, callEpoch);
         else settleSyncConfirm(result);
     }, [awaitAsyncConfirm, settleSyncConfirm, writeState]);
 

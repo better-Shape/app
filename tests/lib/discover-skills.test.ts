@@ -352,6 +352,12 @@ describe("discoverSkills", () => {
         );
         restoreDismissedFiles(uncLower);
         await expect(discoverItems()).resolves.toHaveLength(2);
+
+        // On POSIX, leading `//` paths remain case-sensitive and keep separate dismissals.
+        dismissDiscoveredFile("//opt/Repo", ".agents/guide.md");
+        mocks.getProjectPath.mockReturnValue("//opt/repo");
+        serveSkillFs(mocks, { "//opt/repo/.agents/guide.md": "guide body" }, { homeDir: HOME });
+        await expect(discoverItems()).resolves.toHaveLength(1);
     });
 
     it("resolves multi-segment descendants through a symlink targeting POSIX root without misclassifying as UNC", async () => {

@@ -768,15 +768,19 @@ describe("HoldButton", () => {
         expect(onConfirm).not.toHaveBeenCalled();
         expect(btn.dataset.state).toBe("idle");
 
+        const renderDeleteHold = (isDisabled: boolean, handler: () => Promise<void>) =>
+            render(
+                <HoldButton
+                    ariaLabel="Delete branch"
+                    label="Delete branch"
+                    holdMs={400}
+                    disabled={isDisabled}
+                    onConfirm={handler}
+                />,
+            );
+
         // Re-enable, trigger async confirm, then disable while async promise is still in flight.
-        render(
-            <HoldButton
-                ariaLabel="Delete branch"
-                label="Delete branch"
-                holdMs={400}
-                onConfirm={onConfirm}
-            />,
-        );
+        renderDeleteHold(false, onConfirm);
         act(() => {
             btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 32 }));
             vi.advanceTimersByTime(400);
@@ -784,27 +788,46 @@ describe("HoldButton", () => {
         expect(onConfirm).toHaveBeenCalledTimes(1);
         expect(btn.getAttribute("aria-busy")).toBe("true");
 
-        render(
-            <HoldButton
-                ariaLabel="Delete branch"
-                label="Delete branch"
-                holdMs={400}
-                disabled
-                onConfirm={onConfirm}
-            />,
-        );
+        renderDeleteHold(true, onConfirm);
         // Re-enable BEFORE the stale in-flight promise settles; settling afterward must stay idle.
-        render(
-            <HoldButton
-                ariaLabel="Delete branch"
-                label="Delete branch"
-                holdMs={400}
-                onConfirm={onConfirm}
-            />,
-        );
+        renderDeleteHold(false, onConfirm);
         expect(btn.getAttribute("aria-busy")).toBeNull();
         await act(async () => {
             resolveAsync?.();
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        // Synchronous flushSync disable inside onConfirm before returning a Promise stays aborted.
+        let resolveSyncDisabled: (() => void) | null = null;
+        const onSyncDisableConfirm = vi.fn(() => {
+            flushSync(() => {
+                root.render(
+                    <HoldButton
+                        ariaLabel="Delete branch"
+                        label="Delete branch"
+                        holdMs={400}
+                        disabled
+                        onConfirm={onSyncDisableConfirm}
+                    />,
+                );
+            });
+            return new Promise<void>((resolve) => {
+                resolveSyncDisabled = resolve;
+            });
+        });
+        renderDeleteHold(false, onSyncDisableConfirm);
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 33 }),
+            );
+            vi.advanceTimersByTime(400);
+        });
+        expect(onSyncDisableConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.getAttribute("aria-busy")).toBeNull();
+        renderDeleteHold(false, onSyncDisableConfirm);
+        await act(async () => {
+            resolveSyncDisabled?.();
             await Promise.resolve();
         });
         expect(btn.dataset.state).toBe("idle");

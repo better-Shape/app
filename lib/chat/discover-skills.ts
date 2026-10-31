@@ -59,7 +59,7 @@ const DISMISSED_KEY_PREFIX = "bettershape-dismissed-discovered:";
  */
 function dismissedKey(projectPath: string): string {
     const scoped = normalizeSkillPath(projectPath);
-    const folded = isCaseInsensitiveSkillPath(scoped) ? scoped.toLowerCase() : scoped;
+    const folded = isCaseInsensitiveSkillPath(projectPath) ? scoped.toLowerCase() : scoped;
     return DISMISSED_KEY_PREFIX + folded;
 }
 
@@ -98,8 +98,7 @@ function collectCaseVariantKeys(primaryKey: string): string[] {
 /** Return the canonical dismissal key plus any legacy mixed-case keys for `projectPath`. */
 function matchingDismissedKeys(projectPath: string): [string, ...string[]] {
     const primaryKey = dismissedKey(projectPath);
-    const scoped = normalizeSkillPath(projectPath);
-    if (!isCaseInsensitiveSkillPath(scoped)) return [primaryKey];
+    if (!isCaseInsensitiveSkillPath(projectPath)) return [primaryKey];
     return [primaryKey, ...collectCaseVariantKeys(primaryKey)];
 }
 
@@ -205,10 +204,16 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
     return dismissed.has(relPath);
 }
 
+/** True when `path` or its originating `contextPath` belongs to a case-insensitive root. */
+function isCaseInsensitiveContext(path: string, contextPath?: string | null): boolean {
+    if (isCaseInsensitiveSkillPath(path)) return true;
+    return contextPath ? isCaseInsensitiveSkillPath(contextPath) : false;
+}
+
 /** Case-aware comparison key for canonicalized filesystem paths. */
-function canonicalPathKey(path: string): string {
+function canonicalPathKey(path: string, contextPath?: string | null): string {
     const normalized = normalizeSkillPath(path);
-    return isCaseInsensitiveSkillPath(normalized) ? normalized.toLowerCase() : normalized;
+    return isCaseInsensitiveContext(path, contextPath) ? normalized.toLowerCase() : normalized;
 }
 
 /** Checks directory containment using a trailing slash so sibling stems never match. */
@@ -230,8 +235,8 @@ function resolveSkillReadRoot(
     canonicalFolder: string,
 ): string {
     if (fileFolder === rootPath || canonicalFolder === fileFolder) return rootPath;
-    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath);
-    return isKeyWithinBase(canonicalPathKey(canonicalFolder), baseKey)
+    const baseKey = canonicalPathKey(canonicalRoot ?? rootPath, rootPath);
+    return isKeyWithinBase(canonicalPathKey(canonicalFolder, rootPath), baseKey)
         ? rootPath
         : canonicalFolder;
 }
@@ -312,7 +317,7 @@ export async function discoverSkills(
         if (root.scope === "project" && projectPath) {
             canonicalRoot = await resolveProjectCanonicalDir(root.path, projectPath);
             if (!canonicalRoot) continue;
-            const rootKey = canonicalPathKey(canonicalRoot);
+            const rootKey = canonicalPathKey(canonicalRoot, projectPath);
             if (seenCanonicalRoots.has(rootKey)) continue;
             seenCanonicalRoots.add(rootKey);
         }
@@ -334,7 +339,7 @@ export async function discoverSkills(
                 canonicalFolder !== file.folder
                     ? joinSkillPath(canonicalFolder, file.fileName)
                     : file.filePath;
-            const fileKey = canonicalPathKey(canonicalFile);
+            const fileKey = canonicalPathKey(canonicalFile, root.path);
             if (seenPaths.has(fileKey)) continue;
             seenPaths.add(fileKey);
             if (isDismissed(dismissed, relPath)) continue;

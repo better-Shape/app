@@ -24,8 +24,10 @@ export type SkillFsOptions = {
  * `/proj/.claude/skills`. Reads outside the tree reject, as the real backend does.
  */
 export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>, options: SkillFsOptions = {}) {
+    const hasUncRoots = Object.keys(files).some((raw) => raw.startsWith("\\\\"));
+
     const splitRootAndRest = (forward: string): { root: string; rest: string } => {
-        const unc = /^\/\/[^/]+\/[^/]+/.exec(forward);
+        const unc = hasUncRoots ? /^\/\/[^/]+\/[^/]+/.exec(forward) : null;
         if (unc) return { root: unc[0], rest: forward.slice(unc[0].length) };
         const drive = /^[A-Za-z]:/.exec(forward);
         if (drive) return { root: drive[0], rest: forward.slice(2) };
@@ -66,7 +68,7 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
     };
 
     const isWindowsPath = (canonical: string): boolean =>
-        /^[A-Za-z]:/.test(canonical) || canonical.startsWith("//");
+        /^[A-Za-z]:/.test(canonical) || (hasUncRoots && canonical.startsWith("//"));
     const pathCompareKey = (canonical: string): string =>
         isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
 

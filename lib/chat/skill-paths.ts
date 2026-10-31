@@ -3,6 +3,8 @@
  * Runs in the renderer without Node's `path` module and handles both POSIX and Windows paths.
  */
 
+import { isWindows } from "@/lib/platform";
+
 type SepPredicate = (char: string) => boolean;
 
 const isForwardSep: SepPredicate = (char) => char === "/";
@@ -14,9 +16,12 @@ const UNC_FORWARD_PREFIX_RE = /^\/\/[^/\\]/;
 
 const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
 
-/** True when `path` is a Windows drive, backslash, or `//server` UNC path rather than POSIX `/...`. */
+/**
+ * True when `path` uses Windows drive/backslash syntax or is a `//server` UNC path on Windows.
+ * Leading `//` on POSIX remains case-sensitive per POSIX.1-2017 §4.13.
+ */
 export function isCaseInsensitiveSkillPath(path: string): boolean {
-    if (UNC_FORWARD_PREFIX_RE.test(path)) return true;
+    if (UNC_FORWARD_PREFIX_RE.test(path)) return isWindows();
     if (path.startsWith("/")) return false;
     return WINDOWS_DRIVE_PREFIX_RE.test(path) || path.includes("\\");
 }

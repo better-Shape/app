@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
     displaySkillPath,
@@ -21,8 +21,16 @@ describe("skill-paths: normalizeSkillPath", () => {
         expect(normalizeSkillPath("/home/dev/dir\\name/")).toBe("/home/dev/dir\\name");
         expect(normalizeSkillPath("/home/dev/trailing\\")).toBe("/home/dev/trailing\\");
         expect(isCaseInsensitiveSkillPath("/home/dev/dir\\name")).toBe(false);
-        expect(isCaseInsensitiveSkillPath("//Server/Share/Demo")).toBe(true);
+        expect(isCaseInsensitiveSkillPath("//opt/Skills/Demo")).toBe(false);
         expect(isCaseInsensitiveSkillPath("\\\\Server\\Share\\Demo")).toBe(true);
+        const uaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+        try {
+            expect(isCaseInsensitiveSkillPath("//Server/Share/Demo")).toBe(true);
+        } finally {
+            uaSpy.mockRestore();
+        }
     });
 
     it("preserves POSIX and Windows drive roots without collapsing C:\\ to drive-relative C:", () => {
