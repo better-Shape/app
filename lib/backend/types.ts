@@ -700,3 +700,12 @@ export interface ProjectStatsSnapshot {
 export type SettingsFileName = "settings.json" | "settings-preferences.json";
 export type SettingsFileRecord = Record<string, unknown>;
 export interface SettingsFileSnapshot { record: SettingsFileRecord | null; revision: string }
+
+/** Answer of `check_app_update`: the newest GitHub release beside this build. */
+export type AppUpdateInfo = {
+    current: string;
+    latest: string;
+    newer: boolean;
+    url: string;
+    notes: string;
+};

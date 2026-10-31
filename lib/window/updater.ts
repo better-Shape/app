@@ -1,11 +1,13 @@
 "use client";
 
+import { commands } from "@/lib/backend";
+import { HELP_LINKS } from "@/lib/errors/help-links";
 import { getSettings, type UpdateChannel } from "@/lib/settings";
 
 export type UpdateStatus =
   | { kind: "idle" }
   | { kind: "checking" }
-  | { kind: "available"; version: string; notes: string }
+  | { kind: "available"; version: string; notes: string; url?: string }
   | { kind: "downloading"; version: string; progress: number }
   | { kind: "ready"; version: string }
   | { kind: "upToDate" }
@@ -24,6 +26,15 @@ function persistDismissedVersion(version: string | null) {
     else localStorage.removeItem(DISMISS_KEY);
   } catch {
     /* ignore */
+  }
+}
+
+function dismissedVersion(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(DISMISS_KEY);
+  } catch {
+    return null;
   }
 }
 
@@ -76,20 +87,37 @@ export async function checkForAppUpdates(options?: {
   force?: boolean;
   channel?: UpdateChannel;
 }): Promise<UpdateStatus> {
-  // Self-hosted builds have no update feed: there is no BetterShape server to ask and
-  // no signed artifact to install. Releases are published on GitHub, so the
-  // app points people there instead of silently phoning home.
-  if (!options?.silent) {
-    setStatus({ kind: "upToDate" });
+  // Releases are published on GitHub and this build updates manually: the check
+  // asks GitHub for the newest tag and the update is offered as a link, so no
+  // server of ours is involved and nothing is installed silently.
+  if (!options?.silent) setStatus({ kind: "checking" });
+  try {
+    const info = await commands.checkAppUpdate();
+    if (!info.newer) {
+      setStatus({ kind: "upToDate" });
+      return status;
+    }
+    if (!options?.force && dismissedVersion() === info.latest) {
+      setStatus({ kind: "idle" });
+      return status;
+    }
+    setStatus({ kind: "available", version: info.latest, notes: info.notes, url: info.url });
+  } catch (error) {
+    setStatus({
+      kind: "error",
+      message:
+        error instanceof Error
+          ? `Could not check for updates: ${error.message}`
+          : "Could not check for updates.",
+    });
   }
   return status;
 }
 
+/** Opens the release page for the waiting version, or the releases index. */
 export async function downloadAndInstallUpdate(): Promise<void> {
-  setStatus({
-    kind: "error",
-    message: "This build updates manually — download the newest release from GitHub.",
-  });
+  const url = (status.kind === "available" && status.url) || HELP_LINKS.changelog;
+  await commands.openUrlExternal(url);
 }
 
 export async function relaunchToApplyUpdate(): Promise<void> {
@@ -111,12 +139,9 @@ export function startAutoUpdateChecks(): () => void {
   const run = () => {
     const settings = getSettings().updates;
     if (!settings.autoUpdate) return;
-    void (async () => {
-      const next = await checkForAppUpdates({ silent: true });
-      if (next.kind === "available") {
-        await downloadAndInstallUpdate();
-      }
-    })();
+    // Only looks: the chip is the affordance, and opening a browser on a timer
+    // the user never asked for would be a different kind of surprise.
+    void checkForAppUpdates({ silent: true });
   };
 
   run();

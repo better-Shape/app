@@ -904,6 +904,15 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── GitHub / MCP / misc services ─────────────────────────────────
         github_auth_status: () => ({ loggedIn: false, username: null, avatarUrl: null, provider: "none" }),
         get_mcp_status: () => [],
+        // The browser preview runs the same version as the fixture, so the
+        // update check answers "nothing newer" instead of reaching GitHub.
+        check_app_update: () => ({
+            current: "1.0.3",
+            latest: "1.0.3",
+            newer: false,
+            url: "https://github.com/Owie6789/BetterShape/releases",
+            notes: "",
+        }),
         mcp_reload_from_file: () => [],
         get_mcp_tools: () => [],
         get_mcp_config_path: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
