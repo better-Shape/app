@@ -11,6 +11,16 @@ function mountView(doc: string, from?: number, to?: number): EditorView {
     return new EditorView({ state });
 }
 
+function mountMultiCursorView(doc: string, ranges: Array<[number, number]>): EditorView {
+    const state = EditorState.create({
+        doc,
+        selection: EditorSelection.create(ranges.map(([from, to]) => EditorSelection.range(from, to))),
+        // CodeMirror keeps one range unless the facet allows more.
+        extensions: [EditorState.allowMultipleSelections.of(true)],
+    });
+    return new EditorView({ state });
+}
+
 describe("clipboard actions", () => {
     let writeText: ReturnType<typeof vi.fn>;
     let readText: ReturnType<typeof vi.fn>;
@@ -88,6 +98,57 @@ describe("clipboard actions", () => {
 
         runClipboardAction(view, "paste");
         await vi.waitFor(() => expect(view.state.doc.toString()).toBe("hellopasted"));
+        view.destroy();
+    });
+
+    it("copies every range of a multi-cursor selection", () => {
+        const view = mountMultiCursorView("one two three", [[0, 3], [8, 13]]);
+
+        runClipboardAction(view, "copy");
+
+        expect(writeText).toHaveBeenCalledWith("one\nthree");
+        expect(view.state.doc.toString()).toBe("one two three");
+        view.destroy();
+    });
+
+    it("cuts every range of a multi-cursor selection", async () => {
+        const view = mountMultiCursorView("one two three", [[0, 3], [7, 13]]);
+
+        runClipboardAction(view, "cut");
+
+        await vi.waitFor(() => expect(view.state.doc.toString()).toBe(" two"));
+        view.destroy();
+    });
+
+    // The write is asynchronous: a keystroke in between must not make the cut
+    // delete whatever has since moved into those offsets.
+    it("leaves a buffer that changed while the cut was being written", async () => {
+        let resolveWrite: () => void = () => undefined;
+        writeText.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveWrite = resolve; }));
+        const view = mountView("hello world", 0, 6);
+
+        runClipboardAction(view, "cut");
+        view.dispatch({ changes: { from: 0, insert: "X" } });
+        resolveWrite();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(view.state.doc.toString()).toBe("Xhello world");
+        view.destroy();
+    });
+
+    it("drops a paste whose target moved while the clipboard was read", async () => {
+        let resolveRead: (text: string) => void = () => undefined;
+        readText.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveRead = resolve; }));
+        const view = mountView("hello", 5, 5);
+
+        runClipboardAction(view, "paste");
+        view.dispatch({ changes: { from: 0, insert: "X" } });
+        resolveRead("pasted");
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(view.state.doc.toString()).toBe("Xhello");
         view.destroy();
     });
 
