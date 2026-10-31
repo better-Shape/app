@@ -904,6 +904,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── GitHub / MCP / misc services ─────────────────────────────────
         github_auth_status: () => ({ loggedIn: false, username: null, avatarUrl: null, provider: "none" }),
         get_mcp_status: () => [],
+        mcp_reload_from_file: () => [],
         get_mcp_tools: () => [],
         get_mcp_config_path: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
         ensure_mcp_config: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
