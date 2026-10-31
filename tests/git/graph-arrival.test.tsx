@@ -63,6 +63,13 @@ describe("GraphSvgRow arrival stroke draw", () => {
         return container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals") ?? "";
     };
 
+    const makeLinearChain = (prefix: string, count: number, tailParent: string): GitLogEntry[] =>
+        Array.from({ length: count }, (_, idx) => {
+            const step = count - idx;
+            const parent = step === 1 ? tailParent : `${prefix}-${step - 1}`;
+            return makeLog(`${prefix}-${step}`, [parent], step === count ? ["HEAD -> main"] : []);
+        });
+
     it("leaves existing history rows static at rest", () => {
         act(() => {
             root.render(
@@ -350,11 +357,7 @@ describe("GraphSvgRow arrival stroke draw", () => {
 
     it("retains pending baseline when 12 commits confirm before a deeper missing side parent arrives and bounds active union to 12", () => {
         vi.useFakeTimers();
-        const leadChain = Array.from({ length: 11 }, (_, idx) => {
-            const step = 11 - idx;
-            const parent = step === 1 ? "deep-merge" : `lead-${step - 1}`;
-            return makeLog(`lead-${step}`, [parent], step === 11 ? ["HEAD -> main"] : []);
-        });
+        const leadChain = makeLinearChain("lead", 11, "deep-merge");
         const firstSlice = [
             ...leadChain,
             makeLog("deep-merge", ["anchor-0", "late-side", "later-side"]),
@@ -420,6 +423,33 @@ describe("GraphSvgRow arrival stroke draw", () => {
 
             // Resetting HEAD to an already-known commit clears active arrivals immediately.
             expect(renderArrivals(rootSlice)).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("prevents capped overflow commits from replaying when a missing parent arrives", () => {
+        vi.useFakeTimers();
+        const fourteenLead = makeLinearChain("over", 14, "overflow-merge");
+        const chunkOne = [
+            ...fourteenLead,
+            makeLog("overflow-merge", ["base-x", "late-branch"]),
+            makeLog("base-x", []),
+        ];
+        const chunkTwo = [...chunkOne, makeLog("late-branch", ["base-x"])];
+
+        try {
+            expect(renderArrivals([makeLog("base-x", [], ["HEAD -> main"])])).toBe("");
+            const firstWave = renderArrivals(chunkOne).split(",");
+            expect(firstWave).toHaveLength(12);
+            expect(firstWave[0]).toBe("over-14");
+            expect(firstWave[11]).toBe("over-3");
+
+            act(() => {
+                vi.advanceTimersByTime(520);
+            });
+            // Already-present overflow commits (over-2, over-1, overflow-merge) must not animate.
+            expect(renderArrivals(chunkTwo)).toBe("late-branch");
         } finally {
             vi.useRealTimers();
         }

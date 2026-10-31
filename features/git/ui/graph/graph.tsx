@@ -133,11 +133,13 @@ type GraphWalkContext = GraphForwardWalk & {
 
 type GraphArrivalEvaluation = {
     freshHashes: ReadonlySet<string>;
+    confirmedHashes: ReadonlySet<string>;
     hasMissingParent: boolean;
 };
 
 const EMPTY_ARRIVAL_EVALUATION: GraphArrivalEvaluation = {
     freshHashes: EMPTY_ARRIVAL_SET,
+    confirmedHashes: EMPTY_ARRIVAL_SET,
     hasMissingParent: false,
 };
 
@@ -251,13 +253,23 @@ const hasMatchingGraphContext = (
     return (prev.headRef ?? null) === nextHeadRef;
 };
 
-const resolveConfirmedFreshHashes = (
+const resolveConfirmedEvaluation = (
     forward: GraphForwardWalk,
     excluded: ReadonlySet<string>,
-): ReadonlySet<string> => {
-    if (forward.knownAnchors.size === 0) return EMPTY_ARRIVAL_SET;
+): GraphArrivalEvaluation => {
+    if (forward.knownAnchors.size === 0) {
+        return {
+            freshHashes: EMPTY_ARRIVAL_SET,
+            confirmedHashes: EMPTY_ARRIVAL_SET,
+            hasMissingParent: forward.hasMissingParent,
+        };
+    }
     const confirmed = walkConfirmedAncestors(forward.knownAnchors, forward.reverseChildren);
-    return capOrderedArrivals(forward.ordered, confirmed, excluded);
+    return {
+        freshHashes: capOrderedArrivals(forward.ordered, confirmed, excluded),
+        confirmedHashes: confirmed,
+        hasMissingParent: forward.hasMissingParent,
+    };
 };
 
 const evaluateFreshGraphLineage = (
@@ -273,10 +285,7 @@ const evaluateFreshGraphLineage = (
     if (prev.known.has(topHash)) return EMPTY_ARRIVAL_EVALUATION;
     const freshByHash = indexFreshLineage(commits, prev.known);
     const forward = walkForwardFreshCommits(topHash, freshByHash, prev.known);
-    return {
-        freshHashes: resolveConfirmedFreshHashes(forward, prev.animated ?? EMPTY_ARRIVAL_SET),
-        hasMissingParent: forward.hasMissingParent,
-    };
+    return resolveConfirmedEvaluation(forward, prev.animated ?? EMPTY_ARRIVAL_SET);
 };
 
 /**
@@ -383,7 +392,7 @@ const resolveNextPendingBaseline = (
     baseline: GraphPendingBaseline,
     evaluation: GraphArrivalEvaluation,
 ): GraphPendingBaseline | null =>
-    evaluation.hasMissingParent ? toPendingBaseline(baseline, evaluation.freshHashes) : null;
+    evaluation.hasMissingParent ? toPendingBaseline(baseline, evaluation.confirmedHashes) : null;
 
 const resolveEffectiveSlice = (
     gitLogs: GitLogEntry[],
