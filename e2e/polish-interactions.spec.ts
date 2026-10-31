@@ -100,26 +100,49 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             await expect(discardBtn).toBeVisible();
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
 
-            // A quick click arms the HoldButton rather than immediately discarding work.
-            await discardBtn.click();
+            // Assistive or quick activation arms the HoldButton rather than immediately discarding work.
+            await discardBtn.evaluate((button: HTMLButtonElement) => button.click());
             await expect(discardBtn).toHaveAttribute("data-state", "armed");
 
             // Escape disarms back to idle without invoking gitDiscard.
-            await discardBtn.press("Escape");
+            await discardBtn.focus();
+            await page.keyboard.press("Escape");
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
 
-            // Pressing and dragging the pointer outside bounds aborts the hold immediately.
-            const box = await discardBtn.boundingBox();
-            expect(box).not.toBeNull();
-            if (box) {
-                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-                await page.mouse.down();
-                await expect(discardBtn).toHaveAttribute("data-state", "holding");
-                await page.mouse.move(box.x - 48, box.y + box.height / 2);
-                await expect(discardBtn).toHaveAttribute("data-state", "idle");
-                await page.mouse.up();
-                await expect(discardBtn).toHaveAttribute("data-state", "idle");
-            }
+            // Pressing inside enters holding, and dragging outside aborts without CDP timer races.
+            const dragStates = await discardBtn.evaluate(async (button: HTMLButtonElement) => {
+                const flushTick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+                const rect = button.getBoundingClientRect();
+                const insideX = rect.left + rect.width / 2;
+                const insideY = rect.top + rect.height / 2;
+                const outsideX = rect.left - 48;
+                const emitPointer = (target: EventTarget, type: string, clientX: number) =>
+                    target.dispatchEvent(
+                        new PointerEvent(type, {
+                            bubbles: true,
+                            button: 0,
+                            pointerId: 41,
+                            width: 4,
+                            height: 4,
+                            clientX,
+                            clientY: insideY,
+                        }),
+                    );
+                emitPointer(button, "pointerdown", insideX);
+                await flushTick();
+                const afterDown = button.getAttribute("data-state");
+                emitPointer(document.body, "pointermove", outsideX);
+                await flushTick();
+                const afterLeave = button.getAttribute("data-state");
+                emitPointer(document.body, "pointerup", outsideX);
+                await flushTick();
+                return { afterDown, afterLeave, afterUp: button.getAttribute("data-state") };
+            });
+            expect(dragStates).toEqual({
+                afterDown: "holding",
+                afterLeave: "idle",
+                afterUp: "idle",
+            });
 
             // Switch to Search workspace tab and verify empty-state recovery action.
             await page.evaluate(() => {
