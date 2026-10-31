@@ -44,6 +44,23 @@ test.describe("git manager", () => {
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
         const pillLabel = await refFilter.getAttribute("aria-label");
+        // Count what actually happens to the pill, so a red run can tell "the key
+        // never reached it" apart from "the activation ran and changed nothing".
+        await page.evaluate(() => {
+            const w = window as unknown as { __pillClicks: number; __pillKey: string | null };
+            w.__pillClicks = 0;
+            w.__pillKey = null;
+            for (const el of Array.from(document.querySelectorAll("[aria-label^='Filter graph to']"))) {
+                el.addEventListener("click", () => (w.__pillClicks += 1), true);
+                el.addEventListener(
+                    "keydown",
+                    (event) => {
+                        w.__pillKey = (event as KeyboardEvent).key;
+                    },
+                    true,
+                );
+            }
+        });
         await page.keyboard.press("Enter");
         // The filter mutes rows rather than dropping them, so a muted row proves it
         // applied. The CI runner is slower than any local reproduction, so when the
@@ -67,6 +84,10 @@ test.describe("git manager", () => {
                     listItems: list?.querySelectorAll("[role='listitem']").length ?? -1,
                     muted: document.querySelectorAll(".graph-commit-mute").length,
                     emptyState: document.body.innerText.includes("No commits found"),
+                    clicks: (window as unknown as { __pillClicks?: number }).__pillClicks ?? -1,
+                    key: (window as unknown as { __pillKey?: string | null }).__pillKey ?? null,
+                    url: location.href,
+                    text: document.body.innerText.replace(/\s+/g, " ").slice(0, 300),
                 };
             });
             throw new Error(`ref filter did not mute any row after Enter: ${JSON.stringify({ pillLabel, ...state })}`);
