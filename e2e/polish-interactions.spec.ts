@@ -61,7 +61,7 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
                 ).toBeVisible();
             }
             const axe = await new AxeBuilder({ page })
-                .withRules(["button-name", "label"])
+                .withRules(["button-name", "label", "aria-toggle-field-name"])
                 .analyze();
             expect(axe.violations, `a11y label violations on ${navLabel}`).toEqual([]);
         }
@@ -121,6 +121,7 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             await discardBtn.focus();
             await page.keyboard.press("Escape");
             await expect(discardBtn).toHaveAttribute("data-state", "idle");
+            await expect(discardBtn).not.toHaveAttribute("aria-busy", "true");
 
             // Pressing inside enters holding, and dragging outside aborts without CDP timer races.
             const dragStates = await discardBtn.evaluate(async (button: HTMLButtonElement) => {
@@ -160,12 +161,27 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
                 const afterLeave = button.getAttribute("data-state");
                 emitPointer(document.body, "pointerup", outsideX);
                 await flushCommit();
-                return { afterDown, afterLeave, afterUp: button.getAttribute("data-state") };
+                const preview = (
+                    window as unknown as {
+                        __BETTERSHAPE_PREVIEW__?: { invokes: Array<{ cmd: string }> };
+                    }
+                ).__BETTERSHAPE_PREVIEW__;
+                const discardInvoked =
+                    preview?.invokes.some((entry) => entry.cmd === "git_discard_changes") ?? false;
+                return {
+                    afterDown,
+                    afterLeave,
+                    afterUp: button.getAttribute("data-state"),
+                    ariaBusy: button.getAttribute("aria-busy"),
+                    discardInvoked,
+                };
             });
             expect(dragStates).toEqual({
                 afterDown: "holding",
                 afterLeave: "idle",
                 afterUp: "idle",
+                ariaBusy: null,
+                discardInvoked: false,
             });
 
             // Switch to Search workspace tab and verify empty-state recovery action.
