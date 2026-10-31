@@ -44,6 +44,7 @@ import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { readComposerPrefs, writeComposerPrefs } from "@/lib/chat/composer-prefs";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
+import { shouldAnnouncePendingDesignPick } from "@/lib/agent-preview/pending-notice";
 import {
     isIncognitoChat,
     purgeIncognitoConversation,
@@ -1811,6 +1812,19 @@ export const useChatSession = (
                         await sendToChatRef.current(message, cid);
                     }
                 })().catch(() => undefined);
+            }),
+        );
+
+        register(
+            listen<{ id?: string }>("agent-design-pick-pending", (event) => {
+                if (!event.payload?.id) return;
+                // The gallery says so itself while it is on screen; this covers
+                // the blocked turn nobody is looking at.
+                if (!shouldAnnouncePendingDesignPick(document)) return;
+                notify.info(
+                    "Pick a design to continue",
+                    "The agent is waiting for a choice in the design gallery.",
+                );
             }),
         );
 
