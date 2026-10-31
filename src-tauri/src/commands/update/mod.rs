@@ -108,7 +108,10 @@ async fn latest_release(repo: &str) -> Result<serde_json::Value, AppError> {
         let message = format!("GitHub answered {code} for the latest release.");
         return Err(AppError::Message(message));
     }
-    let payload = response.json::<serde_json::Value>().await.map_err(parse_failure)?;
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(parse_failure)?;
     Ok(payload)
 }
 
