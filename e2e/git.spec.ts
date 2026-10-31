@@ -94,6 +94,13 @@ test.describe("git manager", () => {
         }
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
+
+        // Opening a commit lists the files it touched. The preview used to answer
+        // the file command with nothing, so the panel put `null` in state and the
+        // whole Git surface was replaced by its error boundary.
+        await graph.getByRole("listitem").first().click();
+        await expect(graph.getByRole("button", { name: /App\.tsx/ }).first()).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole("heading", { name: "This page hit an error" })).toHaveCount(0);
         expectNoPageErrors();
     });
 });
