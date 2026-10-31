@@ -49,9 +49,11 @@ test.describe("git manager", () => {
         const applied = await expect
             .poll(
                 async () => {
-                    await refFilter.scrollIntoViewIfNeeded();
-                    await refFilter.focus();
-                    await page.keyboard.press("Enter");
+                    // `locator.press` focuses and dispatches in one action. Focusing
+                    // first and pressing afterwards leaves a gap in which the row can
+                    // re-render and take focus back, which is how this began failing
+                    // only on the slower CI runners.
+                    await refFilter.press("Enter");
                     await page.waitForTimeout(150);
                     return graph.locator(".graph-commit-mute").count();
                 },
