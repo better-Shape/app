@@ -7,6 +7,7 @@ import { parseSkillDocument } from "@/lib/chat/skill-frontmatter";
 import {
     displaySkillPath,
     isCaseInsensitiveSkillPath,
+    isInsideSkillPath,
     joinSkillPath,
     normalizeSkillPath,
 } from "@/lib/chat/skill-paths";
@@ -216,11 +217,9 @@ function canonicalPathKey(path: string, contextPath?: string | null): string {
     return isCaseInsensitiveContext(path, contextPath) ? normalized.toLowerCase() : normalized;
 }
 
-/** Checks directory containment using a trailing slash so sibling stems never match. */
-const isKeyWithinBase = (folderKey: string, baseKey: string): boolean => {
-    const basePrefix = baseKey.endsWith("/") ? baseKey : `${baseKey}/`;
-    return folderKey === baseKey || folderKey.startsWith(basePrefix);
-};
+/** Checks directory containment while keeping sibling stems and bare `X:` disjoint. */
+const isKeyWithinBase = (folderKey: string, baseKey: string): boolean =>
+    isInsideSkillPath(folderKey, baseKey);
 
 /**
  * Chooses the confinement root passed to `readFileWithin`. When a skill subfolder

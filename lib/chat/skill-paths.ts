@@ -88,7 +88,10 @@ const usesWindowsBackslashSep = (dir: string): boolean => {
     return dir.includes("\\") || (WINDOWS_DRIVE_PREFIX_RE.test(dir) && !dir.includes("/"));
 };
 
-/** Return the path separator already used by `dir` (`\` on Windows backslash/drive paths, `/` otherwise). */
+/**
+ * Return the path separator already used by `dir` (`\` on Windows backslash/drive paths,
+ * `/` otherwise).
+ */
 export function skillPathSep(dir: string): "\\" | "/" {
     return usesWindowsBackslashSep(dir) ? "\\" : "/";
 }
@@ -124,14 +127,22 @@ const toContainmentPair = (
     return { childKey: normalizedChild, parentKey: normalizedParent };
 };
 
+/** Checks strict descendant containment while keeping bare `X:` disjoint from `X:/`. */
+const isStrictDescendantKey = (childKey: string, parentKey: string): boolean => {
+    if (isDriveSpecifier(parentKey)) {
+        return childKey.startsWith(parentKey) && !childKey.startsWith(`${parentKey}/`);
+    }
+    return childKey.startsWith(withTrailingSlash(parentKey));
+};
+
 /**
  * Containment check for skill paths: preserves case on POSIX paths while folding case on
- * Windows paths, and handles `/` and `X:/` roots without false prefix matches.
+ * Windows paths, and handles `/`, `X:/`, and bare `X:` drive-relative prefixes cleanly.
  */
 export function isInsideSkillPath(child: string, parent: string): boolean {
     const { childKey, parentKey } = toContainmentPair(child, parent);
     if (!childKey || !parentKey) return false;
-    return childKey === parentKey || childKey.startsWith(withTrailingSlash(parentKey));
+    return childKey === parentKey || isStrictDescendantKey(childKey, parentKey);
 }
 
 const stripParentPrefix = (fullPath: string, rawParent: string): string => {

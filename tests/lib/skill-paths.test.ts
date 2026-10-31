@@ -105,6 +105,10 @@ describe("skill-paths: isInsideSkillPath", () => {
             true,
         );
         expect(isInsideSkillPath("/Home/Dev/Project/.claude", "/home/dev/project")).toBe(false);
+        expect(isInsideSkillPath("C:skills/pdf/SKILL.md", "C:")).toBe(true);
+        expect(isInsideSkillPath("C:/outside/SKILL.md", "C:")).toBe(false);
+        expect(isInsideSkillPath("C:\\outside\\SKILL.md", "C:")).toBe(false);
+        expect(isInsideSkillPath("C:skills/pdf/SKILL.md", "C:/")).toBe(false);
     });
 });
 
@@ -153,5 +157,7 @@ describe("skill-paths: displaySkillPath", () => {
             ".claude/skills/pdf/SKILL.md"
         );
         expect(displaySkillPath("C:\\", "C:\\", null)).toBe(".");
+        expect(displaySkillPath("C:skills/pdf/SKILL.md", "C:", null)).toBe("skills/pdf/SKILL.md");
+        expect(displaySkillPath("C:/outside/SKILL.md", "C:", null)).toBe("C:/outside/SKILL.md");
     });
 });
