@@ -35,8 +35,9 @@ import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
-import { commands, useProjectState } from "@/lib/backend";
+import { commands, getProjectSnapshot, useProjectState } from "@/lib/backend";
 import { openSettingsWindow } from "@/lib/window/open-settings";
+import { requestLocalHistory } from "@/lib/editor/local-history";
 import { editorActionImplemented } from "@/lib/editor/action-contract";
 import { symbolPaletteRows } from "@/features/command-palette/symbols";
 import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
@@ -1317,6 +1318,14 @@ export function getAppCommands(): EditorAction[] {
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.formatSelection" } })
                 ),
+        },
+        {
+            id: "app.editor.localHistory",
+            label: "Local history...",
+            shortcut: "",
+            // The picker listens for this by path, so it works for the markdown
+            // editor too, where no CodeMirror instance answers editor actions.
+            run: () => requestLocalHistory(getProjectSnapshot().active_file),
         },
         {
             id: "app.editor.rename",

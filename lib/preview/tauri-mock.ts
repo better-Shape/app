@@ -210,6 +210,19 @@ note = Callout("Local fixture", "This saved conversation does not contact an AI 
     },
 ];
 
+/** Three saved versions of the active fixture file, newest first. */
+/** Three saved versions, fifteen minutes apart, matching the Rust store's shape. */
+const previewHistoryEntries = (now: number) =>
+    [0, 1, 2].map((index) => {
+        const at = now - index * 15 * 60 * 1000;
+        return {
+            id: `preview-${at}-${index}`,
+            timestamp: Math.floor(at / 1000),
+            label: `Saved version ${index + 1}`,
+            size: 640 - index * 96,
+        };
+    });
+
 /** Files the seeded commits touch, sliced to each commit's change count. */
 const previewCommitFiles = (filesChanged: number) =>
     [
@@ -784,6 +797,11 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
         git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
+        // Local history: the editor's picker lists these and restores one into
+        // the buffer. The real backend keeps 50 versions per file on save.
+        get_file_history_command: () => previewHistoryEntries(Date.now()),
+        restore_history_version_command: (args) =>
+            `// restored ${String(args.versionId ?? "version")}\n// preview fixture content\n`, 
         // The commit detail panel lists these. Without a handler the fallback
         // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {

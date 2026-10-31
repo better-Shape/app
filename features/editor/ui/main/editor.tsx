@@ -16,6 +16,7 @@ import { getFileExtension, isImageExtension, isFontExtension } from "../../lib/i
 import { Breadcrumbs } from "./ui/breadcrumb";
 import { MarkdownViewSwitch, PlanEditorHeader } from "./ui/plan-editor-header";
 import { MarkdownLiveEditor } from "../markdown/live-editor";
+import { LocalHistoryPicker } from "../local-history-picker";
 import { ErrorView } from "./ui/error";
 import { ImageView } from "./ui/image";
 import { FontView } from "./ui/font";
@@ -98,6 +99,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const { content, setContent, originalContent, error, loading } = useFileContent(
         path, skipTextContent, isDiff, savedContentRef, bufferVersionRef
     );
+
     const currentContentRef = useRef(content);
     useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
     const previewAutosaveRef = useRef<number | null>(null);
@@ -639,6 +641,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 <div className="flex-1 w-full min-h-0 overflow-hidden relative">
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
+                <LocalHistoryPicker path={path} onRestore={(next) => void applyMarkdownContent(next)} />
             </div>
         );
     }

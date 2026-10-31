@@ -52,6 +52,8 @@ import { optionExtensions } from "@/features/editor/ui/codemirror/options";
 import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { requestLocalHistory } from "@/lib/editor/local-history";
+import { LocalHistoryPicker } from "@/features/editor/ui/local-history-picker";
 import { getSettings } from "@/lib/settings";
 import { notify } from "@/features/notifications";
 import { getEditorOptionsFromSettings, subscribeSettings, updateSettingSection } from "@/lib/settings";
@@ -521,6 +523,9 @@ export function CodeMirrorEditor({
                 case "paste":
                     runClipboardAction(v, "paste");
                     break;
+                case "localHistory":
+                    requestLocalHistory(pathRef.current);
+                    break;
                 case "jumpToPosition":
                     jumpToPosition(v, detail.line ?? 1, detail.column ?? 1);
                     break;
@@ -821,7 +826,30 @@ export function CodeMirrorEditor({
                 >
                     Select All
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                    onClick={() =>
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-editor-action", { detail: { action: "localHistory" } })
+                        )
+                    }
+                >
+                    Local history...
+                </ContextMenuItem>
             </ContextMenuContent>
+            <LocalHistoryPicker
+                path={path}
+                onRestore={(restored) => {
+                    const view = viewRef.current;
+                    if (!view) {
+                        setContentRef.current(restored);
+                        return;
+                    }
+                    // A plain transaction, so the normal change path stages the
+                    // buffer, recomputes dirtiness and leaves the restore undoable.
+                    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: restored } });
+                }}
+            />
         </ContextMenu>
     );
 }
