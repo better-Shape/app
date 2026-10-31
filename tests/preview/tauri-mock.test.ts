@@ -324,12 +324,27 @@ describe("mock fidelity", () => {
         expect(docs.map((e) => e.name)).toContain("guide.md");
     });
 
-    it("branch create/switch updates branch state", () => {
+    it("branch create/switch and commit preserve HEAD -> <branch> ref decorations", () => {
         const { handle } = createPreviewInvokeHandler("project");
+        const initialLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(initialLog[0].refs).toEqual(["HEAD -> main"]);
+        expect(initialLog[1].refs).toEqual([]);
         handle("git_create_branch", { repoPath: PREVIEW_PROJECT_PATH, branchName: "feature/qa" });
         expect(handle("git_branches")).toContain("feature/qa");
         handle("git_switch_branch", { repoPath: PREVIEW_PROJECT_PATH, branchName: "feature/qa" });
         expect(handle("git_current_branch")).toBe("feature/qa");
+        const switchedLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(switchedLog[0].refs).toEqual(["HEAD -> feature/qa", "main"]);
+        handle("git_commit", { repoPath: PREVIEW_PROJECT_PATH, message: "feat: qa commit" });
+        const committedLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(committedLog[0].refs).toEqual(["HEAD -> feature/qa"]);
+        expect(committedLog[1].refs).toEqual(["main"]);
     });
 
     it("conversations are filtered by requested project; package info honours its contract", () => {

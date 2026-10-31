@@ -961,7 +961,7 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
 
-        // Window blur mid-hold cancels before holdMs expires.
+        // Window blur mid-hold cancels before holdMs expires and suppresses release click.
         act(() => {
             btn.dispatchEvent(
                 new PointerEvent("pointerdown", {
@@ -978,8 +978,23 @@ describe("HoldButton", () => {
         });
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 52,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
 
-        // Document visibility hidden mid-hold also cancels cleanly.
+        // Document visibility hidden mid-hold also cancels cleanly without re-arming on release.
         const visSpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
         try {
             act(() => {
@@ -994,6 +1009,21 @@ describe("HoldButton", () => {
                 );
                 document.dispatchEvent(new Event("visibilitychange"));
                 vi.advanceTimersByTime(700);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerup", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 53,
+                        clientX: 40,
+                        clientY: 20,
+                    }),
+                );
+                btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+                vi.advanceTimersByTime(600);
             });
             expect(btn.dataset.state).toBe("idle");
             expect(onConfirm).not.toHaveBeenCalled();

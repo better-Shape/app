@@ -186,6 +186,20 @@ const previewCommitFiles = (filesChanged: number) =>
         { path: "src/main.ts", status: "A", staged: false },
     ].slice(0, Math.max(0, filesChanged));
 
+/** Moves the `HEAD -> <branch>` decoration onto `nextBranch` in a commit's ref list. */
+const retargetPreviewHeadRef = (
+    refs: string[],
+    prevBranch: string,
+    nextBranch: string,
+): string[] => {
+    const prevHead = `HEAD -> ${prevBranch}`;
+    const nextHead = `HEAD -> ${nextBranch}`;
+    const carried = refs
+        .map((ref) => (ref === prevHead ? prevBranch : ref))
+        .filter((ref) => ref !== nextBranch && ref !== nextHead);
+    return [nextHead, ...carried];
+};
+
 /** Seeded Git history, newest first, in the backend's wire shape. */
 const previewLogEntries = () => {
     const now = Date.now();
@@ -200,7 +214,7 @@ const previewLogEntries = () => {
         files_changed: n,
         insertions: n * 12,
         deletions: n * 3,
-        refs: n === 3 ? ["main"] : [],
+        refs: n === 3 ? ["HEAD -> main"] : [],
         parent_count: n === 1 ? 0 : 1,
         parents: n === 1 ? [] : [`preview000${n - 1}00000000000000000000000000`],
     }));
@@ -451,6 +465,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
         const [first, ...rest] = state.logEntries;
         const parents = first ? [first.hash] : [];
+        const headRef = `HEAD -> ${state.branch}`;
         const entry = {
             hash: `preview${Date.now().toString(16)}0000000000000000000`.slice(0, 40),
             message: message.trim() || "preview: commit",
@@ -460,11 +475,16 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             files_changed: stagedCount,
             insertions: 0,
             deletions: 0,
-            refs: [state.branch],
+            refs: [headRef],
             parent_count: parents.length,
             parents,
         };
-        state.logEntries = first ? [entry, { ...first, refs: [] }, ...rest] : [entry];
+        const remainingFirstRefs = first
+            ? first.refs.filter((ref) => ref !== state.branch && ref !== headRef)
+            : [];
+        state.logEntries = first
+            ? [entry, { ...first, refs: remainingFirstRefs }, ...rest]
+            : [entry];
     };
 
     /** Rewrite the HEAD entry's message, like a real amend. */
@@ -676,6 +696,11 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const name = String(args.branchName ?? "");
             if (name) {
                 if (!state.branches.includes(name)) state.branches.push(name);
+                const [first, ...rest] = state.logEntries;
+                if (first && name !== state.branch) {
+                    const nextRefs = retargetPreviewHeadRef(first.refs, state.branch, name);
+                    state.logEntries = [{ ...first, refs: nextRefs }, ...rest];
+                }
                 state.branch = name;
             }
             return null;

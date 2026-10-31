@@ -616,6 +616,7 @@ function FirstRun({ onAdd }: { onAdd: (id: ProviderId) => void }) {
     );
 }
 
+/** Searchable provider catalog card for enabling additional model providers. */
 function AddProviderBox({
     onAdd,
     groups,

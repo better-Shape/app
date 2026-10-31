@@ -159,14 +159,13 @@ const isPromiseLike = (value: unknown): value is PromiseLike<void | boolean> =>
 const attachGlobalHoldDismiss = (
     button: HTMLButtonElement | null,
     getState: () => HoldButtonState,
-    cancelHold: () => void,
     abortActiveHold: () => void,
 ): (() => void) => {
     const ownerDoc = button?.ownerDocument ?? document;
     const ownerWin = ownerDoc.defaultView ?? window;
     const handleDocumentPointerDown = (event: PointerEvent) => {
         if (getState() === "armed" && isOutsideElement(button, event.target)) {
-            cancelHold();
+            abortActiveHold();
         }
     };
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
@@ -178,17 +177,17 @@ const attachGlobalHoldDismiss = (
         abortActiveHold();
     };
     const handleVisibilityChange = () => {
-        if (ownerDoc.visibilityState === "hidden") cancelHold();
+        if (ownerDoc.visibilityState === "hidden") abortActiveHold();
     };
     ownerDoc.addEventListener("pointerdown", handleDocumentPointerDown, true);
     ownerDoc.addEventListener("keydown", handleDocumentKeyDown, true);
     ownerDoc.addEventListener("visibilitychange", handleVisibilityChange);
-    ownerWin.addEventListener("blur", cancelHold);
+    ownerWin.addEventListener("blur", abortActiveHold);
     return () => {
         ownerDoc.removeEventListener("pointerdown", handleDocumentPointerDown, true);
         ownerDoc.removeEventListener("keydown", handleDocumentKeyDown, true);
         ownerDoc.removeEventListener("visibilitychange", handleVisibilityChange);
-        ownerWin.removeEventListener("blur", cancelHold);
+        ownerWin.removeEventListener("blur", abortActiveHold);
     };
 };
 
@@ -310,10 +309,9 @@ const useHoldState = ({
         dismissCleanupRef.current = attachGlobalHoldDismiss(
             buttonRef.current,
             () => stateRef.current,
-            cancelHold,
             abortActiveHold,
         );
-    }, [abortActiveHold, buttonRef, cancelHold]);
+    }, [abortActiveHold, buttonRef]);
 
     const finishEscapedPointerUp = React.useCallback(
         (event: PointerEvent) => {

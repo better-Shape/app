@@ -413,6 +413,7 @@ export const COMMON_EXCLUDE_PATTERNS = [
 
 const CUSTOM_FONT_VALUE = "__custom__";
 
+/** Preset font selector with custom `.ttf`/`.otf`/`.woff`/`.woff2` upload support. */
 export function FontFamilySelect({
     value,
     presets,

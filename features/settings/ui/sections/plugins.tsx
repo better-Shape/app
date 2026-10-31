@@ -545,6 +545,7 @@ function PluginDetail({
     );
 }
 
+/** Catalog and connection management view for Composio-backed agent plugins. */
 export function PluginsSettingsView() {
     const settings = useSettings();
     // Plugins ride on the user's own Composio account, so the key configured on

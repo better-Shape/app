@@ -34,6 +34,7 @@ import { WorkflowsEditor } from "./workflows";
 import { IndexingProgressBar } from "./index-progress";
 import { notify } from "@/features/notifications";
 
+/** Settings section for editing custom conversation compaction instructions. */
 function CompactionEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
     const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);
@@ -217,6 +218,7 @@ function CompactionStatus({ instructions }: { instructions: string }) {
     );
 }
 
+/** Settings section for editing persistent workspace agent instructions. */
 function RulesEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
     const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);

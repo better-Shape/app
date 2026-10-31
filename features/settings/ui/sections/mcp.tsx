@@ -92,6 +92,7 @@ function ServerCard({
     );
 }
 
+/** Modal dialog for registering a local command or remote HTTP MCP server. */
 function AddMcpDialog({
     open,
     onClose,

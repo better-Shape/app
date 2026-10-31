@@ -146,6 +146,7 @@ function WorkflowPluginMark({ toolkit }: { toolkit?: string }) {
     );
 }
 
+/** Modal dialog for creating or editing a custom agent workflow. */
 function WorkflowDialog({
     open,
     workflow,
@@ -435,6 +436,7 @@ function WorkflowDialog({
     );
 }
 
+/** Dropdown picker binding an optional connected plugin toolkit to a workflow. */
 function PluginPicker({
     labelId,
     plugins,

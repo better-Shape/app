@@ -633,6 +633,7 @@ function TrustedWorkspacesSection() {
     );
 }
 
+/** Settings section and dialog for submitting bug reports and product feedback. */
 function FeedbackSection() {
     const { project_path } = useProjectState();
     const [open, setOpen] = useState(false);

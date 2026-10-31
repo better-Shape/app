@@ -60,6 +60,7 @@ function AuthorAvatar({ log, size = 20 }: { log: GitLogEntry; size?: number }) {
     );
 }
 
+/** Displays commit metadata, changed files, or per-file diff inspection for the graph pane. */
 export function GraphDetailPanel({
     selection,
     repoPath,

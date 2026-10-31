@@ -50,7 +50,7 @@ test.describe("git manager", () => {
         expect(axe.violations).toEqual([]);
 
         const refFilter = page
-            .getByRole("button", { name: /Filter graph to (?:Branch|Remote branch|Tag):/ })
+            .getByRole("button", { name: /Filter graph to (?:HEAD|Branch|Remote branch|Tag):/ })
             .first();
         await expect(refFilter).toBeVisible({ timeout: 30_000 });
         await refFilter.focus();
