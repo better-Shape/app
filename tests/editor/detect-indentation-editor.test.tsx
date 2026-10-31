@@ -44,7 +44,7 @@ afterEach(() => {
     window.removeEventListener("bettershape-editor-status", listen);
     act(() => root?.unmount());
     host.remove();
-    updateSettingSection("editor", { detectIndentation: true, tabSize: 4, insertSpaces: true });
+    updateSettingSection("editor", { detectIndentation: true, tabSize: 4, insertSpaces: true, wordWrap: "off" });
 });
 
 async function mount() {
@@ -88,5 +88,33 @@ describe("editor indentation", () => {
         updateSettingSection("editor", { detectIndentation: false, tabSize: 4, insertSpaces: true });
         await mount();
         expect(events.at(-1)).toEqual({ spaces: 4, insertSpaces: true });
+    });
+
+    it("applies an indentation change to the open document", async () => {
+        updateSettingSection("editor", { detectIndentation: false, tabSize: 4, insertSpaces: true });
+        await mount();
+        const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+        if (!view) throw new Error("Editor view is missing");
+
+        // Settings -> Editor is a global switch: it has to reach the file that is
+        // already open, not only the next one.
+        await act(async () => {
+            updateSettingSection("editor", { tabSize: 2, insertSpaces: false });
+        });
+        expect(view.state.tabSize).toBe(2);
+        expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: false });
+    });
+
+    it("applies a word-wrap change to the open document", async () => {
+        updateSettingSection("editor", { wordWrap: "off" });
+        await mount();
+        const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+        if (!view) throw new Error("Editor view is missing");
+        expect(view.contentDOM.classList.contains("cm-lineWrapping")).toBe(false);
+
+        await act(async () => {
+            updateSettingSection("editor", { wordWrap: "on" });
+        });
+        expect(view.contentDOM.classList.contains("cm-lineWrapping")).toBe(true);
     });
 });

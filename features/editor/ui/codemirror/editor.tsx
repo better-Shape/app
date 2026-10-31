@@ -49,7 +49,7 @@ import {
     completionKeymap,
 } from "@codemirror/autocomplete";
 import { optionExtensions } from "@/features/editor/ui/codemirror/options";
-import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { requestLocalHistory } from "@/lib/editor/local-history";
@@ -375,7 +375,32 @@ export function CodeMirrorEditor({
         viewRef.current = view;
         // A settings change reaches the open document, not only the next one.
         const unsubscribeSettings = subscribeSettings(() => {
-            const effects = [optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings()))];
+            const next = getEditorOptionsFromSettings();
+            const effects = [optionsCompartment.reconfigure(optionExtensions(next))];
+            // Indentation and wrapping live in their own compartments, so a
+            // Settings change has to reach the open document here. Without this
+            // the setting only applied to the next file the user opened.
+            const nextTabSize =
+                typeof next.tabSize === "number" && next.tabSize > 0 ? next.tabSize : 4;
+            const nextInsertSpaces = next.insertSpaces !== false;
+            const indentChanged = nextTabSize !== tabSize || nextInsertSpaces !== insertSpaces;
+            if (indentChanged) {
+                tabSize = nextTabSize;
+                insertSpaces = nextInsertSpaces;
+                effects.push(
+                    indentCompartment.reconfigure([
+                        EditorState.tabSize.of(tabSize),
+                        indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
+                    ]),
+                );
+            }
+            const nextWrap = next.wordWrap !== "off";
+            if (nextWrap !== wrapEnabled) {
+                wrapEnabled = nextWrap;
+                effects.push(
+                    wrapCompartment.reconfigure(nextWrap ? EditorView.lineWrapping : []),
+                );
+            }
             const nextBlame = getSettings().git.blame.enabled;
             // Reconfiguring the compartment throws away the reporter and builds
             // a new one, which blanks the status segment and repeats the blame
@@ -393,6 +418,8 @@ export function CodeMirrorEditor({
                 );
             }
             view.dispatch({ effects });
+            // The status bar reports the live indent unit, so state the new one.
+            if (indentChanged) publishStatus(view);
         });
         pathRef.current = path;
 
@@ -437,6 +464,10 @@ export function CodeMirrorEditor({
             if (!dirty || editorSettings.autoSave !== "afterDelay") return;
             autosaveTimer = window.setTimeout(() => {
                 autosaveTimer = null;
+                // Auto Save can be switched off while the delay is pending, and a
+                // timer that fires anyway would write the file after the setting
+                // that asked for it was turned off.
+                if (getSettings().editor.autoSave !== "afterDelay") return;
                 void persistNow();
             }, Math.max(250, editorSettings.autoSaveDelay));
         };
@@ -751,7 +782,25 @@ export function CodeMirrorEditor({
             view.dom.removeEventListener("pointerdown", markActive);
             if (activeView === view) activeView = null;
             if (bufferTimer !== null) window.clearTimeout(bufferTimer);
-            if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
+            if (autosaveTimer !== null) {
+                window.clearTimeout(autosaveTimer);
+                autosaveTimer = null;
+            }
+            // Closing the file, or switching to another one, must not be how an
+            // after-delay autosave goes missing: Auto Save asked for the write, so
+            // write the buffer now instead of leaving it only in recovery.
+            if (getSettings().editor.autoSave === "afterDelay") {
+                const pending = view.state.doc.toString();
+                const pendingPath = pathRef.current;
+                if (!sameIgnoringEol(toDiskText(pending, eol), savedContentRef.current)) {
+                    void saveContents(pendingPath, pending, eol)
+                        .then(() => {
+                            clearSavedDirtyBuffer(pendingPath, pending);
+                            return commands.markFileDirty(pendingPath, false).catch(() => undefined);
+                        })
+                        .catch(() => undefined);
+                }
+            }
             unsubscribeSettings();
             view.destroy();
             viewRef.current = null;

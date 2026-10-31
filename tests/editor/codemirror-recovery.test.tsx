@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { CodeMirrorEditor } from "@/features/editor/ui/codemirror/editor";
 import { loadDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { resetSettings, updateSettingSection } from "@/lib/settings";
 
 const native = vi.hoisted(() => ({ markFileDirty: vi.fn(async () => undefined), saveFile: vi.fn(async () => undefined) }));
 vi.mock("@/lib/backend", () => ({ commands: native, getProjectPath: () => null }));
@@ -21,7 +22,7 @@ beforeEach(() => {
     saved = { current: "disk text" }; dirty = { current: true }; version = { current: 0 };
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery(); vi.useRealTimers(); });
+afterEach(() => { act(() => root?.unmount()); host.remove(); resetDirtyBufferRecovery(); resetSettings(); vi.useRealTimers(); });
 function Suspend({ pending }: { pending?: Promise<void> }) {
     if (pending) throw pending;
     return null;
@@ -109,4 +110,36 @@ it("delivers edits only to the committed callback while a replacement render is 
     }
     act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "?" } }));
     expect(replacement).toHaveBeenCalledWith("recovered text!?");
+});
+
+it("writes an after-delay autosave that was still pending when the file closed", async () => {
+    // Auto Save asked for this write. Cancelling the timer on unmount used to
+    // leave the edit only in recovery, which is not where the user asked it to go.
+    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 5_000 });
+    const view = await mount("draft body");
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " more" } }));
+
+    act(() => root?.unmount());
+    root = undefined;
+    // The write runs through the save pipeline, which awaits a few stages.
+    await act(async () => {
+        for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+
+    // Insert final newline is on by default, so the pipeline adds it.
+    expect(native.saveFile).toHaveBeenCalledWith("/draft.txt", "draft body more\n");
+    expect(loadDirtyBuffer("/draft.txt")).toBeNull();
+});
+
+it("leaves the buffer in recovery when the timer had already fired", async () => {
+    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 5_000 });
+    const view = await mount("draft body");
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " more" } }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(native.saveFile).toHaveBeenCalledTimes(1);
+
+    act(() => root?.unmount());
+    root = undefined;
+    expect(native.saveFile).toHaveBeenCalledTimes(1);
 });

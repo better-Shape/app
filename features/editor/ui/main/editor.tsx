@@ -1,6 +1,6 @@
 "use client";
 
-import { stageDirtyBuffer, saveDirtyBuffer, clearDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
 import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallback } from "react";
 import { useEditorView } from "@/core/providers/editor";
@@ -143,7 +143,10 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             // the convention from it, and `written` is LF by construction.
             savedContentRef.current = toDiskText(written, eol);
             setContent(written);
-            clearDirtyBuffer(path);
+            // Only the draft this save wrote leaves recovery. Another editor can
+            // stage newer text for the same path while the write is in flight,
+            // and that text is not on disk yet.
+            clearSavedDirtyBuffer(path, doc);
             isDirtyRef.current = false;
             await commands.markFileDirty(path, false).catch(() => undefined);
             window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: written } }));
@@ -163,6 +166,9 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
         previewAutosaveRef.current = window.setTimeout(() => {
             previewAutosaveRef.current = null;
+            // Auto Save can be switched off while the delay is pending, and a
+            // timer that fires anyway would write a file the setting now refuses.
+            if (getSettings().editor.autoSave !== "afterDelay") return;
             void persistPreview();
         }, Math.max(250, editorSettings.autoSaveDelay));
     }, [persistPreview]);
@@ -375,6 +381,9 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: prev } }));
                 const dirty = !sameLines(prev, savedContentRef.current);
                 isDirtyRef.current = dirty;
+                // Undo and redo are edits like any other: without the schedule a
+                // preview edit made by undo and left alone never reaches the disk.
+                schedulePreviewAutosave();
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             } else if (action === "redo") {
                 const next = markdownRedoRef.current.pop();
@@ -387,6 +396,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
                 const dirty = !sameLines(next, savedContentRef.current);
                 isDirtyRef.current = dirty;
+                schedulePreviewAutosave();
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             }
         };
@@ -409,7 +419,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
-    }, [isMarkdown, mode, path, content, setContent, persistPreview]);
+    }, [isMarkdown, mode, path, content, setContent, persistPreview, schedulePreviewAutosave]);
 
     const workspace = variant === "workspace";
 
