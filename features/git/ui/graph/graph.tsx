@@ -327,15 +327,36 @@ const buildNextKnownSet = (
     return nextKnown;
 };
 
+const isPendingHeadContinuation = (
+    prev: GraphHeadSnapshot,
+    pending: GraphPendingBaseline,
+    effectiveTopHash: string,
+    effectiveHeadRef: string | null,
+): boolean => {
+    if ((pending.headRef ?? null) !== effectiveHeadRef) return false;
+    return prev.pendingTopHash === effectiveTopHash || !prev.known.has(effectiveTopHash);
+};
+
+const findReusablePendingBaseline = (
+    prev: GraphHeadSnapshot,
+    effectiveTopHash: string | null,
+    effectiveHeadRef: string | null,
+): GraphPendingBaseline | null => {
+    const pending = prev.pendingBaseline;
+    if (!pending || !effectiveTopHash) return null;
+    return isPendingHeadContinuation(prev, pending, effectiveTopHash, effectiveHeadRef)
+        ? pending
+        : null;
+};
+
 const resolveArrivalBaseline = (
     prev: GraphHeadSnapshot,
     keyChanged: boolean,
     effectiveTopHash: string | null,
+    effectiveHeadRef: string | null,
 ): GraphPendingBaseline => {
-    if (!keyChanged && prev.pendingBaseline && prev.pendingTopHash === effectiveTopHash) {
-        return prev.pendingBaseline;
-    }
-    return prev;
+    if (keyChanged) return prev;
+    return findReusablePendingBaseline(prev, effectiveTopHash, effectiveHeadRef) ?? prev;
 };
 
 const mergeAnimatedHashes = (
@@ -397,7 +418,12 @@ const computeNextSnapshot = (
         gitLogs,
         staleCarryOver,
     );
-    const baseline = resolveArrivalBaseline(prev, keyChanged, effectiveTopHash);
+    const baseline = resolveArrivalBaseline(
+        prev,
+        keyChanged,
+        effectiveTopHash,
+        effectiveHeadRef,
+    );
     const evaluation = evaluateFreshGraphLineage(
         baseline,
         cacheKey,
@@ -428,10 +454,14 @@ const hasSnapshotChanged = (
 ): boolean =>
     keyChanged || prev.logsRef !== gitLogs || prev.ignoredLogsRef !== nextIgnoredLogsRef;
 
-const hasArrivalContextShifted = (prev: GraphHeadSnapshot, next: GraphHeadSnapshot): boolean =>
-    prev.cacheKey !== next.cacheKey ||
-    prev.headRef !== next.headRef ||
-    prev.topHash !== next.topHash;
+const hasArrivalContextShifted = (
+    prev: GraphHeadSnapshot,
+    next: GraphHeadSnapshot,
+    hasFreshArrivals: boolean,
+): boolean => {
+    if (prev.cacheKey !== next.cacheKey || prev.headRef !== next.headRef) return true;
+    return !hasFreshArrivals && prev.topHash !== next.topHash;
+};
 
 const setsHaveSameMembers = (
     first: ReadonlySet<string>,
@@ -457,14 +487,24 @@ const takeBoundedPrefix = (
     return result;
 };
 
+const appendAllHashes = (target: Set<string>, source: ReadonlySet<string>): Set<string> => {
+    for (const hash of source) target.add(hash);
+    return target;
+};
+
 const combineActiveArrivals = (
     retained: ReadonlySet<string>,
     newlyConfirmed: ReadonlySet<string>,
+    headAdvanced: boolean,
 ): ReadonlySet<string> => {
     if (retained.size === 0) return newlyConfirmed;
-    const retainedBudget = MAX_ARRIVING_COMMITS - newlyConfirmed.size;
-    const combined = takeBoundedPrefix(retained, retainedBudget);
-    for (const hash of newlyConfirmed) combined.add(hash);
+    const retainedPrefix = takeBoundedPrefix(
+        retained,
+        MAX_ARRIVING_COMMITS - newlyConfirmed.size,
+    );
+    const combined = headAdvanced
+        ? appendAllHashes(new Set(newlyConfirmed), retainedPrefix)
+        : appendAllHashes(retainedPrefix, newlyConfirmed);
     return setsHaveSameMembers(retained, combined) ? retained : combined;
 };
 
@@ -472,10 +512,11 @@ const resolveNextArrivingState = (
     current: ReadonlySet<string>,
     freshHashes: ReadonlySet<string>,
     contextShifted: boolean,
+    headAdvanced: boolean,
 ): ReadonlySet<string> => {
     const retained = contextShifted ? EMPTY_ARRIVAL_SET : current;
     if (freshHashes.size === 0) return retained;
-    return combineActiveArrivals(retained, freshHashes);
+    return combineActiveArrivals(retained, freshHashes, headAdvanced);
 };
 
 /**
@@ -511,7 +552,8 @@ export const useArrivingCommitHashes = (
         const nextArriving = resolveNextArrivingState(
             arrivingHashes,
             freshHashes,
-            hasArrivalContextShifted(prev, nextSnapshot),
+            hasArrivalContextShifted(prev, nextSnapshot, freshHashes.size > 0),
+            prev.topHash !== nextSnapshot.topHash,
         );
         if (nextArriving !== arrivingHashes) setArrivingHashes(nextArriving);
     }

@@ -384,4 +384,44 @@ describe("GraphSvgRow arrival stroke draw", () => {
             vi.useRealTimers();
         }
     });
+
+    it("keeps pending merge baseline when HEAD advances before the side branch arrives", () => {
+        vi.useFakeTimers();
+        const rootSlice = [makeLog("base-root", [], ["HEAD -> main"])];
+        const mergeWithoutSide = [
+            makeLog("merge-tip", ["base-root", "missing-side"], ["HEAD -> main"]),
+            makeLog("base-root", []),
+        ];
+        const headAdvancedSlice = [
+            makeLog("followup-tip", ["merge-tip"], ["HEAD -> main"]),
+            makeLog("merge-tip", ["base-root", "missing-side"]),
+            makeLog("base-root", []),
+        ];
+        const appendedSideSlice = [
+            ...headAdvancedSlice,
+            makeLog("missing-side", ["base-root"]),
+        ];
+
+        try {
+            expect(renderArrivals(rootSlice)).toBe("");
+            expect(renderArrivals(mergeWithoutSide)).toBe("merge-tip");
+
+            // HEAD advances before missing-side arrives: followup-tip leads and baseline survives.
+            expect(renderArrivals(headAdvancedSlice)).toBe("followup-tip,merge-tip");
+
+            act(() => {
+                vi.advanceTimersByTime(520);
+            });
+            const settled = container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals");
+            expect(settled).toBe("");
+
+            // Delayed append delivers missing-side without replaying followup-tip or merge-tip.
+            expect(renderArrivals(appendedSideSlice)).toBe("missing-side");
+
+            // Resetting HEAD to an already-known commit clears active arrivals immediately.
+            expect(renderArrivals(rootSlice)).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
