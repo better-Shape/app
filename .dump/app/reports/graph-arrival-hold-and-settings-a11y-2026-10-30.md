@@ -17,7 +17,7 @@ Verified at commit `da6ab57253f6654237db91ef9ae819ce852821ac` and re-checked on 
 
 - `npm run lint:strict`: 0 errors, 0 warnings.
 - `npm run typecheck`: passed for both app and test TypeScript configs.
-- `npm run test`: 258 Vitest suites (2,792 tests) passed.
+- `npm run test`: 258 Vitest suites (2,793 tests) passed.
 - `npm run skills:verify` and `node scripts/ci/check-secrets.mjs`: 53/53 skills verified, 0 secret hits.
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`: 446 Rust unit tests passed, 0 warnings.
 - `npm run build:preview` and `E2E_STATIC=1 npx playwright test`: 36 Playwright specs passed.

@@ -325,7 +325,7 @@ describe("discoverSkills", () => {
         await expect(discoverItems()).resolves.toEqual([]);
     });
 
-    it("shares dismissals across UNC case variants and still reads legacy mixed-case UNC keys", async () => {
+    it("shares dismissals across UNC case variants and still reads and restores legacy mixed-case UNC keys", async () => {
         const uncUpper = "\\\\Server\\Share\\Demo";
         const uncLower = "\\\\server\\share\\demo";
         mocks.getProjectPath.mockReturnValue(uncUpper);
@@ -344,6 +344,31 @@ describe("discoverSkills", () => {
         dismissDiscoveredFile(uncLower, ".agents/guide.md");
 
         await expect(discoverItems()).resolves.toEqual([]);
+        expect(localStorage.getItem("bettershape-dismissed-discovered://Server/Share/Demo")).toBeNull();
+
+        localStorage.setItem(
+            "bettershape-dismissed-discovered://Server/Share/Demo",
+            JSON.stringify([".agents/legacy.md"]),
+        );
+        restoreDismissedFiles(uncLower);
+        await expect(discoverItems()).resolves.toHaveLength(2);
+    });
+
+    it("resolves multi-segment descendants through a symlink targeting POSIX root without misclassifying as UNC", async () => {
+        serveSkillFs(
+            mocks,
+            { "/etc/secrets/token.txt": "top-secret" },
+            {
+                homeDir: HOME,
+                symlinks: { [`${PROJECT}/root-link`]: "/" },
+            },
+        );
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/root-link/etc/secrets/token.txt`, "/etc"),
+        ).resolves.toBe("top-secret");
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/root-link/etc/secrets/token.txt`, PROJECT),
+        ).rejects.toThrow("outside root");
     });
 
     it("survives stored skills without a name", async () => {

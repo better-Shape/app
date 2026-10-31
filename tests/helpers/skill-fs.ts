@@ -76,6 +76,9 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             return [pathCompareKey(normFrom), { from: normFrom, to: resolveLinkTarget(normFrom, to) }];
         }),
     );
+    const appendNormalizedSuffix = (base: string, suffix: string): string =>
+        normalize(base.endsWith("/") ? `${base}${suffix}` : `${base}/${suffix}`);
+
     const stepSymlinkSubstitution = (current: string): string | null => {
         const { root, rest } = splitRootAndRest(current);
         const segments = rest.split("/").filter(Boolean);
@@ -89,7 +92,7 @@ export function serveSkillFs(mocks: SkillFsMocks, files: Record<string, string>,
             const link = links.get(pathCompareKey(prefix));
             if (link) {
                 const suffix = segments.slice(index + 1).join("/");
-                return suffix ? normalize(`${link.to}/${suffix}`) : link.to;
+                return suffix ? appendNormalizedSuffix(link.to, suffix) : link.to;
             }
         }
         return null;

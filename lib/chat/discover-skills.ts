@@ -79,17 +79,39 @@ function dismissedFilesFromKey(key: string): Set<string> {
     }
 }
 
+const isLegacyCaseVariantKey = (
+    candidate: string | null,
+    primaryKey: string,
+): candidate is string =>
+    candidate !== null && candidate !== primaryKey && candidate.toLowerCase() === primaryKey;
+
+/** Collect legacy mixed-case localStorage keys matching `primaryKey`. */
+function collectCaseVariantKeys(primaryKey: string): string[] {
+    const extras: string[] = [];
+    for (let idx = 0; idx < window.localStorage.length; idx += 1) {
+        const candidate = window.localStorage.key(idx);
+        if (isLegacyCaseVariantKey(candidate, primaryKey)) extras.push(candidate);
+    }
+    return extras;
+}
+
+/** Return the canonical dismissal key plus any legacy mixed-case keys for `projectPath`. */
+function matchingDismissedKeys(projectPath: string): [string, ...string[]] {
+    const primaryKey = dismissedKey(projectPath);
+    const scoped = normalizeSkillPath(projectPath);
+    if (!isCaseInsensitiveSkillPath(scoped)) return [primaryKey];
+    return [primaryKey, ...collectCaseVariantKeys(primaryKey)];
+}
+
 /**
  * Paths dismissed in a project. Dismissing `.claude/skills/guide/SKILL.md`
  * leaves every other skill file visible; also reads any legacy mixed-case UNC key.
  */
 function dismissedFiles(projectPath: string): Set<string> {
     if (typeof window === "undefined") return new Set();
-    const primaryKey = dismissedKey(projectPath);
-    const set = dismissedFilesFromKey(primaryKey);
-    const legacyKey = DISMISSED_KEY_PREFIX + normalizeSkillPath(projectPath);
-    if (legacyKey !== primaryKey) {
-        for (const entry of dismissedFilesFromKey(legacyKey)) set.add(entry);
+    const set = new Set<string>();
+    for (const key of matchingDismissedKeys(projectPath)) {
+        for (const entry of dismissedFilesFromKey(key)) set.add(entry);
     }
     return set;
 }
@@ -97,10 +119,11 @@ function dismissedFiles(projectPath: string): Set<string> {
 /** Dismiss a discovered file for the project it was shown in. */
 export function dismissDiscoveredFile(projectPath: string, relPath: string) {
     if (typeof window === "undefined") return;
-    const key = dismissedKey(projectPath);
-    const set = dismissedFilesFromKey(key);
+    const [primaryKey, ...legacyKeys] = matchingDismissedKeys(projectPath);
+    const set = dismissedFiles(projectPath);
     set.add(relPath);
-    window.localStorage.setItem(key, JSON.stringify([...set]));
+    window.localStorage.setItem(primaryKey, JSON.stringify([...set]));
+    for (const legacyKey of legacyKeys) window.localStorage.removeItem(legacyKey);
 }
 
 /** How many files the user dismissed in this project. */
@@ -111,7 +134,9 @@ export function countDismissedFiles(projectPath: string): number {
 /** Bring every dismissed file back into the Discovered list. */
 export function restoreDismissedFiles(projectPath: string): void {
     if (typeof window === "undefined") return;
-    window.localStorage.removeItem(dismissedKey(projectPath));
+    for (const key of matchingDismissedKeys(projectPath)) {
+        window.localStorage.removeItem(key);
+    }
 }
 
 /** Candidate skill files under one root, as `{ fileName, filePath, folder }`. */
