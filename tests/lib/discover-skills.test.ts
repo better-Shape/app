@@ -325,6 +325,27 @@ describe("discoverSkills", () => {
         await expect(discoverItems()).resolves.toEqual([]);
     });
 
+    it("shares dismissals across UNC case variants and still reads legacy mixed-case UNC keys", async () => {
+        const uncUpper = "\\\\Server\\Share\\Demo";
+        const uncLower = "\\\\server\\share\\demo";
+        mocks.getProjectPath.mockReturnValue(uncUpper);
+        serveSkillFs(
+            mocks,
+            {
+                [`${uncUpper}\\.agents\\guide.md`]: "guide body",
+                [`${uncUpper}\\.agents\\legacy.md`]: "legacy body",
+            },
+            { homeDir: HOME },
+        );
+        localStorage.setItem(
+            "bettershape-dismissed-discovered://Server/Share/Demo",
+            JSON.stringify([".agents/legacy.md"]),
+        );
+        dismissDiscoveredFile(uncLower, ".agents/guide.md");
+
+        await expect(discoverItems()).resolves.toEqual([]);
+    });
+
     it("survives stored skills without a name", async () => {
         localStorage.setItem(SKILLS_KEY, JSON.stringify([{ id: "legacy", body: "body" }]));
         serve({ [`${PROJECT}/.agents/guide.md`]: "body" });

@@ -4,7 +4,12 @@ import { commands } from "@/lib/backend/commands";
 import { getProjectPath } from "@/lib/backend/project-state";
 import { getHomeDir, listCustomSkillFolders } from "@/lib/chat/skill-folders";
 import { parseSkillDocument } from "@/lib/chat/skill-frontmatter";
-import { displaySkillPath, joinSkillPath, normalizeSkillPath } from "@/lib/chat/skill-paths";
+import {
+    displaySkillPath,
+    isCaseInsensitiveSkillPath,
+    joinSkillPath,
+    normalizeSkillPath,
+} from "@/lib/chat/skill-paths";
 import { SKILL_FILE_NAME, listSkillRoots, type SkillRoot, type SkillRootScope } from "@/lib/chat/skill-roots";
 import { listSkills, skillIdFromName, skillTitle, type Skill } from "@/lib/chat/skills";
 
@@ -47,11 +52,6 @@ export type SkillScan = {
 /** Prefix for the per-project localStorage key holding dismissed files. */
 const DISMISSED_KEY_PREFIX = "bettershape-dismissed-discovered:";
 
-/** Windows paths are case-insensitive; POSIX ones (Linux) are not. */
-function isCaseInsensitivePath(projectPath: string): boolean {
-    return !projectPath.startsWith("/") && (projectPath.includes("\\") || /^[a-zA-Z]:/.test(projectPath));
-}
-
 /**
  * LocalStorage key storing dismissed paths for one project. The path keeps its
  * case everywhere except case-insensitive filesystems, so `/home/dev/Repo` and
@@ -59,7 +59,8 @@ function isCaseInsensitivePath(projectPath: string): boolean {
  */
 function dismissedKey(projectPath: string): string {
     const scoped = normalizeSkillPath(projectPath);
-    return DISMISSED_KEY_PREFIX + (isCaseInsensitivePath(scoped) ? scoped.toLowerCase() : scoped);
+    const folded = isCaseInsensitiveSkillPath(scoped) ? scoped.toLowerCase() : scoped;
+    return DISMISSED_KEY_PREFIX + folded;
 }
 
 /** True when `fileName` ends with one of `extensions`, ignoring case. */
@@ -80,11 +81,17 @@ function dismissedFilesFromKey(key: string): Set<string> {
 
 /**
  * Paths dismissed in a project. Dismissing `.claude/skills/guide/SKILL.md`
- * leaves every other skill file visible.
+ * leaves every other skill file visible; also reads any legacy mixed-case UNC key.
  */
 function dismissedFiles(projectPath: string): Set<string> {
     if (typeof window === "undefined") return new Set();
-    return dismissedFilesFromKey(dismissedKey(projectPath));
+    const primaryKey = dismissedKey(projectPath);
+    const set = dismissedFilesFromKey(primaryKey);
+    const legacyKey = DISMISSED_KEY_PREFIX + normalizeSkillPath(projectPath);
+    if (legacyKey !== primaryKey) {
+        for (const entry of dismissedFilesFromKey(legacyKey)) set.add(entry);
+    }
+    return set;
 }
 
 /** Dismiss a discovered file for the project it was shown in. */
@@ -176,7 +183,7 @@ function isDismissed(dismissed: Set<string>, relPath: string): boolean {
 /** Case-aware comparison key for canonicalized filesystem paths. */
 function canonicalPathKey(path: string): string {
     const normalized = normalizeSkillPath(path);
-    return isCaseInsensitivePath(normalized) ? normalized.toLowerCase() : normalized;
+    return isCaseInsensitiveSkillPath(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 /** Checks directory containment using a trailing slash so sibling stems never match. */

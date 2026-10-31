@@ -10,11 +10,13 @@ const isAnyPathSep: SepPredicate = (char) => char === "/" || char === "\\";
 
 const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
 const WINDOWS_DRIVE_PREFIX_RE = /^[A-Za-z]:/;
+const UNC_FORWARD_PREFIX_RE = /^\/\/[^/\\]/;
 
 const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
 
-/** True when `path` is a Windows drive or backslash path rather than a `/`-rooted POSIX path. */
+/** True when `path` is a Windows drive, backslash, or `//server` UNC path rather than POSIX `/...`. */
 export function isCaseInsensitiveSkillPath(path: string): boolean {
+    if (UNC_FORWARD_PREFIX_RE.test(path)) return true;
     if (path.startsWith("/")) return false;
     return WINDOWS_DRIVE_PREFIX_RE.test(path) || path.includes("\\");
 }

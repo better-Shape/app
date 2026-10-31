@@ -176,6 +176,7 @@ const useHoldState = (
     const sourceRef = React.useRef<"pointer" | "keyboard" | null>(null);
     const activeInputTokenRef = React.useRef<number | string | null>(null);
     const suppressClickRef = React.useRef(false);
+    const pointerLeftBoundsRef = React.useRef(false);
     const pointerCleanupRef = React.useRef<(() => void) | null>(null);
 
     const isButtonDisabled = React.useCallback(
@@ -213,9 +214,34 @@ const useHoldState = (
         activeInputTokenRef.current = null;
         armedPressRef.current = false;
         startedAtRef.current = 0;
+        pointerLeftBoundsRef.current = false;
         suppressClickRef.current = false;
         writeState("idle");
     }, [detachPointerListeners, writeState]);
+
+    const leavePointerBounds = React.useCallback(() => {
+        pointerLeftBoundsRef.current = true;
+        clearTimerSlot(timersRef.current, "hold");
+        clearTimerSlot(timersRef.current, "reset");
+        sourceRef.current = null;
+        activeInputTokenRef.current = null;
+        armedPressRef.current = false;
+        startedAtRef.current = 0;
+        writeState("idle");
+    }, [writeState]);
+
+    const finishEscapedPointerUp = React.useCallback(
+        (event: PointerEvent) => {
+            pointerLeftBoundsRef.current = false;
+            detachPointerListeners();
+            if (isPointerEventInsideButton(buttonRef.current, event)) {
+                scheduleClickGuardClear();
+            } else {
+                suppressClickRef.current = false;
+            }
+        },
+        [buttonRef, detachPointerListeners, scheduleClickGuardClear],
+    );
 
     React.useLayoutEffect(() => {
         disabledRef.current = disabled;
@@ -381,20 +407,23 @@ const useHoldState = (
         (pointerId: number) => {
             detachPointerListeners();
             const ownerDoc = buttonRef.current?.ownerDocument ?? document;
-            const isTrackedEvent = (event: PointerEvent): boolean =>
-                event.pointerId === pointerId && matchesActivePress("pointer", event.pointerId);
             const handleDocMove = (event: PointerEvent) => {
-                if (isTrackedEvent(event) && !isPointerEventInsideButton(buttonRef.current, event)) {
-                    cancelHold();
+                if (event.pointerId !== pointerId || pointerLeftBoundsRef.current) return;
+                if (!isPointerEventInsideButton(buttonRef.current, event)) {
+                    leavePointerBounds();
                 }
             };
             const handleDocUp = (event: PointerEvent) => {
-                if (!isTrackedEvent(event)) return;
+                if (event.pointerId !== pointerId) return;
+                if (pointerLeftBoundsRef.current) {
+                    finishEscapedPointerUp(event);
+                    return;
+                }
                 if (!isPointerEventInsideButton(buttonRef.current, event)) cancelHold();
                 else releasePress("pointer", event.pointerId);
             };
             const handleDocCancel = (event: PointerEvent) => {
-                if (isTrackedEvent(event)) cancelHold();
+                if (event.pointerId === pointerId) cancelHold();
             };
             ownerDoc.addEventListener("pointermove", handleDocMove, true);
             ownerDoc.addEventListener("pointerup", handleDocUp, true);
@@ -405,13 +434,15 @@ const useHoldState = (
                 ownerDoc.removeEventListener("pointercancel", handleDocCancel, true);
             };
         },
-        [buttonRef, cancelHold, detachPointerListeners, matchesActivePress, releasePress],
+        [buttonRef, cancelHold, detachPointerListeners, finishEscapedPointerUp, leavePointerBounds, releasePress],
     );
 
     const beginPress = React.useCallback(
         (source: "pointer" | "keyboard", token: number | string) => {
             if (isPressBlocked()) return;
+            detachPointerListeners();
             clearTimerSlot(timersRef.current, "clickGuard");
+            pointerLeftBoundsRef.current = false;
             suppressClickRef.current = true;
             sourceRef.current = source;
             activeInputTokenRef.current = token;
@@ -428,17 +459,17 @@ const useHoldState = (
             writeState("holding");
             timersRef.current.hold = window.setTimeout(fireConfirm, holdMs);
         },
-        [attachPointerListeners, fireConfirm, holdMs, isPressBlocked, writeState],
+        [attachPointerListeners, detachPointerListeners, fireConfirm, holdMs, isPressBlocked, writeState],
     );
 
     const handlePointerMove = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
             if (!matchesActivePress("pointer", event.pointerId)) return;
             if (!isPointerEventInsideButton(event.currentTarget, event.nativeEvent)) {
-                cancelHold();
+                leavePointerBounds();
             }
         },
-        [cancelHold, matchesActivePress],
+        [leavePointerBounds, matchesActivePress],
     );
 
     const handleBlur = React.useCallback(() => {
@@ -469,9 +500,9 @@ const useHoldState = (
     const handlePointerLeave = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {
             if (!matchesActivePress("pointer", event.pointerId)) return;
-            cancelHold();
+            leavePointerBounds();
         },
-        [cancelHold, matchesActivePress],
+        [leavePointerBounds, matchesActivePress],
     );
 
     const handlePointerCancel = React.useCallback(

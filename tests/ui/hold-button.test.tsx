@@ -681,6 +681,37 @@ describe("HoldButton", () => {
         });
         expect(onConfirm).not.toHaveBeenCalled();
 
+        // Dragging outside, returning inside before release, and firing synthetic click must NOT arm.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 23,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            document.body.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 23,
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 23,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+        expect(btn.dataset.state).toBe("idle");
+
         // Subsequent hold on the button still works (no stuck pointer session).
         act(() => {
             btn.dispatchEvent(
@@ -766,6 +797,17 @@ describe("HoldButton", () => {
             resolveAsync?.();
             await Promise.resolve();
         });
+        expect(btn.dataset.state).toBe("idle");
+
+        // Re-enabling must stay idle rather than revealing a latent confirmed state.
+        render(
+            <HoldButton
+                ariaLabel="Delete branch"
+                label="Delete branch"
+                holdMs={400}
+                onConfirm={onConfirm}
+            />,
+        );
         expect(btn.dataset.state).toBe("idle");
     });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     displaySkillPath,
+    isCaseInsensitiveSkillPath,
     isInsideSkillPath,
     joinSkillPath,
     normalizeSkillPath,
@@ -19,6 +20,9 @@ describe("skill-paths: normalizeSkillPath", () => {
         expect(normalizeSkillPath("/home/dev/.claude/skills")).toBe("/home/dev/.claude/skills");
         expect(normalizeSkillPath("/home/dev/dir\\name/")).toBe("/home/dev/dir\\name");
         expect(normalizeSkillPath("/home/dev/trailing\\")).toBe("/home/dev/trailing\\");
+        expect(isCaseInsensitiveSkillPath("/home/dev/dir\\name")).toBe(false);
+        expect(isCaseInsensitiveSkillPath("//Server/Share/Demo")).toBe(true);
+        expect(isCaseInsensitiveSkillPath("\\\\Server\\Share\\Demo")).toBe(true);
     });
 
     it("preserves POSIX and Windows drive roots without collapsing C:\\ to drive-relative C:", () => {
