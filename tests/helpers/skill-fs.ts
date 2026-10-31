@@ -156,10 +156,21 @@ export function serveSkillFs(
     const pathCompareKey = (canonical: string): string =>
         isWindowsPath(canonical) ? canonical.toLowerCase() : canonical;
 
-    const isSelfAnchoredTarget = (normFrom: string, rawTo: string): boolean => {
-        if (!isWindowsPath(normFrom)) return rawTo.startsWith("/");
+    const resolveWindowsRootedTarget = (normFrom: string, forward: string): string | null => {
+        if (!forward.startsWith("/") || forward.startsWith("//")) return null;
+        const uncRoot = matchUncShareRoot(normFrom);
+        if (uncRoot) return normalize(`${uncRoot}${forward}`);
+        const drive = splitDrivePrefix(normFrom);
+        return drive ? normalize(`${drive.root.slice(0, 2)}${forward}`) : null;
+    };
+
+    const resolveAbsoluteLinkTarget = (normFrom: string, rawTo: string): string | null => {
+        if (!isWindowsPath(normFrom)) return rawTo.startsWith("/") ? normalize(rawTo) : null;
         const forward = toForwardPath(rawTo);
-        return forward.startsWith("/") || DRIVE_PREFIX_RE.test(forward);
+        if (DRIVE_PREFIX_RE.test(forward) || matchUncShareRoot(forward) !== null) {
+            return normalize(rawTo);
+        }
+        return resolveWindowsRootedTarget(normFrom, forward);
     };
 
     const resolveLinkParent = (normFrom: string): string => {
@@ -170,7 +181,8 @@ export function serveSkillFs(
     };
 
     const resolveLinkTarget = (normFrom: string, rawTo: string): string => {
-        if (isSelfAnchoredTarget(normFrom, rawTo)) return normalize(rawTo);
+        const anchored = resolveAbsoluteLinkTarget(normFrom, rawTo);
+        if (anchored !== null) return anchored;
         const parent = resolveLinkParent(normFrom);
         const targetSegment = isWindowsPath(normFrom) ? rawTo.replaceAll("\\", "/") : rawTo;
         const joined = joinsDirectlyToRoot(parent)

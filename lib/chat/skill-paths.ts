@@ -127,10 +127,16 @@ const toContainmentPair = (
     return { childKey: normalizedChild, parentKey: normalizedParent };
 };
 
-/** Checks strict descendant containment while keeping bare `X:` disjoint from `X:/`. */
+/**
+ * Checks strict descendant containment while keeping bare `X:` disjoint from `X:/` and
+ * POSIX `//` disjoint from `/`.
+ */
 const isStrictDescendantKey = (childKey: string, parentKey: string): boolean => {
     if (isDriveSpecifier(parentKey)) {
         return childKey.startsWith(parentKey) && !childKey.startsWith(`${parentKey}/`);
+    }
+    if (parentKey === "/") {
+        return childKey.startsWith("/") && !childKey.startsWith("//");
     }
     return childKey.startsWith(withTrailingSlash(parentKey));
 };

@@ -1062,5 +1062,34 @@ describe("HoldButton", () => {
             btn.click();
         });
         expect(onRowClick).not.toHaveBeenCalled();
+
+        // Ordinary right-click while idle still bubbles to open the app context menu,
+        // whereas native touch-hold contextmenu during an active hold is suppressed.
+        const onAncestorContextMenu = vi.fn();
+        render(
+            <div onContextMenu={onAncestorContextMenu}>
+                <HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />
+            </div>,
+        );
+        const idleBtn = getButton();
+        const idleMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            idleBtn.dispatchEvent(idleMenuEvent);
+        });
+        expect(idleMenuEvent.defaultPrevented).toBe(false);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
+
+        const holdingMenuEvent = new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+        });
+        act(() => {
+            idleBtn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 42 }),
+            );
+            idleBtn.dispatchEvent(holdingMenuEvent);
+        });
+        expect(holdingMenuEvent.defaultPrevented).toBe(true);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
     });
 });

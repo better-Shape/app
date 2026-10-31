@@ -159,5 +159,9 @@ describe("skill-paths: displaySkillPath", () => {
         expect(displaySkillPath("C:\\", "C:\\", null)).toBe(".");
         expect(displaySkillPath("C:skills/pdf/SKILL.md", "C:", null)).toBe("skills/pdf/SKILL.md");
         expect(displaySkillPath("C:/outside/SKILL.md", "C:", null)).toBe("C:/outside/SKILL.md");
+        expect(isInsideSkillPath("//host/share/SKILL.md", "/")).toBe(false);
+        expect(displaySkillPath("//host/share/SKILL.md", "/", "/")).toBe(
+            "//host/share/SKILL.md"
+        );
     });
 });

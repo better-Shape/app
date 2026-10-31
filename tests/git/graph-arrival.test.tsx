@@ -517,4 +517,44 @@ describe("GraphSvgRow arrival stroke draw", () => {
             vi.useRealTimers();
         }
     });
+
+    it("expires staggered streamed commits on independent 520ms timers without extending earlier commits", () => {
+        vi.useFakeTimers();
+        const rootSlice = [makeLog("base-0", [], ["HEAD -> main"])];
+        const firstCommitSlice = [
+            makeLog("first-new", ["base-0"], ["HEAD -> main"]),
+            makeLog("base-0", []),
+        ];
+        const secondCommitSlice = [
+            makeLog("second-new", ["first-new"], ["HEAD -> main"]),
+            makeLog("first-new", ["base-0"]),
+            makeLog("base-0", []),
+        ];
+
+        try {
+            expect(renderArrivals(rootSlice)).toBe("");
+            expect(renderArrivals(firstCommitSlice)).toBe("first-new");
+
+            act(() => {
+                vi.advanceTimersByTime(300);
+            });
+            expect(renderArrivals(secondCommitSlice)).toBe("second-new,first-new");
+
+            act(() => {
+                vi.advanceTimersByTime(220);
+            });
+            expect(
+                container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals"),
+            ).toBe("second-new");
+
+            act(() => {
+                vi.advanceTimersByTime(300);
+            });
+            expect(
+                container.querySelector("[data-arrivals]")?.getAttribute("data-arrivals"),
+            ).toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

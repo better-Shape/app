@@ -606,6 +606,47 @@ const resolveNextArrivingState = (
     return combineActiveArrivals(retained, freshHashes, headAdvanced);
 };
 
+const ARRIVAL_WINDOW_MS = 520;
+
+const removeExpiredArrivalHash = (
+    current: ReadonlySet<string>,
+    expiredHash: string,
+): ReadonlySet<string> => {
+    if (!current.has(expiredHash)) return current;
+    if (current.size === 1) return EMPTY_ARRIVAL_SET;
+    const next = new Set(current);
+    next.delete(expiredHash);
+    return next;
+};
+
+/**
+ * Synchronizes independent per-commit arrival timers so later streamed updates never extend
+ * an earlier commit's 520ms highlight window.
+ */
+const syncArrivalExpiryTimers = (
+    timers: Map<string, number>,
+    arrivingHashes: ReadonlySet<string>,
+    onExpire: (hash: string) => void,
+): void => {
+    for (const [hash, timerId] of timers) {
+        if (!arrivingHashes.has(hash)) {
+            window.clearTimeout(timerId);
+            timers.delete(hash);
+        }
+    }
+    for (const hash of arrivingHashes) {
+        if (!timers.has(hash)) {
+            timers.set(
+                hash,
+                window.setTimeout(() => {
+                    timers.delete(hash);
+                    onExpire(hash);
+                }, ARRIVAL_WINDOW_MS),
+            );
+        }
+    }
+};
+
 /**
  * Tracks newly arrived head commits in an already-loaded graph view across streamed batches
  * while keeping cache switches, branch checkouts, and scroll recycling static.
@@ -625,6 +666,7 @@ export const useArrivingCommitHashes = (
         pendingBaseline: null,
     });
     const [arrivingHashes, setArrivingHashes] = useState<ReadonlySet<string>>(EMPTY_ARRIVAL_SET);
+    const timersByHashRef = useRef<Map<string, number>>(new Map());
 
     const keyChanged = prev.cacheKey !== cacheKey;
     const nextIgnoredLogsRef = resolveIgnoredLogsRef(prev, keyChanged, gitLogs);
@@ -646,10 +688,18 @@ export const useArrivingCommitHashes = (
     }
 
     useEffect(() => {
-        if (arrivingHashes.size === 0) return undefined;
-        const timer = window.setTimeout(() => setArrivingHashes(EMPTY_ARRIVAL_SET), 520);
-        return () => window.clearTimeout(timer);
+        syncArrivalExpiryTimers(timersByHashRef.current, arrivingHashes, (expiredHash) => {
+            setArrivingHashes((current) => removeExpiredArrivalHash(current, expiredHash));
+        });
     }, [arrivingHashes]);
+
+    useEffect(() => {
+        const timers = timersByHashRef.current;
+        return () => {
+            for (const timerId of timers.values()) window.clearTimeout(timerId);
+            timers.clear();
+        };
+    }, []);
 
     return arrivingHashes;
 };

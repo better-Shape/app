@@ -637,6 +637,14 @@ const useHoldState = ({
         [cancelHold, matchesActivePress],
     );
 
+    const shouldSuppressContextMenu = React.useCallback(
+        () =>
+            stateRef.current !== "idle" ||
+            sourceRef.current !== null ||
+            suppressClickRef.current,
+        [],
+    );
+
     return {
         state,
         pending,
@@ -649,6 +657,7 @@ const useHoldState = ({
         handlePointerCancel,
         handleBlur,
         handleClick,
+        shouldSuppressContextMenu,
     };
 };
 
@@ -662,6 +671,7 @@ const composeHoldButtonEvents = (
 ): NativeHoldButtonAttributes => ({
     onContextMenu: (event) => {
         external.onContextMenu?.(event);
+        if (!hold.shouldSuppressContextMenu()) return;
         event.preventDefault();
         event.stopPropagation();
     },

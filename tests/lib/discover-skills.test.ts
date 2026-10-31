@@ -857,6 +857,20 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
         );
         const posixScan = await discoverSkills();
         expect(posixScan.items.some((item) => item.body.includes("POSIX backslash folder."))).toBe(true);
+
+        mocks.getProjectPath.mockReturnValue("C:\\");
+        serveSkillFs(
+            mocks,
+            { "C:/shared/pdf/SKILL.md": "# DriveRoot\nAnchored to C drive root." },
+            {
+                homeDir: "C:/Users/dev",
+                symlinks: { "C:/\\.claude/skills/pdf": "\\shared\\pdf" },
+            },
+        );
+        const driveRootScan = await discoverSkills();
+        expect(
+            driveRootScan.items.some((item) => item.body.includes("Anchored to C drive root.")),
+        ).toBe(true);
     });
 
     it("degrades gracefully when localStorage access throws on case-insensitive project paths", async () => {
