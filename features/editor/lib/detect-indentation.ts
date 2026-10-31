@@ -6,13 +6,49 @@
  * otherwise keeps whatever the setting says and reindents a two-space file with
  * four.
  */
+/**
+ * Removes block and line comments from one line, carrying the block-comment
+ * state across lines. Comment continuation lines (` * text`) would otherwise
+ * look like a one-space indent and drag the detected tab size down to 1.
+ */
+function codeOutsideComments(line: string, open: { block: boolean }): string {
+    let code = "";
+    let index = 0;
+    while (index < line.length) {
+        if (open.block) {
+            const end = line.indexOf("*/", index);
+            if (end === -1) return code;
+            index = end + 2;
+            open.block = false;
+            continue;
+        }
+        const block = line.indexOf("/*", index);
+        const single = line.indexOf("//", index);
+        if (single !== -1 && (block === -1 || single < block)) {
+            return code + line.slice(index, single);
+        }
+        if (block === -1) return code + line.slice(index);
+        code += line.slice(index, block);
+        open.block = true;
+        index = block + 2;
+    }
+    return code;
+}
+
 export function detectIndentation(content: string): { tabSize: number; insertSpaces: boolean } | null {
     const lines = content.split("\n");
     let tabbed = 0;
     let spaced = 0;
     const widths = new Map<number, number>();
+    const open = { block: false };
     for (const line of lines) {
-        if (!line.trim()) continue;
+        const startsInComment = open.block;
+        const code = codeOutsideComments(line, open);
+        // Nothing to measure: blank, or a line that is only comment text.
+        if (!code.trim()) continue;
+        // A continuation line's spaces belong to the comment's star column, not
+        // to the code, so only a line that starts in code carries an indent.
+        if (startsInComment) continue;
         const match = /^([ \t]+)/.exec(line);
         if (!match) continue;
         const indent = match[1];
