@@ -57,7 +57,19 @@ test.describe("git manager", () => {
         // CI runners the pointer lands on the commit row underneath the pill, so a
         // coordinate click selected the row and never reached the handler. The
         // handler is the same one a pointer click would run.
-        await refFilter.evaluate((element) => (element as HTMLButtonElement).click());
+        const probe = await refFilter.evaluate((element) => {
+            const node = element as HTMLButtonElement & { [key: string]: unknown };
+            const reactKey = Object.keys(node).find((key) => key.startsWith("__reactProps$"));
+            const props = reactKey ? (node[reactKey] as { onClick?: unknown } | undefined) : undefined;
+            node.click();
+            return {
+                hasReactProps: Boolean(reactKey),
+                hasOnClick: typeof props?.onClick === "function",
+                connected: node.isConnected,
+                ownerIsDocument: node.ownerDocument === document,
+                label: node.getAttribute("aria-label"),
+            };
+        });
         const applied = await expect
             .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 15_000, intervals: [150] })
             .toBeGreaterThan(0)
@@ -78,7 +90,7 @@ test.describe("git manager", () => {
                     url: location.href,
                 };
             });
-            throw new Error(`ref filter did not mute any row: ${JSON.stringify({ pillLabel, ...state })}`);
+            throw new Error(`ref filter did not mute any row: ${JSON.stringify({ pillLabel, probe, ...state })}`);
         }
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
