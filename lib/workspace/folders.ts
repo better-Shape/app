@@ -1,3 +1,5 @@
+import { isCaseInsensitivePath } from "@/lib/path/utils";
+
 const STORAGE_KEY = "bettershape-workspace-folders";
 let initialSynced = false;
 let syncQueue = Promise.resolve();
@@ -69,6 +71,22 @@ export function getWorkspaceRoots(primaryPath: string | null): string[] {
         }
     }
     return roots;
+}
+
+/**
+ * True when two paths point at the same folder, ignoring separators and
+ * trailing slashes. Case is folded only on a case-insensitive filesystem:
+ * `/repo` and `/Repo` are two folders on Linux.
+ */
+export function isSameWorkspacePath(a: string, b: string): boolean {
+    const left = normalizePath(a);
+    const right = normalizePath(b);
+    if (!left || !right) return false;
+    return foldCase(left) === foldCase(right);
+}
+
+function foldCase(path: string): string {
+    return isCaseInsensitivePath(path) ? path.toLowerCase() : path;
 }
 
 export function workspaceFolderLabel(path: string): string {

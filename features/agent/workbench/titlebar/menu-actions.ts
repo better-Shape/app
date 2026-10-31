@@ -279,25 +279,19 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 break;
             case "Check for Updates":
             case "Check for Updates...": {
-                const { checkForAppUpdates, downloadAndInstallUpdate, getUpdateStatus, relaunchToApplyUpdate } =
+                const { checkForAppUpdates, downloadAndInstallUpdate, relaunchToApplyUpdate } =
                     await import("@/lib/window/updater");
                 const { ask, message } = await import("@tauri-apps/plugin-dialog");
                 const status = await checkForAppUpdates({ force: true });
                 if (status.kind === "available") {
+                    // This build updates by hand: the offer opens the release
+                    // page, and the restart prompt below only appears for a
+                    // build that installed the update itself.
                     const confirmed = await ask(
-                        `BetterShape ${status.version} is available. Download and install now?`,
+                        `BetterShape ${status.version} is available. Open the release page?`,
                         { title: "Update available", kind: "info" },
                     );
-                    if (confirmed) {
-                        await downloadAndInstallUpdate();
-                        if (getUpdateStatus().kind === "ready") {
-                            const restart = await ask("Update installed. Restart BetterShape now?", {
-                                title: "Restart required",
-                                kind: "info",
-                            });
-                            if (restart) await relaunchToApplyUpdate();
-                        }
-                    }
+                    if (confirmed) await downloadAndInstallUpdate();
                 } else if (status.kind === "upToDate") {
                     await message("You're on the latest version.", { title: "Check for Updates", kind: "info" });
                 } else if (status.kind === "error") {

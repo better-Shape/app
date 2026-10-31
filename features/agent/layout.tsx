@@ -369,31 +369,17 @@ const useAgentLayoutWindowChannels = ({
                 /* ignore */
             }
         };
-        /** Opens the Pull Requests workspace tab and clears any overlay. */
-        const onPrs = () => {
-            setOverlay(null);
-            persistWorkspace(true);
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "prs" }));
-        };
         window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
         window.addEventListener("bettershape-layout-toggle", onToggle as EventListener);
         window.addEventListener("bettershape-agent-overlay", onOverlay as EventListener);
-        window.addEventListener("bettershape-open-pull-requests", onPrs);
         return () => {
             window.removeEventListener("bettershape-set-active-tab", onTab as EventListener);
             window.removeEventListener("bettershape-layout-toggle", onToggle as EventListener);
             window.removeEventListener("bettershape-agent-overlay", onOverlay as EventListener);
-            window.removeEventListener("bettershape-open-pull-requests", onPrs);
         };
     }, [persistWorkspace, projectPath, setOverlay, setSidebarOpen, toggleSidebar, toggleWorkspace]);
 
     useEffect(() => {
-        /** Opens the Files workspace tab on design-mode or browser launch events. */
-        const onOpenFiles = () => {
-            if (!projectPath) return;
-            persistWorkspace(true);
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "files" }));
-        };
         /** Opens the chat-column terminal dock and dismisses any center overlay. */
         const openWorkspaceTerminal = () => {
             setOverlay(null);
@@ -435,15 +421,11 @@ const useAgentLayoutWindowChannels = ({
                 return next;
             });
         };
-        window.addEventListener("bettershape-toggle-design-mode", onOpenFiles);
-        window.addEventListener("bettershape-open-browser", onOpenFiles);
         window.addEventListener("bettershape-open-workspace-terminal", openWorkspaceTerminal);
         window.addEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
         window.addEventListener("bettershape-layout-reset", onReset);
         window.addEventListener("bettershape-toggle-zen-mode", onZen);
         return () => {
-            window.removeEventListener("bettershape-toggle-design-mode", onOpenFiles);
-            window.removeEventListener("bettershape-open-browser", onOpenFiles);
             window.removeEventListener("bettershape-open-workspace-terminal", openWorkspaceTerminal);
             window.removeEventListener("bettershape-terminal-shortcut", onShortcut as EventListener);
             window.removeEventListener("bettershape-layout-reset", onReset);

@@ -1,14 +1,8 @@
 "use client";
 
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuTrigger,
-} from "@/components/ui/context";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { cn } from "@/lib/utils";
-import { SidebarSwitchPanelMenuItems } from "./sidebar-panel-menu";
 
 /** Same bar height as AI chat tabs (`h-[36px]`). */
 export const SIDEBAR_PANEL_HEADER_HEIGHT_CLASS = "h-[36px]";
@@ -69,33 +63,5 @@ export function SidebarPanelActionButton({
         >
             {children}
         </Button>
-    );
-}
-
-export function SidebarPanelHeader({
-    title,
-    side,
-    panelId,
-    actions,
-    children,
-}: {
-    title: string;
-    side: "left" | "right";
-    panelId: string;
-    actions?: React.ReactNode;
-    children?: React.ReactNode;
-}) {
-    return (
-        <ContextMenu>
-            <ContextMenuTrigger asChild>
-                <div>
-                    <SidebarPanelHeaderFrame title={title} actions={actions} />
-                </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent className="w-52">
-                {children}
-                <SidebarSwitchPanelMenuItems currentSide={side} currentPanelId={panelId} />
-            </ContextMenuContent>
-        </ContextMenu>
     );
 }

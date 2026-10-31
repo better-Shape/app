@@ -1,0 +1,812 @@
+# Missing glue across the absorbed line
+
+Audited 2026-10-30 at `d467a61` on `arena/3f3ea9c2-app`, the line that absorbed
+PRs #3, #45, #46, #49, #50, #51 and #53.
+
+Question: after absorbing seven branches, which shipped surfaces are still not
+joined to the rest of the app?
+
+Answer: the absorption itself is clean. Every orphan below is also unwired on
+the `refs/pr/3` and `refs/pr/53` heads, so the merges did not break these. What
+the line lacks is glue that never existed: commands with no UI, UI with no mount
+point, listeners with no dispatcher, and settings with no reader. This document
+records each one with its evidence so the next pass can mount or delete it.
+
+## Gates run on this head
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Install | `npm ci` | 864 packages |
+| Lint | `npm run lint:strict` | passed, no output |
+| Typecheck (app) | `npx tsc --noEmit` | passed |
+| Typecheck (tests) | `npx tsc --noEmit -p tests/tsconfig.json` | passed |
+| Unit tests | `npx vitest run` after `npm run build:runtime` | 255 files, 2742 tests passed |
+| Production build | `NODE_OPTIONS=--max-old-space-size=2560 npm run build` | passed, 7 static routes |
+| Docs index | `npm run docs:index` | 17 pages, 108 chunks |
+| Skills | `npm run skills:verify` | 53 of 53 locked verified, 3 unrecorded project-owned |
+| Browser QA | `npx playwright test --grep-invert "@visual"` | 30 passed |
+| Browser audit | `npx playwright test e2e/audit.spec.ts` | 5 passed (the `/settings` hydration mismatch from round 13 no longer reproduces) |
+| Visual baselines | `npx playwright test --grep "@visual"` | not run, excluded from CI until CI-generated baselines land |
+| Rust | `cargo fmt`, `cargo check`, `cargo test` | not run, no Rust toolchain and crates.io is blocked in this sandbox |
+
+Browser runs used the vendored library closure at `/tmp/chrome-deps` with
+`PLAYWRIGHT_SANDBOX_LIBS`; see `engineering/sandbox-vendored-toolchain.md`.
+
+## Contract sweeps, all clean
+
+| Contract | Method | Result |
+| --- | --- | --- |
+| Rust command defined vs registered | parse `#[tauri::command]` and `generate_handler!` | 261 defined, 261 registered, 0 unregistered |
+| TS invoke vs registered command | parse every `invoke`/`invokeCommand`/`invokeCachedGit` literal | 247 invoked, 0 unknown to Rust |
+| JSON and CSS imports | resolve every `@/...` and relative import | 0 missing |
+| CSS custom properties | every `var(--x)` against definitions and inline setters | 0 real misses; `--chat-tint`, `--graph-surface`, `--editor-font-*` are set inline with fallbacks |
+| Keybinding labels | every `config/keybindings.json` label against handlers | 39 of 40 handled; `Close Window` (`Alt+F4`) is handled by the native menu and the OS |
+
+## P1: shipped surfaces with no reachable entry point
+
+### 1. Design mode has a 1,516-line shell and no mount
+
+`features/preview/design/shell.tsx` exports `DesignStudio`. It is imported only
+by `tests/features/design-reconnect.test.tsx`. `features/preview/ui/preview-panel.tsx`
+(350 lines, default `PreviewPanel`) is imported only by
+`tests/features/design-authorization.test.tsx`. `deploy.tsx` (157),
+`left-panel.tsx` (436), `rail.tsx` (127) and `tool-rail.tsx` (93) are unreferenced.
+
+The backend half is fully wired: `start_design_proxy`, `stop_design_proxy`,
+`probe_preview_url`, `register_design_bridge`, `design_mode_log`,
+`inspect_design_project`, `list_design_assets`, `resolve_design_element`,
+`apply_design_source_patch`, `undo_design_source_patch`,
+`redo_design_source_patch`, `capture_html_preview`, `capture_page_preview`,
+`cleanup_design_sandbox`, `remember_preview_url_cmd` are registered and wrapped.
+
+`config/keybindings.json` binds `agent.toggleDesign` ("Toggle Design Mode",
+`Ctrl+Shift+D`) and `docs/help/shortcuts.mdx` plus `docs/changelog.mdx` advertise
+it. `dispatchShortcutAction` opens the Browser tab and dispatches
+`bettershape-toggle-design-mode`; `features/agent/layout.tsx:438` listens for
+that name and responds by opening the Files tab. The event the design shell
+actually listens for, `bettershape-toggle-browser-design-mode`, has no
+dispatcher. So the advertised shortcut switches to a file tree.
+
+Provenance: unwired on `refs/pr/3` and `refs/pr/53` as well.
+
+### 2. Hunk staging has commands and no controls
+
+`git_list_hunks`, `git_stage_hunk`, `git_unstage_hunk` and
+`git_restore_hunk` are registered, wrapped in `lib/backend/commands.ts`, and
+covered by tests. The only UI for them is
+`features/git/ui/shared/diff-hunks.tsx` (306 lines: `DiffHunkToolbar`,
+`useDiffHunkState`), which nothing imports. The live diff surface imports
+`features/git/ui/shared/manager-diff.tsx` instead, and that file has no hunk
+actions. Partial staging is therefore unreachable from the app.
+
+### 3. The all-changes diff view is routed but not rendered
+
+`features/agent/workspace/multi-diff.tsx` (403 lines) defines
+`ALL_CHANGES_TAB_ID = "__all_changes__"` and `ALL_CHANGES_TAB_PATH`, and
+dispatches `bettershape-center-view` with `detail: "all-changes"`. The listener
+in `features/agent/layout.tsx:221` only acts on `"editor"` and `"chat"`. The
+`bettershape-all-changes-focus` sessionStorage key has no reader. No tab id
+matches `__all_changes__`.
+
+### 4. Voice input device has a settings file and no settings page
+
+`features/settings/ui/sections/microphone.tsx` (163 lines) renders device
+enumeration, a permission request and a live level meter against
+`settings.voice.deviceId` and `microphoneConstraints()`. `SETTINGS_NAV` has no
+voice leaf and `SettingsView` has no panel branch for it.
+`features/chat/ui/composer/dictation-button.tsx:573` reads
+`settings.voice.deviceId`, so the value exists and is consumed, but no user can
+set it from the UI.
+
+### 5. Editor popout cannot be opened
+
+`app/popout/` renders a full editor window, `e2e/responsive-resilience.spec.ts`
+covers the route, and `lib/window/open-editor-popout.ts` creates the window with
+a per-file label. The exported `openEditorPopout` has no caller anywhere in the
+app, and no menu, palette entry or context-menu item references it. The route is
+reachable only by typing the URL.
+
+### 6. "Switch Panel To" is a dead menu item
+
+`features/panels/ui/sidebar-panel-menu.tsx` dispatches
+`bettershape-swap-sidebars` from a rendered context-menu item
+(`SidebarSwitchPanelMenuItems`, used by `sidebar-panel-header.tsx:97`).
+Nothing listens for that name anywhere. Clicking the item does nothing.
+
+### 7. A background dev server cannot be stopped
+
+`features/terminal/dev-run-host.tsx` listens for `bettershape-terminal-run`,
+`bettershape-terminal-run-stop` and `bettershape-terminal-run-restart`. Only
+`bettershape-terminal-run` is ever dispatched, from
+`app/welcome-dialogs.tsx:260`. No component dispatches stop or restart, and no
+status surface renders the run state (`useDevRunStatus` has two consumers, both
+internal). Once a run starts it can only be stopped by killing the terminal.
+
+## P2: dead surfaces and dead channels
+
+| Surface | File | Lines | State |
+| --- | --- | --- | --- |
+| Rich subagent cards | `features/agent/subagents/cards.tsx` | 225 | `SubagentCards` unrendered; sidebar renders flat rows in `sections.tsx:689` instead. `bettershape-open-subagents-for` is listened at `chat.tsx:249` and never dispatched |
+| Chat overflow menu | `features/chat/ui/shell/more.tsx` | 141 | `ChatMoreMenu` unrendered. Find in chat and export exist in the command palette; the menu itself is unreachable |
+| Branch detail and compare | `features/git/ui/branches/detail.tsx`, `hooks.ts` | 691 | `BranchDetailPane` and the compare hooks are unrendered; `GraphDetailPanel` is the live surface |
+| Inline markdown diff | `features/chat/ui/md/diff.tsx` | 360 | `InlineDiff` unrendered; chat renders `ChatEditDiff` and `ChatPatchDiff` from `blocks/chat-diff.tsx` |
+| Workbench modes | `features/agent/workspace/files-mode.tsx`, `multi-diff.tsx`, `preview.tsx` | 469 | Only `multi-diff` has a described surface above; `FilesMode` duplicates `workspace/tree.tsx`, `WorkspacePreview` is a one-line wrapper over `BrowserView` |
+| Chat context bar | `features/chat/ui/composer/context-bar.tsx` | 131 | Repo/context chips unrendered |
+| Chat welcome | `features/chat/ui/shell/home.tsx` | 61 | `ChatWelcome` unrendered; `shell/empty.tsx` is mounted instead |
+| Motion primitives | `components/ui/collapsible.tsx`, `disclosure.tsx`, `morph-menu.tsx`, `sorting.tsx` | 640 | Superseded by `components/ui/collapse.tsx` and the dropdown; the micro-interaction roadmap already tracks folding them in |
+| Chrome micro-components | `features/chat/ui/blocks/loading-state.tsx`, `blocks/preview.tsx`, `md/stream-words.tsx`, `features/agent/sidebar/account.tsx`, `features/promo/types.ts` | 201 | Small unrendered components |
+| Helpers | `lib/mcp/install.ts`, `lib/plan/branch.ts`, `lib/editor/jsonc.ts`, `lib/ui/textarea-caret.ts`, `lib/agent-preview/agent-options.ts`, `lib/window/open-branch-window.ts` (a two-line re-export) | 281 | No importers |
+
+Total for the table plus P1 items 1 to 5: about 6,400 lines of TypeScript that
+no route can reach. All of it typechecks, lints and passes its own tests, which
+is why the gates stayed green.
+
+Dead event channels with a listener and no dispatcher, after excluding DOM
+events and cross-window `storage` fallbacks:
+
+- `bettershape-swap-sidebars` (P1 item 6)
+- `bettershape-terminal-run-stop`, `bettershape-terminal-run-restart` (P1 item 7)
+- `bettershape-toggle-design-mode`, `bettershape-toggle-browser-design-mode` (P1 item 1)
+- `bettershape-typescript-version`: the status bar renders `TS x.y` when set
+  (`status.tsx:165`); nothing dispatches it, so the chip never appears
+- `bettershape-browser-focus-url`: the browser URL bar listens; no shortcut or
+  button dispatches it
+- `bettershape-editor-search`, `bettershape-open-preview`,
+  `bettershape-open-browser`, `bettershape-chat-restore-last`: legacy aliases.
+  The equivalent action exists through another path, so these are dead code
+  rather than dead features
+- `bettershape-chat-fork`: a legacy alias. Fork does work through
+  `chat.tsx:945` `onFork`, so the listener is only redundant
+- `chat_renamed` (Rust to TS): `agent/commands/titles.rs:424` emits it; no
+  renderer listens. Titles update through `chat_title`, so the event is inert
+
+## Settings that are stored, rendered and never read
+
+Verified by grepping the key outside `lib/settings/**` and
+`features/settings/ui/**`.
+
+| Setting | Rendered at | Consumer |
+| --- | --- | --- |
+| `editor.formatOnSave` | `settings.tsx:163` | none |
+| `editor.autoSave`, `editor.autoSaveDelay` | `settings.tsx:169` | none |
+| `editor.trimTrailingWhitespace` | `settings.tsx:182` | only the palette action, not the setting |
+| `editor.insertFinalNewline` | `settings.tsx:188` | none |
+| `editor.imagePreview` | `settings.tsx` | none |
+| `editor.compactTabs` | `settings.tsx:80` | none |
+| `terminal.copyOnSelect` | `settings.tsx` | none |
+| `ai.maxContextLines` | `settings.tsx` | none |
+| `privacy.showLoginPromptOnLaunch` | not rendered | none |
+| `updates.channel` | `settings.tsx` | the updater forwards an `options.channel` parameter but never reads the setting, and updates are manual by design |
+| `ai.multiworkConfirm`, `ai.multiworkShowChips` | not rendered | retired Multiwork feature; `agent/models/mod.rs:160` treats the kind as legacy |
+| `eslint.enable`, `eslint.fixOnSave`, `prettier.enable` | not rendered | no reader. Prettier runs only from the explicit format action, ESLint only from the Problems tab |
+| `node.interpreterPath`, `node.codingAssistance`, `lsp.emmet` | not rendered | none. Python's interpreter setting is wired |
+| `designAutocomplete`, `designDiagnostics`, `tailwindControls`, `designBlame`, `spacingRefactor` | not rendered | none; the UI that would read them is the unmounted design shell |
+
+Format on save and autosave are the ones a user will notice: both toggles are in
+Editor settings and neither changes behaviour.
+
+## Duplicate implementations
+
+Same-named exports in different modules, a drift risk that the merge made
+permanent:
+
+| Export | Files |
+| --- | --- |
+| `Collapse` | `components/ui/collapse.tsx`, `features/chat/ui/blocks/collapse.tsx` |
+| `CopyButton` | `components/ui/copy-button.tsx`, `features/agent/workbench/status/ui/copy-button.tsx` |
+| `openBrowserTab` | `features/agent/browser/store.ts`, `lib/window/browser-tab.ts` |
+| `stripProviderPrefix` | `lib/ai/providers.ts`, `features/settings/ui/sections/providers/provider-card-helpers.ts` |
+| `getGitStatusColor` | `core/utils.ts`, `lib/ui/syntax-theme.ts` |
+| `formatBytes`, `formatRelative` | `features/git/ui/actions/utils.ts`, `features/git/ui/github/detail/types.ts` (plus `prs/mapping.ts` for `formatRelative`) |
+| `joinPath`, `cleanPath` | `lib/path/utils.ts` against `lib/workspace/file-clipboard.ts` and `lib/workspace/repo-history.ts` |
+| `getFileExtension` | `features/editor/lib/image-types.ts`, `features/chat/ui/composer/input-helpers.ts` |
+| `pluralFiles`, `relativeLabel` | `features/git/ui/problems/model.ts` against `search/model.ts` and `blame/model.ts` |
+
+## Browser preview coverage
+
+`lib/preview/tauri-mock.ts` models 106 commands explicitly. 145 commands invoked
+by the app fall through to the null fallback, including `send_chat_message`,
+every git write command, `pty_*`, the `browser_*` navigation family and the
+provider test calls. The e2e suite therefore cannot exercise chat send, git
+mutations or terminal behaviour, which is why 30 browser tests pass over
+surfaces that would fail on a real backend. `e2e/README.md` already calls this
+the backlog for fixture fidelity.
+
+## What this means for the absorption
+
+- Containment holds. PR #53's tree is identical apart from four `.dump` docs,
+  and every sampled orphan is equally orphaned on `refs/pr/3` and `refs/pr/53`.
+- The static gates cannot see any of this. Dead modules typecheck, lint and pass
+  their unit tests, and the e2e suite passes because the mock answers everything
+  else with null.
+- The pattern class is "surface without a mount point": a component plus its
+  tests, or a command plus its wrapper, that no route renders or calls. The same
+  class produces the dead event channels and the inert settings.
+
+## Suggested order of work
+
+1. Decide mount or delete for each P1 item, one concern per PR. Design mode and
+   hunk staging are the two that need a product call: the code is complete, so
+   the cheapest correct outcome may be to mount them.
+2. Wire or remove the four P1 no-op controls (panel swap, run stop/restart,
+   voice settings page, popout action). Each is a single mount or a single
+   `dispatchEvent`.
+3. Delete the P2 dead modules and duplicate exports, or fold the duplicates into
+   one owner as `AGENTS.md` requires. Deleting is cheaper and removes the drift.
+4. Read every remaining setting key and either consume it or drop it from the
+   schema and the settings page.
+5. Grow the preview mock for chat send and git writes so the browser suite can
+   catch a broken glue point in future.
+
+## Round 2, 2026-10-30: the fix pass
+
+Two tools now measure this class repeatably, so the numbers below are
+reproducible rather than claimed.
+
+| Tool | What it proves | Run |
+| --- | --- | --- |
+| `scripts/qa/audit-glue.mjs` | Orphan modules, one-sided event channels, settings keys with no reader, duplicate exports | `node scripts/qa/audit-glue.mjs` |
+| `scripts/qa/probe-mounted-surfaces.cjs` | The mounted surfaces render in Chromium with zero console errors, and writes a screenshot of each | `PLAYWRIGHT_SANDBOX_LIBS=/tmp/chrome-deps node scripts/qa/probe-mounted-surfaces.cjs` |
+
+Measurements, before and after the pass:
+
+| Metric | Audit head | After the mount pass | After the dead-code sweep |
+| --- | --- | --- | --- |
+| Modules scanned | 573 | 574 | 531 |
+| Orphan modules | 48 | 33 | 0 |
+| Test-only modules (own tests, no app importer) | not measured | 13 | 7 |
+| Event channels, listener only | 18 | 16 | 11 |
+| Event channels, dispatch only | 9 | 8 | 7 |
+| Settings keys with no reader | 34 | 28 | 0, see the caveat above |
+| Duplicate exported names | 15 | 15 | 15 |
+
+The orphan count fell by mounting the design studio, the all-changes view, the
+subagent cards, the chat overflow menu and hunk staging, and by deleting
+fourteen modules that a live surface had already superseded: `collapsible`,
+`disclosure`, `morph-menu`, `sorting`, `combobox`, `files-mode`,
+`workspace/preview`, `diff-hunks`, `chat/shell/home`, `open-branch-window`, the
+providers index barrel, and three unused barrels.
+
+The settings count fell because Format on save, autosave, Trim trailing
+whitespace, Insert final newline, Image preview, Compact tab bar and Terminal
+copy on select now have readers.
+
+### Defects the visual pass found, and the fixes
+
+1. The Voice page rendered a different device description on the server and
+   on the client, because `unavailable` read `navigator` during render. It now
+   reads the mount flag, and the probe asserts zero console errors.
+2. The design tab entered a crash path when the browser preview returned a
+   null project: the raw message `Cannot read properties of null` was on
+   screen. The mock now models `inspect_design_project`, and the studio guards
+   a null result with an actionable sentence.
+3. The all-changes view drew duplicate hover controls on top of the diff
+   text. The duplicate overlay is gone; the header controls remain.
+
+## Round 3, 2026-10-30: the dead-code sweep
+
+The auditor now scans `tests/`, `e2e/` and `scripts/` as consumers and reports a
+separate test-only bucket, so a module kept alive only by its own test is no
+longer counted as wired. That split took the 32 conflated candidates down to 19
+orphans and 13 test-only modules, and each was judged on its import graph rather
+than on how often its name appears in the tree: shared basenames (`types`, `tab`,
+`diff`, `commands`) made a text search useless as a verdict.
+
+Deleted, because a live surface already covers the same ground or nothing could
+reach them at all:
+
+| Module | Why it is dead |
+| --- | --- |
+| `features/agent/sidebar/account.tsx` | Footer row superseded by the sidebar account control |
+| `features/agent/sidebar/agent-tabs-chip.tsx` | Subagent list replaced by the Agents tab cards mounted in the previous pass |
+| `features/chat/ui/blocks/loading-state.tsx` | Generating indicator is the live loading surface |
+| `features/chat/ui/blocks/preview.tsx` | The design studio supersedes it; nothing imported it |
+| `features/chat/ui/composer/context-bar.tsx` | Repo context moved into the composer's own controls |
+| `features/chat/ui/md/diff.tsx` | Inline diff moved to the chat diff block |
+| `features/chat/ui/md/stream-words.tsx` | Documented no-op wrapper with no importers |
+| `features/git/commands.ts` | Unused command helpers |
+| `features/git/ui/branches/{detail,hooks,list,actions,data}.tsx` | Half-finished branch panel; the shipped one is `branches/panel.tsx` |
+| `features/preview/design/{deploy,left-panel,rail,tool-rail}.tsx` | Superseded by the design shell's integrated panels |
+| `features/promo/types.ts` | No importer |
+| `lib/agent-preview/agent-options.ts` | No importer |
+| `lib/editor/jsonc.ts` | No importer |
+| `lib/mcp/install.ts` | No importer |
+| `lib/plan/branch.ts` | No importer |
+| `lib/dev/perf-hud-overlay.ts` | Dev overlay never mounted |
+| `lib/path/uri.ts` | No importer |
+| `lib/settings/tab.ts` | No importer |
+| `lib/terminal/tabs.ts` | No importer |
+| `lib/ui/textarea-caret.ts` | No importer |
+
+Each of the five modules with a dedicated test lost that test with it
+(`agent-tabs-chip`, `perf-hud`, `path-uri`, `settings-tab`, `select-tab`); no
+test was edited to make another one pass. Two further edits were mechanical: the
+chat styling invariant no longer reads the deleted `md/diff.tsx`, and
+`classify-hover-rungs.py` lost its two entries for deleted files.
+
+The Notifications menu was kept and mounted instead of deleted. It is the only
+surface that reads `notificationStore` history, it already had a passing
+accessibility test, and the status bar had no notifications entry; deleting it
+would have removed the only way to see earlier notifications.
+
+Still test-only, and deliberately not deleted: the OpenUI rich blocks
+(`analysis`, `carousel`, `style`, `thinking`, `disable-openui-devtools`), the
+design `preview-panel`, and `lib/preview/tauri-mock.ts`. The blocks are asserted
+by broader chat and design suites that also cover live components, and the mock
+is browser-test infrastructure. Removing them means pruning assertions from
+tests that pass today, which is a separate change from proving the glue works.
+
+## Round 4, 2026-10-30: the review pass
+
+The 21 review threads open on `37d169a` were worked one by one and resolved on
+`ef7ec99`. What changed, grouped by the surfaces they touch:
+
+- **Preview save path** (`features/editor/ui/main/editor.tsx`) — saves through
+  the shared pipeline with the document's own line ending, adopts the text that
+  was actually written (so a trim or a format no longer leaves the preview
+  disagreeing with the disk), and schedules autosave on the same condition the
+  code editor uses. `imagePreviewEnabled` now only decides the default mode for
+  images.
+- **CodeMirror** (`features/editor/ui/codemirror/editor.tsx`) — option
+  extensions moved into an `optionsCompartment` and reconfigured from
+  `subscribeSettings`, so an open file follows a settings change; the dirty flag
+  is stated after every save instead of only when dirty.
+- **Markdown editor** — answers `bettershape-editor-search` for its own path,
+  matching the code editor, and both callers pass the path.
+- **All changes** — a mounted view is told to focus a file through
+  `ALL_CHANGES_FOCUS_EVENT`, a no-path call clears the stored key, and a
+  `revision` counter reloads a file whose contents changed under an unchanged
+  path.
+- **Dev run** — the store tracks whether the process is alive separately from
+  its status, so a compile error no longer hides Stop; a failed start reports
+  instead of leaving an unhandled rejection.
+- **Save pipeline** — a formatting failure saves the unformatted text and says
+  so, once per file and reason.
+- **Terminal and voice** — an older rejected clipboard write cannot overwrite a
+  newer selection; a microphone test that fails after the device opened releases
+  it.
+- **Tooling** — the mock backend uses `remember_preview_url_cmd` and the real
+  return shapes; the settings check here now separates keys that nothing reads
+  from keys only the settings layer reads.
+
+### Settings the audit counted as wired but that only the mapper reads
+
+Round 1 reported "0 settings keys with no reader". That number was true and
+misleading: the reader check counted `lib/settings/store.ts`, which merely maps
+a key into an options object. The check now needs a reader outside the settings
+system, and reports 25 keys that only `lib/settings/store.ts` touches:
+
+`editor.renderWhitespace`, `editor.bracketPairColorization`,
+`editor.detectIndentation`, `editor.fontLigatures`, `editor.cursorStyle`,
+`editor.smoothScrolling`, `editor.showIndentGuides`, `editor.showBracketGuides`,
+`terminal.defaultShell`, `ai.maxContextLines`, `ai.multiworkConfirm`,
+`ai.multiworkShowChips`, `ai.indexEmbeddings`, `ai.chatMemoryEnabled`,
+`eslint.fixOnSave`, `lsp.emmet`, `node.codingAssistance`, and eight more of the
+same shape.
+
+They are a real backlog, not a regression: the switch exists and persists, but
+the surface that would consume it is either not written or reads around it.
+Wiring them is feature work, so this pass names them rather than claiming they
+are connected.
+
+### Tests added in this pass
+
+- `tests/features/hunk-commands.test.tsx` — the hunk commands are called with
+  the repository, file and on-screen index; a list read for another file is
+  never shown or acted on.
+- `tests/editor/save-formatting-settings.test.ts` — trim, final newline and
+  format-on-save behave as their switches say, and a formatting failure keeps
+  the text and reports once.
+- `tests/lib/open-all-changes.test.ts` — a no-path call clears a stale focus
+  key and the focus event carries the requested file.
+
+The two tests that only asserted a command existed or that a source file
+mentioned a settings key were removed: a behavioural test in the same suite
+replaces what they were standing in for.
+
+## Round 2 — wiring the settings that promised features
+
+The earlier "25 keys only the settings layer reads" list was measured with two
+matcher bugs. `scripts/qa/audit-glue.mjs` did not match optional-chained reads
+(`settings.python?.interpreterPath`), so a live reader looked dead, and it
+counted TypeScript declarations (`codingAssistance: boolean;`) as reads, so a
+dead key looked live. Both are fixed: `chainPattern()` builds an
+optional-chaining-aware chain for dotted, aliased and destructured access, and
+`withoutTypeDeclarations()` drops indented `name: type;` lines before the scan.
+
+Re-measured, the honest number was 22 keys with no reader outside
+`lib/settings/` and `features/settings/ui/`, not 10. Each was then checked by
+hand against the whole tree, because the script is a heuristic and the grep is
+the evidence.
+
+### Wired, with the surface each one now drives
+
+| Setting | Consumer | Proof |
+| --- | --- | --- |
+| `prettier.enable` | `formatForSave`, the Format command, new Settings row | `tests/editor/save-pipeline.test.ts`, `tests/editor/save-formatting-settings.test.ts` |
+| `eslint.enable` | Problems tab run gate plus a distinct "ESLint is off" state | `tests/workspace/problems.test.ts` |
+| `eslint.fixOnSave` | `--fix` through the save pipeline, ahead of Prettier | `tests/editor/save-pipeline.test.ts` |
+| `git.blame.enabled` | new caret-line inline blame extension | `tests/editor/inline-blame.test.ts`, `tests/editor/inline-blame-view.test.tsx` |
+| `tailwindControls.enable`, `numberScrubbing`, `scrubDecorations`, `wheelOnInputs` | design inspector drag and wheel stepping | `tests/preview/*` plus the probe |
+| `ai.maxContextLines` | `@file` mention truncation | `tests/chat/mention-truncation.test.ts` |
+| `privacy.showWelcomeOnStartup` | quiet home with an "Open folder" action | `scripts/qa/probe-feature-wiring.cjs` |
+
+### Deleted, because no surface was ever built for it
+
+`lsp.emmet`, `node.interpreterPath`, `node.codingAssistance`,
+`designAutocomplete`, `designDiagnostics`, `designBlame`, `spacingRefactor`,
+`ai.multiworkConfirm`, `ai.multiworkShowChips`, `privacy.showLoginPromptOnLaunch`
+and `tailwindControls.cursorBindPanel` had no reader, no writer outside
+`DEFAULT_SETTINGS`, and no UI. `eslint_lint_file` and `prettier_format_file`
+exist in Rust and the panels call them, so those were wiring gaps rather than
+phantoms; the list above is not.
+
+`workspace.toolingInstall` stays: the schema marks it `@deprecated` and keeps it
+for settings-merge compatibility, so dropping it would rewrite stored payloads
+for nothing.
+
+### Bugs found while wiring
+
+- The `Format` command ran Prettier with no switch check, so turning Prettier
+  off changed nothing.
+- `formatForSave` also ignored the switch, which means `editor.formatOnSave`
+  could not be turned off in practice either: the pipeline formatted whenever
+  the file was saved.
+- The problems panel reset its state from inside an effect; React's linter
+  flagged the cascade. The busy flag now travels with the other run inputs.
+- `/settings?category=privacy` (and `notifications`, `developer`) opened
+  Providers instead of the requested leaf: the nav entries existed, the router
+  lookup did not.
+- `pathRef` was assigned after `EditorState.create`, so an extension reading the
+  path while it is constructed saw the previous file. It is now assigned before
+  the state is built.
+
+### What is still unproven
+
+The probe drives the settings page and the empty home in a real browser and
+writes `.qa-artifacts/feature-wiring/*.png`. Inline blame is proven against a
+jsdom editor, not against a real git repository in the packaged app, and ESLint
+`--fix` is proven through mocks, not through `npx eslint` on disk.
+
+## Round 2 — named, not done
+
+Two gaps found by the same event and symbol sweep are real but larger than a
+wiring fix, so they are named here instead of half-done:
+
+- **Multi-root workspaces.** "Add Folder to Workspace…" persists the folder,
+  calls `set_extra_workspace_folders`, and the Rust side turns the list into IPC
+  path grants — so the backend half works. The renderer half does not: the
+  explorer lists `lsDir(projectPath)` only, and `getWorkspaceRoots()` has no
+  caller anywhere. Adding a folder therefore widens file access with nothing on
+  screen to show for it.
+- **Cross-window chat pins.** `bettershape-chat-pins-changed` is dispatched and
+  in-page subscribers refresh, but nothing listens for the event, so a second
+  window keeps its stale pin set until it reloads.
+
+Also fixed in this round, found the same way: the design inspector's "Add to
+chat" dispatched `bettershape-composer-insert-mention`, which has no listener,
+so the button did nothing. It now reuses the Browser tab's picked-element
+bridge and its `@element:` mention path, and the block says which tab the pick
+came from. `elementMentionBlock` also escapes page text now: raw `<script>` in a
+picked element's text reached the prompt unescaped.
+
+## Round 3 — the gaps named above, closed
+
+- **Multi-root workspaces are visible now.** The explorer lists each folder
+  added with "Add Folder to Workspace" as its own section, with a remove
+  control, an inline error when the folder cannot be read, and an "Empty
+  folder" line when it has no entries. The preview fixture seeds
+  `/preview/shared-lib` so the surface has a reproducible place to look, and
+  `scripts/qa/probe-feature-wiring.cjs` now asserts the row appears, its files
+  are listed, and removing it clears the stored folder list.
+- **Cross-window chat pins.** `lib/sidebar/chat-list-meta.ts` installs one pair
+  of listeners (its own custom events plus `storage`) that invalidates the
+  per-window caches and notifies subscribers. Local writes are counted so a
+  window never re-reads its own echo. Covered by
+  `tests/sidebar/chat-list-cross-window.test.ts`.
+
+## Round 3 — the audit was also wrong about imports
+
+`scripts/qa/audit-glue.mjs` matched `from "./x"`, `import("./x")` and
+`require("./x")` but not the side-effect form `import "./x"`. That reported
+`features/chat/ui/blocks/disable-openui-devtools.ts` as test-only even though
+`openui.tsx` imports it on line 3. The pattern now has a fourth alternative and
+the test-only count dropped from 7 to 6.
+
+What the six are, checked by hand:
+
+| Module | Status |
+| --- | --- |
+| `features/chat/ui/blocks/analysis.tsx` | superseded: `turn.tsx` renders the analysis line inline |
+| `features/chat/ui/blocks/style.tsx` | same shape, same supersession |
+| `features/chat/ui/blocks/thinking.tsx` | superseded by the reasoning rendering in `turn.tsx` |
+| `features/chat/ui/blocks/carousel.tsx` | superseded by `gallery.tsx`, which has the same navigation plus picking |
+| `features/preview/ui/preview-panel.tsx` | **keep**: it is the harness `tests/features/design-authorization.test.tsx` uses to exercise the design bridge's authorization rules |
+| `lib/preview/tauri-mock.ts` | expected: only the Browser Preview build imports it |
+
+The four superseded blocks are not deleted in this pass. Their tests assert
+accessibility invariants (`role="status"` outside `[aria-busy]`) against a
+surface the app no longer renders, so the honest fix is to retarget those
+assertions at `turn.tsx` and `gallery.tsx` before deleting the components —
+otherwise the invariants leave with the dead code.
+
+## Round 3 — environment note
+
+The sandbox lost `node_modules`, the Playwright browser tree and
+`/tmp/chrome-deps` between sessions. Recovered with `npm ci` and by
+brotli-unpacking `node_modules/@sparticuz/chromium/bin/al2023.tar.br` into
+`/tmp/chrome-deps/lib` (`PLAYWRIGHT_SANDBOX_LIBS`). Browser probes need the
+static preview build (`npm run build:preview && npm run preview:browser`), not
+`next dev`: the mocked IPC bridge only exists in the preview bundle, so against
+`next dev` every route renders the welcome screen and the workbench assertions
+time out.
+
+## Round 4 — the four superseded blocks are gone, and so are five dead listeners
+
+The retarget the last round named is done. `analysis`, `style`, `thinking` and
+`carousel` are deleted, along with `carousel.module.css`:
+
+- the live-region rule (`role="status"` must not sit inside `[aria-busy]`) now
+  asserts against `ActionLine`, which is what `turn.tsx` renders for every
+  active step, and additionally pins that a finished step carries no live
+  region at all (`tests/features/generating-chats.test.ts`);
+- the no-remount slide rule moved to the gallery dialog, the only place arrow
+  keys exist, and gained the bounds check the carousel version never had
+  (`tests/features/design-gallery-keyboard.test.tsx`).
+
+That leaves **2 test-only modules**, both intentional: the design-authorization
+harness and the preview IPC mock. Orphans stay at 0 across 531 modules.
+
+Five events turned out to be listeners with no dispatcher anywhere. None was a
+missing feature: each was a second path to something the UI already reaches.
+
+| Event | Why it was dead |
+| --- | --- |
+| `bettershape-browser-focus-url` | the address bar focuses on click; no chord or menu item ever fired it |
+| `bettershape-open-pull-requests` | `bettershape-set-active-tab` with `prs` already opens the tab |
+| `bettershape-open-subagents-for` | the chat titlebar breadcrumb lists subagents and opens them |
+| `bettershape-terminal-view` | the terminal dock renders its own terminal/tests switch |
+| `open-folder-request` | the Open Folder action already dispatches the project picker |
+
+Listener-only events went 14 → 9, and the remaining nine are honest: native
+events (`abort`, `pagehide`, `mouseover`, `selectionchange`), the Tauri-side
+`mcp-servers-changed`, and this branch's own cross-window announcements, whose
+name reaches `dispatchEvent` through a variable and so is invisible to the
+audit's string match.
+
+The same check run over keybindings found no dead key: every label in
+`config/keybindings.json` (39 of them) has a case in `dispatchShortcutAction`
+except `Close Window`, which deliberately falls through to the Rust
+`handle_shortcut` so the window closes rather than the active tab.
+
+## Round 4 — the preview could not keep a setting, so nothing gated by one could be seen
+
+Found while trying to prove inline blame end to end. `read_settings_file`
+answered `{ record: null }` and `write_settings_file` kept the value in module
+memory, so every navigation re-installed the mock and every setting reverted.
+Two bugs, both fixed in `lib/preview/tauri-mock.ts`:
+
+1. the record has to be the real file shape (`{ settings }`); storing the bare
+   settings object made the loader read a present-but-empty record and skip
+   hydration altogether;
+2. the snapshot has to outlive the page, so writes go to `sessionStorage`.
+
+With that fixed, `git_blame_file` is seeded and the probe now flips
+Settings → Git → Inline Git Blame, opens the README source and asserts the
+annotation is drawn and attributed to the fixture author
+(`.qa-artifacts/feature-wiring/inline-blame.png`). This is the first proof that
+the setting reaches a live editor rather than only a unit test.
+
+## Round 5 — the base moved, and the merge exposed a feature that was on screen but outside it
+
+`mega/absorb-all` advanced to `aeb992f` (PR #56: HoldButton, the shared
+`PanelStateMessage`, InlineDiff reset), which left this branch conflicting.
+Settled by hand:
+
+- `multi-diff.tsx` keeps this branch's request ordering, revision-keyed diff
+  cache and `AllChangesTab`, and takes the base's hold-to-restore control, the
+  floating stage/restore row and `discardGitFileChange`. The branch had been
+  calling `gitDiscardChanges` directly, which cannot unstage first or delete a
+  file git reports as added — the base helper is strictly more correct.
+- `problems/panel.tsx` takes `PanelStateMessage` and puts this branch's
+  "ESLint is off" state back on top of it. Without that branch the state the
+  model still produces fell through to the "ready" case and would have rendered
+  `state.groups` on an object that has none.
+- `collapsible.tsx` and `design/deploy.tsx` stay deleted; nothing in the merged
+  tree imports them. `md/diff.tsx` comes back from the base even though only
+  tests import it: the base had just hardened it, and erasing that in a merge
+  would bury work in progress. It is the third test-only module, on purpose.
+
+**Inline blame was drawn, not visible.** The annotation was an end-of-line
+span, and the editor only mounts in the workspace dock, where every fixture
+line is wider than the view — so the span sat past the right edge with the
+viewport scrolled to column 1. The probe had been asserting the DOM node, which
+is exactly the wrong assertion for a visibility bug. It is now a block row
+under the caret line, clamped to the content width, and mirrored into the
+status bar (`bettershape-editor-status` carries `blame`), which is the copy
+that is always on screen. The probe asserts the status segment carries the
+author and is inside the window; a unit test pins the published label to the
+caret line.
+
+Evidence after the merge: full `vitest run` **2822 tests green**, `lint:strict`
+and `typecheck` clean, probe green, contact sheet at
+`.qa-artifacts/feature-wiring/contact-sheet.png` read frame by frame.
+
+## Round 6 — settings that render a control and change nothing
+
+The editor's options mapper fed five settings into nothing. Two were worse than
+inert:
+
+- **The status bar hardcoded `Spaces: 4` and `insertSpaces: true`.** `publishStatus`
+  published literal values instead of the live `tabSize` / `insertSpaces`, so the
+  bar said "Spaces: 4" over a two-space file and kept saying it after the
+  Indentation picker changed the unit. It now publishes what the editor is
+  actually using.
+- **"Detect indentation" was a switch with no reader.** The editor now inspects
+  the buffer on mount (`features/editor/lib/detect-indentation.ts`) and matches
+  the file when the setting is on; two-space files stay two-space. Five unit
+  tests cover the detection, two more mount the real editor and assert the
+  reported indentation with the switch on and off.
+
+Wired the four the mapper already described but the editor ignored: `cursorStyle`
+(the caret element is drawn as line / block / underline instead of always a thin
+line), `fontLigatures`, `smoothScrolling`, and `renderWhitespace` (CodeMirror has
+"all" and "trailing" decorators and no selection-scoped one, so "selection" maps
+to off rather than pretending). The probe switches the caret to a block and
+asserts the live element's computed background, then screenshots the caret while
+it is painted (`.qa-artifacts/feature-wiring/editor-block-cursor.png`).
+
+Still inert, and named rather than hidden: `editor.bracketPairColorization`,
+`editor.showBracketGuides` and `terminal.defaultShell`. The first two need a
+decoration layer CodeMirror does not ship, and the third needs the Rust spawn
+path to accept a shell argument; none of them has a UI control today, so nothing
+on screen currently promises them.
+
+## Round 6b — Sonar's four regex findings, fixed without changing behaviour
+
+SonarCloud reported four `S8786` super-linear regexes on this PR. All four were
+nested or ambiguous quantifiers, and three of them were in code this branch
+touched:
+
+- `scripts/qa/audit-glue.mjs`: the four-alternative import matcher is now four
+  separate patterns behind `specifiersIn()`, each anchored on a keyword, so
+  there is no `[^;]*?from` to backtrack over. The type-declaration filter lost
+  its `\s*[...\s.,]+;\s*$` nesting for ` {4,}\w+\??:[^;]*$`.
+- `features/preview/design/panel/field.tsx`: the numeric field test and the
+  scrub match both used `\d*\.?\d+`. They now use `\d+(?:\.\d+)?|\.\d+`, which
+  keeps every input that used to be accepted (`12`, `12px`, `0.5 rem`, `.5`,
+  `-.5px`) and rejects the same ones — verified by diffing the two patterns over
+  thirteen samples before replacing them.
+
+The audit still reports 535 modules, 0 orphans, 3 test-only; full suite 2830.
+
+## Round 7 — features finished, and the bugs found while finishing them
+
+Each item states the defect found, the fix, and the evidence that fails before it
+and passes after it.
+
+### 7.1 `workspace.toolingInstall` had no reader (dead setting, silent failure)
+
+A project without a local Prettier made `prettier_format_file` fail, and
+`formatForSave` swallowed the cause into "Format on save skipped" with the raw
+`npx` error. The preference that exists for exactly this case was never read.
+
+Fix: `lib/editor/tooling-install.ts` classifies the `npx --no-install` failure
+narrowly (`isMissingPrettierFailure`), then `auto` installs `prettier` as a dev
+dependency, `prompt` offers the install as a toast action, and `off` reports the
+command to run. One install per project at a time; one offer per project.
+A real formatting error never reaches the installer, so a broken file cannot
+trigger a package install.
+
+Evidence: `tests/editor/tooling-install.test.ts` (7), two new cases in
+`tests/editor/save-pipeline.test.ts` proving delegation and non-delegation, and
+a new Settings row ("Missing tooling", Editor -> Saving) covered by the same
+component test harness as the rest of the editor page.
+
+### 7.2 `renderWhitespace` rendered a control nowhere
+
+The editor honoured `all`/`trailing`/`boundary`, but Settings had no row, so the
+only way to reach it was to hand-edit the settings file.
+
+Fix: an Editor -> Text row with the five modes the store defines (`selection` is
+listed honestly: CodeMirror has no selection-scoped decorator, so it draws
+nothing). Evidence: `tests/settings/editor-render-whitespace.test.tsx`
+(trigger wiring, menu pick, store write) and probe step 8, which picks All on the
+real settings page and then asserts `.cm-highlightSpace` on the live editor.
+
+### 7.3 The Markdown editor ignored every Editor setting
+
+`highlightWhitespace`, ligatures, cursor style, cursor blink, scroll-past-end,
+line highlight and indent guides were wired only into `editor.tsx`. Opening a
+Markdown file dropped all of them — the settings worked on some files only.
+
+Fix: `optionExtensions` and `cursorStyleFor` moved to
+`features/editor/ui/codemirror/options.ts` and used by both editors, each with
+its own compartment and a `subscribeSettings` reconfigure.
+Evidence: `tests/editor/markdown-editor-options.test.tsx` — marks appear on
+mount, stay absent when the setting is off, and appear on an already-open
+document when the setting flips; probe step 8 photographs the dots in the
+Markdown view.
+
+### 7.4 `editor.bracketPairColorization` was a switch that changed nothing
+
+The row ("Bracket colors") wrote a key nobody read, and the mapper advertised
+`guides.bracketPairs` for a renderer CodeMirror does not ship.
+
+Fix: a real depth coloriser (`features/editor/ui/codemirror/bracket-colors.ts`):
+`bracketMarks` computes depth per bracket, a `StateField` reindexes only when the
+document changes, a `ViewPlugin` decorates just the visible ranges, brackets
+inside strings/comments/regexps are skipped through the syntax tree, text over
+200k characters keeps the plain colour, and level 0 is left to the syntax
+highlight so a file without nesting looks exactly as it did before.
+The phantom `guides.bracketPairs` / `showBracketGuides` pair is gone; the mapper
+test now asserts the absence instead of the old dead key.
+
+Evidence: `tests/editor/bracket-colors.test.ts` (7 depth cases),
+two cases in `tests/editor/markdown-editor-options.test.tsx`, and probe step 9,
+which types nested brackets into the live editor, asserts a second colour step,
+and undoes the edit.
+
+### 7.5 The explorer's filter and multi-root listing disagreed
+
+Two real defects in the "Add Folder to Workspace" surface added earlier in this
+branch:
+
+- The header filter applied to the project tree only; typing a filter hid
+  project files and left every extra root fully expanded.
+- Adding the project folder itself listed the same files twice, under a second
+  heading, because nothing compared the extra root with the primary one.
+
+Fix: one `filterEntries` used for both levels; `isSameWorkspacePath` (new, in
+`lib/workspace/folders.ts`) drops an extra root that points at the project.
+Evidence: two new cases in `tests/workspace/explorer-extra-roots.test.tsx` and a
+new `tests/workspace/folders.test.ts` (10 cases) for normalisation, dedupe,
+primary-first ordering, corrupt storage, and path equality.
+
+### 7.6 Gates after Round 7
+
+`npm run lint:strict` clean, `npm run typecheck` clean, `npx vitest run`
+2865/2865 across 273 files, `npm run skills:verify` 53/53 locked skills,
+`npm audit --audit-level=high` 0 vulnerabilities, and
+`scripts/qa/probe-feature-wiring.cjs` green over nine steps on the browser
+preview build (`settings-render-whitespace.png`, `editor-render-whitespace.png`,
+`editor-bracket-colors.png`).
+
+### 7.7 A type hole CI caught that the local run did not
+
+`npm run typecheck` runs `tsc --noEmit` **and** `tsc --noEmit -p tests/tsconfig.json`.
+Running only the first hid that `RenderWhitespaceSetting` was
+`"none" | "selection" | "all"` while the editor already supported `trailing` and
+`boundary` decorations and the new Settings row offered both — the row compiled
+only because of a cast.
+
+Fix: the union now carries all five modes, the mapper's cast is gone, and a
+trailing-whitespace case proves `trailing` decorates end-of-line blanks without
+decorating gaps between words. Gate re-run with the repository's own script:
+`npm run typecheck` clean (both tsconfigs), `npm run lint:strict` clean,
+2866/2866 tests.
+
+### 7.8 The three regex findings Sonar kept, removed by scanning instead
+
+Sonar's new analysis still carried three `S8786` (super-linear regex) issues:
+`features/preview/design/panel/field.tsx` lines 57 and 67, and
+`scripts/qa/audit-glue.mjs` line 74. De-nesting the patterns had only moved the
+problem: `\d+(?:\.\d+)?` and `([^"']+)` keep a quantifier inside a group.
+
+Both are now scans, not patterns:
+
+- `features/preview/design/panel/numeric-draft.ts` reads a number and its unit
+  character by character (`parseNumericDraft` / `isNumericDraft`), keeping the
+  space in `12 px` so a step does not reformat the value. The new
+  `tests/preview/numeric-draft.test.ts` asserts the scan and the old pattern
+  agree on 18 field values, including the ones that separate them (`12 px extra`,
+  `+12`, `1.2.3`).
+- `scripts/qa/audit-glue.mjs` reads import specifiers with a scanner covering the
+  four forms. Differential check against the regexes it replaced: identical on
+  14 import shapes; the only difference is that `require ( "x" )` with a space is
+  now found, which the old pattern missed.
+
+Re-run after the change: `node scripts/qa/audit-glue.mjs` reports the same 538
+modules, 0 orphans, 3 test-only modules, and now **0 settings keys with no
+reader**. Gates on the head: `npm run lint:strict` clean, `npm run typecheck`
+clean, 274 files / 2870 tests passing.

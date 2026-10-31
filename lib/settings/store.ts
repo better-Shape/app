@@ -20,7 +20,7 @@ import {
 export type WordWrapSetting = "off" | "on" | "bounded";
 export type AutoSaveSetting = "off" | "afterDelay" | "onFocusChange";
 export type LineNumbersSetting = "on" | "off" | "relative";
-export type RenderWhitespaceSetting = "none" | "selection" | "all";
+export type RenderWhitespaceSetting = "none" | "selection" | "trailing" | "boundary" | "all";
 export type CursorStyleSetting = "line" | "block" | "underline";
 export type DefaultShellSetting = "auto" | "powershell" | "cmd" | "git-bash";
 export type UpdateChannel = "stable" | "nightly";
@@ -84,7 +84,6 @@ export interface BetterShapeSettings {
         scrollBeyondLastLine: boolean;
         renderLineHighlight: "none" | "gutter" | "line" | "all";
         showIndentGuides: boolean;
-        showBracketGuides: boolean;
         imagePreview: boolean;
         compactTabs: boolean;
     };
@@ -131,10 +130,6 @@ export interface BetterShapeSettings {
         reviewAdversarialEnabled: boolean;
         /** Trigger phrase → prompt (+ optional plugin tool) injected on send. */
         workflows: AgentWorkflow[];
-        /** Ask before the first Multiwork send. */
-        multiworkConfirm: boolean;
-        /** Show agent cards on the composer during Multiwork. */
-        multiworkShowChips: boolean;
         /** Terminal command approval mode (Cursor-style run modes). */
         autoRunMode: AutoRunModeSetting;
         /** Stage agent file edits for approval before they touch disk. */
@@ -172,46 +167,27 @@ export interface BetterShapeSettings {
         html: boolean;
         json: boolean;
         tailwindcss: boolean;
-        emmet: boolean;
     };
     node: {
-        interpreterPath: string;
         packageManager: "auto" | "npm" | "yarn" | "pnpm" | "bun";
-        codingAssistance: boolean;
     };
     python: {
         /** Absolute path, or `"auto"` to discover from PATH / venv. */
         interpreterPath: string;
     };
-    designAutocomplete: {
-        enable: boolean;
-    };
-    designDiagnostics: {
-        enable: boolean;
-        level: "AA" | "AAA";
-    };
     tailwindControls: {
         enable: boolean;
         /** Alt+drag / hover-wheel scrubbing on numeric design tokens */
         numberScrubbing: boolean;
-        /** Open flex/gap/padding panel when cursor rests on a token */
-        cursorBindPanel: boolean;
         /** Dashed underline on scrubbable numbers */
         scrubDecorations: boolean;
         /** Wheel over padding/gap inputs changes values (Figma-style) */
         wheelOnInputs: boolean;
     };
-    designBlame: {
-        enable: boolean;
-    };
-    spacingRefactor: {
-        enable: boolean;
-    };
     developer: {
         enableDevTools: boolean;
     };
     privacy: {
-        showLoginPromptOnLaunch: boolean;
         /** Show the welcome page when the main window opens with no editor. */
         showWelcomeOnStartup: boolean;
         /** Skip the confirm dialog when restoring a chat checkpoint (rolls back file edits). */
@@ -271,7 +247,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         scrollBeyondLastLine: true,
         renderLineHighlight: "line",
         showIndentGuides: true,
-        showBracketGuides: true,
         imagePreview: true,
         compactTabs: false,
     },
@@ -309,8 +284,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         mcpServers: [],
         reviewAdversarialEnabled: true,
         workflows: [],
-        multiworkConfirm: true,
-        multiworkShowChips: true,
         autoRunMode: "auto",
         requireEditApproval: false,
         protectDestructiveGit: true,
@@ -337,41 +310,23 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         html: true,
         json: true,
         tailwindcss: true,
-        emmet: true,
     },
     node: {
-        interpreterPath: "auto",
         packageManager: "auto",
-        codingAssistance: true,
     },
     python: {
         interpreterPath: "auto",
     },
-    designAutocomplete: {
-        enable: true,
-    },
-    designDiagnostics: {
-        enable: true,
-        level: "AA",
-    },
     tailwindControls: {
         enable: true,
         numberScrubbing: true,
-        cursorBindPanel: true,
         scrubDecorations: true,
         wheelOnInputs: true,
-    },
-    designBlame: {
-        enable: true,
-    },
-    spacingRefactor: {
-        enable: true,
     },
     developer: {
         enableDevTools: false,
     },
     privacy: {
-        showLoginPromptOnLaunch: true,
         showWelcomeOnStartup: true,
         skipCheckpointRestoreConfirm: false,
     },
@@ -570,11 +525,7 @@ let currentSettings: BetterShapeSettings = {
     lsp: { ...DEFAULT_SETTINGS.lsp },
     node: { ...DEFAULT_SETTINGS.node },
     python: { ...DEFAULT_SETTINGS.python },
-    designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete },
-    designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics },
     tailwindControls: { ...DEFAULT_SETTINGS.tailwindControls },
-    designBlame: { ...DEFAULT_SETTINGS.designBlame },
-    spacingRefactor: { ...DEFAULT_SETTINGS.spacingRefactor },
     developer: { ...DEFAULT_SETTINGS.developer },
     privacy: { ...DEFAULT_SETTINGS.privacy },
     notifications: { ...DEFAULT_SETTINGS.notifications },
@@ -687,24 +638,12 @@ function mergeSettings(
         lsp: { ...DEFAULT_SETTINGS.lsp, ...base.lsp, ...patch.lsp },
         node: { ...DEFAULT_SETTINGS.node, ...base.node, ...patch.node },
         python: { ...DEFAULT_SETTINGS.python, ...base.python, ...patch.python },
-        designAutocomplete: { ...DEFAULT_SETTINGS.designAutocomplete, ...base.designAutocomplete, ...patch.designAutocomplete },
-        designDiagnostics: { ...DEFAULT_SETTINGS.designDiagnostics, ...base.designDiagnostics, ...patch.designDiagnostics },
         tailwindControls: {
             ...DEFAULT_SETTINGS.tailwindControls,
             ...(base as BetterShapeSettings & { inlinePickers?: { enable: boolean } }).tailwindControls,
             ...(base as BetterShapeSettings & { inlinePickers?: { enable: boolean } }).inlinePickers,
             ...patch.tailwindControls,
             ...(patch as Partial<BetterShapeSettings & { inlinePickers?: { enable: boolean } }>).inlinePickers,
-        },
-        designBlame: {
-            ...DEFAULT_SETTINGS.designBlame,
-            ...base.designBlame,
-            ...patch.designBlame,
-        },
-        spacingRefactor: {
-            ...DEFAULT_SETTINGS.spacingRefactor,
-            ...base.spacingRefactor,
-            ...patch.spacingRefactor,
         },
         privacy: { ...DEFAULT_SETTINGS.privacy, ...base.privacy, ...patch.privacy },
         notifications: {
@@ -1187,7 +1126,7 @@ export function getEditorOptionsFromSettings(settings: BetterShapeSettings = get
         wordWrap: settings.editor.wordWrap as "off" | "on" | "wordWrapColumn" | "bounded",
         minimap: { enabled: settings.editor.minimap },
         lineNumbers: settings.editor.lineNumbers as "on" | "off" | "relative" | "interval" | (number & {}),
-        renderWhitespace: settings.editor.renderWhitespace as "none" | "boundary" | "selection" | "trailing" | "all",
+        renderWhitespace: settings.editor.renderWhitespace,
         bracketPairColorization: { enabled: settings.editor.bracketPairColorization },
         fontLigatures: settings.editor.fontLigatures,
         cursorStyle: settings.editor.cursorStyle as "line" | "block" | "underline" | "line-thin" | "block-outline" | "underline-thin",
@@ -1199,8 +1138,6 @@ export function getEditorOptionsFromSettings(settings: BetterShapeSettings = get
         guides: {
             indentation: settings.editor.showIndentGuides,
             highlightActiveIndentation: settings.editor.showIndentGuides,
-            bracketPairs: settings.editor.showBracketGuides,
-            bracketPairsHorizontal: settings.editor.showBracketGuides,
         },
     };
 }

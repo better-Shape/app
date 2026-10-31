@@ -9,6 +9,8 @@ import { elementMentionBlock, lookupElementMention } from "@/lib/chat/element-me
 import { skillBySlug, skillIdFromName } from "@/lib/chat/skills";
 import type { DiscoveredSkill } from "@/lib/chat/discover-skills";
 import { resolveDiscoveredSkill, resolveDiscoveredSkillBySource } from "@/lib/chat/skill-index";
+import { truncateMentionContent } from "@/lib/chat/mention-truncation";
+import { getSettings } from "@/lib/settings";
 
 export type MentionKind =
     | "file"
@@ -676,7 +678,10 @@ async function readMentionContext(
         if (looksLikeBinaryText(content)) {
             return `<mention_context type="file" path="${mention.path}" binary="true">Binary file referenced at ${mention.path}. Do not dump its contents. Use the path if the user asks to apply or copy it.</mention_context>`;
         }
-        const trimmed = content.length > 4000 ? `${content.slice(0, 4000)}\n…(truncated)` : content;
+        // Max context lines is the user's budget for each referenced file; the
+        // helper also keeps the character backstop for minified bundles.
+        const trimmed =
+            truncateMentionContent(content, getSettings().ai.maxContextLines) ?? content;
         return `<mention_context type="file" path="${mention.path}">\n${trimmed}\n</mention_context>`;
     } catch {
         return null;

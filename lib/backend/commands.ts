@@ -1,7 +1,7 @@
 import { acknowledgeDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import type { AiVaultMutation, AiVaultReadResult, SettingsFileName, SettingsFileSnapshot, TurnJournal } from "@/lib/backend/types";
 ﻿import { invoke } from "@tauri-apps/api/core";
-import { ActivityTotals, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
+import { ActivityTotals, AppUpdateInfo, BrowserHistoryEntry, BrowserInputEvent, BrowserPickedElement, BrowserTab, BrowserTabsPayload, ChatGenerationState, ChatMessage, CodebaseSearchHit, CompactResult, CompactionStateView, ContentSearchResult, Conversation, EslintLintResult, FileEntry, FileInfo, FileSearchResult, GitActivityPoint, GitFileParams, GitRepoInfo, GitHubAuthLoginResult, GitHubAuthStatus, GitLogEntry, GitSyncStatus, GitStashEntry, BlameLine, HistoryEntry, IndexStatus, McpRegistryEntry, McpServerConfig, McpStatusEntry, McpToolInfo, PackageInfo, OutlineResponse, ProjectState, ProjectStatsSnapshot, ReplaceResult, SearchOptions, TestDiscoveryResult, TestRunSummaryResult, ContentMatch } from "@/lib/backend/types";
 
 type InvokeLogger = (command: string, durationMs: number) => void;
 
@@ -165,6 +165,7 @@ export const commands = {
     reorderFiles: (files: FileInfo[]) => invokeCommand("reorder_files", { files }),
     getRustDeps: (projectPath: string) => invokeCommand<[string, string][]>("get_rust_deps", { projectPath }),
     getProjectState: () => invokeCommand<ProjectState>("get_project_state"),
+    checkAppUpdate: () => invokeCommand<AppUpdateInfo>("check_app_update"),
     openUrlExternal: (url: string) => invokeCommand("open_url_external", { url }),
     pinToTaskbar: () => invokeCommand<void>("pin_to_taskbar"),
     agentBrowseStop: () => invokeCommand<void>("agent_browse_stop"),
@@ -1040,8 +1041,6 @@ export const commands = {
     setDiagnostics: (path: string, diagnostics: unknown[]) => invokeCommand<void>("set_diagnostics", { path, diagnostics }),
     ptyAvailableShells: () =>
         invokeCommand<import("./types").TerminalShellProfile[]>("pty_available_shells"),
-    saveColorToHistory: (color: string) => invokeCommand<void>("save_color_to_history", { color }),
-    getColorHistory: () => invokeCommand<string[]>("get_color_history"),
     eslintLintFile: (projectPath: string, filePath: string, content: string, applyFix?: boolean) =>
         invokeCommand<EslintLintResult>("eslint_lint_file", {
             projectPath,

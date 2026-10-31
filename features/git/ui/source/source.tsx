@@ -29,6 +29,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FileIcon } from "@/components/ui/file-icon";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
+import { openAllChangesTab } from "@/lib/window/open-all-changes";
+import { HunkActions } from "@/features/git/ui/shared/hunk-actions";
 import {
     GenerateStarButton,
     streamTextInto,
@@ -443,6 +445,12 @@ const useEmbeddedDiffContent = (
     embedded: boolean,
     gitRepo: string | null,
     diffFile: { path: string; staged: boolean } | null,
+    /**
+     * Bumped by a Git mutation. The file can keep the same path and staged flag
+     * while its hunks change under it, and the object identity alone would keep
+     * the previous content on screen.
+     */
+    refreshToken: number,
     setDiffOriginal: (value: string) => void,
     setDiffModified: (value: string) => void,
     setDiffLoading: (value: boolean) => void,
@@ -452,9 +460,10 @@ const useEmbeddedDiffContent = (
         inputs === null ||
         !Object.is(inputs[0], embedded) ||
         !Object.is(inputs[1], gitRepo) ||
-        !Object.is(inputs[2], diffFile)
+        !Object.is(inputs[2], diffFile) ||
+        !Object.is(inputs[3], refreshToken)
     ) {
-        setInputs([embedded, gitRepo, diffFile]);
+        setInputs([embedded, gitRepo, diffFile, refreshToken]);
         setDiffOriginal("");
         setDiffModified("");
         setDiffLoading(embedded && gitRepo !== null && diffFile !== null);
@@ -482,7 +491,7 @@ const useEmbeddedDiffContent = (
         return () => {
             cancelled = true;
         };
-    }, [embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading]);
+    }, [embedded, gitRepo, diffFile, refreshToken, setDiffOriginal, setDiffModified, setDiffLoading]);
 };
 
 /** Whether a refresh has both a project and a repo to query. */
@@ -1223,6 +1232,7 @@ const MoreActionsDropdown = ({
             <DropdownMenuItem onClick={handleFetch}>Fetch All</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePull}>Pull</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePush}>Push</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openAllChangesTab()}>Open All Changes</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={stageAllChanges}>Stage All Changes</DropdownMenuItem>
             <DropdownMenuItem onClick={unstageAllChanges}>Unstage All Changes</DropdownMenuItem>
@@ -2225,11 +2235,15 @@ const CommitActionsRow = ({
 /** Header for the embedded diff pane: file name, staged state, layout toggle, and close. */
 const DiffPaneHeader = ({
     diffFile,
+    repoPath,
+    active,
     sideBySide,
     setSideBySide,
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean };
+    repoPath: string | null;
+    active: boolean;
     sideBySide: boolean;
     setSideBySide: (value: boolean | ((previous: boolean) => boolean)) => void;
     setDiffFile: (value: { path: string; staged: boolean } | null) => void;
@@ -2245,6 +2259,12 @@ const DiffPaneHeader = ({
     <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">
         {diffFile.path}
     </span>
+    <HunkActions
+        repoPath={repoPath}
+        filePath={diffFile.path}
+        mode={diffFile.staged ? "staged" : "unstaged"}
+        active={active}
+    />
     <span className="shrink-0 text-xs text-text-muted">
         {diffFile.staged ? "Staged" : "Unstaged"}
     </span>
@@ -2280,6 +2300,7 @@ const DiffPaneHeader = ({
 /** Embedded diff pane: empty state, or the diff header plus the Monaco diff editor. */
 const DiffPane = ({
     diffFile,
+    repoPath,
     diffLoading,
     diffOriginal,
     diffModified,
@@ -2289,6 +2310,7 @@ const DiffPane = ({
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean } | null;
+    repoPath: string | null;
     diffLoading: boolean;
     diffOriginal: string;
     diffModified: string;
@@ -2305,7 +2327,14 @@ const DiffPane = ({
             </div>
         ) : (
             <>
-<DiffPaneHeader diffFile={diffFile} sideBySide={sideBySide} setSideBySide={setSideBySide} setDiffFile={setDiffFile} />
+<DiffPaneHeader
+                    diffFile={diffFile}
+                    repoPath={repoPath}
+                    active={active}
+                    sideBySide={sideBySide}
+                    setSideBySide={setSideBySide}
+                    setDiffFile={setDiffFile}
+                />
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                     {diffLoading ? (
                         <div className="flex h-full items-center justify-center text-sm text-text-muted">
@@ -2512,6 +2541,7 @@ const EmbeddedSourceBody = ({
                 children: (
                     <DiffPane
                         diffFile={diffFile}
+                        repoPath={gitRepo}
                         diffLoading={diffLoading}
                         diffOriginal={diffOriginal}
                         diffModified={diffModified}
@@ -2716,6 +2746,7 @@ const Source = ({
     const [conflictHelp, setConflictHelp] = useState<string | null>(null);
     const [conflictHelpLoading, setConflictHelpLoading] = useState(false);
     const [diffFile, setDiffFile] = useState<{ path: string; staged: boolean } | null>(null);
+    const [diffRefreshToken, setDiffRefreshToken] = useState(0);
     const [diffOriginal, setDiffOriginal] = useState("");
     const [diffModified, setDiffModified] = useState("");
     const [diffLoading, setDiffLoading] = useState(false);
@@ -2794,7 +2825,12 @@ const Source = ({
 
     useEffect(() => {
         /** Refresh on the window-level git-refresh event (staging, discard, repo switch). */
-        const handleGitRefresh = () => { refresh().catch(() => undefined); };
+        const handleGitRefresh = () => {
+            // The open diff is re-read too: staging a hunk changes the diff that
+            // is on screen without changing its path or staged flag.
+            setDiffRefreshToken((token) => token + 1);
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", handleGitRefresh);
         return () => window.removeEventListener("bettershape-git-refresh", handleGitRefresh);
     }, [refresh]);
@@ -2822,7 +2858,15 @@ const Source = ({
     });
 
 
-    useEmbeddedDiffContent(embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading);
+    useEmbeddedDiffContent(
+        embedded,
+        gitRepo,
+        diffFile,
+        diffRefreshToken,
+        setDiffOriginal,
+        setDiffModified,
+        setDiffLoading,
+    );
 
     const handleCommit = useHandleCommit({
         gitRepo, commitTitle, commitDescription, lastCommit, hasRemote, changes,

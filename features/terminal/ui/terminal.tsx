@@ -304,13 +304,25 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 },
             });
 
-// History only, no clipboard write: this runs on every selection change, and a
-            // drag across the terminal selects continuously.
+// History on every selection change; the clipboard follows only when
+            // Terminal → Copy on select is on, because a drag selects continuously.
+            // Each selection supersedes the one before it: a slow rejection from
+            // an older write must not put that older text back on the clipboard.
+            let clipboardSeq = 0;
             const publishSelection = () => {
                 if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                if (!getSettings().terminal.copyOnSelect) return;
+                const seq = ++clipboardSeq;
+                if (!navigator.clipboard) {
+                    copySelected(selected);
+                    return;
+                }
+                void navigator.clipboard.writeText(selected).catch(() => {
+                    if (seq === clipboardSeq) copySelected(selected);
+                });
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
@@ -469,7 +481,8 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         term.write(`\r\n\x1b[38;2;120;120;120m[Process exited with code ${code}]\x1b[0m\r\n`);
                         term.scrollToBottom();
                         void loadRunStatus().then(({ noteDevRunExit }) => {
-                            noteDevRunExit(code);
+                            // The run store ignores exits from other terminals.
+                            noteDevRunExit(code, e.payload.id);
                         }).catch(() => undefined);
                     }
                 });
@@ -826,18 +839,11 @@ const Terminal = ({
     }, []);
 
     useEffect(() => {
-// Pulls the browser tab module in on demand; the event fires once and the
-        // terminal does not need that module to render.
-        const handleOpenBrowser = () => {
-            import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab()).catch(() => undefined);
-        };
         const handleOpenWorkspaceTerminal = () => {
             setActiveView("terminal");
         };
-        window.addEventListener("bettershape-open-preview", handleOpenBrowser);
         window.addEventListener("bettershape-open-workspace-terminal", handleOpenWorkspaceTerminal);
         return () => {
-            window.removeEventListener("bettershape-open-preview", handleOpenBrowser);
             window.removeEventListener(
                 "bettershape-open-workspace-terminal",
                 handleOpenWorkspaceTerminal,
@@ -1068,19 +1074,9 @@ const Terminal = ({
         // Commands requested while the panel was closed replay from here.
         const detachCommandHost = attachTerminalCommandHost();
 
-        // Accepts only the two views this panel renders; anything else leaves the
-        // active view where it was.
-        const handleTerminalView = (e: Event) => {
-            const view = (e as CustomEvent<string>).detail;
-            if (view === "tests" || view === "terminal") {
-                setActiveView(view);
-            }
-        };
-        window.addEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         return () => {
             detachCommandHost();
             window.removeEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
-            window.removeEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         };
     }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal, clearActiveTerminal]);
 

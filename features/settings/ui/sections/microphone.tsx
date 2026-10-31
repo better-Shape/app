@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useIsMounted } from "@/lib/ui/use-mounted";
 import { Button } from "@/components/ui/button";
 import { microphoneConstraints, microphoneErrorMessage, updateSettingSection, useSettings } from "@/lib/settings";
 import { SettingRow, SettingSection, SettingSelect } from "../shared/controls";
@@ -30,32 +31,54 @@ export function MicrophoneSettings() {
     const [listening, setListening] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const stopRef = useRef<(() => void) | null>(null);
-    const unavailable = typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia;
+    // `getUserMedia` can resolve after the user has left the page; the resolved
+    // stream then has no `stopRef` to release it.
+    const disposedRef = useRef(false);
+    // Read after mount: the server has no navigator, so branching during render
+    // rendered one description on the server and another on the client.
+    const mounted = useIsMounted();
+    const unavailable = mounted && !navigator.mediaDevices?.getUserMedia;
 
     const refresh = useCallback(async () => {
         const next = await listMicrophones();
-        setOptions(next);
+        if (!disposedRef.current) setOptions(next);
         return next;
     }, []);
 
     useEffect(() => {
         let disposed = false;
+        // Strict mode runs the effect, its cleanup, then the effect again on the
+        // same ref, so the flag has to be cleared here or the second pass would
+        // think the component is gone and quietly drop every result.
+        disposedRef.current = false;
         void listMicrophones().then(next => {
             if (!disposed) setOptions(next);
         }).catch(cause => {
             if (!disposed) setError(microphoneErrorMessage(cause));
         });
-        return () => { disposed = true; stopRef.current?.(); };
+        return () => {
+            disposed = true;
+            disposedRef.current = true;
+            stopRef.current?.();
+        };
     }, []);
 
     const allowAndRefresh = async () => {
         if (unavailable) return;
         setBusy(true);
         setError(null);
+        // Held outside the try so a failure after the device opened can still
+        // release it; otherwise a broken AudioContext leaves the mic live.
+        let opened: MediaStream | null = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            if (disposedRef.current) {
+                opened.getTracks().forEach((track) => track.stop());
+                return;
+            }
+            const stream = opened;
             stream.getTracks().forEach((track) => track.stop());
             await refresh();
         } catch (err) {
@@ -73,10 +96,19 @@ export function MicrophoneSettings() {
         if (unavailable) return;
         setBusy(true);
         setError(null);
+        // Held outside the try so a failure after the device opened can still
+        // release it; otherwise a broken AudioContext leaves the mic live.
+        let opened: MediaStream | null = null;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            opened = await navigator.mediaDevices.getUserMedia({
                 audio: microphoneConstraints(deviceId),
             });
+            if (disposedRef.current) {
+                // The section is gone; nothing would ever stop this stream.
+                opened.getTracks().forEach((track) => track.stop());
+                return;
+            }
+            const stream = opened;
             const ctx = new AudioContext();
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
@@ -110,6 +142,7 @@ export function MicrophoneSettings() {
             frame = requestAnimationFrame(tick);
             await refresh();
         } catch (err) {
+            opened?.getTracks().forEach((track) => track.stop());
             setListening(false);
             setError(microphoneErrorMessage(err));
         } finally {
@@ -137,7 +170,7 @@ export function MicrophoneSettings() {
                         : error
                           ? error
                           : listening
-                            ? "Listening…"
+                            ? "Listening..."
                             : "Names show up after access is allowed."
                 }
             >

@@ -358,6 +358,10 @@ export interface BrowserPickedElement {
     tag: string;
     label: string;
     selector: string;
+    /** Which surface picked the element; the mention block names it. */
+    origin?: "browser" | "design";
+    /** `file:line` for a design pick, so the model can open the source. */
+    source?: string;
     rect: { x: number; y: number; w: number; h: number };
     text?: string;
     html?: string;
@@ -696,3 +700,12 @@ export interface ProjectStatsSnapshot {
 export type SettingsFileName = "settings.json" | "settings-preferences.json";
 export type SettingsFileRecord = Record<string, unknown>;
 export interface SettingsFileSnapshot { record: SettingsFileRecord | null; revision: string }
+
+/** Answer of `check_app_update`: the newest GitHub release beside this build. */
+export type AppUpdateInfo = {
+    current: string;
+    latest: string;
+    newer: boolean;
+    url: string;
+    notes: string;
+};

@@ -1,4 +1,5 @@
 import { commands } from "@/lib/backend/commands";
+import { requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { requestTerminalCommand } from "@/features/terminal/commands";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
@@ -75,10 +76,10 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
             );
             return true;
         case "Toggle Design Mode":
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "browser" }));
             window.dispatchEvent(
                 new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
             );
+            requestWorkspaceTab("design");
             return true;
         case "Go to Line/Column...":
             window.dispatchEvent(new CustomEvent("bettershape-command-palette", {

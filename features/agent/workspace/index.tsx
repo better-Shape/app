@@ -10,9 +10,18 @@ import Graph from "@/features/git/ui/graph/graph";
 import { ProblemsTab } from "./problems-tab";
 import { BlameTab } from "./blame-tab";
 import { PackagesTab } from "./packages-tab";
+import { SubagentCards } from "@/features/agent/subagents/cards";
+import { AllChangesTab } from "./multi-diff";
+
+/** The design studio is a large surface; it loads when its tab opens, never before. */
+const DesignStudioSurface = dynamic(
+    () => import("@/features/preview/design/shell").then((module) => module.DesignStudio),
+    { ssr: false, loading: () => <div className="h-full w-full" aria-hidden /> },
+);
 import { SearchTab } from "./search-tab";
 import { subscribePrUi, getPrUi } from "@/features/chat/ui/prs/store";
 import { isBrowserTab } from "@/lib/window/browser-tab";
+import { takeRequestedWorkspaceTab } from "@/lib/window/workspace-intent";
 import { WorkspaceTabs } from "./tabs";
 import { FileBar } from "./file-bar";
 import type { CSSProperties } from "react";
@@ -59,6 +68,9 @@ import {
 
 const ADDABLE_TAB_TITLES: Partial<Record<TabKind, string>> = {
     files: "Files",
+    "all-changes": "All changes",
+    design: "Design",
+    agents: "Agents",
     graph: "Graph",
     prs: "Pull requests",
     browser: "New tab",
@@ -82,13 +94,17 @@ const WORKSPACE_TAB_ALIASES: Partial<Record<string, TabKind>> = {
     errors: "problems",
     search: "search",
     find: "search",
+    "all-changes": "all-changes",
+    changes: "all-changes",
+    design: "design",
+    agents: "agents",
     packages: "packages",
     dependencies: "packages",
     blame: "blame",
     annotations: "blame",
 };
 
-const NON_SINGLETON_TAB_KINDS = new Set<TabKind>(["plan", "file", "diff", "agents"]);
+const NON_SINGLETON_TAB_KINDS = new Set<TabKind>(["plan", "file", "diff"]);
 
 /** Resolves the display basename for a workspace file or diff path. */
 const tabTitleFromPath = (path: string): string => path.split(/[\\/]/).pop() || path;
@@ -145,6 +161,7 @@ type SingletonTabContext = {
     projectPath: string;
     activeFile: string | null;
     onOpenFile: (path: string) => void;
+    closeActiveTab: () => void;
 };
 
 const SINGLETON_TAB_RENDERERS: Partial<Record<TabKind, (ctx: SingletonTabContext) => React.ReactNode>> = {
@@ -158,6 +175,11 @@ const SINGLETON_TAB_RENDERERS: Partial<Record<TabKind, (ctx: SingletonTabContext
         </div>
     ),
     search: () => <SearchTab />,
+    "all-changes": ({ projectPath }) => <AllChangesTab projectPath={projectPath} />,
+    agents: () => <SubagentCards className="h-full" />,
+    design: ({ projectPath, closeActiveTab }) => (
+        <DesignStudioSurface projectPath={projectPath} onClose={closeActiveTab} />
+    ),
     problems: () => <ProblemsTab />,
     packages: () => <PackagesTab />,
     blame: () => <BlameTab />,
@@ -219,17 +241,19 @@ const WorkspaceTabBody = ({
     projectPath,
     activeFile,
     onOpenFile,
+    closeActiveTab,
 }: {
     active: WorkspaceTab | undefined;
     projectPath: string;
     activeFile: string | null;
     onOpenFile: (path: string) => void;
+    closeActiveTab: () => void;
 }) => {
     if (!active) return null;
     const docNode = renderDocumentWorkspaceTab(active, projectPath, onOpenFile);
     if (docNode !== undefined) return docNode;
     const renderSingleton = SINGLETON_TAB_RENDERERS[active.kind];
-    return renderSingleton ? renderSingleton({ projectPath, activeFile, onOpenFile }) : null;
+    return renderSingleton ? renderSingleton({ projectPath, activeFile, onOpenFile, closeActiveTab }) : null;
 };
 
 /** Subscribes window and Tauri event channels that open or switch workspace tabs. */
@@ -247,6 +271,8 @@ const useWorkspaceEventChannels = ({
     useEffect(() => {
         /** Maps named tab aliases to singleton workspace tabs. */
         const onTab = (e: Event) => {
+            // The event reached a mounted workspace, so nothing is pending.
+            takeRequestedWorkspaceTab();
             const tabId = (e as CustomEvent<string | null>).detail?.toLowerCase();
             const mapped = tabId ? WORKSPACE_TAB_ALIASES[tabId] : undefined;
             if (mapped) addTab(mapped, { expand: true });
@@ -272,6 +298,10 @@ const useWorkspaceEventChannels = ({
             const tab = (e as CustomEvent<FileDiffTabInfo | null>).detail;
             if (tab?.id && tab.path) openDiff(tab);
         };
+        // A command may have asked for a tab while this panel was closed.
+        const pendingTab = takeRequestedWorkspaceTab();
+        const pendingKind = pendingTab ? WORKSPACE_TAB_ALIASES[pendingTab.toLowerCase()] : undefined;
+        if (pendingKind) addTab(pendingKind, { expand: true });
         window.addEventListener("bettershape-set-active-tab", onTab as EventListener);
         window.addEventListener("bettershape-set-panel-tab", onTab as EventListener);
         window.addEventListener("bettershape-open-workspace-plan", onOpenPlan as EventListener);
@@ -469,6 +499,7 @@ export const AgentWorkspace = ({
                         projectPath={projectPath}
                         activeFile={active_file}
                         onOpenFile={openFile}
+                        closeActiveTab={() => closeTab(active.id)}
                     />
                 </div>
             </div>

@@ -43,7 +43,9 @@ export function DevRunHost() {
                 return;
             }
 
-            void ensureBackgroundRun(command);
+            void ensureBackgroundRun(command).catch(() => {
+                notify.error("Could not start the run", "Check the command and try again.");
+            });
             // Do not force-open Terminal on first start — it keeps running in the
             // background; opening Terminal later shows the bound tab + Rust buffer.
         };
@@ -65,7 +67,12 @@ export function DevRunHost() {
                     notify.error("Could not stop the run", "The preview process is still running. Try again.");
                     return;
                 }
-                if (command) await ensureBackgroundRun(command);
+                if (!command) return;
+                try {
+                    await ensureBackgroundRun(command);
+                } catch {
+                    notify.error("Could not start the run", "Check the command and try again.");
+                }
             })();
         };
 

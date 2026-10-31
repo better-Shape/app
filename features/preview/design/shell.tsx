@@ -16,8 +16,9 @@ import {
     sameProjectPath,
     subscribePreviewReady,
 } from "@/features/terminal/background-run";
-import { commands } from "@/lib/backend";
+import { commands, type BrowserPickedElement } from "@/lib/backend";
 import { insertCssVariableInContent } from "@/lib/ui/css-variables";
+import { takeSurfaceIntent } from "@/lib/window/workspace-intent";
 import { invalidateGlobalsCssCache, updateGlobalsCssCache, resolveGlobalsCss } from "@/lib/ui/css-variables-loader";
 import { cn } from "@/lib/utils";
 import { discoverDesignPages, type DesignPage } from "../lib/discover-routes";
@@ -190,7 +191,11 @@ export function DesignStudio({
     const [booting, setBooting] = useState(true);
     const [, setSaved] = useState(true);
     const [zoom, setZoom] = useState(100);
-    const [toolMode, setToolMode] = useState<DesignToolMode>("normal");
+    // A command issued while the tab was closed leaves an intent behind, so the
+    // studio opens with the inspector already selected.
+    const [toolMode, setToolMode] = useState<DesignToolMode>(() =>
+        takeSurfaceIntent("design-inspector") ? "select" : "normal",
+    );
     const [tabs, setTabs] = useState<BrowserTab[]>([]);
     const [activeTabId, setActiveTabId] = useState("tab-1");
     const [promptOpen, setPromptOpen] = useState(false);
@@ -630,6 +635,11 @@ export function DesignStudio({
             try {
                 const info = await commands.inspectDesignProject(bootRoot);
                 if (cancelled) return;
+                if (!info) {
+                    setBootError("This project could not be inspected. Open a folder that contains a package.json, then try again.");
+                    setBooting(false);
+                    return;
+                }
                 setFramework(info.framework);
                 setDesignerRoot(info.projectRoot);
                 if (!info.supported) {
@@ -815,10 +825,34 @@ export function DesignStudio({
                     selectElement(data.element, assertAuthorized);
                     setPromptOpen(false);
                     if (data.addToChat) {
-                        const label = data.element.component?.name || data.element.component?.tag || data.element.tag;
+                        // Reuses the Browser tab's picked-element bridge: the
+                        // composer already turns one of these into an
+                        // `@element:` mention, so there is no second path to keep
+                        // in step. `bettershape-composer-insert-mention` had no
+                        // listener anywhere, which made "Add to chat" a no-op.
+                        const element = data.element;
+                        const label =
+                            element.component?.name || element.component?.tag || element.tag;
                         window.dispatchEvent(
-                            new CustomEvent("bettershape-composer-insert-mention", {
-                                detail: { kind: "design", id: data.element.key, label },
+                            new CustomEvent<BrowserPickedElement>("bettershape-chat-attach-element", {
+                                detail: {
+                                    tag: element.tag,
+                                    label,
+                                    selector: element.key,
+                                    origin: "design",
+                                    source: element.source
+                                        ? `${element.source.fileName}:${element.source.lineNumber}`
+                                        : undefined,
+                                    rect: {
+                                        x: element.rect.x,
+                                        y: element.rect.y,
+                                        w: element.rect.width,
+                                        h: element.rect.height,
+                                    },
+                                    size: { w: element.rect.width, h: element.rect.height },
+                                    text: element.text || undefined,
+                                    styles: element.styles,
+                                },
                             }),
                         );
                         window.dispatchEvent(new Event("bettershape-chat-focus-input"));
@@ -1002,6 +1036,9 @@ export function DesignStudio({
 
     useEffect(() => {
         const onToggleInspect = () => {
+            // A queued request is satisfied by this toggle; drop it so the next
+            // mount does not flip the inspector again.
+            takeSurfaceIntent("design-inspector");
             setToolMode((mode) => (mode === "normal" ? "select" : "normal"));
         };
         // Closing the folder / leaving design mode drops the inspector tool.

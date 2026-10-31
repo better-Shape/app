@@ -33,8 +33,15 @@ import {
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
+import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
+import { commands, getProjectSnapshot, useProjectState } from "@/lib/backend";
+import { useEditorBuffer } from "@/features/agent/workbench/titlebar/hooks/use-editor-buffer";
 import { openSettingsWindow } from "@/lib/window/open-settings";
+import { requestLocalHistory } from "@/lib/editor/local-history";
+import { editorActionImplemented } from "@/lib/editor/action-contract";
+import { symbolPaletteRows } from "@/features/command-palette/symbols";
+import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { toTimestampMs } from "@/lib/ui/timestamp";
 import {
     ContextMenu,
@@ -66,6 +73,12 @@ interface EditorAction {
     muted?: boolean;
     /** Toggle archive for chat rows. */
     archive?: () => void;
+    /**
+     * The `bettershape-editor-action` id this row dispatches, when it is an
+     * editor command. Rows whose id has no handler are filtered out instead of
+     * promising an action nothing answers.
+     */
+    editorAction?: string;
 }
 
 type PaletteGroup = Pick<EditorAction, "id" | "label" | "section" | "model" | "meta"> & { group: true };
@@ -94,7 +107,8 @@ interface CommandPaletteOpenDetail {
 }
 
 function isBrowseMode(mode: string): boolean {
-    return !mode || mode === "files";
+    // `editor_symbols` browses a list the palette builds itself, like files does.
+    return !mode || mode === "files" || mode === "editor_symbols";
 }
 
 /** Format relative ago. */
@@ -259,6 +273,12 @@ export const CommandPalette = () => {
     const listRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // The Current File section needs the file the editor has open. Callers used
+    // to have to pass it in `detail.activeFile`, and none did, so the section
+    // never rendered; the backend's active file is the same value.
+    const { active_file } = useProjectState();
+    const { readLatestContent } = useEditorBuffer();
+
     const browse = isBrowseMode(mode);
 
     useEffect(() => {
@@ -268,7 +288,7 @@ export const CommandPalette = () => {
             const openMode = detail?.mode || "";
             setMode(openMode);
             setRecentFiles(Boolean(detail?.recent));
-            setActiveFileBias(detail?.activeFile || null);
+            setActiveFileBias(detail?.activeFile || active_file || null);
             const initialFilterTab: PaletteFilter =
                 openMode === "files"
                     ? "files"
@@ -318,7 +338,7 @@ export const CommandPalette = () => {
             window.removeEventListener("bettershape-command-palette", handleOpen);
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, []);
+    }, [active_file]);
 
     const handleOpenChange = useCallback((value: boolean) => {
         setOpen(value);
@@ -513,6 +533,9 @@ export const CommandPalette = () => {
         if (!browse || !activeFileBias) return [];
         const name = activeFileBias.split(/[\\/]/).pop() || activeFileBias;
         const path = activeFileBias;
+        // An image preview has no text to search, so offering Find there would
+        // only ever close the palette and do nothing.
+        const searchable = !isImageExtension(getFileExtension(path));
         return [
             {
                 id: `current-file:open:${path}`,
@@ -549,6 +572,32 @@ export const CommandPalette = () => {
                         }),
                     ),
             },
+            ...(searchable
+                ? [{
+                    id: "current-file:find",
+                    label: "Find in File",
+                    shortcut: "",
+                    meta: name,
+                    section: "Current File",
+                    run: () => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-editor-search", { detail: { path } }),
+                        );
+                    },
+                }]
+                : []),
+            {
+                id: "current-file:popout",
+                label: "Open in New Window",
+                shortcut: "",
+                meta: name,
+                section: "Current File",
+                run: () => {
+                    void import("@/lib/window/open-editor-popout").then(({ openEditorPopout }) =>
+                        openEditorPopout(path),
+                    );
+                },
+            },
             {
                 id: "current-file:reveal",
                 label: "Reveal in Explorer",
@@ -563,6 +612,38 @@ export const CommandPalette = () => {
             },
         ];
     }, [browse, activeFileBias]);
+
+    // "Go to Symbol in Editor..." opens this palette in `editor_symbols` mode;
+    // the outline the breadcrumb already requests is the source of the rows.
+    // Rows carry the path they were read for, so a stale answer for another file
+    // never renders.
+    const [outlineRows, setOutlineRows] = useState<{ path: string; rows: EditorAction[] }>({
+        path: "",
+        rows: [],
+    });
+    useEffect(() => {
+        if (!open || mode !== "editor_symbols" || !activeFileBias) return;
+        const path = activeFileBias;
+        let cancelled = false;
+        // The buffer, not the file on disk: unsaved edits move lines, and the
+        // rows jump to the line they name.
+        readLatestContent(path)
+            .then((content) => commands.getOutline(path, content ?? "", getFileExtension(path), 0))
+            .then((response) => {
+                if (cancelled) return;
+                setOutlineRows({ path, rows: symbolPaletteRows(path, response.symbols) });
+            })
+            .catch(() => {
+                if (!cancelled) setOutlineRows({ path, rows: [] });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, mode, activeFileBias, readLatestContent]);
+    const symbolRows = useMemo(
+        () => (outlineRows.path === activeFileBias ? outlineRows.rows : []),
+        [outlineRows, activeFileBias],
+    );
 
     const filtered = useMemo(() => {
         if (!browse) {
@@ -579,7 +660,9 @@ export const CommandPalette = () => {
         }
 
         let pool: PaletteRow[] = [];
-        if (filterTab === "all") {
+        if (mode === "editor_symbols") {
+            pool = symbolRows;
+        } else if (filterTab === "all") {
             const fileSlice = fileActions.slice(0, activeFileBias ? 6 : 8);
             const agentSlice = query.trim()
                 ? agentActions
@@ -622,6 +705,8 @@ export const CommandPalette = () => {
     }, [
         browse,
         actions,
+        mode,
+        symbolRows,
         filterTab,
         agentActions,
         fileActions,
@@ -634,7 +719,9 @@ export const CommandPalette = () => {
 
     const fallbackAskAction = useMemo<EditorAction | null>(() => {
         const trimmed = query.trim();
-        if (!trimmed || !browse || mode === "files" || filterTab !== "all") return null;
+        if (!trimmed || !browse || mode === "files" || mode === "editor_symbols" || filterTab !== "all") {
+            return null;
+        }
         return {
             id: "agent:ask-fallback",
             label: `Ask Agent: "${trimmed}"`,
@@ -980,7 +1067,7 @@ function eventCommand(id: string, label: string, keybinding: string, type: strin
 }
 
 /** App-level workbench commands for the command palette. */
-function getAppCommands(): EditorAction[] {
+export function getAppCommands(): EditorAction[] {
     const commands: EditorAction[] = [
         // ── Navigation ───────────────────────────────────────────────────────
         {
@@ -1025,6 +1112,40 @@ function getAppCommands(): EditorAction[] {
             label: "View: Show Git Graph",
             shortcut: shortcut("Git Graph"),
             run: () => showSidebarTab("graph"),
+        },
+        {
+            id: "app.design.open",
+            label: "Design: Open Design Mode",
+            shortcut: shortcut("Toggle Design Mode"),
+            run: () => {
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+                );
+                requestWorkspaceTab("design");
+            },
+        },
+        {
+            id: "app.design.inspect",
+            label: "Design: Toggle Element Inspector",
+            shortcut: "",
+            run: () => {
+                // The inspector lives in the design studio, which mounts with its
+                // tab, so the toggle is queued for it as well as sent now.
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
+                );
+                requestWorkspaceTab("design");
+                queueSurfaceIntent("design-inspector");
+                window.dispatchEvent(new Event("bettershape-toggle-browser-design-mode"));
+            },
+        },
+        {
+            id: "app.git.allChanges",
+            label: "Git: Open All Changes",
+            shortcut: "",
+            run: () => {
+                void import("@/lib/window/open-all-changes").then(({ openAllChangesTab }) => openAllChangesTab());
+            },
         },
         {
             id: "app.git.refresh",
@@ -1135,8 +1256,9 @@ function getAppCommands(): EditorAction[] {
                 );
             },
         },
-        // ── Editor settings ────────────────────────────────────────────────────
-        eventCommand("app.chat.new", "Chat: New Chat", "New Chat", "bettershape-chat-new"),
+        // ── Chat and preferences ───────────────────────────────────────────────
+        // "Chat: New Chat" is declared once, below, where it can also focus the
+        // composer; a second event-only copy put two identical rows in the list.
         eventCommand("app.chat.cycleMode", "Chat: Cycle Chat Mode", "Cycle Chat Mode", "bettershape-chat-cycle-mode"),
         eventCommand(
             "app.help.keyboardShortcuts",
@@ -1201,9 +1323,18 @@ function getAppCommands(): EditorAction[] {
                 ),
         },
         {
+            id: "app.editor.localHistory",
+            label: "Local history...",
+            shortcut: "",
+            // The picker listens for this by path, so it works for the markdown
+            // editor too, where no CodeMirror instance answers editor actions.
+            run: () => requestLocalHistory(getProjectSnapshot().active_file),
+        },
+        {
             id: "app.editor.rename",
             label: "Rename Symbol",
             shortcut: "F2",
+            editorAction: "rename",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.rename" } })
@@ -1213,6 +1344,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.quickFix",
             label: "Quick Fix…",
             shortcut: "Ctrl+.",
+            editorAction: "quickFix",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.quickFix" } })
@@ -1222,6 +1354,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.organizeImports",
             label: "Organize Imports",
             shortcut: "Shift+Alt+O",
+            editorAction: "organizeImports",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1233,6 +1366,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.goToDefinition",
             label: "Go to Definition",
             shortcut: "F12",
+            editorAction: "revealDefinition",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.revealDefinition" } })
@@ -1242,6 +1376,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.findRefs",
             label: "Find All References",
             shortcut: "Shift+F12",
+            editorAction: "referenceSearch.trigger",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1253,6 +1388,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.peekDef",
             label: "Peek Definition",
             shortcut: "Alt+F12",
+            editorAction: "peekDefinition",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1264,6 +1400,7 @@ function getAppCommands(): EditorAction[] {
             id: "app.editor.inlayHints",
             label: "Editor: Toggle Inlay Hints",
             shortcut: "",
+            editorAction: "inlayHints.toggle",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.inlayHints.toggle" } })
@@ -1633,9 +1770,10 @@ function getAppCommands(): EditorAction[] {
     ];
 
     // Focused popout has no sidebars/status, zen mode is not applicable.
-    if (isPopoutPath()) {
-        return commands.filter((c) => c.id !== "app.view.zenMode");
-    }
-    return commands;
+    const applicable = isPopoutPath() ? commands.filter((c) => c.id !== "app.view.zenMode") : commands;
+    // A row that dispatches an editor action nothing answers is a dead entry:
+    // it closes the palette and does nothing. `lib/editor/action-contract` owns
+    // the list, so the row comes back on its own when the engine lands.
+    return applicable.filter((c) => !c.editorAction || editorActionImplemented(c.editorAction));
 }
 

@@ -59,6 +59,13 @@
   /* ── Text (neutral, no blue cast) ─────────────────────── */
   --text-primary: #f2f2f2;
   --text-secondary: #a3a3a3;
+  /* Editor text selection: accent family, shared by the code and Markdown
+     editors so a selection does not change colour with the file type. */
+  --editor-selection: color-mix(in srgb, var(--accent-text) 32%, transparent);
+  /* Bracket depth colours (Settings -> Editor -> Bracket colors). Level 0 is
+     left to the editor's syntax colours, so only deeper levels are set here. */
+  --bracket-depth-1: var(--accent-text);
+  --bracket-depth-2: var(--text-secondary);
   --text-muted: #ffffff79;
   --text-disabled: #ffffff2f;
   --text-active: #ffffff;
@@ -706,6 +713,10 @@ button:focus-visible,
   text-rendering: auto;
   font-feature-settings: normal;
 }
+
+/* Brackets coloured by nesting depth; the class is added per bracket character. */
+.cm-bracket-depth-1 { color: var(--bracket-depth-1); }
+.cm-bracket-depth-2 { color: var(--bracket-depth-2); }
 
 .bettershape-icon {
   width: var(--icon-size);

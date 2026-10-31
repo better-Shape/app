@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { commands } from "@/lib/backend";
 import { loadDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
@@ -22,7 +22,7 @@ export function useEditorBuffer() {
     }, []);
 
     /** Capture the live buffer synchronously before falling back to recovery, cached content, or an asynchronous disk read. */
-    const readLatestContent = async (path: string) => {
+    const readLatestContent = useCallback(async (path: string) => {
         let live: string | undefined;
         /** Accept a flush response only for the requested path and only when its content is a string. */
         const capture = (event: Event) => {
@@ -38,7 +38,7 @@ export function useEditorBuffer() {
         const buffer = activeBufferRef.current;
         if (buffer?.path === path) return buffer.content;
         return await commands.readFile(path);
-    };
+    }, []);
 
     return { readLatestContent };
 }

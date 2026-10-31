@@ -46,7 +46,6 @@ import {
     openSubagent,
     setSubagentParentConversation,
     subscribeSubagents,
-    upsertSubagent,
 } from "@/features/agent/subagents/store";
 
 /**
@@ -210,34 +209,6 @@ const Chat = ({
             }
             if (detail?.id) openSubagent(detail.id);
         };
-        const onOpenForParent = (e: Event) => {
-            const parentId = (e as CustomEvent<{ parentId?: string }>).detail?.parentId;
-            if (parentId && parentId !== sessionRef.current.conversationId && parentId !== sessionRef.current.activeChatTabId) {
-                sessionRef.current.handleSelectChatTab(parentId).catch(() => undefined);
-            }
-            const fromMessages = sessionRef.current.messages
-                .map((m) => extractSubagentsFromText(m.content || "", parentId))
-                .flat();
-            const first = fromMessages[0];
-            if (first) {
-                upsertSubagent({
-                    id: first.id,
-                    title: first.title,
-                    task: first.task,
-                    model: first.model,
-                    transcript: first.transcript,
-                    activity: first.task || "Working…",
-                    status: first.status,
-                    parentId,
-                });
-                openSubagent(first.id);
-                return;
-            }
-            const liveFirst = parentId
-                ? getSubagents().find((c) => c.parentId === parentId)
-                : getSubagents()[0];
-            if (liveFirst) openSubagent(liveFirst.id);
-        };
         // Sidebar delete/archive closes the matching tab here; the shell owns tabs.
         const onCloseTab = (e: Event) => {
             const id = (e as CustomEvent<{ id?: string }>).detail?.id;
@@ -246,11 +217,9 @@ const Chat = ({
             sessionRef.current.handleCloseChatTab(id).catch(() => undefined);
         };
         window.addEventListener("bettershape-open-subagent", onOpen as EventListener);
-        window.addEventListener("bettershape-open-subagents-for", onOpenForParent as EventListener);
         window.addEventListener("bettershape-chat-close-tab", onCloseTab as EventListener);
         return () => {
             window.removeEventListener("bettershape-open-subagent", onOpen as EventListener);
-            window.removeEventListener("bettershape-open-subagents-for", onOpenForParent as EventListener);
             window.removeEventListener("bettershape-chat-close-tab", onCloseTab as EventListener);
         };
     }, []);
@@ -300,22 +269,9 @@ const Chat = ({
         const onNewChat = () => {
             newChatRef.current().catch(() => undefined);
         };
-        const onRestoreLast = () => {
-            // Read the live transcript on demand: keeping `session.messages` in the
-            // dep list re-subscribed both listeners on every streamed token.
-            const msgs = session.messagesRef.current;
-            for (let i = msgs.length - 1; i >= 0; i--) {
-                if (msgs[i]?.role === "user") {
-                    restoreRef.current(i).catch(() => undefined);
-                    return;
-                }
-            }
-        };
         window.addEventListener("bettershape-chat-new", onNewChat);
-        window.addEventListener("bettershape-chat-restore-last", onRestoreLast);
         return () => {
             window.removeEventListener("bettershape-chat-new", onNewChat);
-            window.removeEventListener("bettershape-chat-restore-last", onRestoreLast);
         };
     }, [session.messagesRef]);
 

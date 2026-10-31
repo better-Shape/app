@@ -8,14 +8,10 @@ import {
     EditorView,
     keymap,
     lineNumbers,
-    highlightActiveLine,
-    highlightActiveLineGutter,
     highlightSpecialChars,
-    drawSelection,
     dropCursor,
     rectangularSelection,
     crosshairCursor,
-    scrollPastEnd,
 } from "@codemirror/view";
 import {
     defaultKeymap,
@@ -45,41 +41,37 @@ import {
     foldAll,
     unfoldAll,
 } from "@codemirror/language";
-import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious, selectMatches, getSearchQuery } from "@codemirror/search";
+import { highlightSelectionMatches, search, searchKeymap, SearchQuery, setSearchQuery, findNext, findPrevious, selectMatches, getSearchQuery, openSearchPanel } from "@codemirror/search";
 import {
     autocompletion,
     closeBrackets,
     closeBracketsKeymap,
     completionKeymap,
 } from "@codemirror/autocomplete";
-import { indentationMarkers } from "@replit/codemirror-indentation-markers";
+import { optionExtensions } from "@/features/editor/ui/codemirror/options";
 import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
-import { getEditorOptionsFromSettings } from "@/lib/settings";
+import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { requestLocalHistory } from "@/lib/editor/local-history";
+import { LocalHistoryPicker } from "@/features/editor/ui/local-history-picker";
+import { getSettings } from "@/lib/settings";
+import { notify } from "@/features/notifications";
+import { getEditorOptionsFromSettings, subscribeSettings, updateSettingSection } from "@/lib/settings";
 import { languageForPath, languageNameForPath } from "./lang";
+import { detectIndentation } from "@/features/editor/lib/detect-indentation";
 import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@/features/editor/lib/line-actions";
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
+import { runClipboardAction } from "@/features/editor/lib/clipboard-actions";
+import { normalizeEditorAction } from "@/lib/editor/action-contract";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
 import { lintGutter } from "@codemirror/lint";
+import { inlineBlame } from "./inline-blame";
 
-/**
- * Three different surfaces dispatch `bettershape-editor-action`: the command
- * palette and titlebar menu use VS Code-style ids (`editor.action.commentLine`),
- * while the status bar and the editor's own pickers send bare ids
- * (`commentLine`). The switch below was written against the bare form only, so
- * every `editor.action.*` entry was a silent no-op. Normalise once here instead
- * of duplicating every case under both spellings.
- */
-const EDITOR_ACTION_PREFIX = "editor.action.";
-
-function normalizeEditorAction(action: string | undefined): string | undefined {
-    if (!action) return undefined;
-    return action.startsWith(EDITOR_ACTION_PREFIX)
-        ? action.slice(EDITOR_ACTION_PREFIX.length)
-        : action;
-}
+// `normalizeEditorAction` lives in the shared contract so the surfaces that
+// offer a command and the switch that answers it agree on one spelling; the
+// same module declares the ids that have no engine yet.
 import {
     ContextMenu,
     ContextMenuContent,
@@ -92,17 +84,9 @@ import {
  * The most recently focused CodeMirror view. Menu/shortcut "editor actions"
  * target this one, so a split view never edits the wrong buffer.
  */
+
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
-
-// CodeMirror stores the document with `\n` breaks and `doc.toString()` always
-// emits `\n`, so a CRLF file would save as LF. Convert on the way out, and
-// compare against an LF-normalized baseline so a CRLF file is not reported
-// dirty the moment it opens.
-function toDiskText(text: string, eol: "LF" | "CRLF"): string {
-    const lf = text.replace(/\r\n/g, "\n");
-    return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
-}
 
 function sameIgnoringEol(a: string, b: string): boolean {
     return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
@@ -136,12 +120,19 @@ export function CodeMirrorEditor({
         const lang = languageForPath(path);
         const langCompartment = new Compartment();
         const wrapCompartment = new Compartment();
+        // Line highlight, cursor blink, scroll past end and indent guides are
+        // all read from settings, so they need to be reconfigurable too.
+        const optionsCompartment = new Compartment();
         // Indentation and line-separator are user-visible settings (Settings ->
         // Editor) and are also driven by the status bar's Indentation / EOL
         // pickers, so they live in compartments rather than being fixed at
         // construction time.
         const indentCompartment = new Compartment();
         const eolCompartment = new Compartment();
+        // Settings -> Git -> Inline Git Blame can be flipped while a file is
+        // open, so the annotation lives in its own compartment.
+        const blameCompartment = new Compartment();
+        let blameEnabled = getSettings().git.blame.enabled;
         // Seed from Settings -> Editor. `getEditorOptionsFromSettings()` is the
         // tested settings->editor mapper; before this it had no production caller
         // and every editor setting except font family/size was inert.
@@ -153,6 +144,15 @@ export function CodeMirrorEditor({
                 ? editorOptions.tabSize
                 : 4;
         let eol: "LF" | "CRLF" = editorOptions.defaultEol === "CRLF" ? "CRLF" : "LF";
+        // Settings -> Editor -> "Detect indentation": match the buffer instead of
+        // reindenting a two-space file with four.
+        if (editorOptions.detectIndentation === true) {
+            const detected = detectIndentation(content);
+            if (detected) {
+                tabSize = detected.tabSize;
+                insertSpaces = detected.insertSpaces;
+            }
+        }
         const applyIndent = (v: EditorView) => {
             v.dispatch({
                 effects: indentCompartment.reconfigure([
@@ -183,8 +183,11 @@ export function CodeMirrorEditor({
                         path: pathRef.current,
                         line: line.number,
                         column: head - line.from + 1,
-                        spaces: 4,
-                        insertSpaces: true,
+                        // Live values, not the shipped defaults: the status bar
+                        // used to say "Spaces: 4" over a two-space file and kept
+                        // saying it after the Indentation picker changed the unit.
+                        spaces: tabSize,
+                        insertSpaces,
                         eol: view.state.lineBreak === "\r\n" ? "CRLF" : "LF",
                         language: languageNameForPath(pathRef.current),
                     },
@@ -245,6 +248,9 @@ export function CodeMirrorEditor({
                 publishBuffer(view);
             }, 250);
         };
+        // Set before the state is built: extensions read it while they are
+        // constructed (inline blame fetches for the path it sees).
+        pathRef.current = path;
         const state = EditorState.create({
             // CodeMirror splits the doc on the line separator, so a CRLF string
             // would otherwise seed one giant line. The doc holds `\n` breaks and
@@ -254,17 +260,21 @@ export function CodeMirrorEditor({
                 ...betterShapeEditorChrome(),
                 search({ top: false }),
                 lineNumbers(),
-                highlightActiveLineGutter(),
-                highlightActiveLine(),
                 highlightSpecialChars(),
                 history(),
                 foldGutter({
                     openText: "▾",
                     closedText: "▸",
                 }),
-                drawSelection({ cursorBlinkRate: 1100 }),
+                optionsCompartment.of(optionExtensions(editorOptions)),
+                blameCompartment.of(
+                    inlineBlame({
+                        enabled: blameEnabled,
+                        getPath: () => pathRef.current,
+                        isDirty: () => isDirtyRef.current,
+                    }),
+                ),
                 dropCursor(),
-                scrollPastEnd(),
                 EditorState.allowMultipleSelections.of(true),
                 indentCompartment.of([
                     EditorState.tabSize.of(tabSize),
@@ -282,18 +292,6 @@ export function CodeMirrorEditor({
                 rectangularSelection(),
                 crosshairCursor(),
                 highlightSelectionMatches({ highlightWordAroundCursor: true }),
-                indentationMarkers({
-                    highlightActiveBlock: true,
-                    markerType: "codeOnly",
-                    thickness: 1,
-                    activeThickness: 1.5,
-                    colors: {
-                        light: "rgba(0,0,0,0.08)",
-                        dark: "rgba(255,255,255,0.07)",
-                        activeLight: "rgba(0,0,0,0.18)",
-                        activeDark: "rgba(255,255,255,0.16)",
-                    },
-                }),
                 keymap.of([
                     ...closeBracketsKeymap,
                     ...defaultKeymap,
@@ -333,6 +331,7 @@ export function CodeMirrorEditor({
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
                     void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
+                    scheduleAutosave(dirty);
                     scheduleBuffer(update.view);
                     if (update.view.hasFocus) publishStatus(update.view);
                     if (update.selectionSet || update.docChanged) publishSelection(update.view);
@@ -355,19 +354,18 @@ export function CodeMirrorEditor({
                     keydown(e) {
                         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
                             e.preventDefault();
-                            const view = viewRef.current;
-                            if (!view) return true;
-                            const text = view.state.doc.toString();
-                            void (async () => {
-                                try {
-                                    await commands.saveFile(pathRef.current, toDiskText(text, eol));
-                                } catch {
-                                    /* ignore */
-                                }
-                            })();
+                            void persistNow();
                             return true;
                         }
                         return false;
+                    },
+                    blur() {
+                        // Saving a clean buffer would rewrite the file on every
+                        // focus change, and a trim or a formatter can turn that
+                        // into a content change nobody asked for.
+                        if (getSettings().editor.autoSave === "onFocusChange" && isDirtyRef.current) {
+                            void persistNow();
+                        }
                     },
                 }),
             ],
@@ -375,7 +373,73 @@ export function CodeMirrorEditor({
 
         const view = new EditorView({ state, parent: host });
         viewRef.current = view;
+        // A settings change reaches the open document, not only the next one.
+        const unsubscribeSettings = subscribeSettings(() => {
+            const effects = [optionsCompartment.reconfigure(optionExtensions(getEditorOptionsFromSettings()))];
+            const nextBlame = getSettings().git.blame.enabled;
+            // Reconfiguring the compartment throws away the reporter and builds
+            // a new one, which blanks the status segment and repeats the blame
+            // fetch. Only a real change is worth that.
+            if (nextBlame !== blameEnabled) {
+                blameEnabled = nextBlame;
+                effects.push(
+                    blameCompartment.reconfigure(
+                        inlineBlame({
+                            enabled: nextBlame,
+                            getPath: () => pathRef.current,
+                            isDirty: () => isDirtyRef.current,
+                        }),
+                    ),
+                );
+            }
+            view.dispatch({ effects });
+        });
         pathRef.current = path;
+
+        let autosaveTimer: number | null = null;
+        /** Writes the current buffer through the shared save pipeline. */
+        const persistNow = async () => {
+            const live = viewRef.current;
+            if (!live) return;
+            const doc = live.state.doc.toString();
+            try {
+                const written = await saveContents(pathRef.current, doc, eol);
+                // Typing during the write keeps the buffer dirty; an unchanged
+                // buffer is clean whether or not the write changed the text.
+                if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
+                if (written !== doc) {
+                    // Replacing the whole document maps a cursor into the replaced
+                    // range back to its start, which jumps the caret to the top.
+                    const head = Math.min(live.state.selection.main.head, written.length);
+                    live.dispatch({
+                        changes: { from: 0, to: doc.length, insert: written },
+                        selection: EditorSelection.cursor(head),
+                        annotations: externalContentUpdate.of(true),
+                    });
+                    setContentRef.current(written);
+                    publishBuffer(live);
+                }
+                // The prepared text is what is on disk now, so it is the baseline
+                // the dirty check compares against.
+                savedContentRef.current = written;
+                isDirtyRef.current = false;
+                void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
+            } catch (error) {
+                notify.error("Save failed", error instanceof Error ? error.message : String(error));
+            }
+        };
+        const scheduleAutosave = (dirty: boolean) => {
+            if (autosaveTimer !== null) {
+                window.clearTimeout(autosaveTimer);
+                autosaveTimer = null;
+            }
+            const editorSettings = getSettings().editor;
+            if (!dirty || editorSettings.autoSave !== "afterDelay") return;
+            autosaveTimer = window.setTimeout(() => {
+                autosaveTimer = null;
+                void persistNow();
+            }, Math.max(250, editorSettings.autoSaveDelay));
+        };
         // Seed both consumers: the breadcrumb reads the buffer for its symbol
         // chain, and the status bar wants a caret position before the first key.
         publishBuffer(view);
@@ -400,6 +464,12 @@ export function CodeMirrorEditor({
                 nav?: "next" | "prev";
             }>).detail;
             if (!detail || detail.path !== pathRef.current) return;
+            // "Find in File" sends no query: open and focus the panel instead of
+            // setting an empty search that shows nothing.
+            if (detail.query === undefined) {
+                openSearchPanel(view);
+                return;
+            }
             const query = new SearchQuery({
                 search: detail.query || "",
                 caseSensitive: Boolean(detail.caseSensitive),
@@ -408,14 +478,6 @@ export function CodeMirrorEditor({
             view.dispatch({ effects: setSearchQuery.of(query) });
             if (detail.nav === "next") findNext(view);
             if (detail.nav === "prev") findPrevious(view);
-            let count = 0;
-            if (detail.query && query.valid) {
-                const cursor = query.getCursor(view.state);
-                for (let step = cursor.next(); !step.done; step = cursor.next()) count += 1;
-            }
-            window.dispatchEvent(
-                new CustomEvent("bettershape-editor-search-count", { detail: { path: pathRef.current, count } }),
-            );
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
 
@@ -460,6 +522,19 @@ export function CodeMirrorEditor({
                 case "selectAll":
                     selectAll(v);
                     break;
+                // The keyboard bindings are native; a menubar click is not.
+                case "cut":
+                    runClipboardAction(v, "cut");
+                    break;
+                case "copy":
+                    runClipboardAction(v, "copy");
+                    break;
+                case "paste":
+                    runClipboardAction(v, "paste");
+                    break;
+                case "localHistory":
+                    requestLocalHistory(pathRef.current);
+                    break;
                 case "jumpToPosition":
                     jumpToPosition(v, detail.line ?? 1, detail.column ?? 1);
                     break;
@@ -470,6 +545,11 @@ export function CodeMirrorEditor({
                     }
                     break;
                 }
+                case "toggleMinimap":
+                    // The minimap lives in the options compartment, so the command
+                    // and the Settings switch drive the same one place.
+                    updateSettingSection("editor", { minimap: !getSettings().editor.minimap });
+                    break;
                 case "toggleWordWrap":
                     wrapEnabled = !wrapEnabled;
                     v.dispatch({
@@ -603,6 +683,10 @@ export function CodeMirrorEditor({
                 case "format":
                 case "formatDocument":
                 case "formatSelection": {
+                    if (!getSettings().prettier.enable) {
+                        notify.info("Prettier is off", "Turn on Prettier in Settings to format files.");
+                        break;
+                    }
                     // Prettier formats whole documents; selection formatting falls back to it.
                     const source = v.state.doc.toString();
                     void commands
@@ -634,7 +718,9 @@ export function CodeMirrorEditor({
             saveDirtyBuffer(pathRef.current, current, detail.content);
             const dirty = !sameIgnoringEol(savedForCompare, detail.content);
             isDirtyRef.current = dirty;
-            if (dirty) void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
+            // Always state the answer: the tab could have been dirty before this
+            // save, and skipping the false case leaves that marker behind.
+            void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
         };
         window.addEventListener("bettershape-file-saved", onFileSaved);
         const onFlushBuffer = (event: Event) => {
@@ -665,6 +751,8 @@ export function CodeMirrorEditor({
             view.dom.removeEventListener("pointerdown", markActive);
             if (activeView === view) activeView = null;
             if (bufferTimer !== null) window.clearTimeout(bufferTimer);
+            if (autosaveTimer !== null) window.clearTimeout(autosaveTimer);
+            unsubscribeSettings();
             view.destroy();
             viewRef.current = null;
         };
@@ -712,16 +800,13 @@ export function CodeMirrorEditor({
                     Redo
                 </ContextMenuItem>
                 <ContextMenuSeparator />
+                {/* The menubar dispatches the same three actions; one
+                    implementation keeps the failure handling honest (the old
+                    inline cut dropped the edit when the clipboard refused). */}
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        const sel = v.state.selection.main;
-                        const text = v.state.sliceDoc(sel.from, sel.to);
-                        if (!text) return;
-                        void navigator.clipboard.writeText(text).then(() => {
-                            v.dispatch({ changes: { from: sel.from, to: sel.to, insert: "" } });
-                        });
+                        if (v) runClipboardAction(v, "cut");
                     }}
                 >
                     Cut
@@ -729,10 +814,7 @@ export function CodeMirrorEditor({
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        const sel = v.state.selection.main;
-                        const text = v.state.sliceDoc(sel.from, sel.to);
-                        if (text) void navigator.clipboard.writeText(text);
+                        if (v) runClipboardAction(v, "copy");
                     }}
                 >
                     Copy
@@ -740,10 +822,7 @@ export function CodeMirrorEditor({
                 <ContextMenuItem
                     onClick={() => {
                         const v = viewRef.current;
-                        if (!v) return;
-                        void navigator.clipboard.readText().then((text) => {
-                            v.dispatch(v.state.replaceSelection(text));
-                        });
+                        if (v) runClipboardAction(v, "paste");
                     }}
                 >
                     Paste
@@ -756,7 +835,30 @@ export function CodeMirrorEditor({
                 >
                     Select All
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                    onClick={() =>
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-editor-action", { detail: { action: "localHistory" } })
+                        )
+                    }
+                >
+                    Local history...
+                </ContextMenuItem>
             </ContextMenuContent>
+            <LocalHistoryPicker
+                path={path}
+                onRestore={(restored) => {
+                    const view = viewRef.current;
+                    if (!view) {
+                        setContentRef.current(restored);
+                        return;
+                    }
+                    // A plain transaction, so the normal change path stages the
+                    // buffer, recomputes dirtiness and leaves the restore undoable.
+                    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: restored } });
+                }}
+            />
         </ContextMenu>
     );
 }

@@ -12,11 +12,14 @@ describe("settings", () => {
     });
 
     it("guides", () => {
-        updateSettingSection("editor", { showIndentGuides: true, showBracketGuides: true });
+        updateSettingSection("editor", { showIndentGuides: true });
         const options = getEditorOptionsFromSettings();
         expect(options.guides.indentation).toBe(true);
         expect(options.guides.highlightActiveIndentation).toBe(true);
-        expect(options.guides.bracketPairs).toBe(true);
+        // Bracket guides need a renderer CodeMirror does not ship, so the mapper
+        // must not advertise one. Bracket colours are their own setting.
+        expect(options.guides).not.toHaveProperty("bracketPairs");
+        expect(options.bracketPairColorization).toEqual({ enabled: true });
     });
 
     it("emit", () => {

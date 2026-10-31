@@ -1,10 +1,12 @@
 "use client";
 
-import { stageDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, clearDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-import React, { useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
+import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallback } from "react";
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
+import { getSettings, useSettings } from "@/lib/settings";
+import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -14,6 +16,7 @@ import { getFileExtension, isImageExtension, isFontExtension } from "../../lib/i
 import { Breadcrumbs } from "./ui/breadcrumb";
 import { MarkdownViewSwitch, PlanEditorHeader } from "./ui/plan-editor-header";
 import { MarkdownLiveEditor } from "../markdown/live-editor";
+import { LocalHistoryPicker } from "../local-history-picker";
 import { ErrorView } from "./ui/error";
 import { ImageView } from "./ui/image";
 import { FontView } from "./ui/font";
@@ -30,6 +33,13 @@ import type { EditorGroupId } from "@/core/providers/editor";
 import { isPlanFilePath } from "@/lib/plan/file";
 import { parsePlanMarkdown } from "@/lib/plan/preview";
 
+
+/** The line ending a file uses on disk, read from the bytes that were loaded. */
+const lineEndingOf = (text: string): "LF" | "CRLF" => (text.includes("\r\n") ? "CRLF" : "LF");
+
+/** Compares two documents without treating the line-ending convention as a change. */
+const sameLines = (a: string, b: string) => a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
+
 // Main file viewer component handling various file types (text, image, markdown)
 export default function FileViewer({ path, group: _group = "left", variant = "editor" }: { path: string; group?: EditorGroupId; variant?: "editor" | "workspace" }) {
     usePerfRenderCount("editor");
@@ -42,9 +52,12 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const isRasterImage = isImage && !isSvg;
     const isMarkdown = /\.(md|mdx|markdown)$/i.test(path);
     const isPlanFile = isPlanFilePath(path);
-    const defaultMode = isImage || isFont || isMarkdown ? "preview" : "raw";
+    const imagePreviewEnabled = useSettings().editor.imagePreview;
+    // Image preview decides how images open. Markdown and fonts open in their
+    // own previews either way, so turning image previews off must not demote them.
+    const defaultMode = isImage && !imagePreviewEnabled ? "raw" : isImage || isFont || isMarkdown ? "preview" : "raw";
     const mode = getViewMode(path, defaultMode);
-    const showImagePreview = isImage && (mode === "preview" || mode === "split");
+    const showImagePreview = isImage && imagePreviewEnabled && (mode === "preview" || mode === "split");
     const showFontPreview = isFont && (mode === "preview" || mode === "split");
     const skipTextContent = isRasterImage || (isSvg && showImagePreview) || (isFont && showFontPreview);
 
@@ -86,8 +99,73 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const { content, setContent, originalContent, error, loading } = useFileContent(
         path, skipTextContent, isDiff, savedContentRef, bufferVersionRef
     );
+
     const currentContentRef = useRef(content);
     useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
+    const previewAutosaveRef = useRef<number | null>(null);
+    const pathRef = useRef(path);
+    useLayoutEffect(() => { pathRef.current = path; }, [path]);
+    useEffect(
+        () => () => {
+            // The viewer stays mounted while the path changes, so a timer
+            // scheduled for the previous file has to be dropped with it.
+            if (previewAutosaveRef.current !== null) {
+                window.clearTimeout(previewAutosaveRef.current);
+                previewAutosaveRef.current = null;
+            }
+        },
+        [path],
+    );
+
+    /**
+     * Writes the preview buffer through the shared save pipeline.
+     *
+     * The pipeline can trim or format the text, so the returned document is
+     * what the preview shows afterwards; leaving the old buffer on screen would
+     * both misreport the file and leave it marked dirty against its own disk
+     * contents.
+     */
+    const persistPreview = useCallback(async () => {
+        if (previewAutosaveRef.current !== null) {
+            window.clearTimeout(previewAutosaveRef.current);
+            previewAutosaveRef.current = null;
+        }
+        if (pathRef.current !== path) return;
+        const doc = currentContentRef.current;
+        const eol = lineEndingOf(savedContentRef.current || doc);
+        try {
+            const written = await saveContents(path, doc, eol);
+            // Typing during the write wins: the buffer on screen is newer. A
+            // path change means this text belongs to another file now.
+            if (pathRef.current !== path || currentContentRef.current !== doc) return;
+            currentContentRef.current = written;
+            // Keep the on-disk line ending in the baseline: the next save reads
+            // the convention from it, and `written` is LF by construction.
+            savedContentRef.current = toDiskText(written, eol);
+            setContent(written);
+            clearDirtyBuffer(path);
+            isDirtyRef.current = false;
+            await commands.markFileDirty(path, false).catch(() => undefined);
+            window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: written } }));
+        } catch (e) {
+            const { notify } = await import("@/features/notifications");
+            notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
+                code: 4000,
+            });
+        }
+    }, [path, setContent]);
+
+    /** Schedules the autosave the editor settings ask for, if any. */
+    const schedulePreviewAutosave = useCallback(() => {
+        if (previewAutosaveRef.current !== null) window.clearTimeout(previewAutosaveRef.current);
+        previewAutosaveRef.current = null;
+        const editorSettings = getSettings().editor;
+        if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
+        previewAutosaveRef.current = window.setTimeout(() => {
+            previewAutosaveRef.current = null;
+            void persistPreview();
+        }, Math.max(250, editorSettings.autoSaveDelay));
+    }, [persistPreview]);
     const planTitle = isPlanFile ? parsePlanMarkdown(content || "").title : "";
 
     useEffect(() => {
@@ -281,14 +359,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         if (!(isMarkdown && mode === "preview")) return;
 
         const handleSave = async () => {
-            try {
-                await commands.saveFile(path, content);
-            } catch (e) {
-                const { notify } = await import("@/features/notifications");
-                notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
-                    code: 4000,
-                });
-            }
+            await persistPreview();
         };
 
         const handleEditorAction = (event: Event) => {
@@ -302,7 +373,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 setContent(prev);
                 window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: prev } }));
-                const dirty = prev !== savedContentRef.current;
+                const dirty = !sameLines(prev, savedContentRef.current);
                 isDirtyRef.current = dirty;
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             } else if (action === "redo") {
@@ -314,7 +385,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 setContent(next);
                 window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
-                const dirty = next !== savedContentRef.current;
+                const dirty = !sameLines(next, savedContentRef.current);
                 isDirtyRef.current = dirty;
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             }
@@ -325,8 +396,10 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             if (detail?.path !== path || typeof detail.content !== "string") return;
             savedContentRef.current = detail.content;
             saveDirtyBuffer(path, currentContentRef.current, detail.content);
-            isDirtyRef.current = currentContentRef.current !== detail.content;
-            if (isDirtyRef.current) void commands.markFileDirty(path, true).catch(() => undefined);
+            isDirtyRef.current = !sameLines(currentContentRef.current, detail.content);
+            // Always state the answer: a save that now matches the buffer has to
+            // clear a dirty marker an earlier edit set.
+            void commands.markFileDirty(path, isDirtyRef.current).catch(() => undefined);
         };
         window.addEventListener("bettershape-file-saved", onFileSaved);
         window.addEventListener("save-request", handleSave);
@@ -336,7 +409,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
-    }, [isMarkdown, mode, path, content, setContent]);
+    }, [isMarkdown, mode, path, content, setContent, persistPreview]);
 
     const workspace = variant === "workspace";
 
@@ -346,6 +419,30 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
 
     if (showFontPreview) {
         return <FontView path={path.replace(/^diff:(un)?staged:/, "")} />;
+    }
+
+    if (isRasterImage && !imagePreviewEnabled) {
+        return (
+            <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 bg-editor px-6 text-center">
+                <p className="text-sm text-text-secondary">
+                    Image preview is off.
+                </p>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-settings-navigate", { detail: { category: "editor" } }),
+                        );
+                        void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
+                            openSettingsWindow({ category: "editor" }),
+                        );
+                    }}
+                >
+                    Open editor settings
+                </Button>
+            </div>
+        );
     }
 
     if (showImagePreview) {
@@ -513,12 +610,13 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         setContent(next);
         window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
         window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
-        isDirtyRef.current = next !== savedContentRef.current;
+        isDirtyRef.current = !sameLines(next, savedContentRef.current);
         try {
             await commands.markFileDirty(path, isDirtyRef.current);
         } catch {
             /* ignore */
         }
+        schedulePreviewAutosave();
     };
 
     if (isMarkdown && !isPlanFile && mode === "preview") {
@@ -541,8 +639,9 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                     </div>
                 )}
                 <div className="flex-1 w-full min-h-0 overflow-hidden relative">
-                    <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} />
+                    <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
+                <LocalHistoryPicker path={path} onRestore={(next) => void applyMarkdownContent(next)} />
             </div>
         );
     }

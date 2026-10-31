@@ -23,6 +23,8 @@ import {
 import { GitStatusButton } from "./git-status";
 import { StatusItem } from "./status-item";
 import { PythonInterpreterStatus } from "./python-interpreter";
+import { DevRunStatusItem } from "./run-status";
+import { NotificationsMenu } from "./notifications-menu";
 
 type SplitState = ReturnType<typeof useEditorSplitOptional>;
 
@@ -84,14 +86,12 @@ const EditorStatusItems = ({
     statusFile,
     projectPath,
     languageLabel,
-    typescriptVersion,
     onIndentation,
     onEol,
 }: {
     statusFile: string;
     projectPath: string | null;
     languageLabel: string;
-    typescriptVersion: string | null;
     onIndentation: () => void;
     onEol: () => void;
 }) => {
@@ -156,15 +156,21 @@ const EditorStatusItems = ({
                 </button>
             </Tooltip>
 
+            {editorStatus.blame ? (
+                <StatusItem
+                    label="Git blame for this line"
+                    className="hidden @[300px]/status:flex max-w-[280px]"
+                >
+                    <span className="truncate text-text-muted italic">{editorStatus.blame}</span>
+                </StatusItem>
+            ) : null}
+
             <StatusItem
                 label="Select Language Mode"
                 onClick={openLanguagePicker}
                 className="hidden @[340px]/status:flex"
             >
                 <SwapText value={languageLabel} />
-                {typescriptVersion && editorStatus.language.includes("typescript") && (
-                    <span className="text-text-muted ml-1">TS {typescriptVersion}</span>
-                )}
             </StatusItem>
 
             <div className="hidden @[680px]/status:contents">
@@ -188,7 +194,7 @@ const Status = () => {
         ? pickStatusFile(split, active_file)
         : (splitFocusedFile ?? active_file ?? null);
     const progressMessages = useAllProgressMessages();
-    const { editorStatus, typescriptVersion } = useEditorStatus();
+    const { editorStatus } = useEditorStatus();
     const latestProgressMessage = progressMessages[progressMessages.length - 1] ?? null;
     const hasEditor = Boolean(statusFile);
 
@@ -250,6 +256,7 @@ const Status = () => {
             <div className="relative flex @[760px]/status:grid @[760px]/status:grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] h-full w-full items-center justify-between overflow-hidden px-1">
                 <div className="relative z-30 flex items-center h-full min-w-0 space-x-0.5 overflow-hidden">
                     <GitStatusButton />
+                    <DevRunStatusItem />
 
                     {latestProgressMessage && (
                         <ProgressIndicator messages={progressMessages} latest={latestProgressMessage} />
@@ -261,12 +268,12 @@ const Status = () => {
                 </div>
 
                 <div className="relative z-30 ml-auto flex items-center justify-end h-full shrink-0 min-w-0">
+                    <NotificationsMenu />
                     {hasEditor ? (
                         <EditorStatusItems
                             statusFile={statusFile as string}
                             projectPath={project_path}
                             languageLabel={languageLabel}
-                            typescriptVersion={typescriptVersion}
                             onIndentation={openIndentationPicker}
                             onEol={openEolPicker}
                         />

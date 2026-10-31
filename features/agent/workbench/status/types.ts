@@ -5,6 +5,8 @@ export type EditorStatus = {
     insertSpaces: boolean;
     eol: "LF" | "CRLF";
     language: string;
+    /** "Author · 1d ago" for the caret line, once inline blame has data. */
+    blame?: string;
 };
 
 export const DEFAULT_EDITOR_STATUS: EditorStatus = {

@@ -64,6 +64,11 @@ const PREVIEW_FILES: Record<string, string> = {
         null,
         2,
     )}\n`,
+    ["/preview/shared-lib/notes.md"]: [
+        "# shared-lib (preview fixture)",
+        "",
+        "A folder added to the workspace, outside the project root.",
+    ].join("\n"),
     [`${PREVIEW_PROJECT_PATH}/src/App.tsx`]: [
         "export default function App() {",
         '    return <main className="app">Hello from the preview fixture</main>;',
@@ -89,6 +94,12 @@ const PREVIEW_DIRS: Record<string, Array<{ name: string; is_dir: boolean }>> = {
     [`${PREVIEW_PROJECT_PATH}/src`]: [
         { name: "App.tsx", is_dir: false },
         { name: "main.ts", is_dir: false },
+    ],
+    // A second root for the "Add Folder to Workspace" path: the explorer lists
+    // extra roots after the project, and QA needs one to look at.
+    "/preview/shared-lib": [
+        { name: "notes.md", is_dir: false },
+        { name: "theme.css", is_dir: false },
     ],
 };
 
@@ -155,6 +166,27 @@ export const MODELED_PLUGIN_COMMANDS = [
 /** Final segment of a slash-delimited preview path. */
 const fileNameOf = (path: string): string => path.split("/").pop() ?? path;
 
+const PREVIEW_SETTINGS_KEY = "bettershape:preview-settings";
+
+/** The last settings snapshot this tab wrote, so a reload reads it back. */
+function readSeededSettings(
+    fallback: { record: Record<string, unknown> | null; revision: string },
+): { record: Record<string, unknown> | null; revision: string } {
+    try {
+        const raw = window.sessionStorage.getItem(PREVIEW_SETTINGS_KEY);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw) as { record?: unknown; revision?: unknown };
+        if (typeof parsed?.revision !== "string") return fallback;
+        const record = parsed.record;
+        return {
+            record: record && typeof record === "object" ? (record as Record<string, unknown>) : null,
+            revision: parsed.revision,
+        };
+    } catch {
+        return fallback;
+    }
+}
+
 /** Accept only the two supported preview seed modes. */
 const asSeedMode = (value: string | null | undefined): PreviewSeedMode | null =>
     value === "project" || value === "welcome" ? value : null;
@@ -177,6 +209,27 @@ note = Callout("Local fixture", "This saved conversation does not contact an AI 
         timestamp: Date.now() - 59_000,
     },
 ];
+
+/** Three saved versions of the active fixture file, newest first. */
+/** Three saved versions, fifteen minutes apart, matching the Rust store's shape. */
+const previewHistoryEntries = (now: number) =>
+    [0, 1, 2].map((index) => {
+        const at = now - index * 15 * 60 * 1000;
+        return {
+            id: `preview-${at}-${index}`,
+            timestamp: Math.floor(at / 1000),
+            label: `Saved version ${index + 1}`,
+            size: 640 - index * 96,
+        };
+    });
+
+/** Files the seeded commits touch, sliced to each commit's change count. */
+const previewCommitFiles = (filesChanged: number) =>
+    [
+        { path: "src/App.tsx", status: "M", staged: false },
+        { path: "README.md", status: "M", staged: false },
+        { path: "src/main.tsx", status: "A", staged: false },
+    ].slice(0, Math.max(0, filesChanged));
 
 /** Seeded Git history, newest first, in the backend's wire shape. */
 const previewLogEntries = () => {
@@ -245,6 +298,14 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             { path: "README.md", status: "M", staged: true },
         ] as Array<{ path: string; status: string; staged: boolean }>,
         logStreamOffsets: new Map<string, number>(),
+        // Seeded empty, then written through by `write_settings_file`. Before
+        // this the preview always answered "no record", so every settings change
+        // was lost on the next navigation.
+        settingsFile: {
+            record: null as Record<string, unknown> | null,
+            revision: "missing",
+        },
+        settingsRevision: 0,
     };
     const listeners = new Map<string, Set<number>>();
     // `listen` records the callback id but returns a separate subscription
@@ -493,8 +554,28 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // revision it was given. Returning nothing left the app unable to tell
         // "never saved" from "the backend failed", and the QA crawl listed the
         // command as unmodelled.
-        read_settings_file: () => ({ record: null, revision: "missing" }),
-        write_settings_file: (args) => (typeof args.expected === "string" ? args.expected : "missing"),
+        // Backed by sessionStorage, not module state: the mock is reinstalled on
+        // every navigation, so an in-memory record made each settings change
+        // vanish on reload and every settings-gated surface look switched off.
+        read_settings_file: () => ({ ...readSeededSettings(state.settingsFile) }),
+        write_settings_file: (args) => {
+            // Round-trip like the real file store: the revision moves and the
+            // record reads back, so a switch flipped in Settings survives a
+            // reload and a settings-gated surface can be clicked through.
+            // The real file wraps the preferences under `settings`; storing the
+            // bare object made `get("settings")` return undefined, so a reload
+            // read the record as present but empty and fell back to defaults.
+            state.settingsFile = {
+                record: { settings: structuredClone(args.settings ?? null) },
+                revision: `preview-${++state.settingsRevision}`,
+            };
+            try {
+                window.sessionStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(state.settingsFile));
+            } catch {
+                /* a preview without session storage keeps the in-memory copy */
+            }
+            return state.settingsFile.revision;
+        },
 
         // ── indexing toggles ─────────────────────────────────────────────
         // Both return `Result<(), AppError>` natively, so the preview accepts
@@ -621,12 +702,42 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         ensure_path_within: (args) => (typeof args?.path === "string" ? args.path : null),
         get_rust_deps: () => [],
 
+        // ── design mode ──────────────────────────────────────────────────
+        // The fixture has no React app to inspect, so the studio opens on its
+        // designed "unsupported project" state instead of crashing on null.
+        inspect_design_project: () => ({
+            projectRoot: PREVIEW_PROJECT_PATH,
+            framework: "unsupported" as const,
+            supported: false,
+        }),
+        list_design_assets: () => [],
+        remember_preview_url_cmd: () => null,
+        probe_preview_url: () => false,
+        design_mode_log: () => null,
+
         // ── git ──────────────────────────────────────────────────────────
         git_discover_repos: () => [{ path: PREVIEW_PROJECT_PATH, name: "bettershape-demo", isBare: false }],
         git_resolve_repo_for_file: () => PREVIEW_PROJECT_PATH,
         // Status codes match the Rust backend (single letters, e.g.
         // "M"/"A"/"C"); the Git UI keys colors and glyphs off them.
         git_status: () => state.gitChanges.map((c) => ({ ...c })),
+        // One region per file, attributed to the same fixture author as the log,
+        // so Settings -> Git -> Inline Git Blame has something real to draw.
+        git_blame_file: (args) => {
+            const file = String(args.filePath ?? "");
+            if (!file) return [];
+            const lines = (state.files[file] ?? "").split("\n").length;
+            return [
+                {
+                    line: 1,
+                    line_count: Math.max(1, lines),
+                    commit: "preview1",
+                    author: "Preview Fixture",
+                    date: String(Math.floor(Date.now() / 1000) - 86_400),
+                    summary: "preview: wire browser QA fixtures",
+                },
+            ];
+        },
         git_stage: (args) => {
             const change = state.gitChanges.find((c) => c.path === String(args.filePath ?? ""));
             if (change) change.staged = true;
@@ -686,6 +797,18 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
         git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
+        // Local history: the editor's picker lists these and restores one into
+        // the buffer. The real backend keeps 50 versions per file on save.
+        get_file_history_command: () => previewHistoryEntries(Date.now()),
+        restore_history_version_command: (args) =>
+            `// restored ${String(args.versionId ?? "version")}\n// preview fixture content\n`, 
+        // The commit detail panel lists these. Without a handler the fallback
+        // answered `null`, which the panel put in state and then crashed on.
+        git_commit_files: (args) => {
+            const hash = String(args.hash ?? "");
+            const entry = state.logEntries.find((candidate) => candidate.hash === hash);
+            return entry ? previewCommitFiles(entry.files_changed) : [];
+        },
         // Stateful paging: every page must advance, or the graph appends
         // duplicate commits with duplicate row keys.
         // The Rust backend keys streamers by callerId (STREAMERS map), so
@@ -781,6 +904,16 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── GitHub / MCP / misc services ─────────────────────────────────
         github_auth_status: () => ({ loggedIn: false, username: null, avatarUrl: null, provider: "none" }),
         get_mcp_status: () => [],
+        // The browser preview runs the same version as the fixture, so the
+        // update check answers "nothing newer" instead of reaching GitHub.
+        check_app_update: () => ({
+            current: "1.0.3",
+            latest: "1.0.3",
+            newer: false,
+            url: "https://github.com/Owie6789/BetterShape/releases",
+            notes: "",
+        }),
+        mcp_reload_from_file: () => [],
         get_mcp_tools: () => [],
         get_mcp_config_path: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
         ensure_mcp_config: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,

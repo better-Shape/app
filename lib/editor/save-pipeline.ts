@@ -1,0 +1,150 @@
+"use client";
+
+import { commands, getProjectPath } from "@/lib/backend";
+import { notify } from "@/features/notifications";
+import { getSettings } from "@/lib/settings";
+import { isMissingPrettierFailure, offerPrettierInstall } from "@/lib/editor/tooling-install";
+
+/**
+ * Editor settings that change the bytes a save writes.
+ *
+ * Kept in one place because three save paths exist (the CodeMirror keybinding,
+ * autosave, and the markdown preview's Save), and a setting that only one of
+ * them honours is a setting that works intermittently.
+ */
+
+/** Converts the LF document back to the file's line ending on the way to disk. */
+export function toDiskText(text: string, eol: "LF" | "CRLF"): string {
+    const lf = text.replace(/\r\n/g, "\n");
+    return eol === "CRLF" ? lf.replace(/\n/g, "\r\n") : lf;
+}
+
+/**
+ * Strips trailing spaces and tabs one line at a time.
+ *
+ * Scans backwards from the end of each line instead of matching a regex: a
+ * quantified whitespace class anchored to `$` backtracks super-linearly on a
+ * long run of spaces, and a formatter left running on autosave checks this on
+ * every keystroke.
+ */
+const trimLineEnds = (doc: string): string =>
+    doc
+        .split("\n")
+        .map((line) => {
+            let end = line.length;
+            while (end > 0) {
+                const code = line.charCodeAt(end - 1);
+                if (code !== 0x20 && code !== 0x09) break;
+                end -= 1;
+            }
+            return end === line.length ? line : line.slice(0, end);
+        })
+        .join("\n");
+
+/** Applies Trim trailing whitespace and Insert final newline to an LF document. */
+export function prepareDocForSave(doc: string): string {
+    const editor = getSettings().editor;
+    let text = editor.trimTrailingWhitespace ? trimLineEnds(doc) : doc;
+    if (editor.insertFinalNewline && text.length > 0 && !text.endsWith("\n")) text += "\n";
+    return text;
+}
+
+/**
+ * Formats with Prettier when Format on save is on.
+ *
+ * A file type Prettier cannot parse keeps the text it was given: refusing to
+ * save a Markdown note because no parser matched would be a data loss bug, and
+ * the explicit Format action still reports its own failure.
+ */
+export async function formatForSave(path: string, text: string): Promise<string> {
+    const settings = getSettings();
+    // Format on save is a request to run the formatter, not a way to ignore the
+    // formatter being switched off.
+    if (!settings.editor.formatOnSave || !settings.prettier.enable) return text;
+    try {
+        const formatted = await commands.prettierFormatFile(getProjectPath() ?? "", path, text);
+        lastFormatFailure = null;
+        return typeof formatted === "string" && formatted.length > 0 ? formatted : text;
+    } catch (error) {
+        // Saving the unformatted text is the right call — refusing to save would
+        // lose the user's work — but a silent fallback makes Format on save look
+        // like it worked. Report each distinct failure once: autosave repeats the
+        // same broken file every few hundred milliseconds.
+        const reason = error instanceof Error ? error.message : String(error);
+        if (isMissingPrettierFailure(reason)) {
+            // Not a formatting problem: the project has no Prettier. The tooling
+            // preference decides between installing it, offering to, or only
+            // saying so, and it dedupes the message per project.
+            void offerPrettierInstall(getProjectPath() ?? "");
+            lastFormatFailure = `${path}\u0000${reason}`;
+            return text;
+        }
+        const signature = `${path}\u0000${reason}`;
+        if (signature !== lastFormatFailure) {
+            lastFormatFailure = signature;
+            notify.warn("Format on save skipped", `${path}: ${reason}`);
+        }
+        return text;
+    }
+}
+
+/**
+ * Applies ESLint's own fixes when Fix on save is on.
+ *
+ * ESLint writes its fixes into a temporary copy and hands the result back, so
+ * this never touches the file directly: a lint run that cannot start, or a file
+ * ESLint does not match, keeps the text it was given.
+ */
+export async function fixLintForSave(path: string, text: string): Promise<string> {
+    const settings = getSettings();
+    if (!settings.eslint.enable || !settings.eslint.fixOnSave) return text;
+    try {
+        const result = await commands.eslintLintFile(getProjectPath() ?? "", path, text, true);
+        return typeof result?.content === "string" && result.content.length > 0 ? result.content : text;
+    } catch {
+        // A missing ESLint install must not block saving.
+        return text;
+    }
+}
+
+/**
+ * Writes per path, in the order they were requested.
+ *
+ * Formatting is asynchronous, so two saves of the same file can finish out of
+ * order and leave the older snapshot on disk. Chaining per path keeps the last
+ * request as the last write.
+ */
+const writeChains = new Map<string, Promise<void>>();
+
+/** Last reported formatting failure, so autosave does not repeat the toast. */
+let lastFormatFailure: string | null = null;
+
+/** Runs `run` after every earlier write for the same path, success or not. */
+const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => {
+    const previous = writeChains.get(path) ?? Promise.resolve();
+    const next = previous.then(run, run);
+    // The tail resolves to nothing, so the map never holds saved file text, and
+    // a settled path is dropped rather than kept for the life of the session.
+    const tail = next.then(
+        () => undefined,
+        () => undefined,
+    );
+    writeChains.set(path, tail);
+    void tail.then(() => {
+        if (writeChains.get(path) === tail) writeChains.delete(path);
+    });
+    return next;
+};
+
+/** Runs the save pipeline and returns the LF text that was written. */
+export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF"): Promise<string> {
+    const prepared = prepareDocForSave(doc);
+    return serializeWrites(path, async () => {
+        // Lint fixes first: they can introduce new line breaks, and Prettier
+        // running afterwards settles the result into the project's style.
+        const fixed = await fixLintForSave(path, prepared);
+        const formatted = await formatForSave(path, fixed);
+        await commands.saveFile(path, toDiskText(formatted, eol));
+        return formatted;
+    });
+}
