@@ -36,6 +36,7 @@ import { isPopoutPath } from "@/lib/window/tauri-window";
 import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
 import { SETTINGS_CATEGORIES } from "@/features/settings/ui/shared/nav";
 import { commands, getProjectSnapshot, useProjectState } from "@/lib/backend";
+import { useEditorBuffer } from "@/features/agent/workbench/titlebar/hooks/use-editor-buffer";
 import { openSettingsWindow } from "@/lib/window/open-settings";
 import { requestLocalHistory } from "@/lib/editor/local-history";
 import { editorActionImplemented } from "@/lib/editor/action-contract";
@@ -276,6 +277,7 @@ export const CommandPalette = () => {
     // to have to pass it in `detail.activeFile`, and none did, so the section
     // never rendered; the backend's active file is the same value.
     const { active_file } = useProjectState();
+    const { readLatestContent } = useEditorBuffer();
 
     const browse = isBrowseMode(mode);
 
@@ -623,8 +625,9 @@ export const CommandPalette = () => {
         if (!open || mode !== "editor_symbols" || !activeFileBias) return;
         const path = activeFileBias;
         let cancelled = false;
-        commands
-            .readFile(path)
+        // The buffer, not the file on disk: unsaved edits move lines, and the
+        // rows jump to the line they name.
+        readLatestContent(path)
             .then((content) => commands.getOutline(path, content ?? "", getFileExtension(path), 0))
             .then((response) => {
                 if (cancelled) return;
@@ -636,7 +639,7 @@ export const CommandPalette = () => {
         return () => {
             cancelled = true;
         };
-    }, [open, mode, activeFileBias]);
+    }, [open, mode, activeFileBias, readLatestContent]);
     const symbolRows = useMemo(
         () => (outlineRows.path === activeFileBias ? outlineRows.rows : []),
         [outlineRows, activeFileBias],
