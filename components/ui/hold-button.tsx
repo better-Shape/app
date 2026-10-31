@@ -222,7 +222,8 @@ const useHoldState = ({
     const onStateChangeRef = React.useRef(onStateChange);
     const disabledRef = React.useRef(disabled);
     const mountedRef = React.useRef(true);
-    const confirmInFlightRef = React.useRef(false);
+    const pendingRef = React.useRef(false);
+    const activeConfirmsRef = React.useRef(0);
     const armedPressRef = React.useRef(false);
     const timersRef = React.useRef<HoldTimers>({ hold: null, reset: null, clickGuard: null });
     const startedAtRef = React.useRef(0);
@@ -329,8 +330,8 @@ const useHoldState = ({
 
     const invalidateInFlightConfirm = React.useCallback(() => {
         confirmEpochRef.current += 1;
-        if (!confirmInFlightRef.current) return;
-        confirmInFlightRef.current = false;
+        if (!pendingRef.current) return;
+        pendingRef.current = false;
         setPending(false);
     }, []);
 
@@ -377,23 +378,24 @@ const useHoldState = ({
 
     const awaitAsyncConfirm = React.useCallback(
         (promise: PromiseLike<void | boolean>, epoch: number) => {
-            if (confirmEpochRef.current !== epoch || isButtonDisabled()) {
-                writeState("idle");
-                return;
+            activeConfirmsRef.current += 1;
+            if (confirmEpochRef.current === epoch && !isButtonDisabled()) {
+                pendingRef.current = true;
+                setPending(true);
             }
-            confirmInFlightRef.current = true;
-            setPending(true);
             writeState("idle");
             Promise.resolve(promise)
                 .then((outcome) => {
+                    activeConfirmsRef.current = Math.max(0, activeConfirmsRef.current - 1);
                     if (confirmEpochRef.current !== epoch) return;
-                    confirmInFlightRef.current = false;
+                    pendingRef.current = false;
                     if (mountedRef.current) setPending(false);
                     settleSyncConfirm(outcome);
                 })
                 .catch(() => {
+                    activeConfirmsRef.current = Math.max(0, activeConfirmsRef.current - 1);
                     if (confirmEpochRef.current !== epoch) return;
-                    confirmInFlightRef.current = false;
+                    pendingRef.current = false;
                     if (!mountedRef.current) return;
                     setPending(false);
                     writeState("idle");
@@ -421,7 +423,7 @@ const useHoldState = ({
             cancelHold();
             return;
         }
-        if (confirmInFlightRef.current) return;
+        if (activeConfirmsRef.current > 0) return;
         clearTimerSlot(timersRef.current, "hold");
         clearTimerSlot(timersRef.current, "reset");
         detachPointerListeners();
@@ -465,7 +467,7 @@ const useHoldState = ({
     const isPressBlocked = React.useCallback(
         () =>
             isButtonDisabled() ||
-            confirmInFlightRef.current ||
+            activeConfirmsRef.current > 0 ||
             stateRef.current === "confirmed" ||
             sourceRef.current !== null,
         [isButtonDisabled],
@@ -603,7 +605,7 @@ const useHoldState = ({
     const isClickIgnored = React.useCallback(
         () =>
             isButtonDisabled() ||
-            confirmInFlightRef.current ||
+            activeConfirmsRef.current > 0 ||
             stateRef.current === "confirmed",
         [isButtonDisabled],
     );

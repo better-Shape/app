@@ -858,4 +858,42 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
         const posixScan = await discoverSkills();
         expect(posixScan.items.some((item) => item.body.includes("POSIX backslash folder."))).toBe(true);
     });
+
+    it("degrades gracefully when localStorage access throws on case-insensitive project paths", async () => {
+        const winProject = "C:\\Work\\BlockedStorage";
+        mocks.getProjectPath.mockReturnValue(winProject);
+        serveSkillFs(
+            mocks,
+            { [`${winProject}\\.agents\\guide.md`]: "# Guide\nStill discovered." },
+            { homeDir: "C:/Users/dev" },
+        );
+
+        const lengthSpy = vi
+            .spyOn(Storage.prototype, "length", "get")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+        const setItemSpy = vi
+            .spyOn(Storage.prototype, "setItem")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+        const removeItemSpy = vi
+            .spyOn(Storage.prototype, "removeItem")
+            .mockImplementation(() => {
+                throw new DOMException("Storage disabled", "SecurityError");
+            });
+
+        try {
+            expect(() => dismissDiscoveredFile(winProject, ".agents/guide.md")).not.toThrow();
+            expect(() => restoreDismissedFiles(winProject)).not.toThrow();
+            const result = await discoverSkills();
+            expect(result.items).toHaveLength(1);
+            expect(result.items[0]?.body).toContain("Still discovered.");
+        } finally {
+            lengthSpy.mockRestore();
+            setItemSpy.mockRestore();
+            removeItemSpy.mockRestore();
+        }
+    });
 });

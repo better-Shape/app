@@ -93,12 +93,16 @@ const isLegacyCaseVariantKey = (
 
 /** Collect legacy mixed-case localStorage keys matching `primaryKey`. */
 function collectCaseVariantKeys(primaryKey: string): string[] {
-    const extras: string[] = [];
-    for (let idx = 0; idx < window.localStorage.length; idx += 1) {
-        const candidate = window.localStorage.key(idx);
-        if (isLegacyCaseVariantKey(candidate, primaryKey)) extras.push(candidate);
+    try {
+        const extras: string[] = [];
+        for (let idx = 0; idx < window.localStorage.length; idx += 1) {
+            const candidate = window.localStorage.key(idx);
+            if (isLegacyCaseVariantKey(candidate, primaryKey)) extras.push(candidate);
+        }
+        return extras;
+    } catch {
+        return [];
     }
-    return extras;
 }
 
 /** Return the canonical dismissal key plus any legacy mixed-case keys for `projectPath`. */
@@ -127,8 +131,12 @@ export function dismissDiscoveredFile(projectPath: string, relPath: string) {
     const [primaryKey, ...legacyKeys] = matchingDismissedKeys(projectPath);
     const set = dismissedFiles(projectPath);
     set.add(relPath);
-    window.localStorage.setItem(primaryKey, JSON.stringify([...set]));
-    for (const legacyKey of legacyKeys) window.localStorage.removeItem(legacyKey);
+    try {
+        window.localStorage.setItem(primaryKey, JSON.stringify([...set]));
+        for (const legacyKey of legacyKeys) window.localStorage.removeItem(legacyKey);
+    } catch {
+        // Ignore storage write errors in restricted webviews or private browsing modes.
+    }
 }
 
 /** How many files the user dismissed in this project. */
@@ -140,7 +148,11 @@ export function countDismissedFiles(projectPath: string): number {
 export function restoreDismissedFiles(projectPath: string): void {
     if (typeof window === "undefined") return;
     for (const key of matchingDismissedKeys(projectPath)) {
-        window.localStorage.removeItem(key);
+        try {
+            window.localStorage.removeItem(key);
+        } catch {
+            // Ignore storage removal errors when localStorage access is blocked.
+        }
     }
 }
 
@@ -230,7 +242,10 @@ function canonicalRootScanKey(
 ): string {
     const extensions =
         root.kind === "flat"
-            ? [...(root.extensions ?? [".md"])].map((ext) => ext.toLowerCase()).sort().join(",")
+            ? [...(root.extensions ?? [".md"])]
+                  .map((ext) => ext.toLowerCase())
+                  .sort((a, b) => a.localeCompare(b))
+                  .join(",")
             : "";
     return `${canonicalPathKey(canonicalRoot, projectPath)}\0${root.kind}\0${extensions}`;
 }

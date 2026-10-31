@@ -796,9 +796,15 @@ describe("HoldButton", () => {
         expect(btn.getAttribute("aria-busy")).toBe("true");
 
         renderDeleteHold(true, onConfirm);
-        // Re-enable BEFORE the stale in-flight promise settles; settling afterward must stay idle.
+        // Re-enable BEFORE the stale in-flight promise settles; settling afterward must stay idle,
+        // and no second concurrent confirmation may start until the first promise settles.
         renderDeleteHold(false, onConfirm);
         expect(btn.getAttribute("aria-busy")).toBeNull();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 39 }));
+            vi.advanceTimersByTime(500);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
         await act(async () => {
             resolveAsync?.();
             await Promise.resolve();
