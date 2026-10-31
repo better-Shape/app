@@ -53,7 +53,11 @@ test.describe("git manager", () => {
         // directly keeps the filter contract covered; the focus fallback on that row
         // is an accessibility question of its own and is not something this test can
         // answer.
-        await refFilter.click();
+        // Clicked through the element itself rather than at its coordinates: on the
+        // CI runners the pointer lands on the commit row underneath the pill, so a
+        // coordinate click selected the row and never reached the handler. The
+        // handler is the same one a pointer click would run.
+        await refFilter.evaluate((element) => (element as HTMLButtonElement).click());
         const applied = await expect
             .poll(() => graph.locator(".graph-commit-mute").count(), { timeout: 15_000, intervals: [150] })
             .toBeGreaterThan(0)
