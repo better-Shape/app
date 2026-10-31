@@ -258,8 +258,6 @@ pub fn run() {
             commands::ipc::filesystem::search_content,
             commands::ipc::filesystem::replace_content,
             commands::ipc::filesystem::set_diagnostics,
-            commands::ipc::filesystem::save_color_to_history,
-            commands::ipc::filesystem::get_color_history,
             commands::ipc::open::open_url_external,
             commands::ipc::open::pin_to_taskbar,
             commands::desktop_notification::show_desktop_notification,

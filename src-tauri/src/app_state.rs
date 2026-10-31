@@ -50,8 +50,6 @@ pub struct ProjectState {
     pub active_file: Option<String>,
     #[serde(default)]
     pub diagnostics: HashMap<String, Vec<Diagnostic>>,
-    #[serde(default)]
-    pub color_history: Vec<String>,
 }
 
 pub struct AppState(pub Mutex<ProjectState>);
@@ -63,7 +61,6 @@ impl AppState {
             open_files: Vec::new(),
             active_file: None,
             diagnostics: HashMap::new(),
-            color_history: Vec::new(),
         }))
     }
 }

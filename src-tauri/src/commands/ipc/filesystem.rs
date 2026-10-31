@@ -262,24 +262,3 @@ pub async fn set_diagnostics(
 ) -> Result<(), AppError> {
     service::set_diagnostics(state, path, diagnostics).await
 }
-
-#[tauri::command]
-pub async fn save_color_to_history(
-    state: State<'_, AppState>,
-    color: String,
-) -> Result<(), AppError> {
-    let mut p_state = state.0.lock()?;
-    if p_state.color_history.last() != Some(&color) {
-        p_state.color_history.push(color);
-        if p_state.color_history.len() > 100 {
-            p_state.color_history.remove(0);
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_color_history(state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
-    let p_state = state.0.lock()?;
-    Ok(p_state.color_history.clone())
-}

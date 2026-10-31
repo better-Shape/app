@@ -1040,8 +1040,6 @@ export const commands = {
     setDiagnostics: (path: string, diagnostics: unknown[]) => invokeCommand<void>("set_diagnostics", { path, diagnostics }),
     ptyAvailableShells: () =>
         invokeCommand<import("./types").TerminalShellProfile[]>("pty_available_shells"),
-    saveColorToHistory: (color: string) => invokeCommand<void>("save_color_to_history", { color }),
-    getColorHistory: () => invokeCommand<string[]>("get_color_history"),
     eslintLintFile: (projectPath: string, filePath: string, content: string, applyFix?: boolean) =>
         invokeCommand<EslintLintResult>("eslint_lint_file", {
             projectPath,
