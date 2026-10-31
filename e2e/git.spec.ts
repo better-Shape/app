@@ -44,7 +44,28 @@ test.describe("git manager", () => {
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
         await page.keyboard.press("Enter");
-        await expect(graph.locator(".graph-commit-mute").first()).toBeVisible();
+        // The filter mutes rows rather than dropping them, so a muted row proves it
+        // applied. When this fails, say which of the two things went wrong instead
+        // of leaving "element(s) not found" — the CI runner is slower than any
+        // local reproduction and the DOM state is the only evidence available.
+        const mutedRows = graph.locator(".graph-commit-mute");
+        const applied = await expect
+            .poll(() => mutedRows.count(), { timeout: 30_000, intervals: [200] })
+            .toBeGreaterThan(0)
+            .then(() => true)
+            .catch(() => false);
+        if (!applied) {
+            const state = await page.evaluate(() => ({
+                activeLabel:
+                    document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "none",
+                pillLabels: Array.from(document.querySelectorAll("[aria-label^='Filter graph to']")).map((el) =>
+                    el.getAttribute("aria-label"),
+                ),
+                rowCount: document.querySelectorAll("[aria-label='Commit graph'] [role='listitem']").length,
+                pillCount: document.querySelectorAll("[aria-label^='Filter graph to']").length,
+            }));
+            throw new Error(`ref filter did not mute any row after Enter: ${JSON.stringify({ pill: await refFilter.getAttribute("aria-label"), ...state })}`);
+        }
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
         expectNoPageErrors();
