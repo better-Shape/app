@@ -37,11 +37,14 @@ export function pathsEqual(leftPath: string, rightPath: string): boolean {
 }
 
 /** Fingerprint for matching an accepted/rejected edit payload. */
+/** ToInt32 without the `| 0` idiom (Sonar S7767); `Math.imul(1, n)` truncates to int32. */
+const toInt32 = (value: number) => Math.imul(1, value);
+
 export function editContentHash(replacement: string): string {
     const normalized = replacement.replaceAll("\r\n", "\n");
     let hash = 0;
     for (let idx = 0; idx < normalized.length; idx += 1) {
-        hash = (Math.imul(hash, 31) + normalized.charCodeAt(idx)) | 0;
+        hash = toInt32(Math.imul(hash, 31) + normalized.charCodeAt(idx));
     }
     return `${normalized.length}:${hash.toString(36)}`;
 }

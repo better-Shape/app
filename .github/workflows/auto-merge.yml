@@ -4,16 +4,19 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: the workflow default is read-only; only the merge job gets writes.
 permissions:
-  contents: write
-  pull-requests: write
-  checks: read
+  contents: read
 
 jobs:
   auto-merge:
     name: Auto-merge Dependabot (patch/minor)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
     if: github.actor == 'dependabot[bot]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

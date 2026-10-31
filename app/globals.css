@@ -621,6 +621,8 @@
 html {
   /* Keep rem root at 13px so Tailwind spacing (p-2, gap-3, …) matches the rest of the IDE. */
   font-size: 13px;
+  /* Default ring offset reads as a black halo on dark buttons. */
+  --tw-ring-offset-color: transparent;
   font-family: var(--font-ui);
   -webkit-font-smoothing: auto;
   -moz-osx-font-smoothing: auto;
@@ -666,11 +668,6 @@ body {
 .monaco-diff-editor .monaco-editor .overflow-guard,
 .monaco-diff-editor .overflow-guard {
   border: none !important;
-}
-
-/* Default ring offset reads as a black halo on dark buttons. */
-html {
-  --tw-ring-offset-color: transparent;
 }
 
 button:focus,
@@ -971,9 +968,6 @@ body[data-resizing] .xterm {
 [data-no-drag],
 [data-tauri-drag-region] button,
 [data-tauri-drag-region] a,
-[data-tauri-drag-region] input,
-[data-tauri-drag-region] textarea,
-[data-tauri-drag-region] select,
 [data-tauri-drag-region] [role="button"],
 [data-tauri-drag-region] [role="menuitem"],
 [data-tauri-drag-region] [data-radix-collection-item],
