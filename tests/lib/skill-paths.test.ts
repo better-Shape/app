@@ -163,5 +163,10 @@ describe("skill-paths: displaySkillPath", () => {
         expect(displaySkillPath("//host/share/SKILL.md", "/", "/")).toBe(
             "//host/share/SKILL.md"
         );
+        expect(normalizeSkillPath("///etc/skills/pdf/SKILL.md")).toBe("/etc/skills/pdf/SKILL.md");
+        expect(isInsideSkillPath("///etc/skills/pdf/SKILL.md", "/")).toBe(true);
+        expect(displaySkillPath("///etc/skills/pdf/SKILL.md", "/", null)).toBe(
+            "etc/skills/pdf/SKILL.md"
+        );
     });
 });

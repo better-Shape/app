@@ -74,13 +74,20 @@ const collapseSeparators = (
 const withTrailingSlash = (normalizedPath: string): string =>
     normalizedPath.endsWith("/") ? normalizedPath : `${normalizedPath}/`;
 
+const collapsePosixLeadingSlashes = (forward: string): string => {
+    if (!forward.startsWith("///")) return forward;
+    const rest = trimLeadingSeparators(forward, isForwardSep);
+    return rest ? `/${rest}` : "/";
+};
+
 /**
- * Normalize Windows separators to forward slashes and drop trailing separators while preserving
- * POSIX literal backslashes, `/`, and `X:/` drive roots.
+ * Normalize Windows separators to forward slashes, collapse 3+ leading POSIX slashes to `/`,
+ * and drop trailing separators while preserving POSIX literal backslashes, `//`, and `X:/`.
  */
 export function normalizeSkillPath(path: string): string {
     const forward = isCaseInsensitiveSkillPath(path) ? path.replaceAll("\\", "/") : path;
-    return trimRootAwareTrailingSeparators(forward, "/", isForwardSep);
+    const trimmed = trimRootAwareTrailingSeparators(forward, "/", isForwardSep);
+    return collapsePosixLeadingSlashes(trimmed);
 }
 
 const usesWindowsBackslashSep = (dir: string): boolean => {

@@ -17,7 +17,7 @@ Base: `mega/absorb-all` at `bfef9e14c13e085e218faecb9080dba9086df5dd`
 Verified across unit, static-analysis, Rust, and Playwright Chromium gates:
 
 - `npm run lint:strict` and `npm run typecheck`: 0 errors, 0 warnings.
-- `npx vitest run`: 261 Vitest suites (2,821 tests) passed.
+- `npx vitest run`: 261 Vitest suites (2,822 tests) passed.
 - `npm run skills:verify` and `node scripts/ci/check-secrets.mjs`: 53/53 skills verified, 0 secret hits.
 - `cargo clippy -- -D warnings` and `cargo test --lib`: 446 Rust unit tests passed, 0 warnings.
 - `npm run build:preview` and `npx playwright test`: 36/36 Playwright Chromium E2E + `axe-core` specs passed (including expanded `axe-core` checks across 8 Settings sections, expanded `ProviderCard` disclosures, and the `Report` dialog).

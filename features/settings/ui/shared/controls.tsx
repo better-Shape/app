@@ -238,6 +238,7 @@ export function SettingSelect<T extends string>({
     value,
     options,
     onChange,
+    displayLabel,
     className,
     disabled,
     "aria-label": ariaLabel,
@@ -245,11 +246,12 @@ export function SettingSelect<T extends string>({
     value: T;
     options: { value: T; label: string }[];
     onChange: (selected: T) => void;
+    displayLabel?: string;
     className?: string;
     disabled?: boolean;
     "aria-label"?: string;
 }) {
-    const label = options.find((option) => option.value === value)?.label ?? value;
+    const label = displayLabel ?? options.find((option) => option.value === value)?.label ?? value;
     const rowLabels = useSettingRowLabels();
     const explicitLabelId = React.useId();
     const valueId = React.useId();
@@ -444,6 +446,7 @@ export function FontFamilySelect({
         <div className="flex flex-col items-start gap-2">
             <SettingSelect
                 value={selectValue}
+                displayLabel={isCustom ? value : undefined}
                 options={options}
                 onChange={(v) => {
                     if (v === CUSTOM_FONT_VALUE) {
@@ -456,6 +459,7 @@ export function FontFamilySelect({
             <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Upload custom font file"
                 accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
                 className="hidden"
                 onChange={(e) => {

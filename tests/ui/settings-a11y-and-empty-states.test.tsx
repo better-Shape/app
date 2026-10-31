@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
     ExcludePatternsSelect,
+    FontFamilySelect,
     SettingCard,
     SettingRow,
     SettingSelect,
@@ -512,5 +513,27 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         } finally {
             window.removeEventListener("bettershape-set-active-tab", onTab);
         }
+    });
+
+    it("announces the uploaded custom font name instead of Upload Font on FontFamilySelect", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        value="Berkeley Mono"
+                        presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger).not.toBeNull();
+        const labelledByText = (trigger?.getAttribute("aria-labelledby") ?? "")
+            .split(/\s+/)
+            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+            .join(" ");
+        expect(labelledByText).toBe("Font Family Berkeley Mono");
     });
 });
