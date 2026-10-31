@@ -40,6 +40,7 @@ import { useEditorBuffer } from "@/features/agent/workbench/titlebar/hooks/use-e
 import { openSettingsWindow } from "@/lib/window/open-settings";
 import { requestLocalHistory } from "@/lib/editor/local-history";
 import { editorActionImplemented } from "@/lib/editor/action-contract";
+import { useFocusedEditorFile } from "@/core/providers/editor";
 import { symbolPaletteRows } from "@/features/command-palette/symbols";
 import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { toTimestampMs } from "@/lib/ui/timestamp";
@@ -275,8 +276,10 @@ export const CommandPalette = () => {
 
     // The Current File section needs the file the editor has open. Callers used
     // to have to pass it in `detail.activeFile`, and none did, so the section
-    // never rendered; the backend's active file is the same value.
+    // never rendered; the backend's active file is the same value, except that
+    // in a split it still names the left group while the right group has focus.
     const { active_file } = useProjectState();
+    const focusedFile = useFocusedEditorFile(active_file);
     const { readLatestContent } = useEditorBuffer();
 
     const browse = isBrowseMode(mode);
@@ -288,7 +291,7 @@ export const CommandPalette = () => {
             const openMode = detail?.mode || "";
             setMode(openMode);
             setRecentFiles(Boolean(detail?.recent));
-            setActiveFileBias(detail?.activeFile || active_file || null);
+            setActiveFileBias(detail?.activeFile || focusedFile || null);
             const initialFilterTab: PaletteFilter =
                 openMode === "files"
                     ? "files"
@@ -338,7 +341,7 @@ export const CommandPalette = () => {
             window.removeEventListener("bettershape-command-palette", handleOpen);
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, [active_file]);
+    }, [focusedFile]);
 
     const handleOpenChange = useCallback((value: boolean) => {
         setOpen(value);

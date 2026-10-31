@@ -687,6 +687,30 @@ export const FileTree = ({
         return statusByPath.get(key);
     }, [statusByPath]);
 
+    /**
+     * One tree row. The project tree and each extra workspace folder render the
+     * same row with a different root, and keeping the props in one place is what
+     * stops the two copies drifting apart.
+     */
+    const renderNode = (entry: FileEntry, root: string) => (
+        <TreeNode
+            key={entry.path}
+            entry={entry}
+            depth={0}
+            projectPath={root}
+            activePath={activePath}
+            query={query}
+            onOpenFile={onOpenFile}
+            statusFor={statusFor}
+            revealDir={revealDir}
+            revealPath={revealPath}
+            selectedPath={selected?.path ?? null}
+            cutPaths={cutPaths}
+            onSelect={select}
+            onClipboard={runClipboard}
+        />
+    );
+
     // Padding on the wrapper (not margin on the island) keeps the flex parent
     // from shifting, the island sits inset without pushing layout sideways.
     return (
@@ -715,24 +739,7 @@ export const FileTree = ({
                             {clipboardError}
                         </div>
                     ) : null}
-                    {shown.map((entry) => (
-                        <TreeNode
-                            key={entry.path}
-                            entry={entry}
-                            depth={0}
-                            projectPath={projectPath}
-                            activePath={activePath}
-                            query={query}
-                            onOpenFile={onOpenFile}
-                            statusFor={statusFor}
-                            revealDir={revealDir}
-                            revealPath={revealPath}
-                            selectedPath={selected?.path ?? null}
-                            cutPaths={cutPaths}
-                            onSelect={select}
-                            onClipboard={runClipboard}
-                        />
-                    ))}
+                    {shown.map((entry) => renderNode(entry, projectPath))}
                     {extraRoots.map((root) => {
                         const filtered = filterEntries(root.entries, query);
                         return (
@@ -761,24 +768,7 @@ export const FileTree = ({
                                         <div className="px-2 py-1 text-xs text-text-muted">Empty folder</div>
                                     )
                                 ) : (
-                                    filtered.map((entry) => (
-                                        <TreeNode
-                                            key={entry.path}
-                                            entry={entry}
-                                            depth={0}
-                                            projectPath={root.path}
-                                            activePath={activePath}
-                                            query={query}
-                                            onOpenFile={onOpenFile}
-                                            statusFor={statusFor}
-                                            revealDir={revealDir}
-                                            revealPath={revealPath}
-                                            selectedPath={selected?.path ?? null}
-                                            cutPaths={cutPaths}
-                                            onSelect={select}
-                                            onClipboard={runClipboard}
-                                        />
-                                    ))
+                                    filtered.map((entry) => renderNode(entry, root.path))
                                 )}
                             </section>
                         );

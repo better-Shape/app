@@ -12,7 +12,7 @@ const backend = vi.hoisted(() => ({
 vi.mock("@/lib/backend/commands", () => ({ commands: backend }));
 vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn() } }));
 
-import { useFileHunks, type HunkMode } from "@/features/git/ui/shared/hunk-actions";
+import { HunkActions, useFileHunks, type HunkMode } from "@/features/git/ui/shared/hunk-actions";
 import type { GitHunk } from "@/lib/backend/types";
 
 const hunk = (index: number): GitHunk => ({
@@ -137,5 +137,63 @@ describe("hunk actions", () => {
             await api.apply("stage");
         });
         expect(backend.gitStageHunk).not.toHaveBeenCalled();
+    });
+});
+
+describe("hunk keyboard shortcuts", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        backend.gitStageHunk.mockResolvedValue(undefined);
+        backend.gitListHunks.mockResolvedValue(hunkList(1, 2));
+        host = document.createElement("div");
+        document.body.append(host);
+        root = createRoot(host);
+    });
+
+    afterEach(() => {
+        act(() => root?.unmount());
+        root = null;
+        host.remove();
+    });
+
+    const press = (key: string, target: EventTarget, shift = false) =>
+        act(() => {
+            target.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, shiftKey: shift, bubbles: true }));
+        });
+
+    it("stages the hunk on screen for Ctrl+Y", async () => {
+        await act(async () => {
+            root?.render(<HunkActions repoPath="/repo" filePath="a.ts" mode="unstaged" active />);
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        press("y", document.body);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(backend.gitStageHunk).toHaveBeenCalledWith("/repo", "a.ts", 1);
+    });
+
+    it("leaves a redo inside a text field alone", async () => {
+        await act(async () => {
+            root?.render(<HunkActions repoPath="/repo" filePath="a.ts" mode="unstaged" active />);
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        // The handler listens on the window, so a Ctrl+Y typed in an input has to
+        // stay that input's redo.
+        const field = document.createElement("input");
+        document.body.append(field);
+        try {
+            press("y", field);
+            await act(async () => {
+                await Promise.resolve();
+            });
+            expect(backend.gitStageHunk).not.toHaveBeenCalled();
+        } finally {
+            field.remove();
+        }
     });
 });

@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
     EditorSplitProvider,
+    useFocusedEditorFile,
     useSplitFocusedFile,
 } from "@/core/providers/editor";
 
@@ -88,4 +89,26 @@ it("stops reporting the file once the provider is gone", async () => {
     // Unmount the provider entirely: an editor split cannot still be in effect.
     await render(<Readout label="inside" />);
     expect(host.querySelector('[data-testid="inside"]')?.textContent).toBe("none");
+});
+/** The hook the command palette and the status bar both read. */
+function FocusedReadout({ fallback }: { fallback: string }) {
+    const path = useFocusedEditorFile(fallback);
+    return <span data-testid="focused-file">{path ?? "none"}</span>;
+}
+
+it("answers with the caller's file when no provider has reported a split", async () => {
+    await render(<FocusedReadout fallback="/repo/backend.ts" />);
+    expect(host.querySelector('[data-testid="focused-file"]')?.textContent).toBe("/repo/backend.ts");
+});
+
+it("answers with the provider's focused file once one is mounted", async () => {
+    await render(
+        <>
+            <FocusedReadout fallback="/repo/backend.ts" />
+            <EditorSplitProvider>
+                <Readout label="inside" />
+            </EditorSplitProvider>
+        </>,
+    );
+    expect(host.querySelector('[data-testid="focused-file"]')?.textContent).toBe("/repo/left.ts");
 });

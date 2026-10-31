@@ -63,23 +63,31 @@ export function MicrophoneSettings() {
         };
     }, []);
 
+    /**
+     * Opens the saved device, or releases it and answers null when this section
+     * has gone away in the meantime: nothing would ever stop that stream.
+     *
+     * Shared by Allow and Test, which need the same constraints and the same
+     * disposal rule.
+     */
+    const openMicrophone = async (): Promise<MediaStream | null> => {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: microphoneConstraints(deviceId),
+        });
+        if (!disposedRef.current) return stream;
+        stream.getTracks().forEach((track) => track.stop());
+        return null;
+    };
+
     const allowAndRefresh = async () => {
         if (unavailable) return;
         setBusy(true);
         setError(null);
-        // Held outside the try so a failure after the device opened can still
-        // release it; otherwise a broken AudioContext leaves the mic live.
-        let opened: MediaStream | null = null;
         try {
-            opened = await navigator.mediaDevices.getUserMedia({
-                audio: microphoneConstraints(deviceId),
-            });
-            if (disposedRef.current) {
-                opened.getTracks().forEach((track) => track.stop());
-                return;
-            }
-            const stream = opened;
-            stream.getTracks().forEach((track) => track.stop());
+            const opened = await openMicrophone();
+            if (!opened) return;
+            // The point of Allow is the device list, not the audio.
+            opened.getTracks().forEach((track) => track.stop());
             await refresh();
         } catch (err) {
             setError(microphoneErrorMessage(err));
@@ -100,14 +108,8 @@ export function MicrophoneSettings() {
         // release it; otherwise a broken AudioContext leaves the mic live.
         let opened: MediaStream | null = null;
         try {
-            opened = await navigator.mediaDevices.getUserMedia({
-                audio: microphoneConstraints(deviceId),
-            });
-            if (disposedRef.current) {
-                // The section is gone; nothing would ever stop this stream.
-                opened.getTracks().forEach((track) => track.stop());
-                return;
-            }
+            opened = await openMicrophone();
+            if (!opened) return;
             const stream = opened;
             const ctx = new AudioContext();
             const source = ctx.createMediaStreamSource(stream);

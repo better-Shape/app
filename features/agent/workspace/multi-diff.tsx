@@ -230,6 +230,9 @@ function LazyFileDiff({
     );
 }
 
+/** Shared empty list, so a pending project does not churn dependent memos. */
+const EMPTY_FILES: GitFileParams[] = [];
+
 export function MultiDiffEditor({
     projectPath,
     focusPath,
@@ -237,13 +240,20 @@ export function MultiDiffEditor({
     projectPath: string;
     focusPath?: string;
 }) {
-    const [repo, setRepo] = useState<string | null>(null);
-    const [files, setFiles] = useState<GitFileParams[]>([]);
+    // The repository and the file list are tagged with the project they were read
+    // for. Discovery and status are async, so a project switch has to invalidate
+    // them at once: staging from another project's list would act on a repository
+    // nobody is looking at.
+    const [loaded, setLoaded] = useState<{ project: string; repo: string; files: GitFileParams[] } | null>(null);
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
     // The file list can be identical after a refresh while the contents moved,
     // so every successful refresh also bumps a revision the diffs key on.
     const [revision, setRevision] = useState(0);
+    const current = loaded?.project === projectPath ? loaded : null;
+    const loading = Boolean(projectPath) && !current;
+    const repo = current?.repo ?? null;
+    const files = current?.files ?? EMPTY_FILES;
 
     // Latest refresh wins: a status request for a previous project must not
     // replace the current project's repo or file list when it resolves late.
@@ -254,13 +264,12 @@ export function MultiDiffEditor({
             const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
             const list = await commands.gitStatus(path);
             if (request !== requestRef.current) return;
-            setRepo(path);
-            setFiles(list);
-            setRevision((current) => current + 1);
+            setLoaded({ project: projectPath, repo: path, files: list });
+            setRevision((count) => count + 1);
         }).catch(() => {
             if (request === requestRef.current) {
-                setFiles([]);
-                setRevision((current) => current + 1);
+                setLoaded(null);
+                setRevision((count) => count + 1);
             }
         });
     }, [projectPath]);
@@ -382,7 +391,7 @@ export function MultiDiffEditor({
 
             {files.length === 0 || !repo ? (
                 <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-                    {files.length === 0 ? "No local changes" : "Loading…"}
+                    {loading ? "Loading…" : "No local changes"}
                 </div>
             ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">

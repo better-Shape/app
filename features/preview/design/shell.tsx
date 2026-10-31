@@ -40,7 +40,7 @@ import {
     type DesignLayerSnapshot,
 } from "./bridge";
 import { DEFAULT_DEVICE, type DesignDevice } from "./devices";
-import { guessSourceFromChunkUrl, isUserSourcePath, isUtilityClass } from "./library";
+import { elementSelector, guessSourceFromChunkUrl, isUserSourcePath, isUtilityClass } from "./library";
 import { locateJsx, patchHtmlOpening, patchJsx, reorderJsx, isSafeDomAttribute } from "./jsx-source";
 import { DesignStylePanel } from "./panel";
 import type { ComponentOptionPatch } from "./panel/options";
@@ -838,7 +838,7 @@ export function DesignStudio({
                                 detail: {
                                     tag: element.tag,
                                     label,
-                                    selector: element.key,
+                                    selector: elementSelector(element),
                                     origin: "design",
                                     source: element.source
                                         ? `${element.source.fileName}:${element.source.lineNumber}`
