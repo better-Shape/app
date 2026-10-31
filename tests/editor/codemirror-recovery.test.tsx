@@ -143,3 +143,16 @@ it("leaves the buffer in recovery when the timer had already fired", async () =>
     root = undefined;
     expect(native.saveFile).toHaveBeenCalledTimes(1);
 });
+
+it("drops the pre-save recovery draft once the pipeline wrote the file", async () => {
+    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 300 });
+    const view = await mount("draft body");
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " more" } }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    await act(async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); });
+
+    // The pipeline added the final newline, so the written text differs from the
+    // draft. Reopening the file must not restore the pre-save copy.
+    expect(view.state.doc.toString()).toBe("draft body more\n");
+    expect(loadDirtyBuffer("/draft.txt")).toBeNull();
+});

@@ -105,6 +105,17 @@ describe("editor indentation", () => {
         expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: false });
     });
 
+    it("keeps the detected indentation when an unrelated setting changes", async () => {
+        updateSettingSection("editor", { detectIndentation: true, tabSize: 4, insertSpaces: true });
+        await mount();
+        // A two-space file is open; changing the configured tab size must not
+        // reindent it, because Detect indentation is still on.
+        await act(async () => {
+            updateSettingSection("editor", { tabSize: 2, insertSpaces: false });
+        });
+        expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: true });
+    });
+
     it("applies a word-wrap change to the open document", async () => {
         updateSettingSection("editor", { wordWrap: "off" });
         await mount();

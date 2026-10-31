@@ -380,9 +380,19 @@ export function CodeMirrorEditor({
             // Indentation and wrapping live in their own compartments, so a
             // Settings change has to reach the open document here. Without this
             // the setting only applied to the next file the user opened.
-            const nextTabSize =
+            let nextTabSize =
                 typeof next.tabSize === "number" && next.tabSize > 0 ? next.tabSize : 4;
-            const nextInsertSpaces = next.insertSpaces !== false;
+            let nextInsertSpaces = next.insertSpaces !== false;
+            // Detect indentation is a standing instruction to read the buffer, so a
+            // settings change re-detects instead of imposing the configured unit on
+            // a file that was opened with its own.
+            const detected = next.detectIndentation === true
+                ? detectIndentation(view.state.doc.toString())
+                : null;
+            if (detected) {
+                nextTabSize = detected.tabSize;
+                nextInsertSpaces = detected.insertSpaces;
+            }
             const indentChanged = nextTabSize !== tabSize || nextInsertSpaces !== insertSpaces;
             if (indentChanged) {
                 tabSize = nextTabSize;
@@ -450,6 +460,10 @@ export function CodeMirrorEditor({
                 // the dirty check compares against.
                 savedContentRef.current = written;
                 isDirtyRef.current = false;
+                // The draft in recovery is the text from before the save. Rebase it
+                // on what was written, so reopening the file cannot restore an
+                // older copy over the bytes that are on disk now.
+                saveDirtyBuffer(pathRef.current, written, written);
                 void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             } catch (error) {
                 notify.error("Save failed", error instanceof Error ? error.message : String(error));
