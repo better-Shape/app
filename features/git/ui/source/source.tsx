@@ -928,6 +928,19 @@ const useGitPanelHandlers = (ctx: {
         }
     };
 
+    /**
+     * Re-reads the panel after a command changed the working tree.
+     *
+     * The event is what the panel's listener answers by bumping the diff token as
+     * well as refreshing status, so an open diff re-reads its text. A bare
+     * `refresh()` left an embedded diff pane showing the pre-command content,
+     * because staging, stashing and aborting change the diff without changing
+     * its path or staged flag.
+     */
+    const announceWorkingTreeChange = () => {
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
+    };
+
     /** Add the remote named in the dialog form. */
     const handleAddRemote = async () => {
         if (!gitRepo || !newRemoteName.trim() || !newRemoteUrl.trim()) return;
@@ -984,7 +997,7 @@ const useGitPanelHandlers = (ctx: {
             await commands.gitSync(gitRepo);
             notify.info("Git Sync", "Successfully synced with remote.");
             setNeedsSync(false);
-            await refresh({ track: false });
+            announceWorkingTreeChange();
         } catch (err) {
             notify.gitError(err, "Sync failed");
         } finally {
@@ -1016,7 +1029,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitPull(gitRepo);
             notify.info("Git", "Pulled successfully.");
-            await refresh({ track: false });
+            announceWorkingTreeChange();
         } catch (err) {
             notify.gitError(err, "Pull failed");
         } finally {
@@ -1096,7 +1109,7 @@ const useGitPanelHandlers = (ctx: {
         if (!gitRepo) return;
         try {
             await commands.gitStageAll(gitRepo);
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stage all failed");
         }
@@ -1107,7 +1120,7 @@ const useGitPanelHandlers = (ctx: {
         if (!gitRepo) return;
         try {
             await commands.gitUnstageAll(gitRepo);
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Unstage all failed");
         }
@@ -1119,7 +1132,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitStashSave(gitRepo, "", true);
             notify.success("Git", "Changes stashed.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stash failed");
         }
@@ -1131,7 +1144,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitStashPop(gitRepo, 0);
             notify.success("Git", "Stash applied and dropped.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stash pop failed");
         }
@@ -1143,7 +1156,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitMergeAbort(gitRepo);
             notify.info("Git", "Merge aborted.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Merge abort failed");
         }
@@ -1155,7 +1168,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitRebaseAbort(gitRepo);
             notify.info("Git", "Rebase aborted.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Rebase abort failed");
         }
