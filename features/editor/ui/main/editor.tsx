@@ -103,75 +103,99 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const currentContentRef = useRef(content);
     useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
     const previewAutosaveRef = useRef<number | null>(null);
+    /** The write a pending autosave timer owes, so a path change can still land it. */
+    const pendingPreviewRef = useRef<{ path: string; doc: string; eol: "LF" | "CRLF" } | null>(null);
     const pathRef = useRef(path);
     useLayoutEffect(() => { pathRef.current = path; }, [path]);
-    useEffect(
-        () => () => {
-            // The viewer stays mounted while the path changes, so a timer
-            // scheduled for the previous file has to be dropped with it.
-            if (previewAutosaveRef.current !== null) {
-                window.clearTimeout(previewAutosaveRef.current);
-                previewAutosaveRef.current = null;
-            }
-        },
-        [path],
-    );
 
     /**
-     * Writes the preview buffer through the shared save pipeline.
+     * Writes preview text through the shared save pipeline.
      *
      * The pipeline can trim or format the text, so the returned document is
      * what the preview shows afterwards; leaving the old buffer on screen would
      * both misreport the file and leave it marked dirty against its own disk
-     * contents.
+     * contents. The path and the ending are arguments because a pending write
+     * can belong to a file the viewer has already moved away from.
      */
-    const persistPreview = useCallback(async () => {
-        if (previewAutosaveRef.current !== null) {
-            window.clearTimeout(previewAutosaveRef.current);
-            previewAutosaveRef.current = null;
-        }
-        if (pathRef.current !== path) return;
-        const doc = currentContentRef.current;
-        const eol = lineEndingOf(savedContentRef.current || doc);
+    const writePreview = useCallback(async (targetPath: string, doc: string, eol: "LF" | "CRLF") => {
         try {
-            const written = await saveContents(path, doc, eol);
+            const written = await saveContents(targetPath, doc, eol);
             // Typing during the write wins: the buffer on screen is newer. A
             // path change means this text belongs to another file now.
-            if (pathRef.current !== path || currentContentRef.current !== doc) return;
-            currentContentRef.current = written;
-            // Keep the on-disk line ending in the baseline: the next save reads
-            // the convention from it, and `written` is LF by construction.
-            savedContentRef.current = toDiskText(written, eol);
-            setContent(written);
+            if (pathRef.current === targetPath && currentContentRef.current === doc) {
+                currentContentRef.current = written;
+                // Keep the on-disk line ending in the baseline: the next save
+                // reads the convention from it, and `written` is LF.
+                savedContentRef.current = toDiskText(written, eol);
+                setContent(written);
+                isDirtyRef.current = false;
+                await commands.markFileDirty(targetPath, false).catch(() => undefined);
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-editor-buffer", { detail: { path: targetPath, content: written } }),
+                );
+            }
             // Only the draft this save wrote leaves recovery. Another editor can
             // stage newer text for the same path while the write is in flight,
             // and that text is not on disk yet.
-            clearSavedDirtyBuffer(path, doc);
-            isDirtyRef.current = false;
-            await commands.markFileDirty(path, false).catch(() => undefined);
-            window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: written } }));
+            clearSavedDirtyBuffer(targetPath, doc);
         } catch (e) {
             const { notify } = await import("@/features/notifications");
             notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
                 code: 4000,
             });
         }
-    }, [path, setContent]);
+    }, [setContent]);
+
+    useEffect(
+        () => () => {
+            // The viewer stays mounted while the path changes. The pending edit
+            // is not dropped with the timer: the delay had not elapsed, but the
+            // text is still unsaved, and recovery is not where a file belongs.
+            if (previewAutosaveRef.current !== null) {
+                window.clearTimeout(previewAutosaveRef.current);
+                previewAutosaveRef.current = null;
+            }
+            const pending = pendingPreviewRef.current;
+            pendingPreviewRef.current = null;
+            if (pending) void writePreview(pending.path, pending.doc, pending.eol);
+        },
+        [path, writePreview],
+    );
+
+    /** Writes the buffer on screen, cancelling a pending autosave. */
+    const persistPreview = useCallback(async () => {
+        if (previewAutosaveRef.current !== null) {
+            window.clearTimeout(previewAutosaveRef.current);
+            previewAutosaveRef.current = null;
+        }
+        pendingPreviewRef.current = null;
+        if (pathRef.current !== path) return;
+        const doc = currentContentRef.current;
+        const eol = lineEndingOf(savedContentRef.current || doc);
+        await writePreview(path, doc, eol);
+    }, [path, writePreview]);
 
     /** Schedules the autosave the editor settings ask for, if any. */
     const schedulePreviewAutosave = useCallback(() => {
         if (previewAutosaveRef.current !== null) window.clearTimeout(previewAutosaveRef.current);
         previewAutosaveRef.current = null;
+        pendingPreviewRef.current = null;
         const editorSettings = getSettings().editor;
         if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
+        const doc = currentContentRef.current;
+        // Hold the whole write now: the viewer can move to another file before
+        // the delay ends, and the text still belongs to this one.
+        const pending = { path, doc, eol: lineEndingOf(savedContentRef.current || doc) };
+        pendingPreviewRef.current = pending;
         previewAutosaveRef.current = window.setTimeout(() => {
             previewAutosaveRef.current = null;
+            if (pendingPreviewRef.current === pending) pendingPreviewRef.current = null;
             // Auto Save can be switched off while the delay is pending, and a
             // timer that fires anyway would write a file the setting now refuses.
             if (getSettings().editor.autoSave !== "afterDelay") return;
-            void persistPreview();
+            void writePreview(pending.path, pending.doc, pending.eol);
         }, Math.max(250, editorSettings.autoSaveDelay));
-    }, [persistPreview]);
+    }, [path, writePreview]);
     const planTitle = isPlanFile ? parsePlanMarkdown(content || "").title : "";
 
     useEffect(() => {

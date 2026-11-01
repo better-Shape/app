@@ -112,6 +112,8 @@ export function CodeMirrorEditor({
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const pathRef = useRef(path);
+    /** Set by the mount effect; the content effect calls through it. */
+    const contentSyncRef = useRef<((text: string) => void) | null>(null);
     const setContentRef = useRef(setContent);
     useLayoutEffect(() => { setContentRef.current = setContent; }, [setContent]);
 
@@ -153,6 +155,9 @@ export function CodeMirrorEditor({
         // the convention for a new one, not a conversion order. Saving a CRLF
         // file under the LF default used to rewrite every line ending.
         const loadedText = savedContentRef.current || content;
+        // Set when the status bar picks an ending, so a file that finishes loading
+        // afterwards does not override the choice.
+        let eolChosenByUser = false;
         let eol: "LF" | "CRLF" = loadedText.includes("\r\n")
             ? "CRLF"
             : loadedText.length > 0
@@ -471,6 +476,44 @@ export function CodeMirrorEditor({
         rememberLiveEol(path, eol);
 
         /**
+         * Adopts text that arrived after the editor opened.
+         *
+         * The first open of a file can start with an empty buffer while the read
+         * is in flight, so the indentation and the line ending derived above came
+         * from nothing. Both are derived again from the text that actually loads.
+         */
+        const syncContent = (text: string) => {
+            const v = viewRef.current;
+            if (!v) return;
+            const current = v.state.doc.toString();
+            const normalized = text.replace(/\r\n/g, "\n");
+            if (current === normalized) return;
+            v.dispatch({
+                changes: { from: 0, to: current.length, insert: normalized },
+                annotations: externalContentUpdate.of(true),
+            });
+            let eolChanged = false;
+            if (!eolChosenByUser && text.length > 0) {
+                const loadedEnding: "LF" | "CRLF" = text.includes("\r\n") ? "CRLF" : "LF";
+                if (loadedEnding !== eol) {
+                    eol = loadedEnding;
+                    eolChanged = true;
+                }
+            }
+            if (eolChanged) applyEol(v);
+            if (getSettings().editor.detectIndentation === true) {
+                const detected = detectIndentation(normalized);
+                if (detected && (detected.tabSize !== tabSize || detected.insertSpaces !== insertSpaces)) {
+                    tabSize = detected.tabSize;
+                    insertSpaces = detected.insertSpaces;
+                    applyIndent(v);
+                }
+            }
+            publishStatus(v);
+        };
+        contentSyncRef.current = syncContent;
+
+        /**
          * Replaces the buffer with the text a save wrote, keeping the caret.
          *
          * Replacing the whole document maps a cursor into the replaced range back
@@ -718,6 +761,7 @@ export function CodeMirrorEditor({
                 }
                 case "setEol":
                     eol = detail.value === "CRLF" ? "CRLF" : "LF";
+                    eolChosenByUser = true;
                     applyEol(v);
                     break;
                 case "setLanguage": {
@@ -870,6 +914,7 @@ export function CodeMirrorEditor({
                 }
             }
             unsubscribeSettings();
+            contentSyncRef.current = null;
             view.destroy();
             viewRef.current = null;
         };
@@ -877,15 +922,9 @@ export function CodeMirrorEditor({
     }, [path]);
 
     useEffect(() => {
-        const view = viewRef.current;
-        if (!view) return;
-        const current = view.state.doc.toString();
-        const normalized = content.replace(/\r\n/g, "\n");
-        if (current === normalized) return;
-        view.dispatch({
-            changes: { from: 0, to: current.length, insert: normalized },
-            annotations: externalContentUpdate.of(true),
-        });
+        // The sync lives in the mount effect, which holds the indentation and the
+        // line ending this editor is using.
+        contentSyncRef.current?.(content);
     }, [content]);
 
     return (

@@ -152,6 +152,25 @@ describe("preview invoke handler", () => {
         window.sessionStorage.clear();
     });
 
+    it("keeps the two settings files apart", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "settings-preferences.json",
+            settings: { editor: { fontSize: 17 } },
+            expected: "missing",
+        });
+        const other = handle("read_settings_file", { file: "settings.json" }) as {
+            record: { settings?: unknown } | null;
+        };
+        // Reading one file must not answer with the other's record.
+        expect(other.record).toBeNull();
+        const written = handle("read_settings_file", { file: "settings-preferences.json" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(written.record?.settings.editor.fontSize).toBe(17);
+        window.sessionStorage.clear();
+    });
+
     it("never throws for unmocked commands, safe defaults by shape", () => {
         const { handle } = createPreviewInvokeHandler("welcome");
         expect(handle("get_unmocked_items")).toEqual([]);

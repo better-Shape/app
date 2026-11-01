@@ -90,6 +90,41 @@ describe("editor indentation", () => {
         expect(events.at(-1)).toEqual({ spaces: 4, insertSpaces: true });
     });
 
+    it("detects the indentation of a file that loads after the editor opened", async () => {
+        // The first open starts with an empty buffer while the read is in flight.
+        updateSettingSection("editor", { detectIndentation: true, tabSize: 4, insertSpaces: true });
+        const emptySaved = { current: "" };
+        const render = (text: string) =>
+            root?.render(
+                <Suspense fallback={null}>
+                    <CodeMirrorEditor
+                        path="/repo/a.ts"
+                        content={text}
+                        setContent={() => undefined}
+                        savedContentRef={emptySaved}
+                        isDirtyRef={dirty}
+                        bufferVersionRef={version}
+                    />
+                </Suspense>,
+            );
+        await act(async () => {
+            render("");
+        });
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+        });
+        const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+        if (!view) throw new Error("Editor view is missing");
+        await act(async () => {
+            render(SOURCE);
+        });
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            view.dom.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        });
+        expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: true });
+    });
+
     it("applies an indentation change to the open document", async () => {
         updateSettingSection("editor", { detectIndentation: false, tabSize: 4, insertSpaces: true });
         await mount();

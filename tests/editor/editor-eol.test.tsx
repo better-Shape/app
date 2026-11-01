@@ -86,6 +86,34 @@ it("reports the CRLF the file was loaded with, not the LF default", async () => 
     expect(reported.at(-1)).toEqual({ eol: "CRLF" });
 });
 
+it("takes the ending of a file that loads after the editor opened", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    // The first open starts empty; the read lands afterwards.
+    await mount("", "");
+    const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+    if (!view) throw new Error("Editor view is missing");
+    await act(async () => {
+        root?.render(
+            <Suspense fallback={null}>
+                <CodeMirrorEditor
+                    path="/repo/file.txt"
+                    content={"one\r\ntwo"}
+                    setContent={() => undefined}
+                    savedContentRef={{ current: "one\r\ntwo" }}
+                    isDirtyRef={{ current: false }}
+                    bufferVersionRef={{ current: 0 }}
+                />
+            </Suspense>,
+        );
+    });
+    await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        view.dom.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(view.state.lineBreak).toBe("\r\n");
+    expect(reported.at(-1)).toEqual({ eol: "CRLF" });
+});
+
 it("reports LF for an LF file even when the default is CRLF", async () => {
     updateSettingSection("files", { defaultEol: "CRLF" });
     const view = await mount("one\ntwo", "one\ntwo");

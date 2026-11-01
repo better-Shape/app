@@ -168,22 +168,36 @@ const fileNameOf = (path: string): string => path.split("/").pop() ?? path;
 
 const PREVIEW_SETTINGS_KEY = "bettershape:preview-settings";
 
-/** The last settings snapshot this tab wrote, so a reload reads it back. */
-function readSeededSettings(
-    fallback: { record: Record<string, unknown> | null; revision: string },
-): { record: Record<string, unknown> | null; revision: string } {
+/** One settings file's record and revision, in the backend's wire shape. */
+type SettingsSnapshot = { record: Record<string, unknown> | null; revision: string };
+
+/**
+ * Every settings file this tab wrote, keyed by file name.
+ *
+ * `read_settings_file` and `write_settings_file` take a file name, and the real
+ * store keeps `settings.json` and `settings-preferences.json` apart. One shared
+ * snapshot made a read of the one answer with the other's contents.
+ */
+function readSeededSettingsStore(): Record<string, SettingsSnapshot> {
     try {
         const raw = window.sessionStorage.getItem(PREVIEW_SETTINGS_KEY);
-        if (!raw) return fallback;
-        const parsed = JSON.parse(raw) as { record?: unknown; revision?: unknown };
-        if (typeof parsed?.revision !== "string") return fallback;
-        const record = parsed.record;
-        return {
-            record: record && typeof record === "object" ? (record as Record<string, unknown>) : null,
-            revision: parsed.revision,
-        };
+        if (!raw) return {};
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return {};
+        const store: Record<string, SettingsSnapshot> = {};
+        for (const [file, value] of Object.entries(parsed as Record<string, unknown>)) {
+            const entry = value as { record?: unknown; revision?: unknown } | null;
+            if (!entry || typeof entry.revision !== "string") continue;
+            store[file] = {
+                record: entry.record && typeof entry.record === "object"
+                    ? (entry.record as Record<string, unknown>)
+                    : null,
+                revision: entry.revision,
+            };
+        }
+        return store;
     } catch {
-        return fallback;
+        return {};
     }
 }
 
@@ -305,10 +319,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // Seeded empty, then written through by `write_settings_file`. Before
         // this the preview always answered "no record", so every settings change
         // was lost on the next navigation.
-        settingsFile: {
-            record: null as Record<string, unknown> | null,
-            revision: "missing",
-        },
+        settingsFiles: readSeededSettingsStore(),
         settingsRevision: 0,
     };
     const listeners = new Map<string, Set<number>>();
@@ -563,7 +574,11 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // Backed by sessionStorage, not module state: the mock is reinstalled on
         // every navigation, so an in-memory record made each settings change
         // vanish on reload and every settings-gated surface look switched off.
-        read_settings_file: () => ({ ...readSeededSettings(state.settingsFile) }),
+        read_settings_file: (args) => {
+            const file = String(args.file ?? "");
+            const stored = state.settingsFiles[file];
+            return stored ? { ...stored } : { record: null, revision: "missing" };
+        },
         write_settings_file: (args) => {
             // Round-trip like the real file store: the revision moves and the
             // record reads back, so a switch flipped in Settings survives a
@@ -571,16 +586,18 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             // The real file wraps the preferences under `settings`; storing the
             // bare object made `get("settings")` return undefined, so a reload
             // read the record as present but empty and fell back to defaults.
-            state.settingsFile = {
+            const file = String(args.file ?? "");
+            const snapshot: SettingsSnapshot = {
                 record: { settings: structuredClone(args.settings ?? null) },
                 revision: `preview-${++state.settingsRevision}`,
             };
+            state.settingsFiles[file] = snapshot;
             try {
-                window.sessionStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(state.settingsFile));
+                window.sessionStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(state.settingsFiles));
             } catch {
                 /* a preview without session storage keeps the in-memory copy */
             }
-            return state.settingsFile.revision;
+            return snapshot.revision;
         },
 
         // ── indexing toggles ─────────────────────────────────────────────
