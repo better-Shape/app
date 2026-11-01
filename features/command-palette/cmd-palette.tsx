@@ -1098,6 +1098,9 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.nav.goToLine",
             label: "Go to Line/Column...",
             shortcut: shortcut("Go to Line/Column..."),
+            // Enter in line mode dispatches `jumpToPosition`, so the row is only
+            // worth offering where that action is answered.
+            editorAction: "jumpToPosition",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-command-palette", {

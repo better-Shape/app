@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { MarkdownLiveEditor } from "@/features/editor/ui/markdown/live-editor";
 import { resetSettings, updateSettingSection } from "@/lib/settings";
+import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 
 vi.mock("@/lib/backend", () => ({
     commands: {
@@ -25,9 +26,12 @@ const DOC = [
 
 let host: HTMLDivElement;
 let root: Root | undefined;
+/** The pane that owns the surface claim in these tests. */
+let pane: string;
 
 beforeEach(() => {
     resetSettings();
+    pane = createSurfaceOwner();
     // jsdom ships no 2D context and logs a "Not implemented" line for every
     // request. The minimap only needs the element to exist here.
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
@@ -51,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    releaseEditorSurface(pane);
     vi.restoreAllMocks();
     act(() => root?.unmount());
     host.remove();
@@ -99,6 +104,37 @@ describe("markdown editor jumps", () => {
         // rather than at the top where the document started.
         const view = currentView();
         expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(3);
+    });
+
+    it("answers Go to Line when the document editor holds the surface", async () => {
+        await mount();
+        claimEditorSurface(pane, "preview");
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-action", {
+                    detail: { action: "editor.action.jumpToPosition", line: 4, column: 1 },
+                }),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        });
+        // The palette's line mode dispatches this id, not the jump event.
+        const view = currentView();
+        expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(4);
+    });
+
+    it("leaves Go to Line to the code editor when it holds the surface", async () => {
+        await mount();
+        claimEditorSurface(pane, "codemirror");
+        const before = currentView().state.selection.main.head;
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-action", {
+                    detail: { action: "editor.action.jumpToPosition", line: 4, column: 1 },
+                }),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        });
+        expect(currentView().state.selection.main.head).toBe(before);
     });
 
     it("ignores a jump aimed at another file", async () => {

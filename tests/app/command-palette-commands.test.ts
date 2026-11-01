@@ -50,6 +50,15 @@ describe("command palette editor commands", () => {
         releaseEditorSurface(OWNER);
     });
 
+    it("keeps Go to Line offerable where the document editor answers it", () => {
+        // Enter in line mode dispatches `jumpToPosition`, so the row is gated on
+        // that action and has to survive the document editor's filter.
+        claimEditorSurface(OWNER, "preview");
+        const previewLabels = getAppCommands().map((command) => command.label);
+        releaseEditorSurface(OWNER);
+        expect(previewLabels).toContain("Go to Line/Column...");
+    });
+
     it("uses unique ids", () => {
         const ids = commands.map((command) => command.id);
         expect(new Set(ids).size).toBe(ids.length);

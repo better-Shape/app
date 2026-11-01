@@ -60,7 +60,7 @@ export function editorActionImplemented(action: string | undefined): boolean {
  * from the file editor's, so a row that works on a source file has to be named
  * here before the palette offers it over a document.
  */
-export const PREVIEW_EDITOR_ACTIONS: ReadonlySet<string> = new Set(["undo", "redo"]);
+export const PREVIEW_EDITOR_ACTIONS: ReadonlySet<string> = new Set(["undo", "redo", "jumpToPosition"]);
 
 /**
  * Whether a row is worth offering in the surface the user is working in. A row

@@ -38,6 +38,8 @@ import { indentUnit } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { cn } from "@/lib/utils";
 import { jumpToPosition } from "@/lib/editor/jump-to-position";
+import { getActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { normalizeEditorAction } from "@/lib/editor/action-contract";
 import { Button } from "@/components/ui/button";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 
@@ -740,6 +742,16 @@ export function MarkdownLiveEditor({
             jumpToPosition(view, detail.line, detail.column ?? 1);
         };
         window.addEventListener("bettershape-editor-jump", onJump as EventListener);
+        // Go to Line/Column goes through the action channel, not the jump one,
+        // so the palette row was a dead entry over a document. Answering it here
+        // keeps the row working in the surface the user is actually typing in.
+        const onAction = (event: Event) => {
+            const detail = (event as CustomEvent<{ action?: string; line?: number; column?: number }>).detail;
+            if (normalizeEditorAction(detail?.action) !== "jumpToPosition") return;
+            if (getActiveEditorSurface() !== "preview") return;
+            jumpToPosition(view, detail.line ?? 1, detail.column ?? 1);
+        };
+        window.addEventListener("bettershape-editor-action", onAction as EventListener);
         const unsubscribeSettings = subscribeSettings(() => {
             view.dispatch({
                 effects: optionCompartment.reconfigure(documentOptions()),
@@ -749,6 +761,7 @@ export function MarkdownLiveEditor({
             unsubscribeSettings();
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
+            window.removeEventListener("bettershape-editor-action", onAction as EventListener);
             view.destroy();
             viewRef.current = null;
             setBubble(null);
