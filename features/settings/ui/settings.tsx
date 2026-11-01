@@ -34,13 +34,6 @@ import { ProvidersSettingsView } from "./sections/providers";
 import { clearRepoHistory } from "@/lib/workspace/repo-history";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isWorkspaceTrusted, listTrustedWorkspaces, trustWorkspace, untrustWorkspace } from "@/lib/workspace/trust";
-import {
-    checkForAppUpdates,
-    describeUpdateStatus,
-    getUpdateStatus,
-    openUpdateDownloadPage,
-    subscribeUpdateStatus,
-} from "@/lib/window/updater";
 import { HostedSidebarBack } from "@/features/agent/sidebar/hosted-nav";
 import { Icon } from "@/components/ui/icon";
 import { SETTINGS_NAV, allSettingsLeaves, type SettingsNavLeaf } from "./shared/nav";
@@ -49,6 +42,7 @@ import { PluginsSettingsView } from "./sections/plugins";
 import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
 import { MicrophoneSettings } from "./sections/microphone";
+import { UpdatesSettings } from "./sections/updates";
 import { useRouter } from "next/navigation";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
@@ -442,98 +436,6 @@ function DeveloperSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={dev.enableDevTools}
                     onChange={(v) => updateSettingSection("developer", { enableDevTools: v })}
-                />
-            </SettingRow>
-        </SettingSection>
-    );
-}
-
-function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
-    const u = settings.updates;
-    const [version, setVersion] = useState("0.0.1");
-    const [busy, setBusy] = useState(false);
-    const status = React.useSyncExternalStore(subscribeUpdateStatus, getUpdateStatus, getUpdateStatus);
-
-    // The version comes from the bundle. The check itself stays behind the
-    // button: opening Settings is not a request to contact GitHub.
-    useEffect(() => {
-        void import("@tauri-apps/api/app")
-            .then(({ getVersion }) => getVersion())
-            .then(setVersion)
-            .catch(() => {});
-    }, []);
-
-    // `idle` is the state before any check, so it has no result to describe.
-    const statusLine = status.kind === "idle" ? "" : ` ${describeUpdateStatus(status)}`;
-    const checking = status.kind === "checking";
-
-    const runCheck = async () => {
-        setBusy(true);
-        try {
-            await checkForAppUpdates({ force: true, silent: false });
-        } catch {
-            /* status is already set on the updater */
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    return (
-        <SettingSection id="settings-updates" title="About BetterShape">
-            <SettingCard>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-text-primary">App</div>
-                        <div className="text-xs text-text-muted">
-                            Current version is v{version}.{statusLine}
-                        </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                        {status.kind === "available" ? (
-                            <Button
-                                size="sm"
-                                disabled={busy}
-                                onClick={() => {
-                                    void openUpdateDownloadPage().catch(() => undefined);
-                                }}
-                            >
-                                Get {status.version}
-                            </Button>
-                        ) : null}
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy || checking}
-                            onClick={() => void runCheck()}
-                        >
-                            {checking ? "Checking..." : "Check for updates"}
-                        </Button>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-text-primary">How updates arrive</div>
-                        <div className="text-xs text-text-muted">
-                            Releases are published on GitHub. A check only reads the newest version; the
-                            button opens the release page, where you download the installer yourself.
-                        </div>
-                    </div>
-                </div>
-            </SettingCard>
-            <SettingRow
-                title="Update channel"
-                description="Stable reads the newest published release. Nightly also counts pre-releases."
-            >
-                <SettingSelect
-                    value={u.channel}
-                    options={[
-                        { value: "stable", label: "Stable" },
-                        { value: "nightly", label: "Nightly" },
-                    ]}
-                    onChange={(v) => {
-                        const channel = v as BetterShapeSettings["updates"]["channel"];
-                        updateSettingSection("updates", { channel });
-                    }}
                 />
             </SettingRow>
         </SettingSection>
