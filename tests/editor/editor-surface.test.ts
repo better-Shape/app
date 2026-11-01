@@ -49,6 +49,8 @@ describe("editor surface claims", () => {
         // claim of its own keeps the palette from offering one there.
         claimEditorSurface(right, "rendered");
         expect(getActiveEditorSurface()).toBe("rendered");
+        releaseEditorSurface(right);
+        expect(getActiveEditorSurface()).toBeNull();
     });
 
     it("hands out distinct owners", () => {

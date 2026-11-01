@@ -21,8 +21,8 @@ export function normalizeEditorAction(action: string | undefined): string | unde
 /**
  * Actions the editor cannot serve yet, keyed by their normalised id. Every one
  * of them needs an engine the repo does not ship. See
- * `.github/SERVER_INDEPENDENCE.md` §9: "Either hide them, or build the LSP
- * client. Do not leave them as silent no-ops."
+ * `.github/SERVER_INDEPENDENCE.md` §9: hide them, or build the LSP client, and
+ * never leave them as silent no-ops.
  *
  * Surfaced commands are filtered against this map instead of being deleted, so
  * the wording stays in one place and the wiring comes back with the engine.

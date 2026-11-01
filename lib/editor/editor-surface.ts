@@ -2,9 +2,10 @@
  * Which editor surface the user is working in.
  *
  * The file editor and the Markdown document editor are two CodeMirror
- * instances, and only the file editor answers `bettershape-editor-action`. The
- * command palette asks this module before it offers a row that would otherwise
- * close the palette and do nothing.
+ * instances that answer different halves of `bettershape-editor-action`, and the
+ * preview beside the document answers none of it. The command palette asks this
+ * module before it offers a row that would otherwise close the palette and do
+ * nothing.
  *
  * Focus decides it, not mounting: a split view holds both at once, and the row
  * has to follow the pane the user last touched. A claim carries the owner that
