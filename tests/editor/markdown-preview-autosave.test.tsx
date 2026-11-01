@@ -17,7 +17,10 @@ const backend = vi.hoisted(() => ({
     invalidateAllFileCaches: vi.fn(),
 }));
 
-const live = vi.hoisted(() => ({ onchange: null as null | ((next: string) => void) }));
+const live = vi.hoisted(() => ({
+    onchange: null as null | ((next: string) => void),
+    content: "" as string,
+}));
 
 vi.mock("@/lib/backend", () => ({
     commands: backend,
@@ -44,8 +47,9 @@ vi.mock("@/features/editor/ui/main/ui/plan-editor-header", () => ({
 }));
 vi.mock("@/features/editor/ui/local-history-picker", () => ({ LocalHistoryPicker: () => null }));
 vi.mock("@/features/editor/ui/markdown/live-editor", () => ({
-    MarkdownLiveEditor: ({ onChange }: { onChange: (next: string) => void }) => {
+    MarkdownLiveEditor: ({ content, onChange }: { content: string; onChange: (next: string) => void }) => {
         live.onchange = onChange;
+        live.content = content;
         return null;
     },
 }));
@@ -64,6 +68,7 @@ let root: Root | undefined;
 
 beforeEach(() => {
     live.onchange = null;
+    live.content = "";
     backend.saveFile.mockClear();
     updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 5000 });
     host = document.createElement("div");
@@ -104,4 +109,23 @@ it("writes a pending preview edit when the viewer switches files", async () => {
     const written = backend.saveFile.mock.calls.map((call) => call as unknown as [string, string]);
     const forNotes = written.find(([path]) => path === "/repo/notes.md");
     expect(forNotes?.[1]).toContain("edited before the switch");
+});
+
+it("adopts the text a menu save wrote over the preview buffer", async () => {
+    await render("/repo/notes.md");
+    if (!live.onchange) throw new Error("markdown editor did not mount");
+    await act(async () => {
+        live.onchange?.("typed text");
+    });
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-buffer-saved", {
+                detail: { path: "/repo/notes.md", submitted: "typed text", content: "typed text\n" },
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    // Save All ran the pipeline over exactly this text, so the preview shows what
+    // reached the disk instead of staying dirty against it.
+    expect(live.content).toBe("typed text\n");
 });

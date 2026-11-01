@@ -76,12 +76,12 @@ async function mount(content: string, diskContent: string) {
     await act(async () => {
         view.dom.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     });
-    return view;
+    return { view, saved, dirty };
 }
 
 it("reports the CRLF the file was loaded with, not the LF default", async () => {
     updateSettingSection("files", { defaultEol: "LF" });
-    const view = await mount("one\ntwo", "one\r\ntwo");
+    const { view } = await mount("one\ntwo", "one\r\ntwo");
     expect(view.state.lineBreak).toBe("\r\n");
     expect(reported.at(-1)).toEqual({ eol: "CRLF" });
 });
@@ -116,7 +116,21 @@ it("takes the ending of a file that loads after the editor opened", async () => 
 
 it("reports LF for an LF file even when the default is CRLF", async () => {
     updateSettingSection("files", { defaultEol: "CRLF" });
-    const view = await mount("one\ntwo", "one\ntwo");
+    const { view } = await mount("one\ntwo", "one\ntwo");
     expect(view.state.lineBreak).toBe("\n");
     expect(reported.at(-1)).toEqual({ eol: "LF" });
+});
+
+it("writes the file's own ending on a save and keeps it in the baseline", async () => {
+    const { view, saved, dirty } = await mount("one\ntwo", "one\r\ntwo");
+    dirty.current = true;
+    await act(async () => {
+        view.contentDOM.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    expect(backend.saveFile).toHaveBeenCalledWith("/repo/file.txt", "one\r\ntwo\r\n");
+    // The preview reads its ending from this ref, so it has to keep the disk one.
+    expect(saved.current).toBe("one\r\ntwo\r\n");
 });

@@ -435,11 +435,36 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             // clear a dirty marker an earlier edit set.
             void commands.markFileDirty(path, isDirtyRef.current).catch(() => undefined);
         };
+        /**
+         * A save started elsewhere went through the pipeline with the text this
+         * preview was showing. Adopting the written text keeps the preview and the
+         * file in step; text that has moved on since is the user typing.
+         */
+        const onBufferSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string }>).detail;
+            if (!detail || detail.path !== path) return;
+            if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
+            if (currentContentRef.current !== detail.submitted) return;
+            currentContentRef.current = detail.content;
+            // Keep the file's own ending in the baseline: the next save reads the
+            // convention from it, and the written text is LF by construction.
+            const ending = lineEndingOf(savedContentRef.current || detail.content);
+            savedContentRef.current = toDiskText(detail.content, ending);
+            setContent(detail.content);
+            isDirtyRef.current = false;
+            saveDirtyBuffer(path, detail.content, savedContentRef.current);
+            void commands.markFileDirty(path, false).catch(() => undefined);
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-buffer", { detail: { path, content: detail.content } }),
+            );
+        };
         window.addEventListener("bettershape-file-saved", onFileSaved);
+        window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
         window.addEventListener("save-request", handleSave);
         window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
             window.removeEventListener("bettershape-file-saved", onFileSaved);
+            window.removeEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };

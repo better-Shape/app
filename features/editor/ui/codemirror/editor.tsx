@@ -49,7 +49,7 @@ import {
     completionKeymap,
 } from "@codemirror/autocomplete";
 import { optionExtensions } from "@/features/editor/ui/codemirror/options";
-import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, loadDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { rememberLiveEol } from "@/lib/editor/live-eol";
@@ -544,13 +544,15 @@ export function CodeMirrorEditor({
                 if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
                 applyWrittenText(live, written, doc);
                 // The prepared text is what is on disk now, so it is the baseline
-                // the dirty check compares against.
-                savedContentRef.current = written;
+                // the dirty check compares against, in the disk ending: the
+                // preview reads its own ending from this ref.
+                const onDisk = toDiskText(written, eol);
+                savedContentRef.current = onDisk;
                 isDirtyRef.current = false;
                 // The draft in recovery is the text from before the save. Rebase it
                 // on what was written, so reopening the file cannot restore an
                 // older copy over the bytes that are on disk now.
-                saveDirtyBuffer(pathRef.current, written, written);
+                saveDirtyBuffer(pathRef.current, written, onDisk);
                 void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             } catch (error) {
                 notify.error("Save failed", error instanceof Error ? error.message : String(error));
@@ -859,9 +861,10 @@ export function CodeMirrorEditor({
             if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
             if (live.state.doc.toString() !== detail.submitted) return;
             applyWrittenText(live, detail.content, detail.submitted);
-            savedContentRef.current = detail.content;
+            const onDisk = toDiskText(detail.content, eol);
+            savedContentRef.current = onDisk;
             isDirtyRef.current = false;
-            saveDirtyBuffer(pathRef.current, detail.content, detail.content);
+            saveDirtyBuffer(pathRef.current, detail.content, onDisk);
             void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
         };
         window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
@@ -907,6 +910,11 @@ export function CodeMirrorEditor({
                 if (!sameIgnoringEol(toDiskText(pending, eol), savedContentRef.current)) {
                     void saveContents(pendingPath, pending, eol)
                         .then(() => {
+                            // The file can be reopened and edited while this write
+                            // is in flight; that newer text owns the dirty marker,
+                            // and this save describes older bytes.
+                            const newer = loadDirtyBuffer(pendingPath);
+                            if (newer && newer.content !== pending) return;
                             clearSavedDirtyBuffer(pendingPath, pending);
                             return commands.markFileDirty(pendingPath, false).catch(() => undefined);
                         })
