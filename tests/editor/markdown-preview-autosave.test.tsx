@@ -145,3 +145,18 @@ it("writes a dirty preview when the window loses focus and Auto Save is set to t
     const forNotes = written.find(([path]) => path === "/repo/notes.md");
     expect(forNotes?.[1]).toContain("edited then blurred");
 });
+
+it("keeps the pending edit when Auto Save is switched off before the switch", async () => {
+    await render("/repo/notes.md");
+    if (!live.onchange) throw new Error("markdown editor did not mount");
+    await act(async () => {
+        live.onchange?.("edited before the switch");
+    });
+    updateSettingSection("editor", { autoSave: "off" });
+    await render("/repo/other.md");
+    await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const written = backend.saveFile.mock.calls.map((call) => call as unknown as [string, string]);
+    expect(written.some(([path]) => path === "/repo/notes.md")).toBe(false);
+});

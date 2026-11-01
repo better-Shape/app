@@ -19,6 +19,14 @@ type State = {
 let state: State = { status: "idle", command: null, ptyId: null, alive: false };
 const listeners = new Set<() => void>();
 let startingTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * True between `startDevRun` and the moment the run's own PTY id is known.
+ *
+ * An exit that arrives in that window cannot be attributed to a terminal: the
+ * spawn path reports its own early exit, so the event is ignored rather than
+ * clearing a run over some other tab closing.
+ */
+let awaitingPtyBinding = false;
 
 function emit() {
     for (const l of listeners) l();
@@ -39,7 +47,10 @@ const ERR_RE =
 
 export function startDevRun(command: string, ptyId?: number | null) {
     clearStartingTimer();
-    state = { status: "starting", command, ptyId: ptyId ?? state.ptyId, alive: true };
+    // A previous run's id must not be inherited: the next one has its own, and
+    // comparing against the old one would reject the exit that matters.
+    awaitingPtyBinding = ptyId == null;
+    state = { status: "starting", command, ptyId: ptyId ?? null, alive: true };
     emit();
     startingTimer = setTimeout(() => {
         if (state.status === "starting") {
@@ -50,6 +61,7 @@ export function startDevRun(command: string, ptyId?: number | null) {
 }
 
 export function setDevRunPtyId(ptyId: number | null) {
+    if (ptyId != null) awaitingPtyBinding = false;
     state = { ...state, ptyId };
     emit();
 }
@@ -84,8 +96,10 @@ export function noteDevRunOutput(chunk: string) {
 export function noteDevRunExit(code: number | null, ptyId?: number | null) {
     clearStartingTimer();
     if (state.status === "idle") return;
+    if (awaitingPtyBinding) return;
     if (ptyId != null && state.ptyId != null && ptyId !== state.ptyId) return;
     if (code === 0) {
+        awaitingPtyBinding = false;
         state = { status: "idle", command: null, ptyId: null, alive: false };
     } else {
         state = { ...state, status: "error", ptyId: null, alive: false };
@@ -95,6 +109,7 @@ export function noteDevRunExit(code: number | null, ptyId?: number | null) {
 
 export function clearDevRun() {
     clearStartingTimer();
+    awaitingPtyBinding = false;
     state = { status: "idle", command: null, ptyId: null, alive: false };
     emit();
 }

@@ -1034,6 +1034,10 @@ export function CodeMirrorEditor({
             <LocalHistoryPicker
                 path={path}
                 onRestore={(restored) => {
+                    // A picker opened for this file can answer after the viewer moved
+                    // to another one; writing the old history into the new buffer is
+                    // the wrong file's text.
+                    if (pathRef.current !== path) return;
                     const view = viewRef.current;
                     if (!view) {
                         setContentRef.current(restored);

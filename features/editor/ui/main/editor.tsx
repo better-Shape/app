@@ -157,7 +157,12 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             }
             const pending = pendingPreviewRef.current;
             pendingPreviewRef.current = null;
-            if (pending) void writePreview(pending.path, pending.doc, pending.eol);
+            // The setting that asked for the write can be off by now, and a timer
+            // that fires anyway would write a file the setting refuses; the draft
+            // in recovery is what carries the edit in that case.
+            if (pending && getSettings().editor.autoSave === "afterDelay") {
+                void writePreview(pending.path, pending.doc, pending.eol);
+            }
         },
         [path, writePreview],
     );

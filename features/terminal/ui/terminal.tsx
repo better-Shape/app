@@ -481,7 +481,9 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         term.write(`\r\n\x1b[38;2;120;120;120m[Process exited with code ${code}]\x1b[0m\r\n`);
                         term.scrollToBottom();
                         void loadRunStatus().then(({ noteDevRunExit }) => {
-                            // The run store ignores exits from other terminals.
+                            // The run store ignores exits that are not this run's: it
+                            // drops every exit until the run's own PTY is known, and
+                            // other terminals' exits after that.
                             noteDevRunExit(code, e.payload.id);
                         }).catch(() => undefined);
                     }
