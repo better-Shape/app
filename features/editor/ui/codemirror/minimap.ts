@@ -29,10 +29,15 @@ export function minimapRows(text: string, maxRows = MAX_DRAWN_ROWS): MinimapRow[
     return rows;
 }
 
-/** Canvas colours come from the theme, not from constants in this file. */
+/**
+ * Canvas colours come from the theme, not from constants in this file.
+ *
+ * The last fallback is the editor's own computed text colour: a hard-coded
+ * white bar vanishes on a light theme, and the bars are the whole minimap.
+ */
 function readColours(view: EditorView) {
     const styles = getComputedStyle(view.dom);
-    const muted = styles.getPropertyValue("--text-muted").trim() || "rgba(255,255,255,0.3)";
+    const muted = styles.getPropertyValue("--text-muted").trim() || styles.color.trim();
     const accent = styles.getPropertyValue("--accent-text").trim() || muted;
     return { bar: muted, viewport: accent };
 }
