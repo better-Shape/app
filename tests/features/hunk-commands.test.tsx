@@ -9,8 +9,11 @@ const backend = vi.hoisted(() => ({
     gitRestoreHunk: vi.fn(),
 }));
 
+const dialog = vi.hoisted(() => ({ ask: vi.fn(async () => true) }));
+
 vi.mock("@/lib/backend/commands", () => ({ commands: backend }));
 vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn() } }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: dialog.ask }));
 
 import { HunkActions, useFileHunks, type HunkMode } from "@/features/git/ui/shared/hunk-actions";
 import type { GitHunk } from "@/lib/backend/types";
@@ -56,6 +59,7 @@ const mount = async (props: Omit<Props, "onApi">) => {
 describe("hunk actions", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        dialog.ask.mockResolvedValue(true);
         backend.gitStageHunk.mockResolvedValue(undefined);
         backend.gitUnstageHunk.mockResolvedValue(undefined);
         backend.gitRestoreHunk.mockResolvedValue(undefined);
@@ -92,6 +96,36 @@ describe("hunk actions", () => {
             await api.apply("restore");
         });
         expect(backend.gitRestoreHunk).toHaveBeenCalledWith("/repo", "a.ts", 7);
+    });
+
+    it("asks before it throws a hunk's changes away, and listens to the answer", async () => {
+        backend.gitListHunks.mockResolvedValue(hunkList(3));
+        await mount({ repoPath: "/repo", filePath: "a.ts" });
+
+        dialog.ask.mockResolvedValueOnce(false);
+        await act(async () => {
+            await api.apply("restore");
+        });
+        expect(dialog.ask).toHaveBeenCalledTimes(1);
+        expect(backend.gitRestoreHunk).not.toHaveBeenCalled();
+
+        dialog.ask.mockResolvedValueOnce(true);
+        await act(async () => {
+            await api.apply("restore");
+        });
+        expect(backend.gitRestoreHunk).toHaveBeenCalledWith("/repo", "a.ts", 3);
+    });
+
+    it("keeps a stage from asking, since a second press reverses it", async () => {
+        backend.gitListHunks.mockResolvedValue(hunkList(3));
+        await mount({ repoPath: "/repo", filePath: "a.ts" });
+
+        await act(async () => {
+            await api.apply("stage");
+        });
+
+        expect(dialog.ask).not.toHaveBeenCalled();
+        expect(backend.gitStageHunk).toHaveBeenCalledWith("/repo", "a.ts", 3);
     });
 
     it("blocks actions until the list after a mutation has arrived", async () => {

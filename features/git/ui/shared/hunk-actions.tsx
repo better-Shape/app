@@ -24,6 +24,25 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 };
 
 /**
+ * Asks before a hunk's changes are thrown away.
+ *
+ * A missing dialog plugin answers `false`: refusing the restore is the safe
+ * failure, because the lines it would have deleted are not recoverable.
+ */
+const confirmRestore = async (): Promise<boolean> => {
+    try {
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        return await ask("Discard the changes in this hunk? This cannot be undone.", {
+            title: "Discard Hunk",
+            kind: "warning",
+            okLabel: "Discard",
+        });
+    } catch {
+        return false;
+    }
+};
+
+/**
  * Loads the hunks of one file diff and refreshes them after any Git mutation.
  *
  * The listing is keyed by the repository, file and mode it was read for. A
@@ -94,6 +113,10 @@ export const useFileHunks = (repoPath: string | null, filePath: string, mode: Hu
             if (!repoPath || !hunk || busy || loading) return;
             setBusy(true);
             try {
+                // Restoring throws the hunk's changes away with nothing to undo
+                // it, so it asks first, the same way discarding a whole file
+                // does. Staging is an edit a second press can reverse.
+                if (operation === "restore" && !(await confirmRestore())) return;
                 if (operation === "stage") await commands.gitStageHunk(repoPath, filePath, hunk.index);
                 else if (operation === "unstage") await commands.gitUnstageHunk(repoPath, filePath, hunk.index);
                 else await commands.gitRestoreHunk(repoPath, filePath, hunk.index);
