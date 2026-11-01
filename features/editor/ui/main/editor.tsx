@@ -181,6 +181,8 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         previewAutosaveRef.current = null;
         pendingPreviewRef.current = null;
         const editorSettings = getSettings().editor;
+        // `onFocusChange` has no delay to schedule: the blur handler in the preview
+        // effect writes the buffer when the window loses focus.
         if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
         const doc = currentContentRef.current;
         // Hold the whole write now: the viewer can move to another file before
@@ -458,17 +460,28 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 new CustomEvent("bettershape-editor-buffer", { detail: { path, content: detail.content } }),
             );
         };
+        /**
+         * Auto Save's `onFocusChange` is a blur save. The preview is the editor
+         * for this file, so it has to answer it: without this, a Markdown preview
+         * left for another window kept its edit unsaved.
+         */
+        const onBlur = () => {
+            if (getSettings().editor.autoSave !== "onFocusChange" || !isDirtyRef.current) return;
+            void writePreview(path, currentContentRef.current, lineEndingOf(savedContentRef.current || currentContentRef.current));
+        };
         window.addEventListener("bettershape-file-saved", onFileSaved);
         window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
+        window.addEventListener("blur", onBlur);
         window.addEventListener("save-request", handleSave);
         window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
             window.removeEventListener("bettershape-file-saved", onFileSaved);
             window.removeEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
+            window.removeEventListener("blur", onBlur);
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
-    }, [isMarkdown, mode, path, content, setContent, persistPreview, schedulePreviewAutosave]);
+    }, [isMarkdown, mode, path, content, setContent, persistPreview, schedulePreviewAutosave, writePreview]);
 
     const workspace = variant === "workspace";
 

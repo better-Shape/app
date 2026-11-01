@@ -121,6 +121,44 @@ it("reports LF for an LF file even when the default is CRLF", async () => {
     expect(reported.at(-1)).toEqual({ eol: "LF" });
 });
 
+it("takes the ending of a refreshed file whose text is otherwise unchanged", async () => {
+    const { saved } = await mount("one\ntwo", "one\ntwo");
+    await act(async () => {
+        // The file was rewritten on disk with CRLF while the buffer kept LF.
+        saved.current = "one\r\ntwo";
+        root?.render(
+            <Suspense fallback={null}>
+                <CodeMirrorEditor
+                    path="/repo/file.txt"
+                    content={"one\r\ntwo"}
+                    setContent={() => undefined}
+                    savedContentRef={saved}
+                    isDirtyRef={{ current: false }}
+                    bufferVersionRef={{ current: 0 }}
+                />
+            </Suspense>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+    if (!view) throw new Error("Editor view is missing");
+    expect(view.state.lineBreak).toBe("\r\n");
+});
+
+it("marks a clean file unsaved when the ending is changed", async () => {
+    const { dirty } = await mount("one\ntwo", "one\ntwo");
+    expect(dirty.current).toBe(false);
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-editor-action", { detail: { action: "setEol", value: "CRLF" } }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    // The conversion only reaches the disk through a save, so the file is dirty.
+    expect(dirty.current).toBe(true);
+    expect(backend.markFileDirty).toHaveBeenCalledWith("/repo/file.txt", true);
+});
+
 it("writes the file's own ending on a save and keeps it in the baseline", async () => {
     const { view, saved, dirty } = await mount("one\ntwo", "one\r\ntwo");
     dirty.current = true;

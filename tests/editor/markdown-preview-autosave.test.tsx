@@ -129,3 +129,19 @@ it("adopts the text a menu save wrote over the preview buffer", async () => {
     // reached the disk instead of staying dirty against it.
     expect(live.content).toBe("typed text\n");
 });
+
+it("writes a dirty preview when the window loses focus and Auto Save is set to that", async () => {
+    updateSettingSection("editor", { autoSave: "onFocusChange" });
+    await render("/repo/notes.md");
+    if (!live.onchange) throw new Error("markdown editor did not mount");
+    await act(async () => {
+        live.onchange?.("edited then blurred");
+    });
+    await act(async () => {
+        window.dispatchEvent(new Event("blur"));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const written = backend.saveFile.mock.calls.map((call) => call as unknown as [string, string]);
+    const forNotes = written.find(([path]) => path === "/repo/notes.md");
+    expect(forNotes?.[1]).toContain("edited then blurred");
+});

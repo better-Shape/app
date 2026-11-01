@@ -90,10 +90,6 @@ import {
 let activeView: EditorView | null = null;
 const externalContentUpdate = Annotation.define<boolean>();
 
-function sameIgnoringEol(a: string, b: string): boolean {
-    return a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
-}
-
 export function CodeMirrorEditor({
     path,
     content,
@@ -353,7 +349,7 @@ export function CodeMirrorEditor({
                     stageDirtyBuffer(pathRef.current, next, savedContentRef.current);
                     setContentRef.current(next);
                     window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path: pathRef.current } }));
-                    const dirty = !sameIgnoringEol(toDiskText(next, eol), savedContentRef.current);
+                    const dirty = toDiskText(next, eol) !== savedContentRef.current;
                     isDirtyRef.current = dirty;
                     bufferVersionRef.current += 1;
                     void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
@@ -485,29 +481,41 @@ export function CodeMirrorEditor({
         const syncContent = (text: string) => {
             const v = viewRef.current;
             if (!v) return;
-            const current = v.state.doc.toString();
-            const normalized = text.replace(/\r\n/g, "\n");
-            if (current === normalized) return;
-            v.dispatch({
-                changes: { from: 0, to: current.length, insert: normalized },
-                annotations: externalContentUpdate.of(true),
-            });
+            // The ending is read before the text comparison: a file that came back
+            // as CRLF over an LF buffer is the same document and different bytes.
             let eolChanged = false;
-            if (!eolChosenByUser && text.length > 0) {
-                const loadedEnding: "LF" | "CRLF" = text.includes("\r\n") ? "CRLF" : "LF";
+            // The disk text is the file's own convention; the prop is whatever the
+            // loader normalized it to, which is LF.
+            const diskText = savedContentRef.current || text;
+            if (!eolChosenByUser && diskText.length > 0) {
+                const loadedEnding: "LF" | "CRLF" = diskText.includes("\r\n") ? "CRLF" : "LF";
                 if (loadedEnding !== eol) {
                     eol = loadedEnding;
                     eolChanged = true;
                 }
             }
-            if (eolChanged) applyEol(v);
-            if (getSettings().editor.detectIndentation === true) {
-                const detected = detectIndentation(normalized);
-                if (detected && (detected.tabSize !== tabSize || detected.insertSpaces !== insertSpaces)) {
-                    tabSize = detected.tabSize;
-                    insertSpaces = detected.insertSpaces;
-                    applyIndent(v);
+            const current = v.state.doc.toString();
+            const normalized = text.replace(/\r\n/g, "\n");
+            if (current !== normalized) {
+                v.dispatch({
+                    changes: { from: 0, to: current.length, insert: normalized },
+                    annotations: externalContentUpdate.of(true),
+                });
+                if (getSettings().editor.detectIndentation === true) {
+                    const detected = detectIndentation(normalized);
+                    if (detected && (detected.tabSize !== tabSize || detected.insertSpaces !== insertSpaces)) {
+                        tabSize = detected.tabSize;
+                        insertSpaces = detected.insertSpaces;
+                        applyIndent(v);
+                    }
                 }
+            }
+            if (eolChanged) {
+                applyEol(v);
+                // The dirty answer depends on the ending, so it is stated again.
+                const dirty = toDiskText(v.state.doc.toString(), eol) !== savedContentRef.current;
+                isDirtyRef.current = dirty;
+                void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
             }
             publishStatus(v);
         };
@@ -761,11 +769,24 @@ export function CodeMirrorEditor({
                     publishStatus(v);
                     break;
                 }
-                case "setEol":
-                    eol = detail.value === "CRLF" ? "CRLF" : "LF";
+                case "setEol": {
+                    const requested = detail.value === "CRLF" ? "CRLF" : "LF";
+                    if (requested === eol) break;
+                    eol = requested;
                     eolChosenByUser = true;
                     applyEol(v);
+                    // The ending is part of the file's bytes. Without marking the
+                    // buffer dirty, a clean file would never be written and the
+                    // conversion the user asked for would be lost.
+                    const doc = v.state.doc.toString();
+                    const dirty = toDiskText(doc, eol) !== savedContentRef.current;
+                    isDirtyRef.current = dirty;
+                    if (dirty) stageDirtyBuffer(pathRef.current, doc, savedContentRef.current);
+                    void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
+                    if (dirty) scheduleAutosave(true);
+                    publishStatus(v);
                     break;
+                }
                 case "setLanguage": {
                     const requested =
                         typeof detail.value === "string" ? detail.value.toLowerCase() : "";
@@ -841,7 +862,7 @@ export function CodeMirrorEditor({
             const current = view.state.doc.toString();
             const savedForCompare = toDiskText(current, eol);
             saveDirtyBuffer(pathRef.current, current, detail.content);
-            const dirty = !sameIgnoringEol(savedForCompare, detail.content);
+            const dirty = savedForCompare !== detail.content;
             isDirtyRef.current = dirty;
             // Always state the answer: the tab could have been dirty before this
             // save, and skipping the false case leaves that marker behind.
@@ -907,7 +928,7 @@ export function CodeMirrorEditor({
             if (getSettings().editor.autoSave === "afterDelay") {
                 const pending = view.state.doc.toString();
                 const pendingPath = pathRef.current;
-                if (!sameIgnoringEol(toDiskText(pending, eol), savedContentRef.current)) {
+                if (toDiskText(pending, eol) !== savedContentRef.current) {
                     void saveContents(pendingPath, pending, eol)
                         .then(() => {
                             // The file can be reopened and edited while this write
