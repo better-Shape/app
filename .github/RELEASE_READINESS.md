@@ -92,17 +92,17 @@ Consumed, never produced:
 
 - `bettershape-editor-edit-action`, `bettershape-editor-search`,
   `bettershape-editor-split`
+- `bettershape-terminal-run-restart`, `bettershape-terminal-run-stop`,
+  `bettershape-terminal-view`
+- `bettershape-toggle-design-mode`, `bettershape-toggle-browser-design-mode`
+- `bettershape-typescript-version`
+- `open-folder-request` (`components/layout/main.tsx`)
 
 Removed by this branch, so no longer on either list: `bettershape-chat-fork`,
 `bettershape-chat-restore-last`, `bettershape-editor-search-count`,
 `bettershape-open-browser`, `bettershape-open-preview`,
 `bettershape-open-subagents-for`, `bettershape-set-panel-tab`,
 `bettershape-swap-sidebars`.
-- `bettershape-terminal-run-restart`, `bettershape-terminal-run-stop`,
-  `bettershape-terminal-view`
-- `bettershape-toggle-design-mode`, `bettershape-toggle-browser-design-mode`
-- `bettershape-typescript-version`
-- `open-folder-request` (`components/layout/main.tsx`)
 
 Two more known items, not yet re-verified on this branch:
 

@@ -94,13 +94,39 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
 }
 
 /// Release endpoint for the channel. Stable asks for the newest published
-/// release; nightly lists releases newest first so a prerelease counts.
+/// release; nightly lists releases newest first, because the newest entry can be
+/// a stable that shipped after the prerelease the channel is looking for.
 fn release_endpoint(repo: &str, nightly: bool) -> String {
     if nightly {
-        format!("https://api.github.com/repos/{repo}/releases?per_page=1")
+        format!("https://api.github.com/repos/{repo}/releases?per_page={RELEASE_PAGE}")
     } else {
         format!("https://api.github.com/repos/{repo}/releases/latest")
     }
+}
+
+/// How many releases one nightly page asks for. GitHub caps a page at 100, and a
+/// project that publishes many stables between prereleases would need more.
+const RELEASE_PAGE: u32 = 100;
+
+/// True when the release is flagged as a prerelease.
+fn is_prerelease(release: &serde_json::Value) -> bool {
+    release
+        .get("prerelease")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+/// The release a nightly check should offer.
+///
+/// The newest prerelease, because that is what the channel follows, and the
+/// newest release when the project publishes no prereleases at all, so a nightly
+/// build still hears about a stable one. The endpoint answers newest first.
+fn nightly_release(releases: &[serde_json::Value]) -> Option<serde_json::Value> {
+    releases
+        .iter()
+        .find(|release| is_prerelease(release))
+        .or_else(|| releases.first())
+        .cloned()
 }
 
 /// The release body, or `None` when the repository has published nothing yet.
@@ -137,10 +163,10 @@ async fn fetch_release(repo: &str, nightly: bool) -> Result<Option<serde_json::V
     }
     // The list endpoint answers an array ordered newest first; an empty array is
     // the same "nothing published" answer as the 404 above.
-    let first = payload
+    let chosen = payload
         .as_array()
-        .and_then(|releases| releases.first().cloned());
-    Ok(first)
+        .and_then(|releases| nightly_release(releases));
+    Ok(chosen)
 }
 
 fn channel_is_nightly(channel: Option<&str>) -> bool {
@@ -222,8 +248,43 @@ mod tests {
     }
 
     #[test]
+    fn nightly_follows_the_newest_prerelease_past_a_newer_stable() {
+        let releases = serde_json::json!([
+            { "tag_name": "v1.0.4", "prerelease": false },
+            { "tag_name": "v2.0.0-nightly.3", "prerelease": true },
+            { "tag_name": "v1.0.3", "prerelease": false }
+        ]);
+        let picked = nightly_release(releases.as_array().expect("an array"));
+        assert_eq!(
+            picked.and_then(|release| release["tag_name"].as_str().map(str::to_string)),
+            Some("v2.0.0-nightly.3".to_string())
+        );
+    }
+
+    #[test]
+    fn nightly_falls_back_to_the_newest_release_when_none_is_a_prerelease() {
+        let releases = serde_json::json!([
+            { "tag_name": "v1.0.4", "prerelease": false },
+            { "tag_name": "v1.0.3", "prerelease": false }
+        ]);
+        let picked = nightly_release(releases.as_array().expect("an array"));
+        assert_eq!(
+            picked.and_then(|release| release["tag_name"].as_str().map(str::to_string)),
+            Some("v1.0.4".to_string())
+        );
+    }
+
+    #[test]
+    fn nightly_reads_an_empty_list_as_nothing_published() {
+        let releases = serde_json::json!([]);
+        assert!(nightly_release(releases.as_array().expect("an array")).is_none());
+    }
+
+    #[test]
     fn asks_the_endpoint_the_channel_needs() {
-        assert!(release_endpoint("better-Shape/app", true).ends_with("/releases?per_page=1"));
+        // Nightly asks for a page of releases, because the newest one can be a
+        // stable that shipped after the prerelease the channel follows.
+        assert!(release_endpoint("better-Shape/app", true).ends_with("/releases?per_page=100"));
         assert!(release_endpoint("better-Shape/app", false).ends_with("/releases/latest"));
         assert!(channel_is_nightly(Some("Nightly")));
         assert!(!channel_is_nightly(Some("stable")));
