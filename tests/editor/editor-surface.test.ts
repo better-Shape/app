@@ -24,24 +24,31 @@ describe("editor surface claims", () => {
 
     it("keeps another pane's claim when a different pane leaves", () => {
         claimEditorSurface(left, "codemirror");
-        claimEditorSurface(right, "preview");
+        claimEditorSurface(right, "document");
         // The other viewer switching file or mode must not undo this one.
         releaseEditorSurface(left);
-        expect(getActiveEditorSurface()).toBe("preview");
+        expect(getActiveEditorSurface()).toBe("document");
     });
 
     it("releases a claim its owner made", () => {
-        claimEditorSurface(right, "preview");
+        claimEditorSurface(right, "document");
         releaseEditorSurface(right);
         expect(getActiveEditorSurface()).toBeNull();
     });
 
     it("follows the pane that took focus last", () => {
         claimEditorSurface(left, "codemirror");
-        claimEditorSurface(right, "preview");
-        expect(getActiveEditorSurface()).toBe("preview");
+        claimEditorSurface(right, "document");
+        expect(getActiveEditorSurface()).toBe("document");
         claimEditorSurface(left, "codemirror");
         expect(getActiveEditorSurface()).toBe("codemirror");
+    });
+
+    it("names the rendered preview separately from the document editor", () => {
+        // The pane beside a split document editor answers no editor action, so a
+        // claim of its own keeps the palette from offering one there.
+        claimEditorSurface(right, "rendered");
+        expect(getActiveEditorSurface()).toBe("rendered");
     });
 
     it("hands out distinct owners", () => {

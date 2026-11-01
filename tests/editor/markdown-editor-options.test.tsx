@@ -108,7 +108,7 @@ describe("markdown editor jumps", () => {
 
     it("answers Go to Line when the document editor holds the surface", async () => {
         await mount();
-        claimEditorSurface(pane, "preview");
+        claimEditorSurface(pane, "document");
         await act(async () => {
             window.dispatchEvent(
                 new CustomEvent("bettershape-editor-action", {

@@ -748,7 +748,7 @@ export function MarkdownLiveEditor({
         const onAction = (event: Event) => {
             const detail = (event as CustomEvent<{ action?: string; line?: number; column?: number }>).detail;
             if (normalizeEditorAction(detail?.action) !== "jumpToPosition") return;
-            if (getActiveEditorSurface() !== "preview") return;
+            if (getActiveEditorSurface() !== "document") return;
             jumpToPosition(view, detail.line ?? 1, detail.column ?? 1);
         };
         window.addEventListener("bettershape-editor-action", onAction as EventListener);

@@ -198,7 +198,7 @@ it("claims the document surface when the document editor takes focus", async () 
         inner.focus();
     });
     // The command palette asks this before it offers a file-editor command.
-    expect(getActiveEditorSurface()).toBe("preview");
+    expect(getActiveEditorSurface()).toBe("document");
     // The viewer releases on unmount, so nothing is left claimed for another pane.
     harnessRelease();
     expect(getActiveEditorSurface()).toBeNull();

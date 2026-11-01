@@ -35,7 +35,7 @@ describe("command palette editor commands", () => {
     });
 
     it("drops file-editor commands while the document editor holds focus", () => {
-        claimEditorSurface(OWNER, "preview");
+        claimEditorSurface(OWNER, "document");
         const inPreview = getAppCommands();
         const previewLabels = inPreview.map((command) => command.label);
         // The document editor answers neither, so offering them closes the
@@ -53,10 +53,19 @@ describe("command palette editor commands", () => {
     it("keeps Go to Line offerable where the document editor answers it", () => {
         // Enter in line mode dispatches `jumpToPosition`, so the row is gated on
         // that action and has to survive the document editor's filter.
-        claimEditorSurface(OWNER, "preview");
+        claimEditorSurface(OWNER, "document");
         const previewLabels = getAppCommands().map((command) => command.label);
         releaseEditorSurface(OWNER);
         expect(previewLabels).toContain("Go to Line/Column...");
+    });
+
+    it("offers no editor commands over the rendered preview pane", () => {
+        // The pane beside a split document editor answers nothing, so every row
+        // that dispatches an editor action is a dead entry there.
+        claimEditorSurface(OWNER, "rendered");
+        const rendered = getAppCommands();
+        releaseEditorSurface(OWNER);
+        expect(rendered.filter((command) => command.editorAction).map((command) => command.label)).toEqual([]);
     });
 
     it("uses unique ids", () => {

@@ -741,7 +741,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                     // The document editor answers its own actions; the palette asks
                     // this module which surface the user is in before offering a row.
                     // React's onFocus follows focusin, so it fires for the editor inside.
-                    onFocus={() => claimEditorSurface(surfaceOwner, "preview")}
+                    onFocus={() => claimEditorSurface(surfaceOwner, "document")}
                 >
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
@@ -777,7 +777,9 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                             children: (
                                 <div
                                     className="h-full w-full min-h-0"
-                                    onFocus={() => claimEditorSurface(surfaceOwner, "preview")}
+                                    // The rendered pane answers no editor action, so its
+                                    // claim says so instead of borrowing the document's.
+                                    onFocus={() => claimEditorSurface(surfaceOwner, "rendered")}
                                 >
                                     <MarkdownPreview
                                         ref={previewRef}

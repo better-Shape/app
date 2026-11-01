@@ -71,13 +71,19 @@ describe("editor action availability", () => {
     });
 
     it("offers the document editor only the actions it answers", () => {
-        expect(editorActionAvailable("editor.action.undo", "preview")).toBe(true);
-        expect(editorActionAvailable("editor.foldAll", "preview")).toBe(false);
-        expect(editorActionAvailable("editor.action.formatDocument", "preview")).toBe(false);
+        expect(editorActionAvailable("editor.action.undo", "document")).toBe(true);
+        expect(editorActionAvailable("editor.foldAll", "document")).toBe(false);
+        expect(editorActionAvailable("editor.action.formatDocument", "document")).toBe(false);
     });
 
     it("keeps the engine gaps closed in both surfaces", () => {
         expect(editorActionAvailable("editor.action.rename", "codemirror")).toBe(false);
-        expect(editorActionAvailable("editor.action.rename", "preview")).toBe(false);
+        expect(editorActionAvailable("editor.action.rename", "document")).toBe(false);
+    });
+
+    it("offers the rendered preview nothing at all", () => {
+        expect(editorActionAvailable("editor.action.undo", "rendered")).toBe(false);
+        expect(editorActionAvailable("jumpToPosition", "rendered")).toBe(false);
+        expect(editorActionAvailable("editor.foldAll", "rendered")).toBe(false);
     });
 });

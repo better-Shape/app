@@ -20,9 +20,9 @@ export function normalizeEditorAction(action: string | undefined): string | unde
 
 /**
  * Actions the editor cannot serve yet, keyed by their normalised id. Every one
- * of them needs an engine the repo does not ship — see
+ * of them needs an engine the repo does not ship. See
  * `.github/SERVER_INDEPENDENCE.md` §9: "Either hide them, or build the LSP
- * client — do not leave them as silent no-ops."
+ * client. Do not leave them as silent no-ops."
  *
  * Surfaced commands are filtered against this map instead of being deleted, so
  * the wording stays in one place and the wiring comes back with the engine.
@@ -60,7 +60,7 @@ export function editorActionImplemented(action: string | undefined): boolean {
  * from the file editor's, so a row that works on a source file has to be named
  * here before the palette offers it over a document.
  */
-export const PREVIEW_EDITOR_ACTIONS: ReadonlySet<string> = new Set(["undo", "redo", "jumpToPosition"]);
+export const DOCUMENT_EDITOR_ACTIONS: ReadonlySet<string> = new Set(["undo", "redo", "jumpToPosition"]);
 
 /**
  * Whether a row is worth offering in the surface the user is working in. A row
@@ -73,7 +73,10 @@ export function editorActionAvailable(
     surface: EditorSurface | null = getActiveEditorSurface(),
 ): boolean {
     if (!editorActionImplemented(action)) return false;
-    if (surface !== "preview") return true;
+    // Nothing focused means nothing has been excluded, so the row stays.
+    if (surface === null || surface === "codemirror") return true;
+    // The rendered preview beside a document editor answers no editor action.
+    if (surface === "rendered") return false;
     const normalized = normalizeEditorAction(action);
-    return normalized ? PREVIEW_EDITOR_ACTIONS.has(normalized) : false;
+    return normalized ? DOCUMENT_EDITOR_ACTIONS.has(normalized) : false;
 }

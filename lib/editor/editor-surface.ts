@@ -10,8 +10,13 @@
  * has to follow the pane the user last touched. A claim carries the owner that
  * made it, so a viewer that changes file or leaves cannot clear a claim another
  * pane made in the meantime.
+ *
+ * `document` is the Markdown live editor, which answers undo, redo and a jump.
+ * `rendered` is the read-only preview beside it in split view, which answers no
+ * editor action at all: a row offered there would close the palette and do
+ * nothing.
  */
-export type EditorSurface = "codemirror" | "preview";
+export type EditorSurface = "codemirror" | "document" | "rendered";
 
 type Claim = { surface: EditorSurface; owner: string };
 
