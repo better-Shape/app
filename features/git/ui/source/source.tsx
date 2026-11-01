@@ -19,7 +19,7 @@ import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
@@ -53,7 +53,6 @@ import {
     GitRepoInfo,
 } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { statusProgress } from "@/lib/ui/status-progress";
 import { getSettings, useSettings } from "@/lib/settings";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -76,27 +75,8 @@ import { useLoading } from "@/features/loading/context";
 import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { useGitRepos } from "@/lib/git/repos";
-
-/** Error fragments that mean "no usable repo here", not a failure worth surfacing. */
-const BENIGN_GIT_ERROR_FRAGMENTS = [
-    "not a git repository",
-    "could not find repository",
-    ".invalid",
-    "unborn",
-];
-
-/** Whether error text reports an invalid git reference. */
-const hasInvalidReference = (message: string): boolean =>
-    message.includes("reference") && message.includes("not valid");
-
-/** Errors that mean "no usable repo here", not a failure worth surfacing. */
-const isBenignGitError = (err: unknown): boolean => {
-    const message = String(err).toLowerCase();
-    return BENIGN_GIT_ERROR_FRAGMENTS.some((fragment) => message.includes(fragment)) || hasInvalidReference(message);
-};
-
-/** Display text for an unknown thrown value. */
-const errorText = (err: unknown): string => err instanceof Error ? err.message : String(err);
+import { errorText } from "./git-errors";
+import { useGitStatusRefresh } from "./use-git-status-refresh";
 
 /** Last segment of a file path, falling back to the whole path. */
 const pathBaseName = (path: string): string => path.split(/[/\\]/).pop() || path;
@@ -492,115 +472,6 @@ const useEmbeddedDiffContent = (
             cancelled = true;
         };
     }, [embedded, gitRepo, diffFile, refreshToken, setDiffOriginal, setDiffModified, setDiffLoading]);
-};
-
-/** Whether a refresh has both a project and a repo to query. */
-const hasRepoTarget = (
-    projectPath: string | null | undefined,
-    repoPath: string | null,
-): repoPath is string => Boolean(projectPath && repoPath);
-
-/** Whether refresh should clear status: project open, discovery done, no repo. */
-/**
- * Whether the panel still shows git state for a project that has no repository.
- *
- * `hasStaleStatus` keeps the clear from running when there is nothing to clear.
- * Writing `setIsGitRepo(false)` over an already-false value still schedules a
- * render, so the predicate carries the current state instead of assuming it.
- */
-const shouldClearWithoutRepo = (
-    projectPath: string | null | undefined,
-    reposLoading: boolean,
-    hasStaleStatus: boolean,
-): boolean => Boolean(projectPath && !reposLoading && hasStaleStatus);
-
-/** Status refresh for one project+repo, dropping results written after a repo switch. */
-const useGitStatusRefresh = (args: {
-    projectPath: string | null | undefined;
-    scmRepoPath: string | null;
-    repoKey: string;
-    reposCount: number;
-    reposLoading: boolean;
-    startLoading: () => void;
-    stopLoading: () => void;
-    setChanges: (files: GitFileParams[]) => void;
-    setCurrentBranch: (branch: string) => void;
-    setHasRemote: (value: boolean) => void;
-    setLastCommit: (entry: GitLogEntry | null) => void;
-    setNeedsSync: (value: boolean) => void;
-    setIsGitRepo: (value: boolean) => void;
-    latestRepoKeyRef: React.RefObject<string>;
-    /** Whether the panel currently shows git state worth clearing. */
-    isGitRepo: boolean;
-    changeCount: number;
-    hasLastCommit: boolean;
-}) => {
-    const {
-        projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
-        startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
-        setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
-        isGitRepo, changeCount, hasLastCommit,
-    } = args;
-
-    return useCallback(async (opts?: { track?: boolean }) => {
-        const track = opts?.track !== false;
-        const repoPath = scmRepoPath;
-        const keyAtStart = repoKey;
-        /** Whether the repo changed after this refresh started. */
-        const stale = () => latestRepoKeyRef.current !== keyAtStart;
-        if (hasRepoTarget(projectPath, repoPath)) {
-            statusProgress.push("git-refresh", "Refreshing git status...");
-            if (track) startLoading();
-            try {
-                await Promise.all([
-                    commands.gitStatus(repoPath).then((files) => {
-                        if (stale()) return;
-                        setIsGitRepo(true);
-                        setChanges(files);
-                    }).catch((err) => {
-                        if (stale()) return;
-                        if (isBenignGitError(err)) {
-                            setIsGitRepo(reposCount > 0);
-                            setChanges([]);
-                        } else {
-                            notify.error("Source Control Error", `Failed to load git status: ${errorText(err)}`);
-                        }
-                    }),
-                    commands.gitCurrentBranch(repoPath).then((branch) => {
-                        if (!stale()) setCurrentBranch(branch);
-                    }).catch(() => {
-                        if (!stale()) setCurrentBranch("master");
-                    }),
-                    commands.gitHasRemote(repoPath).then((value) => {
-                        if (!stale()) setHasRemote(value);
-                    }).catch(() => {
-                        if (!stale()) setHasRemote(false);
-                    }),
-                    commands.gitLog(repoPath, 1)
-                        .then((logs) => {
-                            if (stale()) return;
-                            setLastCommit(logs.length > 0 ? logs[0] : null);
-                        }).catch(() => { if (!stale()) setLastCommit(null); }),
-                    commands.gitSyncStatus(repoPath).then((status) => {
-                        if (!stale()) setNeedsSync(status.ahead > 0);
-                    }).catch(() => { if (!stale()) setNeedsSync(false); }),
-                ]);
-            } finally {
-                if (track) stopLoading();
-                statusProgress.remove("git-refresh");
-            }
-        } else if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
-            // Only clear after discovery finished with no repo — never during the async gap.
-            setIsGitRepo(false);
-            setChanges([]);
-            setLastCommit(null);
-        }
-    }, [
-        projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
-        startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
-        setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
-        isGitRepo, changeCount, hasLastCommit,
-    ]);
 };
 
 /** Stage every unstaged change, one command per file. */
