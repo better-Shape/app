@@ -294,7 +294,8 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 break;
             case "Check for Updates":
             case "Check for Updates...": {
-                const { checkForAppUpdates, openUpdateDownloadPage } = await import("@/lib/window/updater");
+                const { checkForAppUpdates, describeUpdateStatus, openUpdateDownloadPage } =
+                    await import("@/lib/window/updater");
                 const { ask, message } = await import("@tauri-apps/plugin-dialog");
                 const status = await checkForAppUpdates({ force: true });
                 if (status.kind === "available") {
@@ -305,15 +306,14 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                         { title: "Update available", kind: "info" },
                     );
                     if (confirmed) await openUpdateDownloadPage();
-                } else if (status.kind === "upToDate") {
-                    await message("You're on the latest version.", { title: "Check for Updates", kind: "info" });
-                } else if (status.kind === "noRelease") {
-                    await message("No releases have been published yet.", {
+                } else if (status.kind === "error") {
+                    await message(status.message, { title: "Check for Updates", kind: "error" });
+                } else if (status.kind === "upToDate" || status.kind === "noRelease") {
+                    // One wording for both surfaces: the status names itself.
+                    await message(describeUpdateStatus(status), {
                         title: "Check for Updates",
                         kind: "info",
                     });
-                } else if (status.kind === "error") {
-                    await message(status.message, { title: "Check for Updates", kind: "error" });
                 }
                 break;
             }

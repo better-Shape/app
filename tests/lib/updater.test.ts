@@ -82,7 +82,7 @@ describe("checkForAppUpdates", () => {
         updater.dismissAvailableUpdate();
         expect(localStorage.getItem("bettershape-update-dismissed-version")).toBe("1.1.0");
 
-        expect((await updater.checkForAppUpdates({ silent: true })).kind).toBe("idle");
+        expect((await updater.checkForAppUpdates()).kind).toBe("idle");
         expect((await updater.checkForAppUpdates({ force: true })).kind).toBe("available");
     });
 
@@ -127,7 +127,7 @@ describe("describeUpdateStatus", () => {
 
     it("says so when the repository has published nothing", () => {
         expect(describeUpdateStatus({ kind: "noRelease" })).toBe(
-            "No releases have been published yet.",
+            "Nothing has been published on this channel yet.",
         );
     });
 

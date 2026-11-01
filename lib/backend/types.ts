@@ -706,7 +706,7 @@ export type AppUpdateInfo = {
     current: string;
     latest: string;
     newer: boolean;
-    /** False when the repository has published no release yet. */
+    /** False when the channel has nothing published to compare against. */
     published: boolean;
     url: string;
     notes: string;

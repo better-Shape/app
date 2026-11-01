@@ -11,9 +11,9 @@ use crate::core::error::AppError;
 use serde::Serialize;
 use std::time::Duration;
 
-/// Repository whose releases ship this build. The release workflow exports
-/// `GITHUB_REPOSITORY`, so a fork's installer points at the fork; the fallback
-/// keeps an unqualified local build working.
+/// Repository whose releases ship this build. GitHub Actions sets
+/// `GITHUB_REPOSITORY` for every step, so a release built there asks the
+/// repository that built it; the fallback keeps a local build working.
 const FALLBACK_REPO: &str = "better-Shape/app";
 
 const USER_AGENT: &str = "BetterShape-Update-Check";
@@ -31,8 +31,9 @@ pub struct AppUpdateInfo {
     pub latest: String,
     /// True only when `latest` is a higher version than `current`.
     pub newer: bool,
-    /// False when the repository has no release yet. A project that has not cut
-    /// a release answers 404, which is not a failure to reach GitHub.
+    /// False when the channel has nothing to compare against: a project that has
+    /// cut no release answers 404, which is not a failure to reach GitHub, and a
+    /// stable check on a repository of prereleases answers the same way.
     pub published: bool,
     /// Release page for `latest`, or the releases index when GitHub omits it.
     pub url: String,
@@ -93,6 +94,10 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     false
 }
 
+/// How many releases one nightly page asks for. GitHub caps a page at 100, and a
+/// project that publishes many stables between prereleases would need more.
+const RELEASE_PAGE: u32 = 100;
+
 /// Release endpoint for the channel. Stable asks for the newest published
 /// release; nightly lists releases newest first, because the newest entry can be
 /// a stable that shipped after the prerelease the channel is looking for.
@@ -103,10 +108,6 @@ fn release_endpoint(repo: &str, nightly: bool) -> String {
         format!("https://api.github.com/repos/{repo}/releases/latest")
     }
 }
-
-/// How many releases one nightly page asks for. GitHub caps a page at 100, and a
-/// project that publishes many stables between prereleases would need more.
-const RELEASE_PAGE: u32 = 100;
 
 /// True when the release is flagged as a prerelease.
 fn is_prerelease(release: &serde_json::Value) -> bool {
@@ -162,11 +163,13 @@ async fn fetch_release(repo: &str, nightly: bool) -> Result<Option<serde_json::V
         return Ok(Some(payload));
     }
     // The list endpoint answers an array ordered newest first; an empty array is
-    // the same "nothing published" answer as the 404 above.
-    let chosen = payload
-        .as_array()
-        .and_then(|releases| nightly_release(releases));
-    Ok(chosen)
+    // the same "nothing published" answer as the 404 above. Anything else is a
+    // body this build cannot read, which must not read as "no releases".
+    let Some(releases) = payload.as_array() else {
+        let message = "GitHub sent a release list this build cannot read.".to_string();
+        return Err(AppError::Message(message));
+    };
+    Ok(nightly_release(releases))
 }
 
 fn channel_is_nightly(channel: Option<&str>) -> bool {
@@ -178,6 +181,8 @@ fn channel_is_nightly(channel: Option<&str>) -> bool {
     )
 }
 
+/// Reads the newest release for `channel`, or reports that the channel has
+/// nothing to compare against. `None` and any unknown value read as stable.
 #[tauri::command]
 pub async fn check_app_update(
     app: tauri::AppHandle,

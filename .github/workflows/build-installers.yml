@@ -67,10 +67,6 @@ jobs:
       # AppImage bundling runs the linuxdeploy AppImages tauri downloads, and those
       # need FUSE2. Not every runner image ships it; extracting is the fallback.
       APPIMAGE_EXTRACT_AND_RUN: "1"
-      # Read at compile time by `option_env!("GITHUB_REPOSITORY")` in
-      # `src-tauri/src/commands/update/mod.rs`, so this installer asks the
-      # repository that built it for its releases.
-      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 

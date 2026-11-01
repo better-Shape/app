@@ -35,7 +35,7 @@ Three sweeps, all reproducible from the repo:
 | MCP OAuth | Provider's own endpoints + localhost callback | Local callback, tokens in OS keychain | `mcp/oauth`, `mcp/credentials.rs` |
 | GitHub | `gh` CLI / Git Credential Manager on this machine | Local tooling, no Shape involvement | `commands/github_auth/mod.rs` |
 | Problem reports | Clipboard + prefilled GitHub issue | Nothing leaves the machine | `lib/feedback/report.ts` |
-| Update feed | GitHub releases (`api.github.com`, `/releases/latest`) | One anonymous GET when the user checks or the background timer fires; the app offers the release page and installs nothing | `commands/update/mod.rs`, `lib/window/updater.ts` |
+| Update feed | GitHub releases (`api.github.com`, `/releases/latest` for stable, `/releases?per_page=100` for nightly) | One anonymous GET, only when the user presses Check for updates; the app offers the release page and installs nothing | `commands/update/mod.rs`, `lib/window/updater.ts` |
 | Release automation | The repo's own GitHub Actions | Fixed: `GITHUB_REPOSITORY` decides the target repo | `scripts/release/{notes,upload}.mjs` |
 | Icon / favicon lookups | `cdn.simpleicons.org`, `icons.duckduckgo.com`, `thesvg.org` | Cosmetic; see gap 2 | `lib/plugins/logos.ts`, file icons |
 | Accounts, tiers, credits, telemetry, device ids | — | Removed. No login IPC, no credit checks, no analytics SDK | `lib/catalog/index.ts:4`, `docs/developing/client-trust.mdx` |
@@ -47,16 +47,17 @@ preview iframe from inside the app. They are not a remote service.
 ## Gaps, in the order they are worth closing
 
 1. ~~**In-app update check.**~~ **Closed.** `commands/update/mod.rs` adds
-   `check_app_update`: one GET of
-   `api.github.com/repos/<repo>/releases/latest` where `<repo>` comes from
-   `GITHUB_REPOSITORY` at build time, compared against
-   `app.package_info().version` by a numeric segment comparison. The answer
-   carries the release page and its notes; `lib/window/updater.ts` turns it
-   into the existing chip, honours the dismissed version, and
-   `downloadAndInstallUpdate` opens the release page instead of claiming to
-   install. A background check silently requests the release metadata and
-   nothing else: no update package is downloaded or installed without the user
-   asking, and no Shape server is involved.
+   `check_app_update`: one GET of `repos/<repo>/releases/latest` for the stable
+   channel and `repos/<repo>/releases?per_page=100` for nightly, where `<repo>`
+   comes from `GITHUB_REPOSITORY` at build time, compared against
+   `app.package_info().version` by a numeric segment comparison. A repository
+   with nothing published on the channel answers 404, and the command reports
+   `published: false` instead of calling that a failure to reach GitHub. The
+   answer carries the release page and its notes; `lib/window/updater.ts` turns
+   it into the chip, honours the dismissed version, and `openUpdateDownloadPage`
+   opens the release page instead of claiming to install. Nothing runs on a
+   timer: the check runs when a surface asks for it, downloads nothing,
+   installs nothing, and no Shape server is involved.
 2. **Icon CDNs.** Simple Icons / DuckDuckGo favicons are fetched for plugin and
    file icons. Offline they simply fail; cache them on first fetch so the app
    looks the same without a network.

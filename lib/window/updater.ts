@@ -16,7 +16,7 @@ export type UpdateStatus =
   | { kind: "checking" }
   | { kind: "available"; version: string; notes: string; url?: string }
   | { kind: "upToDate" }
-  /** GitHub answered, and the repository has published no release yet. */
+  /** GitHub answered, and the channel has nothing published to compare with. */
   | { kind: "noRelease" }
   | { kind: "error"; message: string };
 
@@ -66,7 +66,7 @@ export function describeUpdateStatus(next: UpdateStatus): string {
     case "available":
       return `${next.version} is available. Open its release page to download it.`;
     case "noRelease":
-      return "No releases have been published yet.";
+      return "Nothing has been published on this channel yet.";
     case "upToDate":
     case "idle":
       return "You're on the latest version.";
@@ -93,14 +93,16 @@ export function dismissAvailableUpdate(): void {
  * This is the only outbound call in the update path and it only runs when a
  * surface asks for it: the app never polls on startup or on a timer, because a
  * request the user did not make is not one this app sends.
+ *
+ * `force` re-offers a version the user dismissed, for the menu item and the
+ * Settings button, which are explicit requests.
  */
 export async function checkForAppUpdates(options?: {
-  silent?: boolean;
   force?: boolean;
   channel?: UpdateChannel;
 }): Promise<UpdateStatus> {
   const channel = options?.channel ?? getSettings().updates.channel;
-  if (!options?.silent) setStatus({ kind: "checking" });
+  setStatus({ kind: "checking" });
   try {
     const info = await commands.checkAppUpdate(channel);
     if (!info.published) {
