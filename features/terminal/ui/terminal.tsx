@@ -315,9 +315,11 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 // a failed fallback has to say so instead of leaving the selection
                 // silently uncopied.
                 if (copyWithHiddenTextarea(selected)) return;
-                void import("@/features/notifications").then(({ notify }) => {
-                    notify.error("Clipboard", "Could not copy the terminal selection.");
-                });
+                import("@/features/notifications")
+                    .then(({ notify }) => {
+                        notify.error("Clipboard", "Could not copy the terminal selection.");
+                    })
+                    .catch(() => undefined);
             };
             const writeClipboard = createClipboardQueue((text) => {
                 if (!navigator.clipboard) return Promise.reject(new Error("no async clipboard"));

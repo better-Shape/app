@@ -897,9 +897,20 @@ export function CodeMirrorEditor({
             const writeEol = detail.eol === "CRLF" || detail.eol === "LF" ? detail.eol : eol;
             const onDisk = toDiskText(detail.content, writeEol);
             savedContentRef.current = onDisk;
-            isDirtyRef.current = false;
-            saveDirtyBuffer(pathRef.current, detail.content, onDisk);
-            void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
+            // The write owns the disk, and `onDisk` holds the ending it used. A
+            // picker that changed the ending while the write ran leaves the buffer
+            // holding text the disk does not have, so the answer is not always
+            // "clean": it is the comparison, exactly as `onFileSaved` does it.
+            const liveDoc = live.state.doc.toString();
+            const dirty = toDiskText(liveDoc, eol) !== onDisk;
+            isDirtyRef.current = dirty;
+            if (dirty) {
+                stageDirtyBuffer(pathRef.current, liveDoc, onDisk);
+                scheduleAutosave(true);
+            } else {
+                saveDirtyBuffer(pathRef.current, detail.content, onDisk);
+            }
+            void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
         };
         window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
         const onFlushBuffer = (event: Event) => {

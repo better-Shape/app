@@ -208,8 +208,8 @@ it("writes the file's own ending on a save and keeps it in the baseline", async 
 it("takes the ending a menu save used, not the one the picker holds now", async () => {
     updateSettingSection("files", { defaultEol: "LF" });
     const { saved, dirty } = await mount("one\ntwo", "one\ntwo");
-    // The save was submitted with CRLF; the buffer moved on to a new ending
-    // afterwards, which the pipeline answers with a second write.
+    // An outside save wrote CRLF bytes while this editor is on LF: the file and
+    // the picker disagree, so the buffer stays dirty for a rewrite in LF.
     await act(async () => {
         window.dispatchEvent(
             new CustomEvent("bettershape-buffer-saved", {
@@ -221,14 +221,33 @@ it("takes the ending a menu save used, not the one the picker holds now", async 
     // The baseline has to be the bytes the disk got, or the next save compares
     // against an ending the file never had.
     expect(saved.current).toBe("one\r\ntwo");
+    expect(dirty.current).toBe(true);
+});
+
+it("clears the buffer when a menu save used the ending it holds", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    const { saved, dirty } = await mount("one\ntwo", "one\ntwo");
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-buffer-saved", {
+                detail: { path: "/repo/file.txt", submitted: "one\ntwo", content: "one\ntwo", eol: "LF" },
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(saved.current).toBe("one\ntwo");
     expect(dirty.current).toBe(false);
 });
 
 it("keeps the buffer dirty when the ending changes while its save is in flight", async () => {
     updateSettingSection("files", { defaultEol: "CRLF" });
-    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 40 });
+    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 0 });
     const { view, saved, dirty } = await mount("one\r\ntwo", "one\r\ntwo");
     let release!: () => void;
+    // The editor never autosaves sooner than 250 ms, so this waits past that
+    // instead of guessing, and clears the history so an earlier test's write
+    // cannot stand in for this one.
+    backend.saveFile.mockClear();
     backend.saveFile.mockReturnValueOnce(
         new Promise<undefined>((resolve) => {
             release = () => resolve(undefined);
@@ -236,9 +255,10 @@ it("keeps the buffer dirty when the ending changes while its save is in flight",
     );
     await act(async () => {
         view.dispatch({ changes: { from: 0, insert: "x" } });
-        await new Promise((resolve) => setTimeout(resolve, 80));
+        await new Promise((resolve) => setTimeout(resolve, 400));
     });
-    expect(backend.saveFile).toHaveBeenCalled();
+    expect(backend.saveFile).toHaveBeenCalledTimes(1);
+    expect((backend.saveFile.mock.calls[0] as unknown as [string, string])[1]).toContain("\r\n");
     // The write is in flight when the picker switches the file to LF.
     await act(async () => {
         window.dispatchEvent(
