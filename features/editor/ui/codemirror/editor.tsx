@@ -771,9 +771,12 @@ export function CodeMirrorEditor({
                 }
                 case "setEol": {
                     const requested = detail.value === "CRLF" ? "CRLF" : "LF";
+                    // The choice counts even when it matches the provisional default:
+                    // the file may still be loading, and its own ending would
+                    // otherwise replace what the user just asked for.
+                    eolChosenByUser = true;
                     if (requested === eol) break;
                     eol = requested;
-                    eolChosenByUser = true;
                     applyEol(v);
                     // The ending is part of the file's bytes. Without marking the
                     // buffer dirty, a clean file would never be written and the

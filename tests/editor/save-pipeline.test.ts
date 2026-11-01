@@ -181,3 +181,29 @@ describe("save ordering", () => {
         expect(written).toEqual(["first\n", "second\n"]);
     });
 });
+
+describe("save pipeline project capture", () => {
+    beforeEach(() => {
+        settings.formatOnSave = true;
+        settings.prettier = true;
+        backend.project = "/project";
+        backend.prettier.mockReset().mockResolvedValue("const a = 1;\n");
+        backend.save.mockReset().mockResolvedValue(undefined);
+    });
+
+    it("formats a queued save with the project it was started in", async () => {
+        let release!: () => void;
+        const first = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        backend.save.mockReturnValueOnce(first);
+        const one = saveContents("/project/a.ts", "const a=1");
+        // The second save waits behind the first while the project changes.
+        const two = saveContents("/project/a.ts", "const b=2");
+        backend.project = "/other";
+        release();
+        await Promise.all([one, two]);
+        // Both writes belong to /project, so both format with /project's tooling.
+        expect(backend.prettier.mock.calls.map((call) => call[0])).toEqual(["/project", "/project"]);
+    });
+});

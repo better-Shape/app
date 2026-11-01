@@ -63,13 +63,13 @@ export function prepareDocForSave(doc: string): string {
  * save a Markdown note because no parser matched would be a data loss bug, and
  * the explicit Format action still reports its own failure.
  */
-export async function formatForSave(path: string, text: string): Promise<string> {
+export async function formatForSave(path: string, text: string, projectPath = getProjectPath() ?? ""): Promise<string> {
     const settings = getSettings();
     // Format on save is a request to run the formatter, not a way to ignore the
     // formatter being switched off.
     if (!settings.editor.formatOnSave || !settings.prettier.enable) return text;
     try {
-        const formatted = await commands.prettierFormatFile(getProjectPath() ?? "", path, text);
+        const formatted = await commands.prettierFormatFile(projectPath, path, text);
         lastFormatFailure = null;
         if (typeof formatted !== "string" || formatted.length === 0) return text;
         // Prettier always ends a file with a newline. Insert final newline is the
@@ -89,7 +89,7 @@ export async function formatForSave(path: string, text: string): Promise<string>
             // Not a formatting problem: the project has no Prettier. The tooling
             // preference decides between installing it, offering to, or only
             // saying so, and it dedupes the message per project.
-            void offerPrettierInstall(getProjectPath() ?? "");
+            void offerPrettierInstall(projectPath);
             lastFormatFailure = `${path}\u0000${reason}`;
             return text;
         }
@@ -109,11 +109,11 @@ export async function formatForSave(path: string, text: string): Promise<string>
  * this never touches the file directly: a lint run that cannot start, or a file
  * ESLint does not match, keeps the text it was given.
  */
-export async function fixLintForSave(path: string, text: string): Promise<string> {
+export async function fixLintForSave(path: string, text: string, projectPath = getProjectPath() ?? ""): Promise<string> {
     const settings = getSettings();
     if (!settings.eslint.enable || !settings.eslint.fixOnSave) return text;
     try {
-        const result = await commands.eslintLintFile(getProjectPath() ?? "", path, text, true);
+        const result = await commands.eslintLintFile(projectPath, path, text, true);
         return typeof result?.content === "string" && result.content.length > 0 ? result.content : text;
     } catch {
         // A missing ESLint install must not block saving.
@@ -153,11 +153,20 @@ const serializeWrites = <T>(path: string, run: () => Promise<T>): Promise<T> => 
 /** Runs the save pipeline and returns the LF text that was written. */
 export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF"): Promise<string> {
     const prepared = prepareDocForSave(doc);
+    const settings = getSettings();
+    // Captured now, not when the write reaches the front of the queue: the active
+    // project can change while a save waits, and the old file's lint and format
+    // run must use the project it belongs to. The read only happens when a tool
+    // is going to use it, so a save with both tools off never asks.
+    const projectPath =
+        settings.editor.formatOnSave || (settings.eslint.enable && settings.eslint.fixOnSave)
+            ? getProjectPath() ?? ""
+            : "";
     return serializeWrites(path, async () => {
         // Lint fixes first: they can introduce new line breaks, and Prettier
         // running afterwards settles the result into the project's style.
-        const fixed = await fixLintForSave(path, prepared);
-        const formatted = await formatForSave(path, fixed);
+        const fixed = await fixLintForSave(path, prepared, projectPath);
+        const formatted = await formatForSave(path, fixed, projectPath);
         await commands.saveFile(path, toDiskText(formatted, eol));
         // What was on screen when this save started, and what the file now holds.
         // A menu save has no view to update, so the editor that submitted the text

@@ -159,6 +159,38 @@ it("marks a clean file unsaved when the ending is changed", async () => {
     expect(backend.markFileDirty).toHaveBeenCalledWith("/repo/file.txt", true);
 });
 
+it("keeps an ending the user picked before the file finished loading", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    // Pick the ending that already matches the provisional default, while the
+    // buffer is still empty and the read is in flight.
+    await mount("", "");
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-editor-action", { detail: { action: "setEol", value: "LF" } }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+        root?.render(
+            <Suspense fallback={null}>
+                <CodeMirrorEditor
+                    path="/repo/file.txt"
+                    content={"one\r\ntwo"}
+                    setContent={() => undefined}
+                    savedContentRef={{ current: "one\r\ntwo" }}
+                    isDirtyRef={{ current: false }}
+                    bufferVersionRef={{ current: 0 }}
+                />
+            </Suspense>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const view = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement);
+    if (!view) throw new Error("Editor view is missing");
+    // The explicit choice wins over the ending the file turned out to have.
+    expect(view.state.lineBreak).toBe("\n");
+});
+
 it("writes the file's own ending on a save and keeps it in the baseline", async () => {
     const { view, saved, dirty } = await mount("one\ntwo", "one\r\ntwo");
     dirty.current = true;
