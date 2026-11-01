@@ -25,18 +25,26 @@ import { SettingCard, SettingRow, SettingSection, SettingSelect } from "../share
  * opening Settings is not a request to contact GitHub. The offer opens the
  * release page, because this build has no downloader to hand the press to.
  */
-export function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
-    const u = settings.updates;
-    const [version, setVersion] = useState("0.0.1");
+export const UpdatesSettings = ({ settings }: { settings: BetterShapeSettings }) => {
+    const { channel } = settings.updates;
+    // `null` until the bundle answers. A placeholder version reads as a real
+    // answer when the lookup fails, next to an update result that was checked.
+    const [version, setVersion] = useState<string | null>(null);
     const status = React.useSyncExternalStore(subscribeUpdateStatus, getUpdateStatus, getUpdateStatus);
 
     // The version comes from the bundle. The check itself stays behind the
     // button: opening Settings is not a request to contact GitHub.
     useEffect(() => {
-        void import("@tauri-apps/api/app")
+        let live = true;
+        import("@tauri-apps/api/app")
             .then(({ getVersion }) => getVersion())
-            .then(setVersion)
-            .catch(() => {});
+            .then((running) => {
+                if (live) setVersion(running);
+            })
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
     }, []);
 
     // `idle` is the state before any check, so it has no result to describe.
@@ -44,7 +52,9 @@ export function UpdatesSettings({ settings }: { settings: BetterShapeSettings })
     const checking = status.kind === "checking";
     // The check owns its own failure: it answers with an `error` status rather
     // than throwing, so the button only has to ask and let the store report.
-    const runCheck = () => void checkForAppUpdates({ force: true });
+    const runCheck = () => {
+        checkForAppUpdates({ force: true }).catch(() => undefined);
+    };
 
     return (
         <SettingSection id="settings-updates" title="About BetterShape">
@@ -53,7 +63,8 @@ export function UpdatesSettings({ settings }: { settings: BetterShapeSettings })
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium text-text-primary">App</div>
                         <div className="text-xs text-text-muted">
-                            Current version is v{version}.{statusLine}
+                            {version === null ? null : `Current version is v${version}.`}
+                            {statusLine}
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
@@ -61,7 +72,7 @@ export function UpdatesSettings({ settings }: { settings: BetterShapeSettings })
                             <Button
                                 size="sm"
                                 onClick={() => {
-                                    void openUpdateDownloadPage().catch(() => undefined);
+                                    openUpdateDownloadPage().catch(() => undefined);
                                 }}
                             >
                                 Get {status.version}
@@ -92,14 +103,15 @@ export function UpdatesSettings({ settings }: { settings: BetterShapeSettings })
                 description="Stable reads the newest published release. Nightly also counts pre-releases."
             >
                 <SettingSelect
-                    value={u.channel}
+                    value={channel}
                     options={[
                         { value: "stable", label: "Stable" },
                         { value: "nightly", label: "Nightly" },
                     ]}
-                    onChange={(v) => {
-                        const channel = v as BetterShapeSettings["updates"]["channel"];
-                        updateSettingSection("updates", { channel });
+                    onChange={(next) => {
+                        updateSettingSection("updates", {
+                            channel: next as BetterShapeSettings["updates"]["channel"],
+                        });
                     }}
                 />
             </SettingRow>

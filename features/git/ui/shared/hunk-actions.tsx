@@ -15,6 +15,22 @@ import { notify } from "@/features/notifications";
 
 export type HunkMode = "staged" | "unstaged";
 
+/**
+ * What makes a hunk the change it is: its position in the diff, its header, and
+ * the lines it holds. A reload can leave a different change at the same index
+ * with the same range, and restoring would then delete the wrong lines.
+ */
+const hunkSignature = (hunk: GitHunk): string =>
+    JSON.stringify([
+        hunk.index,
+        hunk.header,
+        hunk.oldStart,
+        hunk.oldLines,
+        hunk.newStart,
+        hunk.newLines,
+        hunk.lines.map((line) => [line.type, line.content]),
+    ]);
+
 /** True when a keystroke landed in a field that owns that key. */
 const isEditableTarget = (target: EventTarget | null): boolean => {
     const element = target as HTMLElement | null;
@@ -115,14 +131,11 @@ export const useFileHunks = (repoPath: string | null, filePath: string, mode: Hu
         hunksRef.current = hunks;
     }, [hunks]);
 
-    /** True while the captured hunk is still the listed change with the same body. */
-    const stillListed = useCallback(
-        (target: GitHunk): boolean =>
-            hunksRef.current.some(
-                (candidate) => candidate.index === target.index && candidate.header === target.header,
-            ),
-        [],
-    );
+    /** True while the captured hunk is still the listed change, body included. */
+    const stillListed = useCallback((target: GitHunk): boolean => {
+        const signature = hunkSignature(target);
+        return hunksRef.current.some((candidate) => hunkSignature(candidate) === signature);
+    }, []);
 
     /** Stages, unstages or restores the whole hunk, then re-reads the diff. */
     const apply = useCallback(

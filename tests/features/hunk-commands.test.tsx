@@ -189,6 +189,39 @@ describe("hunk actions", () => {
         expect(notify.error).toHaveBeenCalled();
     });
 
+    it("refuses a restore when a different change took the same index", async () => {
+        // Same position, same range, different lines: a reloaded diff where the
+        // only thing that changed is what the hunk holds.
+        const withBody = (index: number, content: string): GitHunk => ({
+            ...hunk(index),
+            lines: [{ type: "add", content }],
+        });
+        let answer = () => {};
+        dialog.ask.mockImplementationOnce(
+            () => new Promise<boolean>((resolve) => { answer = () => resolve(true); }),
+        );
+        backend.gitListHunks.mockResolvedValue({ path: "a.ts", staged: false, hunks: [withBody(3, "new line")] });
+        await mount({ repoPath: "/repo", filePath: "a.ts" });
+
+        let restore: Promise<void> = Promise.resolve();
+        await act(async () => {
+            restore = api.apply("restore");
+            await Promise.resolve();
+        });
+        backend.gitListHunks.mockResolvedValue({ path: "a.ts", staged: false, hunks: [withBody(3, "other line")] });
+        await act(async () => {
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        await act(async () => {
+            answer();
+            await restore;
+        });
+
+        expect(backend.gitRestoreHunk).not.toHaveBeenCalled();
+        expect(notify.error).toHaveBeenCalled();
+    });
+
     it("never shows or acts on a hunk list read for another file", async () => {
         backend.gitListHunks.mockImplementation((_repo: string, filePath: string) =>
             filePath === "a.ts" ? Promise.resolve(hunkList(3)) : new Promise(() => {}),

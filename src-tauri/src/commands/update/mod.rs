@@ -72,9 +72,43 @@ fn version_segments(version: &str) -> Vec<u64> {
         .collect()
 }
 
+/// Pre-release identifiers of a version, lower-cased: `1.0.3-nightly.20261101.42`
+/// reads as `["nightly", "20261101", "42"]`. Build metadata is dropped, and a
+/// version without a suffix has none.
+fn prerelease_segments(version: &str) -> Vec<String> {
+    version
+        .trim()
+        .trim_start_matches('v')
+        .split('+')
+        .next()
+        .unwrap_or("")
+        .split_once('-')
+        .map(|(_, suffix)| suffix.split('.').map(str::to_ascii_lowercase).collect())
+        .unwrap_or_default()
+}
+
+/// True when `theirs` is a later pre-release list than `mine`, the way semver
+/// orders them: numeric identifiers by value, the rest by ASCII order, and a
+/// shorter list is lower when it is a prefix of the longer one.
+fn prerelease_is_newer(mine: &[String], theirs: &[String]) -> bool {
+    for (left, right) in mine.iter().zip(theirs) {
+        if left == right {
+            continue;
+        }
+        if let (Ok(a), Ok(b)) = (left.parse::<u64>(), right.parse::<u64>()) {
+            return b > a;
+        }
+        return right > left;
+    }
+    theirs.len() > mine.len()
+}
+
 /// True when `latest` is a later release than `current`. Missing segments count
 /// as zero, so `1.2` and `1.2.0` are the same version, and a tag with no digits
-/// is never treated as newer.
+/// is never treated as newer. When the numeric cores match, the pre-release
+/// suffix decides, so a nightly build hears about the next night's run
+/// (`1.0.3-nightly.20261031.7` to `1.0.3-nightly.20261101.42`) instead of
+/// comparing equal and staying silent.
 pub fn is_newer_version(current: &str, latest: &str) -> bool {
     let mine = version_segments(current);
     let theirs = version_segments(latest);
@@ -91,7 +125,14 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
             return right > left;
         }
     }
-    false
+    // Same numeric core: a published release outranks a pre-release of it.
+    let mine = prerelease_segments(current);
+    let theirs = prerelease_segments(latest);
+    match (mine.is_empty(), theirs.is_empty()) {
+        (_, true) => !mine.is_empty(),
+        (true, false) => false,
+        (false, false) => prerelease_is_newer(&mine, &theirs),
+    }
 }
 
 /// How many releases one nightly page asks for. GitHub caps a page at 100, and a
@@ -243,13 +284,44 @@ mod tests {
     }
 
     #[test]
-    fn ignores_the_prefix_and_the_prerelease_suffix() {
+    fn ignores_the_prefix_and_orders_prereleases_below_releases() {
         assert!(!is_newer_version("1.0.3", "v1.0.3"));
         assert!(!is_newer_version("1.4.0", "1.4.0-beta.2"));
         assert!(!is_newer_version("1.4.0", "1.4.0-rc.1"));
         assert!(!is_newer_version("1.4.0", "1.4.0+build.7"));
         assert!(is_newer_version("1.4.0-beta.2", "1.4.1"));
+        assert!(is_newer_version("1.4.0-beta.2", "1.4.0"));
         assert!(!is_newer_version("1.2.0", "1.2"));
+    }
+
+    #[test]
+    fn nightly_builds_hear_about_the_next_run() {
+        // The nightly tag carries the run in the suffix, and the numeric core is
+        // the same every night: comparing cores alone answered "up to date".
+        assert!(is_newer_version(
+            "1.0.3-nightly.20261031.7",
+            "1.0.3-nightly.20261101.42"
+        ));
+        assert!(is_newer_version(
+            "1.0.3-nightly.20261031.7",
+            "1.0.3-nightly.20261031.9"
+        ));
+        assert!(!is_newer_version(
+            "1.0.3-nightly.20261101.42",
+            "1.0.3-nightly.20261031.7"
+        ));
+        assert!(!is_newer_version(
+            "1.0.3-nightly.20261101.42",
+            "1.0.3-nightly.20261101.42"
+        ));
+        // A newer core wins whatever the suffix says.
+        assert!(is_newer_version(
+            "1.0.3-nightly.20261031.9",
+            "1.0.4-nightly.20261101.1"
+        ));
+        // The stable release of a core outranks that core's nightlies.
+        assert!(is_newer_version("1.0.3-nightly.20261101.42", "1.0.3"));
+        assert!(!is_newer_version("1.0.3", "1.0.3-nightly.20261101.42"));
     }
 
     #[test]

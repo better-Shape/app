@@ -13,8 +13,16 @@ const backend = vi.hoisted(() => ({
     openUrlExternal: vi.fn(async () => undefined),
 }));
 
+/** The bundle's answer. `null` makes the lookup fail, as a broken webview would. */
+const bundle = vi.hoisted(() => ({ version: "1.0.3" as string | null }));
+
 vi.mock("@/lib/backend", () => ({ commands: backend }));
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "1.0.3" }));
+vi.mock("@tauri-apps/api/app", () => ({
+    getVersion: async () => {
+        if (bundle.version === null) throw new Error("no bundle version");
+        return bundle.version;
+    },
+}));
 
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { UpdatesSettings } from "@/features/settings/ui/sections/updates";
@@ -36,6 +44,7 @@ let root: Root;
 beforeEach(() => {
     backend.checkAppUpdate.mockReset();
     backend.openUrlExternal.mockClear();
+    bundle.version = "1.0.3";
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -46,15 +55,23 @@ afterEach(() => {
     container.remove();
 });
 
-async function render() {
+const render = async () => {
     await act(async () => {
         root.render(<UpdatesSettings settings={DEFAULT_SETTINGS} />);
     });
-}
+};
 
-function buttonText() {
-    return Array.from(container.querySelectorAll("button")).map((node) => node.textContent ?? "");
-}
+const buttonText = () =>
+    Array.from(container.querySelectorAll("button")).map((node) => node.textContent ?? "");
+
+/** Clicks the one button whose text is `label`, inside act(). */
+const press = async (label: string) => {
+    await act(async () => {
+        container.querySelectorAll("button").forEach((node) => {
+            if (node.textContent === label) node.click();
+        });
+    });
+};
 
 describe("the About panel", () => {
     it("contacts nothing until the user asks for a check", async () => {
@@ -64,17 +81,19 @@ describe("the About panel", () => {
         expect(backend.checkAppUpdate).not.toHaveBeenCalled();
     });
 
+    it("shows no version when the bundle cannot answer", async () => {
+        // A placeholder here read as a real version next to a real update result.
+        bundle.version = null;
+        await render();
+        expect(container.textContent).not.toContain("Current version is v");
+        expect(buttonText()).toContain("Check for updates");
+    });
+
     it("asks for the channel the settings name when the button is pressed", async () => {
         backend.checkAppUpdate.mockResolvedValue({ ...available("1.0.3"), newer: false });
         await render();
 
-        await act(async () => {
-            container
-                .querySelectorAll("button")
-                .forEach((node) => {
-                    if (node.textContent === "Check for updates") node.click();
-                });
-        });
+        await press("Check for updates");
 
         expect(backend.checkAppUpdate).toHaveBeenCalledTimes(1);
         expect(backend.checkAppUpdate).toHaveBeenCalledWith("stable");
@@ -87,24 +106,12 @@ describe("the About panel", () => {
         backend.checkAppUpdate.mockResolvedValue(available());
         await render();
 
-        await act(async () => {
-            container
-                .querySelectorAll("button")
-                .forEach((node) => {
-                    if (node.textContent === "Check for updates") node.click();
-                });
-        });
+        await press("Check for updates");
 
         expect(container.textContent).toContain("1.1.0 is available");
         expect(buttonText()).toContain("Get 1.1.0");
 
-        await act(async () => {
-            container
-                .querySelectorAll("button")
-                .forEach((node) => {
-                    if (node.textContent === "Get 1.1.0") node.click();
-                });
-        });
+        await press("Get 1.1.0");
 
         expect(backend.openUrlExternal).toHaveBeenCalledWith(RELEASE_URL);
         // No download, no install, no restart: the panel never says otherwise.
@@ -123,13 +130,7 @@ describe("the About panel", () => {
         });
         await render();
 
-        await act(async () => {
-            container
-                .querySelectorAll("button")
-                .forEach((node) => {
-                    if (node.textContent === "Check for updates") node.click();
-                });
-        });
+        await press("Check for updates");
 
         expect(container.textContent).toContain("Nothing has been published on this channel yet.");
     });
