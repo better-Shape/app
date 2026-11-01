@@ -21,6 +21,12 @@ function isExplorerFocused(): boolean {
     return !!el?.closest?.('[data-explorer-root="true"]');
 }
 
+const notifySaveAsFailed = (error: unknown) => {
+    void import("@/features/notifications").then(({ notify }) => {
+        notify.error("Could not save a copy", error instanceof Error ? error.message : String(error));
+    });
+};
+
 /** Dispatch a keybinding action by label. Returns true if handled locally. */
 export function dispatchShortcutAction(label: string, _key: string): boolean {
     switch (label) {
@@ -166,8 +172,16 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
                 const content = await readLatestContent(active);
                 await commands.grantIpcPath(selected).catch(() => undefined);
                 await saveContents(selected, content, liveEolFor(active));
+                // The copy is on disk; a draft left over from an earlier attempt
+                // at this path would open in the editor instead of the file.
+                const { clearDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
+                clearDirtyBuffer(selected);
                 await commands.openFile(selected, selected.split(/[\\/]/).pop() || selected);
-            })();
+            })().catch((error) => {
+                // A fire-and-forget save that fails silently leaves the user
+                // believing the copy exists.
+                notifySaveAsFailed(error);
+            });
             return true;
         case "Keyboard Shortcuts":
             window.dispatchEvent(new Event("bettershape-open-shortcuts"));

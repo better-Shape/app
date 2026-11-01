@@ -53,6 +53,7 @@ import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBu
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { rememberLiveEol } from "@/lib/editor/live-eol";
+import { jumpToPosition } from "@/lib/editor/jump-to-position";
 import { requestLocalHistory } from "@/lib/editor/local-history";
 import { LocalHistoryPicker } from "@/features/editor/ui/local-history-picker";
 import { getSettings } from "@/lib/settings";
@@ -177,6 +178,8 @@ export function CodeMirrorEditor({
             });
         };
         const applyEol = (v: EditorView) => {
+            // The registry is what menu saves read, so it follows the choice.
+            rememberLiveEol(pathRef.current, eol);
             v.dispatch({
                 effects: eolCompartment.reconfigure(
                     EditorState.lineSeparator.of(eol === "CRLF" ? "\r\n" : "\n"),
@@ -463,6 +466,27 @@ export function CodeMirrorEditor({
             if (indentChanged) publishStatus(view);
         });
         pathRef.current = path;
+        // Recorded at open, not only on the first status report: a file that is
+        // never focused still has an ending a menu save must keep.
+        rememberLiveEol(path, eol);
+
+        /**
+         * Replaces the buffer with the text a save wrote, keeping the caret.
+         *
+         * Replacing the whole document maps a cursor into the replaced range back
+         * to its start, which jumps the caret to the top without this mapping.
+         */
+        const applyWrittenText = (live: EditorView, written: string, doc: string) => {
+            if (written === doc) return;
+            const head = Math.min(live.state.selection.main.head, written.length);
+            live.dispatch({
+                changes: { from: 0, to: doc.length, insert: written },
+                selection: EditorSelection.cursor(head),
+                annotations: externalContentUpdate.of(true),
+            });
+            setContentRef.current(written);
+            publishBuffer(live);
+        };
 
         let autosaveTimer: number | null = null;
         /** Writes the current buffer through the shared save pipeline. */
@@ -475,18 +499,7 @@ export function CodeMirrorEditor({
                 // Typing during the write keeps the buffer dirty; an unchanged
                 // buffer is clean whether or not the write changed the text.
                 if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
-                if (written !== doc) {
-                    // Replacing the whole document maps a cursor into the replaced
-                    // range back to its start, which jumps the caret to the top.
-                    const head = Math.min(live.state.selection.main.head, written.length);
-                    live.dispatch({
-                        changes: { from: 0, to: doc.length, insert: written },
-                        selection: EditorSelection.cursor(head),
-                        annotations: externalContentUpdate.of(true),
-                    });
-                    setContentRef.current(written);
-                    publishBuffer(live);
-                }
+                applyWrittenText(live, written, doc);
                 // The prepared text is what is on disk now, so it is the baseline
                 // the dirty check compares against.
                 savedContentRef.current = written;
@@ -556,19 +569,6 @@ export function CodeMirrorEditor({
             if (detail.nav === "prev") findPrevious(view);
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
-
-        const jumpToPosition = (v: EditorView, line: number, column = 1) => {
-            const total = v.state.doc.lines;
-            const target = Math.min(Math.max(Math.trunc(line) || 1, 1), total);
-            const info = v.state.doc.line(target);
-            const offset = Math.max(0, Math.trunc(column) - 1);
-            const pos = Math.min(info.from + offset, info.to);
-            v.dispatch({
-                selection: EditorSelection.cursor(pos),
-                effects: EditorView.scrollIntoView(pos, { y: "center" }),
-            });
-            v.focus();
-        };
 
         const onJump = (event: Event) => {
             const v = viewRef.current;
@@ -802,6 +802,25 @@ export function CodeMirrorEditor({
             void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
         };
         window.addEventListener("bettershape-file-saved", onFileSaved);
+        /**
+         * A save started elsewhere (Save All, Save As) went through the pipeline
+         * with the text this editor was showing. Adopting the written text keeps
+         * the buffer and the file in step; a doc that has moved on since is the
+         * user typing, and that stays dirty.
+         */
+        const onBufferSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string }>).detail;
+            const live = viewRef.current;
+            if (!live || !detail || detail.path !== pathRef.current) return;
+            if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
+            if (live.state.doc.toString() !== detail.submitted) return;
+            applyWrittenText(live, detail.content, detail.submitted);
+            savedContentRef.current = detail.content;
+            isDirtyRef.current = false;
+            saveDirtyBuffer(pathRef.current, detail.content, detail.content);
+            void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
+        };
+        window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
         const onFlushBuffer = (event: Event) => {
             const requested = (event as CustomEvent<{ path: string }>).detail?.path;
             if (requested === pathRef.current) publishBuffer(view);
@@ -822,6 +841,7 @@ export function CodeMirrorEditor({
             publishBuffer(view);
             flushDirtyBuffers();
             window.removeEventListener("bettershape-file-saved", onFileSaved);
+            window.removeEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
             window.removeEventListener("bettershape-editor-flush-buffer", onFlushBuffer);
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             window.removeEventListener("bettershape-editor-action", onEditorAction as EventListener);

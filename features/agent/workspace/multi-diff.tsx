@@ -244,7 +244,14 @@ export function MultiDiffEditor({
     // for. Discovery and status are async, so a project switch has to invalidate
     // them at once: staging from another project's list would act on a repository
     // nobody is looking at.
-    const [loaded, setLoaded] = useState<{ project: string; repo: string; files: GitFileParams[] } | null>(null);
+    const [loaded, setLoaded] = useState<{
+        project: string;
+        repo: string;
+        files: GitFileParams[];
+        // A failed read is its own state: reporting it as "no local changes"
+        // tells the user their tree is clean when the truth is unknown.
+        error: string | null;
+    } | null>(null);
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
     // The file list can be identical after a refresh while the contents moved,
@@ -264,13 +271,18 @@ export function MultiDiffEditor({
             const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
             const list = await commands.gitStatus(path);
             if (request !== requestRef.current) return;
-            setLoaded({ project: projectPath, repo: path, files: list });
+            setLoaded({ project: projectPath, repo: path, files: list, error: null });
             setRevision((count) => count + 1);
-        }).catch(() => {
+        }).catch((err) => {
             if (request === requestRef.current) {
-                // An empty answer for this project, not a missing one: a null here
-                // would leave a non-empty project on "Loading…" forever.
-                setLoaded({ project: projectPath, repo: "", files: EMPTY_FILES });
+                // Settle the request so the view leaves "Loading…", keeping the
+                // reason: discovery or status can fail for reasons a retry fixes.
+                setLoaded({
+                    project: projectPath,
+                    repo: "",
+                    files: EMPTY_FILES,
+                    error: err instanceof Error ? err.message : String(err),
+                });
                 setRevision((count) => count + 1);
             }
         });
@@ -392,8 +404,31 @@ export function MultiDiffEditor({
             </div>
 
             {files.length === 0 || !repo ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-                    {loading ? "Loading…" : "No local changes"}
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-sm text-text-muted">
+                    {loading ? (
+                        "Loading…"
+                    ) : current?.error ? (
+                        <>
+                            <span className="text-text-primary">Could not read changes</span>
+                            <span className="max-w-[420px] text-center text-xs" title={current.error}>
+                                {current.error}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => {
+                                    setBusy(true);
+                                    void refresh().finally(() => setBusy(false));
+                                }}
+                            >
+                                Retry
+                            </Button>
+                        </>
+                    ) : (
+                        "No local changes"
+                    )}
                 </div>
             ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">

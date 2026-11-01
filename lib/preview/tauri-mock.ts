@@ -298,6 +298,10 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             { path: "README.md", status: "M", staged: true },
         ] as Array<{ path: string; status: string; staged: boolean }>,
         logStreamOffsets: new Map<string, number>(),
+        // The paths each commit in this session actually recorded, so the commit
+        // detail panel shows the files that were committed rather than the first
+        // N entries of the seed list.
+        commitFiles: new Map<string, Array<{ path: string; status: string; staged: boolean }>>(),
         // Seeded empty, then written through by `write_settings_file`. Before
         // this the preview always answered "no record", so every settings change
         // was lost on the next navigation.
@@ -500,7 +504,8 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
 
     /** Drop staged changes and prepend a commit entry, like a real commit. */
     const recordCommit = (message: string) => {
-        const stagedCount = state.gitChanges.filter((c) => c.staged).length;
+        const committed = state.gitChanges.filter((c) => c.staged);
+        const stagedCount = committed.length;
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
         const [first, ...rest] = state.logEntries;
         const parents = first ? [first.hash] : [];
@@ -517,6 +522,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             parent_count: parents.length,
             parents,
         };
+        state.commitFiles.set(entry.hash, committed.map((change) => ({ ...change, staged: false })));
         state.logEntries = first ? [entry, { ...first, refs: [] }, ...rest] : [entry];
     };
 
@@ -806,6 +812,8 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {
             const hash = String(args.hash ?? "");
+            const recorded = state.commitFiles.get(hash);
+            if (recorded) return recorded.map((file) => ({ ...file }));
             const entry = state.logEntries.find((candidate) => candidate.hash === hash);
             return entry ? previewCommitFiles(entry.files_changed) : [];
         },

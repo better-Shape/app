@@ -159,6 +159,16 @@ export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF
         const fixed = await fixLintForSave(path, prepared);
         const formatted = await formatForSave(path, fixed);
         await commands.saveFile(path, toDiskText(formatted, eol));
+        // What was on screen when this save started, and what the file now holds.
+        // A menu save has no view to update, so the editor that submitted the text
+        // adopts the written text itself rather than staying dirty over it.
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-buffer-saved", {
+                    detail: { path, content: formatted, submitted: doc },
+                }),
+            );
+        }
         return formatted;
     });
 }

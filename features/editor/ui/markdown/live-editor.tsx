@@ -37,6 +37,7 @@ import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-mar
 import { indentUnit } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { cn } from "@/lib/utils";
+import { jumpToPosition } from "@/lib/editor/jump-to-position";
 import { Button } from "@/components/ui/button";
 import { type IconGlyph, Icon } from "@/components/ui/icon";
 
@@ -729,6 +730,16 @@ export function MarkdownLiveEditor({
             openSearchPanel(view);
         };
         window.addEventListener("bettershape-editor-search", onSearch as EventListener);
+        // Symbol rows in the palette, problem links and breadcrumbs all ask for
+        // a jump. The code editor answered; a Markdown file editing here did
+        // not, so the request went nowhere.
+        const onJump = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string; line?: number; column?: number }>).detail;
+            if (!detail || !path || detail.path !== path) return;
+            if (typeof detail.line !== "number") return;
+            jumpToPosition(view, detail.line, detail.column ?? 1);
+        };
+        window.addEventListener("bettershape-editor-jump", onJump as EventListener);
         const unsubscribeSettings = subscribeSettings(() => {
             view.dispatch({
                 effects: optionCompartment.reconfigure(documentOptions()),
@@ -737,6 +748,7 @@ export function MarkdownLiveEditor({
         return () => {
             unsubscribeSettings();
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
+            window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
             view.destroy();
             viewRef.current = null;
             setBubble(null);

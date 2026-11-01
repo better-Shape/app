@@ -86,6 +86,19 @@ describe("preview invoke handler", () => {
         expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "nope" })).toEqual([]);
     });
 
+    it("lists the files a session commit actually recorded", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        // Only README.md is staged in the seeded tree.
+        handle("git_commit", { path: PREVIEW_PROJECT_PATH, message: "preview: stage one file" });
+        const log = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{ hash: string }>;
+        const files = handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: log[0].hash }) as Array<{
+            path: string;
+        }>;
+        // The seed list answers src/App.tsx for one file; the panel must show
+        // the file that was staged and committed.
+        expect(files.map((file) => file.path)).toEqual(["README.md"]);
+    });
+
     it("blames a fixture file with the author the git log shows", () => {
         const { handle } = createPreviewInvokeHandler("project");
         const regions = handle("git_blame_file", {

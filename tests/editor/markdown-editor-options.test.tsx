@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
 import { MarkdownLiveEditor } from "@/features/editor/ui/markdown/live-editor";
 import { resetSettings, updateSettingSection } from "@/lib/settings";
 
@@ -57,6 +58,43 @@ async function mount() {
 const whitespaceMarks = () => host.querySelectorAll(".cm-highlightSpace").length;
 /** Brackets nested one level deep, which is the second colour step. */
 const nestedBracketMarks = () => host.querySelectorAll(".cm-bracket-depth-1").length;
+
+describe("markdown editor jumps", () => {
+    it("moves the caret when the palette asks for a line", async () => {
+        await mount();
+        const content = host.querySelector(".cm-content");
+        if (!(content instanceof HTMLElement)) throw new Error("editor content missing");
+        const view = EditorView.findFromDOM(content);
+        if (!view) throw new Error("editor view missing");
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-jump", {
+                    detail: { path: "/repo/notes.md", line: 3, column: 1 },
+                }),
+            );
+        });
+        // Line 3 is "A line with several gaps..." in DOC; the caret must be there
+        // rather than at the top where the document started.
+        expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(3);
+    });
+
+    it("ignores a jump aimed at another file", async () => {
+        await mount();
+        const content = host.querySelector(".cm-content");
+        if (!(content instanceof HTMLElement)) throw new Error("editor content missing");
+        const view = EditorView.findFromDOM(content);
+        if (!view) throw new Error("editor view missing");
+        const before = view.state.selection.main.head;
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-jump", {
+                    detail: { path: "/repo/other.md", line: 4, column: 1 },
+                }),
+            );
+        });
+        expect(view.state.selection.main.head).toBe(before);
+    });
+});
 
 describe("markdown editor options", () => {
     it("draws whitespace markers when Render whitespace is All", async () => {
