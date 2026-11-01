@@ -17,10 +17,10 @@ const at = (year: number, month: number, day: number, hour: number, minute: numb
 
 describe("local history formatting", () => {
     it("names today, yesterday and older versions without a locale lookup", () => {
-        expect(formatHistoryWhen(at(2026, 9, 31, 14, 5), NOW)).toBe("Today 14:05");
-        expect(formatHistoryWhen(at(2026, 9, 30, 9, 12), NOW)).toBe("Yesterday 09:12");
-        expect(formatHistoryWhen(at(2026, 2, 3, 9, 12), NOW)).toBe("3 Mar 09:12");
-        expect(formatHistoryWhen(at(2025, 11, 24, 23, 59), NOW)).toBe("24 Dec 2025 23:59");
+        expect(formatHistoryWhen(at(2026, 9, 31, 14, 5), NOW)).toBe("Today 14:05:00");
+        expect(formatHistoryWhen(at(2026, 9, 30, 9, 12), NOW)).toBe("Yesterday 09:12:00");
+        expect(formatHistoryWhen(at(2026, 2, 3, 9, 12), NOW)).toBe("3 Mar 09:12:00");
+        expect(formatHistoryWhen(at(2025, 11, 24, 23, 59), NOW)).toBe("24 Dec 2025 23:59:00");
     });
 
     it("handles a missing timestamp instead of printing 1970", () => {
@@ -47,8 +47,8 @@ describe("local history rows", () => {
     it("puts the newest version first and carries the id and size", () => {
         const items = historyPickItems(entries, NOW);
         expect(items.map((item) => item.id)).toEqual(["a", "b", "c"]);
-        expect(items[0]).toMatchObject({ label: "Today 15:20", description: "900 B" });
-        expect(items[2]).toMatchObject({ label: "Yesterday 09:12", description: "128 B" });
+        expect(items[0]).toMatchObject({ label: "Today 15:20:00", description: "900 B" });
+        expect(items[2]).toMatchObject({ label: "Yesterday 09:12:00", description: "128 B" });
     });
 
     it("drops duplicate ids so a migrated store cannot list a version twice", () => {
@@ -66,7 +66,7 @@ describe("local history rows", () => {
 
     it("says the restored version only fills the buffer", () => {
         expect(restoredVersionMessage(at(2026, 9, 31, 14, 5), NOW)).toBe(
-            "Restored the version from Today 14:05. Save the file to keep it.",
+            "Restored the version from Today 14:05:00. Save the file to keep it.",
         );
     });
 });

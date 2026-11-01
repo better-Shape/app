@@ -228,7 +228,7 @@ const previewCommitFiles = (filesChanged: number) =>
     [
         { path: "src/App.tsx", status: "M", staged: false },
         { path: "README.md", status: "M", staged: false },
-        { path: "src/main.tsx", status: "A", staged: false },
+        { path: "src/main.ts", status: "A", staged: false },
     ].slice(0, Math.max(0, filesChanged));
 
 /** Seeded Git history, newest first, in the backend's wire shape. */

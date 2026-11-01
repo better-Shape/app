@@ -143,7 +143,21 @@ export function CodeMirrorEditor({
             typeof editorOptions.tabSize === "number" && editorOptions.tabSize > 0
                 ? editorOptions.tabSize
                 : 4;
-        let eol: "LF" | "CRLF" = editorOptions.defaultEol === "CRLF" ? "CRLF" : "LF";
+        // What the settings last said, so a settings emission that changed
+        // nothing here cannot overwrite a manual choice made in the status bar.
+        let seenIndentSetting = `${editorOptions.tabSize ?? ""}\u0000${editorOptions.insertSpaces ?? ""}\u0000${editorOptions.detectIndentation ?? ""}`;
+        let seenWrapSetting = editorOptions.wordWrap;
+        // The file's own line ending wins for an existing file: `defaultEol` is
+        // the convention for a new one, not a conversion order. Saving a CRLF
+        // file under the LF default used to rewrite every line ending.
+        const loadedText = savedContentRef.current || content;
+        let eol: "LF" | "CRLF" = loadedText.includes("\r\n")
+            ? "CRLF"
+            : loadedText.length > 0
+              ? "LF"
+              : editorOptions.defaultEol === "CRLF"
+                ? "CRLF"
+                : "LF";
         // Settings -> Editor -> "Detect indentation": match the buffer instead of
         // reindenting a two-space file with four.
         if (editorOptions.detectIndentation === true) {
@@ -380,32 +394,45 @@ export function CodeMirrorEditor({
             // Indentation and wrapping live in their own compartments, so a
             // Settings change has to reach the open document here. Without this
             // the setting only applied to the next file the user opened.
-            let nextTabSize =
-                typeof next.tabSize === "number" && next.tabSize > 0 ? next.tabSize : 4;
-            let nextInsertSpaces = next.insertSpaces !== false;
-            // Detect indentation is a standing instruction to read the buffer, so a
-            // settings change re-detects instead of imposing the configured unit on
-            // a file that was opened with its own.
-            const detected = next.detectIndentation === true
-                ? detectIndentation(view.state.doc.toString())
-                : null;
-            if (detected) {
-                nextTabSize = detected.tabSize;
-                nextInsertSpaces = detected.insertSpaces;
-            }
-            const indentChanged = nextTabSize !== tabSize || nextInsertSpaces !== insertSpaces;
-            if (indentChanged) {
-                tabSize = nextTabSize;
-                insertSpaces = nextInsertSpaces;
-                effects.push(
-                    indentCompartment.reconfigure([
-                        EditorState.tabSize.of(tabSize),
-                        indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
-                    ]),
-                );
+            //
+            // The live values are not the settings: the status bar's Indentation
+            // picker and the word-wrap command change them too. Acting whenever
+            // they differ would undo those choices on the next unrelated settings
+            // emission, so this only acts when the setting itself moved.
+            const indentSetting = `${next.tabSize ?? ""}\u0000${next.insertSpaces ?? ""}\u0000${next.detectIndentation ?? ""}`;
+            const indentSettingChanged = indentSetting !== seenIndentSetting;
+            seenIndentSetting = indentSetting;
+            let indentChanged = false;
+            if (indentSettingChanged) {
+                let nextTabSize =
+                    typeof next.tabSize === "number" && next.tabSize > 0 ? next.tabSize : 4;
+                let nextInsertSpaces = next.insertSpaces !== false;
+                // Detect indentation is a standing instruction to read the buffer,
+                // so it re-detects rather than imposing the configured unit on a
+                // file that was opened with its own.
+                const detected = next.detectIndentation === true
+                    ? detectIndentation(view.state.doc.toString())
+                    : null;
+                if (detected) {
+                    nextTabSize = detected.tabSize;
+                    nextInsertSpaces = detected.insertSpaces;
+                }
+                indentChanged = nextTabSize !== tabSize || nextInsertSpaces !== insertSpaces;
+                if (indentChanged) {
+                    tabSize = nextTabSize;
+                    insertSpaces = nextInsertSpaces;
+                    effects.push(
+                        indentCompartment.reconfigure([
+                            EditorState.tabSize.of(tabSize),
+                            indentUnit.of(insertSpaces ? " ".repeat(tabSize) : "\t"),
+                        ]),
+                    );
+                }
             }
             const nextWrap = next.wordWrap !== "off";
-            if (nextWrap !== wrapEnabled) {
+            const wrapSettingChanged = next.wordWrap !== seenWrapSetting;
+            seenWrapSetting = next.wordWrap;
+            if (wrapSettingChanged && nextWrap !== wrapEnabled) {
                 wrapEnabled = nextWrap;
                 effects.push(
                     wrapCompartment.reconfigure(nextWrap ? EditorView.lineWrapping : []),
@@ -674,12 +701,15 @@ export function CodeMirrorEditor({
                 case "setInsertSpaces":
                     insertSpaces = detail.value !== false;
                     applyIndent(v);
+                    // The status bar reads the live unit from this report.
+                    publishStatus(v);
                     break;
                 case "setTabSize": {
                     const size = Number(detail.value);
                     if (!Number.isInteger(size) || size < 1 || size > 8) break;
                     tabSize = size;
                     applyIndent(v);
+                    publishStatus(v);
                     break;
                 }
                 case "setEol":

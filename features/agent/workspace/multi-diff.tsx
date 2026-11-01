@@ -268,7 +268,9 @@ export function MultiDiffEditor({
             setRevision((count) => count + 1);
         }).catch(() => {
             if (request === requestRef.current) {
-                setLoaded(null);
+                // An empty answer for this project, not a missing one: a null here
+                // would leave a non-empty project on "Loading…" forever.
+                setLoaded({ project: projectPath, repo: "", files: EMPTY_FILES });
                 setRevision((count) => count + 1);
             }
         });

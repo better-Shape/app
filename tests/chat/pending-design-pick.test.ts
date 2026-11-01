@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { shouldAnnouncePendingDesignPick } from "@/lib/agent-preview/pending-notice";
 
-function anchorAt(doc: Document, rect: Partial<DOMRect>): void {
+function anchorAt(doc: Document, rect: Partial<DOMRect>, kind = "design"): void {
     const element = doc.createElement("div");
     element.setAttribute("data-pending-approval-kind", "approval");
+    if (kind === "design") element.setAttribute("data-design-pick", "true");
     element.getBoundingClientRect = () =>
         ({
             top: 0,
@@ -41,6 +42,12 @@ describe("pending design pick announcement", () => {
 
     it("ignores a collapsed gallery that cannot be seen anyway", () => {
         anchorAt(document, { top: 10, bottom: 10, height: 0 });
+        expect(shouldAnnouncePendingDesignPick(document)).toBe(true);
+    });
+
+    it("is not silenced by a visible approval card that is not a design pick", () => {
+        // Approval and plugin cards carry the same pending marker as the gallery.
+        anchorAt(document, { top: 100, bottom: 300, height: 200 }, "approval");
         expect(shouldAnnouncePendingDesignPick(document)).toBe(true);
     });
 });

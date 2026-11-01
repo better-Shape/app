@@ -54,8 +54,9 @@ preview iframe from inside the app. They are not a remote service.
    carries the release page and its notes; `lib/window/updater.ts` turns it
    into the existing chip, honours the dismissed version, and
    `downloadAndInstallUpdate` opens the release page instead of claiming to
-   install. Nothing is fetched or installed silently, and no Shape server is
-   involved.
+   install. A background check silently requests the release metadata and
+   nothing else: no update package is downloaded or installed without the user
+   asking, and no Shape server is involved.
 2. **Icon CDNs.** Simple Icons / DuckDuckGo favicons are fetched for plugin and
    file icons. Offline they simply fail; cache them on first fetch so the app
    looks the same without a network.

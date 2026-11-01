@@ -319,7 +319,7 @@ export const CommandPalette = () => {
                 setQuery(paletteSearchQuery(detail.filter, openMode));
                 setOpen(true);
             } else {
-                setActions(getAppCommands());
+                setActions(getAppCommands(focusedFile));
                 setQuery(paletteSearchQuery(detail?.filter, openMode));
                 setOpen(true);
             }
@@ -1070,7 +1070,8 @@ function eventCommand(id: string, label: string, keybinding: string, type: strin
 }
 
 /** App-level workbench commands for the command palette. */
-export function getAppCommands(): EditorAction[] {
+/** App commands. `focusedFile` is the editor the user is actually in, when known. */
+export function getAppCommands(focusedFile: string | null = null): EditorAction[] {
     const commands: EditorAction[] = [
         // ── Navigation ───────────────────────────────────────────────────────
         {
@@ -1331,7 +1332,7 @@ export function getAppCommands(): EditorAction[] {
             shortcut: "",
             // The picker listens for this by path, so it works for the markdown
             // editor too, where no CodeMirror instance answers editor actions.
-            run: () => requestLocalHistory(getProjectSnapshot().active_file),
+            run: () => requestLocalHistory(focusedFile ?? getProjectSnapshot().active_file),
         },
         {
             id: "app.editor.rename",

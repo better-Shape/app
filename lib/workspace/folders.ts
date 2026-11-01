@@ -85,8 +85,19 @@ export function isSameWorkspacePath(a: string, b: string): boolean {
     return foldCase(left) === foldCase(right);
 }
 
+/**
+ * Windows paths, including the slash form of a UNC share.
+ *
+ * `normalizePath` has already turned the backslashes of a UNC path into `/`, so
+ * `isCaseInsensitivePath` no longer recognizes `//server/share` as Windows and
+ * the two spellings of one share compared as different folders.
+ */
+function isWindowsPath(path: string): boolean {
+    return isCaseInsensitivePath(path) || path.startsWith("//");
+}
+
 function foldCase(path: string): string {
-    return isCaseInsensitivePath(path) ? path.toLowerCase() : path;
+    return isWindowsPath(path) ? path.toLowerCase() : path;
 }
 
 export function workspaceFolderLabel(path: string): string {

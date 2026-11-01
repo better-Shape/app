@@ -5,10 +5,12 @@
  * turn is waiting. The backend already emits `agent-design-pick-pending`; this
  * decides whether that event deserves an announcement.
  *
- * The anchor is the gallery's own `data-pending-approval-kind` marker, so no
- * second source of truth is added for "a pick is on screen".
+ * The anchor is the gallery's own marker, so no second source of truth is added
+ * for "a pick is on screen". It has to be the gallery's marker and not the
+ * generic pending-approval one: approval and plugin cards share that marker, and
+ * a visible card would then silence the notice for an unrelated design pick.
  */
-const PICK_ANCHOR = '[data-pending-approval-kind="approval"]';
+const PICK_ANCHOR = '[data-design-pick="true"]';
 
 export function shouldAnnouncePendingDesignPick(doc: Document): boolean {
     const anchors = Array.from(doc.querySelectorAll(PICK_ANCHOR));

@@ -67,6 +67,22 @@ describe("save formatting settings", () => {
         expect(notifyMock.warn).not.toHaveBeenCalled();
     });
 
+    it("does not let the formatter add a final newline the setting refuses", async () => {
+        state.editor.formatOnSave = true;
+        state.editor.insertFinalNewline = false;
+        // Prettier always ends the file with a newline; the setting decides
+        // whether a save writes one.
+        backend.prettierFormatFile.mockResolvedValue("const a = 1;\n");
+        await expect(formatForSave("no-eol.ts", "const a=1")).resolves.toBe("const a = 1;");
+    });
+
+    it("keeps the formatter's newline when the file already had one", async () => {
+        state.editor.formatOnSave = true;
+        state.editor.insertFinalNewline = false;
+        backend.prettierFormatFile.mockResolvedValue("const a = 1;\n");
+        await expect(formatForSave("has-eol.ts", "const a=1\n")).resolves.toBe("const a = 1;\n");
+    });
+
     it("saves the original text and says so when formatting fails", async () => {
         state.editor.formatOnSave = true;
         backend.prettierFormatFile.mockRejectedValue(new Error("No parser could be inferred"));

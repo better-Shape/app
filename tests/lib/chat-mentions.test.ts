@@ -201,6 +201,23 @@ describe("chat-mentions: buildMessageWithMentions file/folder/codebase", () => {
         expect(result).toContain('<mention_context type="codebase">');
     });
 
+    it("resolves a mention written from an extra workspace folder", async () => {
+        // The tree writes a path relative to the root the file came from; the
+        // primary project used to be the only root the resolver tried.
+        localStorage.setItem("bettershape-workspace-folders", JSON.stringify(["/extra"]));
+        mockedInvoke.mockImplementation(async (_command: string, args?: unknown) => {
+            const path = (args as { path?: string } | undefined)?.path;
+            if (path === "/extra/src/only-extra.ts") return "extra root contents";
+            throw new Error(`not found: ${path}`);
+        });
+        try {
+            const result = await buildMessageWithMentions("check @src/only-extra.ts", "/proj");
+            expect(result).toContain("extra root contents");
+        } finally {
+            localStorage.removeItem("bettershape-workspace-folders");
+        }
+    });
+
     it("silently drops the mention block when file read fails", async () => {
         mockedInvoke.mockRejectedValueOnce(new Error("not found"));
         const result = await buildMessageWithMentions("check @file:missing.ts", "/proj");

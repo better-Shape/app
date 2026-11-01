@@ -21,10 +21,15 @@ export function runClipboardAction(view: EditorView, action: ClipboardAction): v
 
     if (action === "paste") {
         if (!clipboard?.readText) return;
+        // Reading the clipboard is asynchronous. Pasting into whatever the
+        // selection became would replace text the user selected after the paste
+        // was requested, so the target has to be the one still on screen.
+        const selection = view.state.selection;
         void clipboard
             .readText()
             .then((text) => {
                 if (!text || view.state.doc !== doc) return;
+                if (!view.state.selection.eq(selection)) return;
                 view.dispatch(view.state.replaceSelection(text));
             })
             .catch(() => undefined);

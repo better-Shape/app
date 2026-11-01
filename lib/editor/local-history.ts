@@ -42,12 +42,17 @@ const MONTHS = [
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
-/** `Today 14:05`, `Yesterday 09:12`, `3 Mar 09:12`, `3 Mar 2025 09:12`. */
+/**
+ * `Today 14:05:09`, `Yesterday 09:12:44`, `3 Mar 09:12:02`, `3 Mar 2025 09:12:02`.
+ *
+ * The seconds are part of the label because a history version has no other
+ * visible identifier: two saves in the same minute were indistinguishable rows.
+ */
 export function formatHistoryWhen(timestampSeconds: number, now: number = Date.now()): string {
     if (!Number.isFinite(timestampSeconds) || timestampSeconds <= 0) return "Unknown time";
     const date = new Date(timestampSeconds * 1000);
     const today = new Date(now);
-    const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
     if (date.toDateString() === today.toDateString()) return `Today ${clock}`;
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);

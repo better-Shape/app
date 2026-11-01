@@ -64,7 +64,14 @@ export async function formatForSave(path: string, text: string): Promise<string>
     try {
         const formatted = await commands.prettierFormatFile(getProjectPath() ?? "", path, text);
         lastFormatFailure = null;
-        return typeof formatted === "string" && formatted.length > 0 ? formatted : text;
+        if (typeof formatted !== "string" || formatted.length === 0) return text;
+        // Prettier always ends a file with a newline. Insert final newline is the
+        // setting that decides that for a save, so its answer is the one that
+        // counts: a file saved without one must not grow one from the formatter.
+        if (!settings.editor.insertFinalNewline && !text.endsWith("\n")) {
+            return formatted.replace(/\n+$/, "");
+        }
+        return formatted;
     } catch (error) {
         // Saving the unformatted text is the right call — refusing to save would
         // lose the user's work — but a silent fallback makes Format on save look

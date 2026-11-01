@@ -69,6 +69,9 @@ export async function offerPrettierInstall(projectPath: string): Promise<void> {
     const mode = getSettings().workspace.toolingInstall;
     if (mode === "auto") {
         if (failedAuto.has(projectPath)) return;
+        // A skipped request is not a failure: another save is already installing,
+        // and recording it here would suppress every later retry.
+        if (installing.has(projectPath)) return;
         if (!(await install(projectPath))) failedAuto.add(projectPath);
         return;
     }

@@ -9,6 +9,7 @@
 
 use crate::core::error::AppError;
 use serde::Serialize;
+use std::time::Duration;
 
 /// Repository whose releases ship this build. The release workflow exports
 /// `GITHUB_REPOSITORY`, so a fork's installer points at the fork; the fallback
@@ -91,8 +92,11 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
 
 async fn latest_release(repo: &str) -> Result<serde_json::Value, AppError> {
     let endpoint = format!("https://api.github.com/repos/{repo}/releases/latest");
+    // A bounded request: GitHub can accept the connection and then stall, and an
+    // unbounded await would leave the update chip on "checking" until restart.
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(15))
         .build()
         .map_err(client_failure)?;
     let response = client

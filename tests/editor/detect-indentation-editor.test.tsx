@@ -116,6 +116,23 @@ describe("editor indentation", () => {
         expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: true });
     });
 
+    it("keeps a manual tab size across an unrelated settings change", async () => {
+        updateSettingSection("editor", { detectIndentation: false, tabSize: 4, insertSpaces: true });
+        await mount();
+        // The status bar's Indentation picker changes the live value, not the
+        // setting; a later settings emission must not put the configured one back.
+        await act(async () => {
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-action", { detail: { action: "setTabSize", value: 2 } }),
+            );
+        });
+        expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: true });
+        await act(async () => {
+            updateSettingSection("editor", { renderWhitespace: "all" });
+        });
+        expect(events.at(-1)).toEqual({ spaces: 2, insertSpaces: true });
+    });
+
     it("applies a word-wrap change to the open document", async () => {
         updateSettingSection("editor", { wordWrap: "off" });
         await mount();

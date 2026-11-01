@@ -651,7 +651,15 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 <div className="flex-1 w-full min-h-0 overflow-hidden relative">
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
-                <LocalHistoryPicker path={path} onRestore={(next) => void applyMarkdownContent(next)} />
+                <LocalHistoryPicker
+                    path={path}
+                    onRestore={(next) => {
+                        // A restore that lands after the viewer switched files
+                        // would write the old file's text into the new one.
+                        if (pathRef.current !== path) return;
+                        void applyMarkdownContent(next);
+                    }}
+                />
             </div>
         );
     }

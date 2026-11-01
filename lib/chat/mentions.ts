@@ -1,5 +1,6 @@
 import { escapeXmlAttr } from "./xml";
 import { commands } from "@/lib/backend/commands";
+import { getExtraWorkspaceFolders } from "@/lib/workspace/folders";
 import { listDesignPreviewSessions } from "@/lib/agent-preview/store";
 import { hostnameOf } from "@/lib/ui/favicon";
 import { lookupMentionToken, registerMentionToken } from "@/lib/chat/mention-registry";
@@ -652,29 +653,48 @@ async function readMentionContext(
 
     if (!projectPath) return null;
 
-    const sep = projectPath.includes("\\") ? "\\" : "/";
-    const rel = mention.path?.replace(/\//g, sep) ?? "";
-    const fullPath = `${projectPath.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${rel}`;
+    // A mention written from an extra workspace folder carries a path relative to
+    // that root, so the primary project is only the first candidate: resolving
+    // everything against it read the wrong file, or none at all.
+    const roots = [projectPath, ...getExtraWorkspaceFolders()];
+    const pathUnder = (root: string): string => {
+        const sep = root.includes("\\") ? "\\" : "/";
+        const rel = mention.path?.replace(/\//g, sep) ?? "";
+        return `${root.replace(/(?<![\\/])[\\/]+$/, "")}${sep}${rel}`;
+    };
 
     if (mention.kind === "folder") {
-        try {
-            const entries = await commands.lsDir(fullPath);
-            const listing = entries
-                .slice(0, 80)
-                .map((e) => `${e.is_dir ? "[dir]" : "[file]"} ${e.name}`)
-                .join("\n");
-            return `<mention_context type="folder" path="${mention.path}">\n${listing}\n</mention_context>`;
-        } catch {
-            return null;
+        for (const root of roots) {
+            try {
+                const entries = await commands.lsDir(pathUnder(root));
+                const listing = entries
+                    .slice(0, 80)
+                    .map((e) => `${e.is_dir ? "[dir]" : "[file]"} ${e.name}`)
+                    .join("\n");
+                return `<mention_context type="folder" path="${mention.path}">\n${listing}\n</mention_context>`;
+            } catch {
+                /* not under this root */
+            }
         }
+        return null;
     }
 
-    if (isBinaryMentionPath(mention.path || rel)) {
+    if (isBinaryMentionPath(mention.path || "")) {
         return `<mention_context type="file" path="${mention.path}" binary="true">Binary file referenced at ${mention.path}. Do not dump its contents. Use the path if the user asks to apply or copy it.</mention_context>`;
     }
 
+    let content: string | null = null;
+    for (const root of roots) {
+        try {
+            content = await commands.readFile(pathUnder(root));
+            break;
+        } catch {
+            /* not under this root */
+        }
+    }
+    if (content === null) return null;
+
     try {
-        const content = await commands.readFile(fullPath);
         if (looksLikeBinaryText(content)) {
             return `<mention_context type="file" path="${mention.path}" binary="true">Binary file referenced at ${mention.path}. Do not dump its contents. Use the path if the user asks to apply or copy it.</mention_context>`;
         }

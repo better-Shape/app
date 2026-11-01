@@ -448,9 +448,23 @@ export function McpSettingsView() {
         setReloading(true);
         try {
             const nextStatuses = await commands.mcpReloadFromFile();
-            setStatuses(Array.isArray(nextStatuses) ? nextStatuses : []);
+            const statuses = Array.isArray(nextStatuses) ? nextStatuses : [];
+            setStatuses(statuses);
             setServers(await listMcpServers());
-            notify.success("Reloaded the servers in mcp.json.");
+            // The reload returns a status per server, and a failure is a status
+            // the cards do not spell out: saying "reloaded" after every
+            // connection failed would hide it.
+            const failed = statuses.filter((status) => status.status === "error");
+            if (failed.length === 0) {
+                notify.success("Reloaded the servers in mcp.json.");
+            } else {
+                notify.error(
+                    failed.length === 1
+                        ? `${failed[0].name} could not connect.`
+                        : `${failed.length} servers could not connect.`,
+                    failed.find((status) => status.error)?.error ?? "Check mcp.json and the server logs.",
+                );
+            }
         } catch (err) {
             notify.error(err instanceof Error ? err.message : "Could not reload mcp.json.");
         } finally {
