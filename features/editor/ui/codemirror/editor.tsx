@@ -527,9 +527,10 @@ export function CodeMirrorEditor({
                 isDirtyRef.current = true;
                 commands.markFileDirty(pathRef.current, true).catch(() => undefined);
                 scheduleAutosave(true);
-            } else if (eolChanged) {
+            } else if (eolChanged && !dirty) {
                 // Taking the file's own ending can settle a buffer that was dirty
-                // only because the ending was wrong.
+                // only because the ending was wrong. A dirty buffer stays marked:
+                // it holds edits the disk does not have.
                 isDirtyRef.current = false;
                 commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             }
@@ -1088,7 +1089,12 @@ export function CodeMirrorEditor({
                         // view, so this does by hand what it would have done: the
                         // restore reaches the disk instead of a ref nobody reads.
                         setContentRef.current(restored);
-                        stageDirtyBuffer(path, restored, savedContentRef.current);
+                        // A newer draft for this path is the user's unsaved work from
+                        // the editor that just closed. Keeping it means a failed write
+                        // cannot cost those edits on reopen.
+                        if (!loadDirtyBuffer(path)) {
+                            stageDirtyBuffer(path, restored, savedContentRef.current);
+                        }
                         isDirtyRef.current = true;
                         // In order: the write clears the backend's marker, and a
                         // mark that lands after it leaves a saved file reading

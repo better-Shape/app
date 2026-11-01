@@ -221,3 +221,22 @@ it("marks the file dirty when a chosen ending and a late load disagree", async (
     expect(harness.refs.dirty.current).toBe(true);
     expect(backend.markFileDirty).toHaveBeenCalledWith("/repo/file.txt", true);
 });
+
+it("keeps a dirty buffer marked when a refresh also changes the ending", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    const view = await harness.mount("one\ntwo", "one\ntwo");
+    await act(async () => {
+        view.dispatch({ changes: { from: 0, insert: "x" } });
+    });
+    expect(harness.refs.dirty.current).toBe(true);
+    backend.markFileDirty.mockClear();
+    // The file was rewritten on disk with CRLF while the loader kept the draft,
+    // so the prop is the draft and the baseline is the new CRLF file.
+    await act(async () => {
+        await harness.render("xone\ntwo", "one\r\ntwo");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    // The disk has bytes the buffer does not: "Close Saved" must not close it.
+    expect(harness.refs.dirty.current).toBe(true);
+    expect(backend.markFileDirty).not.toHaveBeenCalledWith("/repo/file.txt", false);
+});

@@ -320,6 +320,21 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!navigator.clipboard) return Promise.reject(new Error("no async clipboard"));
                 return navigator.clipboard.writeText(text);
             });
+            // Every copy takes a number, whether it lands synchronously or waits
+            // in the queue. A queued write checks its number before writing, so a
+            // selection copied synchronously in the meantime is not overwritten by
+            // the older text when the slow write finally runs.
+            let copySeq = 0;
+            const copyNow = (selected: string) => {
+                const seq = ++copySeq;
+                if (copyWithHiddenTextarea(selected)) return;
+                writeClipboard(selected, {
+                    shouldWrite: () => seq === copySeq,
+                    onFailure: () => {
+                        if (seq === copySeq) notifyCopyFailed();
+                    },
+                }).catch(() => undefined);
+            };
             // History on every selection change; the clipboard follows only when
             // Terminal → Copy on select is on, because a drag selects continuously.
             //
@@ -333,8 +348,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 if (!getSettings().terminal.copyOnSelect) return;
-                if (copyWithHiddenTextarea(selected)) return;
-                void writeClipboard(selected, notifyCopyFailed);
+                copyNow(selected);
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
@@ -388,8 +402,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 event.stopPropagation();
                 // The key press is the gesture, so the synchronous copy is the one
                 // that works; the queued write is the fallback.
-                if (copyWithHiddenTextarea(selected)) return;
-                void writeClipboard(selected, notifyCopyFailed);
+                copyNow(selected);
             };
             host?.addEventListener("copy", onCopy);
             host?.addEventListener("keydown", onCopyKey, true);
