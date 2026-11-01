@@ -13,12 +13,25 @@ export const SHADOW_OPACITY = 0.55;
 export const EMPTY_ARRAY: never[] = [];
 export const EMPTY_NODE: GraphNode = { lane: 0, color: "var(--color-accent)", paths: [], isMerge: false };
 
-const HEAD_DECORATION_RE = /^head(?:\s*->\s*.+)?$/i;
+const extractArrowTarget = (rest: string): string | null => {
+    if (!rest.startsWith("->")) return null;
+    const target = rest.slice(2).trim();
+    return target || null;
+};
 
-/** True when a single decoration string represents the checked-out `HEAD` tip. */
-const isHeadDecoration = (ref: string): boolean => HEAD_DECORATION_RE.test(ref.trim());
+/**
+ * Parses a single `git log %D` ref token when it represents the checked-out `HEAD` tip.
+ * Returns `""` for detached `HEAD`, the target branch name for `HEAD -> <branch>`,
+ * or `null` for non-HEAD decorations (`origin/HEAD`, `feat/header`, etc.).
+ */
+export function parseHeadRefTarget(raw: string): string | null {
+    const trimmed = raw.trim();
+    if (!trimmed.toLowerCase().startsWith("head")) return null;
+    const rest = trimmed.slice(4).trimStart();
+    return rest ? extractArrowTarget(rest) : "";
+}
 
 /** True when this commit is checked out (HEAD tip). */
 export function commitIsHead(refs: string[] | null | undefined): boolean {
-    return Boolean(refs?.some(isHeadDecoration));
+    return Boolean(refs?.some((ref) => parseHeadRefTarget(ref) !== null));
 }

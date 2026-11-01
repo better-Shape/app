@@ -14,7 +14,7 @@ Base: `mega/absorb-all` at `bfef9e14c13e085e218faecb9080dba9086df5dd`
 
 ## Verification summary
 
-Verified on branch `arena/0de22628-app` against merge base `mega/absorb-all` (`bfef9e14c13e085e218faecb9080dba9086df5dd`, parent commit `04fc3618d3715cf7ba1a360827a598880d5aa8a0` plus the worktree changes in this commit) across unit, static-analysis, Rust, and Playwright Chromium gates:
+Verified on branch `arena/0de22628-app` against merge base `mega/absorb-all` (`bfef9e14c13e085e218faecb9080dba9086df5dd`, parent commit `73bc206a62823c9d511feb7d05a279c9c2c51464` plus the worktree changes in this commit) across unit, static-analysis, Rust, and Playwright Chromium gates:
 
 - `npm run lint` and `npm run typecheck`: 0 errors, 0 warnings.
 - `npx vitest run`: 261 Vitest suites (2,828 tests) passed.

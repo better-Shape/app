@@ -36,7 +36,7 @@ import { useGitRepos } from "@/lib/git/repos";
 import { resolveGithubAvatarUrl } from "@/lib/git/github-avatar";
 import { useSettings } from "@/lib/settings";
 import { graphCache } from "./cache";
-import { EMPTY_ARRAY, EMPTY_NODE, commitIsHead } from "./constants";
+import { EMPTY_ARRAY, EMPTY_NODE, commitIsHead, parseHeadRefTarget } from "./constants";
 import { FilterMenu } from "./filter-menu";
 import { GraphCommitRow } from "./commit-row";
 import { GraphDetailPanel, type GraphDetailSelection } from "./graph-detail-panel";
@@ -74,10 +74,9 @@ export type GraphHeadSnapshot = {
 };
 
 const parseSingleHeadRef = (raw: string): string | null => {
-    const trimmed = raw.trim();
-    const match = /^head\s*->\s*(.+)$/i.exec(trimmed);
-    if (match) return `branch:${match[1].trim()}`;
-    return trimmed.toLowerCase() === "head" ? "detached" : null;
+    const target = parseHeadRefTarget(raw);
+    if (target === null) return null;
+    return target ? `branch:${target}` : "detached";
 };
 
 const extractEntryHeadRef = (refs: readonly string[] | undefined): string | null => {

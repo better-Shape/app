@@ -23,7 +23,7 @@ import { useCopyToClipboard } from "@/lib/ui/use-copy";
 import { Tooltip } from "@/components/ui/tooltip";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { getRelativeTime, renderCommitMessage } from "./utils";
-import { LANE_WIDTH, ROW_HEIGHT, commitIsHead } from "./constants";
+import { LANE_WIDTH, ROW_HEIGHT, commitIsHead, parseHeadRefTarget } from "./constants";
 import { RefPill, type RefInfo } from "./ref-pill";
 import { GraphSvgRow } from "./svg-row";
 import { CreateBranchFromCommitInline } from "./create-branch";
@@ -43,23 +43,21 @@ const COMMIT_FILE_STATUS_COLOR: Record<string, string> = {
     D: "var(--git-deleted)",
 };
 
-const HEAD_TARGET_RE = /^head(?:\s*->\s*(.+))?$/i;
+const isTagDecoration = (label: string): boolean => label.toLowerCase().startsWith("tag:");
 
-const resolveHeadTargetLabel = (target: string | undefined): string => {
-    const cleaned = target ? target.trim() : "";
-    return cleaned || "head";
-};
+const stripTagPrefix = (label: string): string =>
+    isTagDecoration(label) ? label.slice(4).trimStart() : label;
 
 /** Normalizes one raw `git log %D` ref token without mutating branch substrings. */
 const parseLogRefInfo = (raw: string): RefInfo => {
     const trimmed = raw.trim();
-    const headMatch = HEAD_TARGET_RE.exec(trimmed);
-    const label = headMatch ? resolveHeadTargetLabel(headMatch[1]) : trimmed;
+    const headTarget = parseHeadRefTarget(trimmed);
+    const label = headTarget !== null ? headTarget || "head" : trimmed;
     return {
         label,
         isRemote: label.startsWith("origin/") || label.startsWith("upstream/"),
-        isHead: headMatch !== null,
-        isTag: /^tag:\s*/i.test(label),
+        isHead: headTarget !== null,
+        isTag: isTagDecoration(label),
     };
 };
 
@@ -72,8 +70,6 @@ const selectDisplayableRefs = (allRefs: readonly RefInfo[]): readonly RefInfo[] 
     const preferred = allRefs.filter((ref) => !isSymbolicHeadPointer(ref));
     return preferred.length > 0 ? preferred : allRefs;
 };
-
-const stripTagPrefix = (label: string): string => label.replace(/^tag:\s*/i, "");
 
 /** Renders overflow ref badges for panel or full-page Git Manager rows. */
 const ExtraRefsBadge = ({
