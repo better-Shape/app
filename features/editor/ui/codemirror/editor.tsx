@@ -518,19 +518,20 @@ export function CodeMirrorEditor({
             // the same document and different bytes, and it has to read as dirty
             // for the chosen ending to reach the disk.
             const dirty = toDiskText(v.state.doc.toString(), eol) !== savedContentRef.current;
-            if (dirty) {
+            if (dirty && !isDirtyRef.current) {
                 // The loaded bytes disagree with the buffer, which is what a chosen
                 // ending over a file that uses another one looks like. It has to
                 // read dirty for that choice to reach the disk, and nothing else
-                // says so: the text above arrives as an external update.
+                // says so: the text above arrives as an external update. A buffer
+                // the change path already marked keeps its marker and its timer.
                 isDirtyRef.current = true;
-                void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
+                commands.markFileDirty(pathRef.current, true).catch(() => undefined);
                 scheduleAutosave(true);
             } else if (eolChanged) {
                 // Taking the file's own ending can settle a buffer that was dirty
                 // only because the ending was wrong.
                 isDirtyRef.current = false;
-                void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
+                commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             }
             publishStatus(v);
         };
@@ -1089,8 +1090,13 @@ export function CodeMirrorEditor({
                         setContentRef.current(restored);
                         stageDirtyBuffer(path, restored, savedContentRef.current);
                         isDirtyRef.current = true;
-                        void commands.markFileDirty(path, true).catch(() => undefined);
-                        void saveContents(path, restored, liveEolFor(path)).catch(() => undefined);
+                        // In order: the write clears the backend's marker, and a
+                        // mark that lands after it leaves a saved file reading
+                        // dirty, which keeps it open on close-saved.
+                        void (async () => {
+                            await commands.markFileDirty(path, true).catch(() => undefined);
+                            await saveContents(path, restored, liveEolFor(path)).catch(() => undefined);
+                        })();
                         return;
                     }
                     // A plain transaction, so the normal change path stages the

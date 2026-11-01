@@ -309,12 +309,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             // The hidden textarea is the path that still works when the async
             // clipboard is denied, and it comes out of the body whether or not the
             // copy lands.
-            const copySelected = (selected: string) => {
-                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
-                // `execCommand` needs the activation the asynchronous copy lost, so
-                // a failed fallback has to say so instead of leaving the selection
-                // silently uncopied.
-                if (copyWithHiddenTextarea(selected)) return;
+            const notifyCopyFailed = () => {
                 import("@/features/notifications")
                     .then(({ notify }) => {
                         notify.error("Clipboard", "Could not copy the terminal selection.");
@@ -327,15 +322,19 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             });
             // History on every selection change; the clipboard follows only when
             // Terminal → Copy on select is on, because a drag selects continuously.
-            // Each selection supersedes the one before it: the queue keeps the
-            // writes in order, so an older one cannot land over a newer one.
+            //
+            // The synchronous copy runs first because the gesture is still live:
+            // `execCommand` needs that activation, and an asynchronous rejection can
+            // arrive after it expired. The queued write is the fallback, and it keeps
+            // the writes in order so an older one cannot land over a newer one.
             const publishSelection = () => {
                 if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 if (!getSettings().terminal.copyOnSelect) return;
-                void writeClipboard(selected, copySelected);
+                if (copyWithHiddenTextarea(selected)) return;
+                void writeClipboard(selected, notifyCopyFailed);
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
@@ -387,7 +386,10 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!selected) return;
                 event.preventDefault();
                 event.stopPropagation();
-                copySelected(selected);
+                // The key press is the gesture, so the synchronous copy is the one
+                // that works; the queued write is the fallback.
+                if (copyWithHiddenTextarea(selected)) return;
+                void writeClipboard(selected, notifyCopyFailed);
             };
             host?.addEventListener("copy", onCopy);
             host?.addEventListener("keydown", onCopyKey, true);

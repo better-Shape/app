@@ -3,10 +3,9 @@
  * the picker answered a promise the old editor started, so there is no view to
  * dispatch into. The text still has to reach the file.
  */
-import { act, Suspense } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { CodeMirrorEditor } from "@/features/editor/ui/codemirror/editor";
+import { createEditorHarness, type EditorHarness } from "../helpers/editor-harness";
 import { resetSettings } from "@/lib/settings";
 
 const backend = vi.hoisted(() => ({
@@ -31,51 +30,24 @@ vi.mock("@/features/editor/ui/local-history-picker", () => ({
     },
 }));
 
-let host: HTMLDivElement;
-let root: Root | undefined;
+let harness: EditorHarness;
 
 beforeEach(() => {
     resetSettings();
     picker.restore = null;
     backend.saveFile.mockClear();
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
+    harness = createEditorHarness();
 });
 
 afterEach(() => {
-    act(() => root?.unmount());
-    host.remove();
+    harness.unmount();
     resetSettings();
 });
 
-async function mount() {
-    await act(async () => {
-        root?.render(
-            <Suspense fallback={null}>
-                <CodeMirrorEditor
-                    path="/repo/file.txt"
-                    content={"current text"}
-                    setContent={() => undefined}
-                    savedContentRef={{ current: "current text" }}
-                    isDirtyRef={{ current: false }}
-                    bufferVersionRef={{ current: 0 }}
-                />
-            </Suspense>,
-        );
-    });
-    await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-}
-
 it("writes a restore that arrives after the editor unmounted", async () => {
-    await mount();
+    await harness.mount("current text", "current text");
     if (!picker.restore) throw new Error("history picker did not mount");
-    await act(async () => {
-        root?.unmount();
-        root = undefined;
-    });
+    harness.unmount();
     // The revision list resolved after the view went away.
     await act(async () => {
         picker.restore?.("restored text");
