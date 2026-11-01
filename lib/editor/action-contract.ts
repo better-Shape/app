@@ -1,3 +1,5 @@
+import { getActiveEditorSurface, type EditorSurface } from "./editor-surface";
+
 /**
  * The contract between the surfaces that ask for an editor action and the
  * CodeMirror handler that answers it.
@@ -51,4 +53,27 @@ export function editorActionImplemented(action: string | undefined): boolean {
     const normalized = normalizeEditorAction(action);
     if (!normalized) return false;
     return !(normalized in EDITOR_ACTIONS_WITHOUT_ENGINE);
+}
+
+/**
+ * The ids the Markdown document editor answers. Its own handler is separate
+ * from the file editor's, so a row that works on a source file has to be named
+ * here before the palette offers it over a document.
+ */
+export const PREVIEW_EDITOR_ACTIONS: ReadonlySet<string> = new Set(["undo", "redo"]);
+
+/**
+ * Whether a row is worth offering in the surface the user is working in. A row
+ * offered over the Markdown document that only the file editor answers closes
+ * the palette and does nothing, which is the same dead entry the engine map
+ * above exists to prevent.
+ */
+export function editorActionAvailable(
+    action: string | undefined,
+    surface: EditorSurface | null = getActiveEditorSurface(),
+): boolean {
+    if (!editorActionImplemented(action)) return false;
+    if (surface !== "preview") return true;
+    const normalized = normalizeEditorAction(action);
+    return normalized ? PREVIEW_EDITOR_ACTIONS.has(normalized) : false;
 }

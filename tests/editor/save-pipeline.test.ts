@@ -191,6 +191,17 @@ describe("save pipeline project capture", () => {
         backend.save.mockReset().mockResolvedValue(undefined);
     });
 
+    it("reports the ending the write used", async () => {
+        const seen: Array<{ eol?: string }> = [];
+        const listen = (event: Event) => {
+            seen.push((event as CustomEvent<{ eol?: string }>).detail);
+        };
+        window.addEventListener("bettershape-buffer-saved", listen);
+        await saveContents("/project/a.ts", "const a=1", "CRLF");
+        window.removeEventListener("bettershape-buffer-saved", listen);
+        expect(seen.at(-1)?.eol).toBe("CRLF");
+    });
+
     it("formats a queued save with the project it was started in", async () => {
         let release!: () => void;
         const first = new Promise<void>((resolve) => {

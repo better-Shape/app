@@ -65,6 +65,7 @@ import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
 import { runClipboardAction } from "@/features/editor/lib/clipboard-actions";
 import { normalizeEditorAction } from "@/lib/editor/action-contract";
+import { getActiveEditorSurface, setActiveEditorSurface } from "@/lib/editor/editor-surface";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
@@ -545,8 +546,11 @@ export function CodeMirrorEditor({
             const live = viewRef.current;
             if (!live) return;
             const doc = live.state.doc.toString();
+            // The write keeps the ending it was submitted with, whatever the
+            // picker does while it runs.
+            const writeEol = eol;
             try {
-                const written = await saveContents(pathRef.current, doc, eol);
+                const written = await saveContents(pathRef.current, doc, writeEol);
                 // Typing during the write keeps the buffer dirty; an unchanged
                 // buffer is clean whether or not the write changed the text.
                 if (viewRef.current !== live || live.state.doc.toString() !== doc) return;
@@ -554,7 +558,7 @@ export function CodeMirrorEditor({
                 // The prepared text is what is on disk now, so it is the baseline
                 // the dirty check compares against, in the disk ending: the
                 // preview reads its own ending from this ref.
-                const onDisk = toDiskText(written, eol);
+                const onDisk = toDiskText(written, writeEol);
                 savedContentRef.current = onDisk;
                 isDirtyRef.current = false;
                 // The draft in recovery is the text from before the save. Rebase it
@@ -879,13 +883,15 @@ export function CodeMirrorEditor({
          * user typing, and that stays dirty.
          */
         const onBufferSaved = (event: Event) => {
-            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string }>).detail;
+            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string; eol?: string }>)
+                .detail;
             const live = viewRef.current;
             if (!live || !detail || detail.path !== pathRef.current) return;
             if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
             if (live.state.doc.toString() !== detail.submitted) return;
             applyWrittenText(live, detail.content, detail.submitted);
-            const onDisk = toDiskText(detail.content, eol);
+            const writeEol = detail.eol === "CRLF" || detail.eol === "LF" ? detail.eol : eol;
+            const onDisk = toDiskText(detail.content, writeEol);
             savedContentRef.current = onDisk;
             isDirtyRef.current = false;
             saveDirtyBuffer(pathRef.current, detail.content, onDisk);
@@ -900,6 +906,9 @@ export function CodeMirrorEditor({
 
         const markActive = () => {
             activeView = view;
+            // The palette reads this to decide which editor commands the file
+            // editor answers right now.
+            setActiveEditorSurface("codemirror");
             publishStatus(view);
         };
         if (!activeView) activeView = view;
@@ -916,6 +925,7 @@ export function CodeMirrorEditor({
             window.removeEventListener("bettershape-editor-flush-buffer", onFlushBuffer);
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             window.removeEventListener("bettershape-editor-action", onEditorAction as EventListener);
+            if (getActiveEditorSurface() === "codemirror") setActiveEditorSurface(null);
             window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
             view.dom.removeEventListener("focusin", markActive);
             view.dom.removeEventListener("pointerdown", markActive);

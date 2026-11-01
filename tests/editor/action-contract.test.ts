@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
     EDITOR_ACTIONS_WITHOUT_ENGINE,
+    editorActionAvailable,
     editorActionImplemented,
     normalizeEditorAction,
 } from "@/lib/editor/action-contract";
@@ -60,5 +61,23 @@ describe("editor action contract and the handler", () => {
         // switch still ignores; this is the assertion that keeps them paired.
         const gated = ["cut", "copy", "paste", "foldAll", "unfoldAll", "trimTrailingWhitespace"];
         expect(gated.filter((id) => !handled.has(id))).toEqual([]);
+    });
+});
+
+describe("editor action availability", () => {
+    it("offers everything the handler answers to the file editor", () => {
+        expect(editorActionAvailable("editor.foldAll", "codemirror")).toBe(true);
+        expect(editorActionAvailable("editor.action.formatDocument", "codemirror")).toBe(true);
+    });
+
+    it("offers the document editor only the actions it answers", () => {
+        expect(editorActionAvailable("editor.action.undo", "preview")).toBe(true);
+        expect(editorActionAvailable("editor.foldAll", "preview")).toBe(false);
+        expect(editorActionAvailable("editor.action.formatDocument", "preview")).toBe(false);
+    });
+
+    it("keeps the engine gaps closed in both surfaces", () => {
+        expect(editorActionAvailable("editor.action.rename", "codemirror")).toBe(false);
+        expect(editorActionAvailable("editor.action.rename", "preview")).toBe(false);
     });
 });

@@ -39,7 +39,7 @@ import { commands, getProjectSnapshot, useProjectState } from "@/lib/backend";
 import { useEditorBuffer } from "@/features/agent/workbench/titlebar/hooks/use-editor-buffer";
 import { openSettingsWindow } from "@/lib/window/open-settings";
 import { requestLocalHistory } from "@/lib/editor/local-history";
-import { editorActionImplemented } from "@/lib/editor/action-contract";
+import { editorActionAvailable } from "@/lib/editor/action-contract";
 import { useFocusedEditorFile } from "@/core/providers/editor";
 import { symbolPaletteRows } from "@/features/command-palette/symbols";
 import { queueSurfaceIntent, requestWorkspaceTab } from "@/lib/window/workspace-intent";
@@ -1280,6 +1280,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.wordWrap",
             label: "Editor: Toggle Word Wrap",
             shortcut: "Alt+Z",
+            editorAction: "toggleWordWrap",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "toggleWordWrap" } })
@@ -1289,6 +1290,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.minimap",
             label: "Editor: Toggle Minimap",
             shortcut: "",
+            editorAction: "toggleMinimap",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "toggleMinimap" } })
@@ -1312,6 +1314,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.formatDoc",
             label: "Format Document",
             shortcut: "Shift+Alt+F",
+            editorAction: "formatDocument",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.formatDocument" } })
@@ -1321,6 +1324,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.formatSel",
             label: "Format Selection",
             shortcut: "Ctrl+K Ctrl+F",
+            editorAction: "formatSelection",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.formatSelection" } })
@@ -1414,6 +1418,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.foldAll",
             label: "Fold All Regions",
             shortcut: "Ctrl+K Ctrl+0",
+            editorAction: "foldAll",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.foldAll" } })
@@ -1423,6 +1428,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.unfoldAll",
             label: "Unfold All Regions",
             shortcut: "Ctrl+K Ctrl+J",
+            editorAction: "unfoldAll",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.unfoldAll" } })
@@ -1432,6 +1438,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.toggleComment",
             label: "Toggle Line Comment",
             shortcut: "Ctrl+/",
+            editorAction: "commentLine",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1443,6 +1450,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.blockComment",
             label: "Toggle Block Comment",
             shortcut: "Shift+Alt+A",
+            editorAction: "blockComment",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1454,6 +1462,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.trimTrailing",
             label: "Delete Trailing Whitespace",
             shortcut: "",
+            editorAction: "trimTrailingWhitespace",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1465,6 +1474,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.indentLines",
             label: "Indent Lines",
             shortcut: "Ctrl+]",
+            editorAction: "indentLines",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.indentLines" } })
@@ -1474,6 +1484,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.outdentLines",
             label: "Outdent Lines",
             shortcut: "Ctrl+[",
+            editorAction: "outdentLines",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.outdentLines" } })
@@ -1483,6 +1494,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.duplicateLine",
             label: "Duplicate Line Down",
             shortcut: "Shift+Alt+↓",
+            editorAction: "copyLinesDownAction",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1494,6 +1506,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.moveLinesUp",
             label: "Move Line Up",
             shortcut: "Alt+↑",
+            editorAction: "moveLinesUpAction",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1505,6 +1518,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.moveLinesDown",
             label: "Move Line Down",
             shortcut: "Alt+↓",
+            editorAction: "moveLinesDownAction",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1516,6 +1530,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.selectAll",
             label: "Select All",
             shortcut: "Ctrl+A",
+            editorAction: "selectAll",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", { detail: { action: "editor.action.selectAll" } })
@@ -1525,6 +1540,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.selectHighlights",
             label: "Select All Occurrences",
             shortcut: "Ctrl+Shift+L",
+            editorAction: "selectHighlights",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1536,6 +1552,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.sortLinesAsc",
             label: "Sort Lines Ascending",
             shortcut: "",
+            editorAction: "sortLinesAscending",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1547,6 +1564,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.sortLinesDesc",
             label: "Sort Lines Descending",
             shortcut: "",
+            editorAction: "sortLinesDescending",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1558,6 +1576,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.transformUppercase",
             label: "Transform to Uppercase",
             shortcut: "",
+            editorAction: "transformToUppercase",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1569,6 +1588,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.transformLowercase",
             label: "Transform to Lowercase",
             shortcut: "",
+            editorAction: "transformToLowercase",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1580,6 +1600,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.transformTitlecase",
             label: "Transform to Title Case",
             shortcut: "",
+            editorAction: "transformToTitlecase",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1591,6 +1612,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.joinLines",
             label: "Join Lines",
             shortcut: "",
+            editorAction: "joinLines",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1602,6 +1624,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.addCursorAbove",
             label: "Add Cursor Above",
             shortcut: "Ctrl+Alt+↑",
+            editorAction: "insertCursorAbove",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1613,6 +1636,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.addCursorBelow",
             label: "Add Cursor Below",
             shortcut: "Ctrl+Alt+↓",
+            editorAction: "insertCursorBelow",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1624,6 +1648,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.nextDiagnostic",
             label: "Go to Next Problem",
             shortcut: "F8",
+            editorAction: "marker.next",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1635,6 +1660,7 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
             id: "app.editor.prevDiagnostic",
             label: "Go to Previous Problem",
             shortcut: "Shift+F8",
+            editorAction: "marker.prev",
             run: () =>
                 window.dispatchEvent(
                     new CustomEvent("bettershape-editor-action", {
@@ -1778,6 +1804,6 @@ export function getAppCommands(focusedFile: string | null = null): EditorAction[
     // A row that dispatches an editor action nothing answers is a dead entry:
     // it closes the palette and does nothing. `lib/editor/action-contract` owns
     // the list, so the row comes back on its own when the engine lands.
-    return applicable.filter((c) => !c.editorAction || editorActionImplemented(c.editorAction));
+    return applicable.filter((c) => !c.editorAction || editorActionAvailable(c.editorAction));
 }
 

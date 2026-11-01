@@ -30,6 +30,7 @@ import { CodeMirrorEditor } from "../codemirror/editor";
 import { DiffView } from "../diff/diff-view";
 
 import type { EditorGroupId } from "@/core/providers/editor";
+import { setActiveEditorSurface } from "@/lib/editor/editor-surface";
 import { isPlanFilePath } from "@/lib/plan/file";
 import { parsePlanMarkdown } from "@/lib/plan/preview";
 
@@ -60,6 +61,14 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const showImagePreview = isImage && imagePreviewEnabled && (mode === "preview" || mode === "split");
     const showFontPreview = isFont && (mode === "preview" || mode === "split");
     const skipTextContent = isRasterImage || (isSvg && showImagePreview) || (isFont && showFontPreview);
+
+    /**
+     * Leaving a surface puts the palette back to "no claim": the next editor to
+     * take focus names itself, and a stale name would hide rows that work.
+     */
+    useEffect(() => {
+        setActiveEditorSurface(null);
+    }, [mode, path]);
 
     const { open_files, project_path } = useProjectState();
 
@@ -453,14 +462,18 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
          * file in step; text that has moved on since is the user typing.
          */
         const onBufferSaved = (event: Event) => {
-            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string }>).detail;
+            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string; eol?: string }>)
+                .detail;
             if (!detail || detail.path !== path) return;
             if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
             if (currentContentRef.current !== detail.submitted) return;
             currentContentRef.current = detail.content;
-            // Keep the file's own ending in the baseline: the next save reads the
-            // convention from it, and the written text is LF by construction.
-            const ending = lineEndingOf(savedContentRef.current || detail.content);
+            // The baseline takes the ending the write used, so a picker change
+            // during the save cannot make the preview compare the wrong bytes.
+            const ending =
+                detail.eol === "CRLF" || detail.eol === "LF"
+                    ? detail.eol
+                    : lineEndingOf(savedContentRef.current || detail.content);
             savedContentRef.current = toDiskText(detail.content, ending);
             setContent(detail.content);
             isDirtyRef.current = false;
@@ -720,7 +733,13 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                         />
                     </div>
                 )}
-                <div className="flex-1 w-full min-h-0 overflow-hidden relative">
+                <div
+                    className="flex-1 w-full min-h-0 overflow-hidden relative"
+                    // The document editor answers its own actions; the palette asks
+                    // this module which surface the user is in before offering a row.
+                    // React's onFocus follows focusin, so it fires for the editor inside.
+                    onFocus={() => setActiveEditorSurface("preview")}
+                >
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
                 <LocalHistoryPicker
@@ -753,13 +772,18 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                             minSize: 150,
                             flexible: true,
                             children: (
-                                <MarkdownPreview
-                                    ref={previewRef}
-                                    content={content}
-                                    filePath={path}
-                                    projectPath={project_path}
-                                    onApplyContent={(next) => void applyMarkdownContent(next)}
-                                />
+                                <div
+                                    className="h-full w-full min-h-0"
+                                    onFocus={() => setActiveEditorSurface("preview")}
+                                >
+                                    <MarkdownPreview
+                                        ref={previewRef}
+                                        content={content}
+                                        filePath={path}
+                                        projectPath={project_path}
+                                        onApplyContent={(next) => void applyMarkdownContent(next)}
+                                    />
+                                </div>
                             ),
                         },
                     ]}

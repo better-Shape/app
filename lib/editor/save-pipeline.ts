@@ -174,7 +174,10 @@ export function saveContents(path: string, doc: string, eol: "LF" | "CRLF" = "LF
         if (typeof window !== "undefined") {
             window.dispatchEvent(
                 new CustomEvent("bettershape-buffer-saved", {
-                    detail: { path, content: formatted, submitted: doc },
+                    // The ending travels with the write: the editor that adopts the
+                    // text must rebuild its baseline from what the disk got, not
+                    // from an ending it may have changed while the write ran.
+                    detail: { path, content: formatted, submitted: doc, eol },
                 }),
             );
         }

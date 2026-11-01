@@ -204,3 +204,22 @@ it("writes the file's own ending on a save and keeps it in the baseline", async 
     // The preview reads its ending from this ref, so it has to keep the disk one.
     expect(saved.current).toBe("one\r\ntwo\r\n");
 });
+
+it("takes the ending a menu save used, not the one the picker holds now", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    const { saved, dirty } = await mount("one\ntwo", "one\ntwo");
+    // The save was submitted with CRLF; the buffer moved on to a new ending
+    // afterwards, which the pipeline answers with a second write.
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-buffer-saved", {
+                detail: { path: "/repo/file.txt", submitted: "one\ntwo", content: "one\ntwo", eol: "CRLF" },
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    // The baseline has to be the bytes the disk got, or the next save compares
+    // against an ending the file never had.
+    expect(saved.current).toBe("one\r\ntwo");
+    expect(dirty.current).toBe(false);
+});

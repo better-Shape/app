@@ -50,7 +50,8 @@ vi.mock("@/features/editor/ui/markdown/live-editor", () => ({
     MarkdownLiveEditor: ({ content, onChange }: { content: string; onChange: (next: string) => void }) => {
         live.onchange = onChange;
         live.content = content;
-        return null;
+        // Focusable, so a test can put the caret in the document editor.
+        return <div data-testid="md-live" tabIndex={0} />;
     },
 }));
 vi.mock("@/features/editor/ui/markdown/markdown", () => ({ MarkdownPreview: () => null }));
@@ -59,6 +60,7 @@ vi.mock("@/features/panels", () => ({ Panel: () => null }));
 import FileViewer from "@/features/editor/ui/main/editor";
 import { updateSettingSection } from "@/lib/settings";
 import { clearDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { getActiveEditorSurface, setActiveEditorSurface } from "@/lib/editor/editor-surface";
 
 let host: HTMLDivElement;
 let root: Root | undefined;
@@ -181,4 +183,16 @@ it("does not clear a newer buffer's dirty marker when the unmounted write lands"
     });
     expect(backend.markFileDirty).not.toHaveBeenCalledWith("/repo/notes.md", false);
     clearDirtyBuffer("/repo/notes.md");
+});
+
+it("claims the document surface when the document editor takes focus", async () => {
+    await render("/repo/notes.md");
+    const inner = host.querySelector('[data-testid="md-live"]');
+    if (!(inner instanceof HTMLElement)) throw new Error("document editor did not mount");
+    await act(async () => {
+        inner.focus();
+    });
+    // The command palette asks this before it offers a file-editor command.
+    expect(getActiveEditorSurface()).toBe("preview");
+    setActiveEditorSurface(null);
 });

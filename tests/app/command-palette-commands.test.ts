@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getAppCommands } from "@/features/command-palette/cmd-palette";
 import { editorActionImplemented } from "@/lib/editor/action-contract";
+import { setActiveEditorSurface } from "@/lib/editor/editor-surface";
 
 /**
  * The palette and the CodeMirror handler are two halves of one contract with
@@ -29,6 +30,22 @@ describe("command palette editor commands", () => {
         expect(labels).not.toContain("Go to Definition");
         expect(labels).not.toContain("Quick Fix…");
         expect(labels).not.toContain("Editor: Toggle Inlay Hints");
+    });
+
+    it("drops file-editor commands while the document editor holds focus", () => {
+        setActiveEditorSurface("preview");
+        const inPreview = getAppCommands();
+        const previewLabels = inPreview.map((command) => command.label);
+        // The document editor answers neither, so offering them closes the
+        // palette and does nothing.
+        expect(previewLabels).not.toContain("Fold All Regions");
+        expect(previewLabels).not.toContain("Format Document");
+        expect(previewLabels).toContain("File: New Text File");
+        setActiveEditorSurface("codemirror");
+        const labels = getAppCommands().map((command) => command.label);
+        expect(labels).toContain("Fold All Regions");
+        expect(labels).toContain("Format Document");
+        setActiveEditorSurface(null);
     });
 
     it("uses unique ids", () => {

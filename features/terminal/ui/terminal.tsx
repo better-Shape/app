@@ -59,6 +59,7 @@ import {
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
+import { createClipboardQueue } from "@/lib/ui/clipboard-queue";
 import {
     clearTerminalSnapshot,
     saveTerminalSnapshots,
@@ -304,32 +305,9 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 },
             });
 
-// History on every selection change; the clipboard follows only when
-            // Terminal → Copy on select is on, because a drag selects continuously.
-            // Each selection supersedes the one before it: a slow rejection from
-            // an older write must not put that older text back on the clipboard.
-            let clipboardSeq = 0;
-            const publishSelection = () => {
-                if (suppressSelectionClip) return;
-                const selected = term?.getSelection();
-                if (!selected) return;
-                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
-                if (!getSettings().terminal.copyOnSelect) return;
-                const seq = ++clipboardSeq;
-                if (!navigator.clipboard) {
-                    copySelected(selected);
-                    return;
-                }
-                void navigator.clipboard.writeText(selected).catch(() => {
-                    if (seq === clipboardSeq) copySelected(selected);
-                });
-            };
-            term.onSelectionChange(() => {
-                if (!term?.hasSelection()) return;
-                publishSelection();
-            });
-// The hidden textarea is the path that still works when the async clipboard is
-            // denied, and it comes out of the body whether or not the copy lands.
+            // The hidden textarea is the path that still works when the async
+            // clipboard is denied, and it comes out of the body whether or not the
+            // copy lands.
             const copySelected = (selected: string) => {
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
                 const area = document.createElement("textarea");
@@ -342,6 +320,26 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 document.execCommand("copy");
                 area.remove();
             };
+            const writeClipboard = createClipboardQueue((text) => {
+                if (!navigator.clipboard) return Promise.reject(new Error("no async clipboard"));
+                return navigator.clipboard.writeText(text);
+            });
+            // History on every selection change; the clipboard follows only when
+            // Terminal → Copy on select is on, because a drag selects continuously.
+            // Each selection supersedes the one before it: the queue keeps the
+            // writes in order, so an older one cannot land over a newer one.
+            const publishSelection = () => {
+                if (suppressSelectionClip) return;
+                const selected = term?.getSelection();
+                if (!selected) return;
+                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                if (!getSettings().terminal.copyOnSelect) return;
+                void writeClipboard(selected, copySelected);
+            };
+            term.onSelectionChange(() => {
+                if (!term?.hasSelection()) return;
+                publishSelection();
+            });
             const host = terminalRef.current;
 // Takes the event only when the terminal holds a selection, so the browser keeps
             // its own copy behaviour for every other copy on the page.
