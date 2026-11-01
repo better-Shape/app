@@ -145,7 +145,9 @@ async fn fetch_release(repo: &str, nightly: bool) -> Result<Option<serde_json::V
 
 fn channel_is_nightly(channel: Option<&str>) -> bool {
     matches!(
-        channel.map(|value| value.trim().to_ascii_lowercase()).as_deref(),
+        channel
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref(),
         Some("nightly")
     )
 }
