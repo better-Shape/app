@@ -8,7 +8,7 @@ import {
 
 /**
  * Inline blame shows the last commit for the line the caret sits on. Git
- * reports *regions* — one record per run of lines from the same commit — so
+ * reports *regions*, one record per run of lines from the same commit, so
  * the lookup has to find the region that covers a line, not just an exact
  * line number.
  */

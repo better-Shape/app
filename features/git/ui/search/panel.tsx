@@ -262,7 +262,7 @@ function statusLine(state: SearchState): string {
         case "ready":
             return `${pluralMatches(state.summary.matches)} in ${pluralFiles(state.summary.files)}`;
         case "loading":
-            return state.previous ? "Searching — showing the previous results" : "Searching the project…";
+            return state.previous ? "Searching, showing the previous results" : "Searching the project...";
         case "failed":
             return "Search didn't run";
         case "blocked":
@@ -462,7 +462,7 @@ export function SearchPanel({
                         />
                     ) : (
                         <PanelStateMessage
-                            title="Searching the project…"
+                            title="Searching the project..."
                             detail="This reads every file ripgrep is allowed to see."
                         />
                     )

@@ -16,7 +16,7 @@ describe("mention truncation", () => {
     it("keeps exactly the configured number of lines and marks the cut", () => {
         const result = truncateMentionContent(lines(300), 200);
         expect(result).not.toBeNull();
-        const body = result!.replace(/\n…\(truncated\)$/, "");
+        const body = result!.replace(/\n\.{3}\(truncated\)$/, "");
         expect(body.split("\n")).toHaveLength(200);
         expect(body.endsWith("line 200")).toBe(true);
     });
@@ -28,7 +28,7 @@ describe("mention truncation", () => {
     it("still caps characters so a minified bundle cannot flood the turn", () => {
         const wide = "x".repeat(MENTION_CHAR_LIMIT * 2);
         const result = truncateMentionContent(wide, 200);
-        expect(result).toBe(`${"x".repeat(MENTION_CHAR_LIMIT)}\n…(truncated)`);
+        expect(result).toBe(`${"x".repeat(MENTION_CHAR_LIMIT)}\n...(truncated)`);
     });
 
     it("falls back to the default for a missing or nonsensical limit", () => {

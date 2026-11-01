@@ -86,18 +86,18 @@ Produced, never consumed:
 
 - `bettershape-chat-pins-changed` (`lib/sidebar/chat-list-meta.ts`)
 - `bettershape-composer-insert-mention` (`features/preview/design/shell.tsx`)
-- `bettershape-editor-search-count` (`features/editor/ui/codemirror/editor.tsx`)
-- `bettershape-set-panel-tab` (`lib/ui/shortcut-actions.ts`)
-- `bettershape-swap-sidebars` (`features/panels/ui/sidebar-panel-menu.tsx`)
 - `bettershape-workspace-folders-changed` (`lib/workspace/folders.ts`)
 
 Consumed, never produced:
 
-- `bettershape-chat-fork`, `bettershape-chat-restore-last`
 - `bettershape-editor-edit-action`, `bettershape-editor-search`,
   `bettershape-editor-split`
-- `bettershape-open-browser`, `bettershape-open-preview`,
-  `bettershape-open-subagents-for`
+
+Removed by this branch, so no longer on either list: `bettershape-chat-fork`,
+`bettershape-chat-restore-last`, `bettershape-editor-search-count`,
+`bettershape-open-browser`, `bettershape-open-preview`,
+`bettershape-open-subagents-for`, `bettershape-set-panel-tab`,
+`bettershape-swap-sidebars`.
 - `bettershape-terminal-run-restart`, `bettershape-terminal-run-stop`,
   `bettershape-terminal-view`
 - `bettershape-toggle-design-mode`, `bettershape-toggle-browser-design-mode`

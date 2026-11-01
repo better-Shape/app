@@ -215,7 +215,7 @@ function LazyFileDiff({
                         Scroll to load diff
                     </div>
                 ) : diff?.loading ? (
-                    <div className="p-4 text-sm text-text-muted">Loading…</div>
+                    <div className="p-4 text-sm text-text-muted">Loading...</div>
                 ) : (
                     <DiffView
                         path={file.path}
@@ -275,7 +275,7 @@ export function MultiDiffEditor({
             setRevision((count) => count + 1);
         }).catch((err) => {
             if (request === requestRef.current) {
-                // Settle the request so the view leaves "Loading…", keeping the
+                // Settle the request so the view leaves "Loading...", keeping the
                 // reason: discovery or status can fail for reasons a retry fixes.
                 setLoaded({
                     project: projectPath,
@@ -406,7 +406,7 @@ export function MultiDiffEditor({
             {files.length === 0 || !repo ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-sm text-text-muted">
                     {loading ? (
-                        "Loading…"
+                        "Loading..."
                     ) : current?.error ? (
                         <>
                             <span className="text-text-primary">Could not read changes</span>

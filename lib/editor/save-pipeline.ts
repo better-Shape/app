@@ -80,10 +80,10 @@ export async function formatForSave(path: string, text: string, projectPath = ge
         }
         return formatted;
     } catch (error) {
-        // Saving the unformatted text is the right call — refusing to save would
-        // lose the user's work — but a silent fallback makes Format on save look
-        // like it worked. Report each distinct failure once: autosave repeats the
-        // same broken file every few hundred milliseconds.
+        // Saving the unformatted text is the right call, because refusing to save
+        // would lose the user's work. A silent fallback would still make Format
+        // on save look like it worked. Report each distinct failure once:
+        // autosave repeats the same broken file every few hundred milliseconds.
         const reason = error instanceof Error ? error.message : String(error);
         if (isMissingPrettierFailure(reason)) {
             // Not a formatting problem: the project has no Prettier. The tooling

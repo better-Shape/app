@@ -25,5 +25,5 @@ export function truncateMentionContent(content: string, maxLines: unknown): stri
         body = body.slice(0, MENTION_CHAR_LIMIT);
         cut = true;
     }
-    return cut ? `${body}\n…(truncated)` : null;
+    return cut ? `${body}\n...(truncated)` : null;
 }

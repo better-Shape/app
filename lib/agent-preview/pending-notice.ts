@@ -1,7 +1,7 @@
 /**
  * The agent blocks its turn while a design pick is pending, and the gallery
  * records the pending pick as soon as it renders. If the gallery is scrolled
- * out of view — or the user moved to another conversation — nothing says the
+ * out of view, or the user moved to another conversation, nothing says the
  * turn is waiting. The backend already emits `agent-design-pick-pending`; this
  * decides whether that event deserves an announcement.
  *
