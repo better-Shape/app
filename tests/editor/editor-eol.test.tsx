@@ -276,3 +276,34 @@ it("keeps the buffer dirty when the ending changes while its save is in flight",
     expect(dirty.current).toBe(true);
     updateSettingSection("editor", { autoSave: "off" });
 });
+
+it("marks the file dirty when a chosen ending and a late load disagree", async () => {
+    updateSettingSection("files", { defaultEol: "LF" });
+    const { dirty } = await mount("", "");
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-editor-action", { detail: { action: "setEol", value: "LF" } }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    backend.markFileDirty.mockClear();
+    // The file turns out to be CRLF. The chosen LF has to reach the disk, which
+    // starts with the buffer reading as dirty against the CRLF bytes on it.
+    await act(async () => {
+        root?.render(
+            <Suspense fallback={null}>
+                <CodeMirrorEditor
+                    path="/repo/file.txt"
+                    content={"one\r\ntwo"}
+                    setContent={() => undefined}
+                    savedContentRef={{ current: "one\r\ntwo" }}
+                    isDirtyRef={{ current: false }}
+                    bufferVersionRef={{ current: 0 }}
+                />
+            </Suspense>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(dirty.current).toBe(true);
+    expect(backend.markFileDirty).toHaveBeenCalledWith("/repo/file.txt", true);
+});

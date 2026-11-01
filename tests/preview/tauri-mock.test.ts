@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
     createPreviewInvokeHandler,
     MODELED_PLUGIN_COMMANDS,
@@ -11,6 +11,12 @@ import {
  * mock regression fails fast in Vitest instead of in a browser.
  */
 describe("preview invoke handler", () => {
+    // Settings live in sessionStorage so they survive a navigation, which means
+    // they also survive a test. Every case starts from an empty store.
+    beforeEach(() => {
+        window.sessionStorage.clear();
+    });
+
     it("welcome seed starts with no project open", () => {
         const { handle } = createPreviewInvokeHandler("welcome");
         expect(handle("get_project_state")).toEqual({
@@ -168,6 +174,30 @@ describe("preview invoke handler", () => {
             record: { settings: { editor: { fontSize: number } } } | null;
         };
         expect(written.record?.settings.editor.fontSize).toBe(17);
+        window.sessionStorage.clear();
+    });
+
+    it("refuses a settings write against a revision that moved", () => {
+        window.sessionStorage.clear();
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "preferences",
+            settings: { editor: { fontSize: 15 } },
+            expected: "missing",
+        });
+        // The native command rejects the stale write; a mock that accepted it
+        // hid the lost update instead of showing it in the preview.
+        expect(() =>
+            handle("write_settings_file", {
+                file: "preferences",
+                settings: { editor: { fontSize: 99 } },
+                expected: "missing",
+            }),
+        ).toThrow("Settings changed before they could be saved");
+        const snapshot = handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(snapshot.record?.settings.editor.fontSize).toBe(15);
         window.sessionStorage.clear();
     });
 

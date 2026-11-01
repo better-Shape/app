@@ -566,9 +566,10 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── settings files ───────────────────────────────────────────────
         // Mirrors src-tauri/src/commands/settings.rs: a file that is not on
         // disk reads as `{ record: null, revision: "missing" }`, which is what
-        // `revision()` returns for `None`. The preview holds no settings files,
-        // so every read reports that and every write is accepted against the
-        // revision it was given. Returning nothing left the app unable to tell
+        // `revision()` returns for `None`. A write carries the revision it
+        // expects and is refused when that revision has moved, which is the
+        // native lost-update guard: without it the preview hid the conflict
+        // that the app reports. Returning nothing left the app unable to tell
         // "never saved" from "the backend failed", and the QA crawl listed the
         // command as unmodelled.
         // Backed by sessionStorage, not module state: the mock is reinstalled on
@@ -580,13 +581,19 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             return stored ? { ...stored } : { record: null, revision: "missing" };
         },
         write_settings_file: (args) => {
+            const file = String(args.file ?? "");
+            // Native parity: a write against a revision that has moved is
+            // refused, so a lost update fails in the preview the way it fails
+            // in the app instead of silently replacing the saved record.
+            if ((state.settingsFiles[file]?.revision ?? "missing") !== String(args.expected ?? "")) {
+                throw new Error("Settings changed before they could be saved");
+            }
             // Round-trip like the real file store: the revision moves and the
             // record reads back, so a switch flipped in Settings survives a
             // reload and a settings-gated surface can be clicked through.
             // The real file wraps the preferences under `settings`; storing the
             // bare object made `get("settings")` return undefined, so a reload
             // read the record as present but empty and fell back to defaults.
-            const file = String(args.file ?? "");
             const snapshot: SettingsSnapshot = {
                 record: { settings: structuredClone(args.settings ?? null) },
                 revision: `preview-${++state.settingsRevision}`,

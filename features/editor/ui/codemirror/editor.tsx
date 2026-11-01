@@ -52,7 +52,7 @@ import { optionExtensions } from "@/features/editor/ui/codemirror/options";
 import { stageDirtyBuffer, saveDirtyBuffer, loadDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
-import { rememberLiveEol } from "@/lib/editor/live-eol";
+import { liveEolFor, rememberLiveEol } from "@/lib/editor/live-eol";
 import { jumpToPosition } from "@/lib/editor/jump-to-position";
 import { requestLocalHistory } from "@/lib/editor/local-history";
 import { LocalHistoryPicker } from "@/features/editor/ui/local-history-picker";
@@ -511,12 +511,26 @@ export function CodeMirrorEditor({
                     }
                 }
             }
-            if (eolChanged) {
-                applyEol(v);
-                // The dirty answer depends on the ending, so it is stated again.
-                const dirty = toDiskText(v.state.doc.toString(), eol) !== savedContentRef.current;
-                isDirtyRef.current = dirty;
-                void commands.markFileDirty(pathRef.current, dirty).catch(() => undefined);
+            if (eolChanged) applyEol(v);
+            // The text above arrives with the external-update annotation, which the
+            // change path treats as not the user's, so nothing else states the
+            // answer. A file that loads CRLF over a buffer the user set to LF is
+            // the same document and different bytes, and it has to read as dirty
+            // for the chosen ending to reach the disk.
+            const dirty = toDiskText(v.state.doc.toString(), eol) !== savedContentRef.current;
+            if (dirty) {
+                // The loaded bytes disagree with the buffer, which is what a chosen
+                // ending over a file that uses another one looks like. It has to
+                // read dirty for that choice to reach the disk, and nothing else
+                // says so: the text above arrives as an external update.
+                isDirtyRef.current = true;
+                void commands.markFileDirty(pathRef.current, true).catch(() => undefined);
+                scheduleAutosave(true);
+            } else if (eolChanged) {
+                // Taking the file's own ending can settle a buffer that was dirty
+                // only because the ending was wrong.
+                isDirtyRef.current = false;
+                void commands.markFileDirty(pathRef.current, false).catch(() => undefined);
             }
             publishStatus(v);
         };
@@ -1068,7 +1082,15 @@ export function CodeMirrorEditor({
                     if (pathRef.current !== path) return;
                     const view = viewRef.current;
                     if (!view) {
+                        // The editor unmounted before the picker answered. The change
+                        // path that stages, marks and saves the text went with the
+                        // view, so this does by hand what it would have done: the
+                        // restore reaches the disk instead of a ref nobody reads.
                         setContentRef.current(restored);
+                        stageDirtyBuffer(path, restored, savedContentRef.current);
+                        isDirtyRef.current = true;
+                        void commands.markFileDirty(path, true).catch(() => undefined);
+                        void saveContents(path, restored, liveEolFor(path)).catch(() => undefined);
                         return;
                     }
                     // A plain transaction, so the normal change path stages the

@@ -1,0 +1,86 @@
+/**
+ * A history restore that lands after the editor unmounted for a view change:
+ * the picker answered a promise the old editor started, so there is no view to
+ * dispatch into. The text still has to reach the file.
+ */
+import { act, Suspense } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { CodeMirrorEditor } from "@/features/editor/ui/codemirror/editor";
+import { resetSettings } from "@/lib/settings";
+
+const backend = vi.hoisted(() => ({
+    gitBlameFile: vi.fn(async () => []),
+    markFileDirty: vi.fn(async () => undefined),
+    saveFile: vi.fn(async () => undefined),
+    readFile: vi.fn(async () => ""),
+}));
+
+vi.mock("@/lib/backend", () => ({
+    commands: backend,
+    getProjectPath: () => "/repo",
+}));
+vi.mock("@/features/editor/ui/codemirror/syntax-lint", () => ({ betterShapeSyntaxLinter: () => [] }));
+
+const picker = vi.hoisted(() => ({ restore: null as null | ((next: string) => void) }));
+
+vi.mock("@/features/editor/ui/local-history-picker", () => ({
+    LocalHistoryPicker: ({ onRestore }: { onRestore: (next: string) => void }) => {
+        picker.restore = onRestore;
+        return null;
+    },
+}));
+
+let host: HTMLDivElement;
+let root: Root | undefined;
+
+beforeEach(() => {
+    resetSettings();
+    picker.restore = null;
+    backend.saveFile.mockClear();
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+});
+
+afterEach(() => {
+    act(() => root?.unmount());
+    host.remove();
+    resetSettings();
+});
+
+async function mount() {
+    await act(async () => {
+        root?.render(
+            <Suspense fallback={null}>
+                <CodeMirrorEditor
+                    path="/repo/file.txt"
+                    content={"current text"}
+                    setContent={() => undefined}
+                    savedContentRef={{ current: "current text" }}
+                    isDirtyRef={{ current: false }}
+                    bufferVersionRef={{ current: 0 }}
+                />
+            </Suspense>,
+        );
+    });
+    await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+}
+
+it("writes a restore that arrives after the editor unmounted", async () => {
+    await mount();
+    if (!picker.restore) throw new Error("history picker did not mount");
+    await act(async () => {
+        root?.unmount();
+        root = undefined;
+    });
+    // The revision list resolved after the view went away.
+    await act(async () => {
+        picker.restore?.("restored text");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const written = backend.saveFile.mock.calls.map((call) => call as unknown as [string, string]);
+    expect(written.at(-1)).toEqual(["/repo/file.txt", "restored text\n"]);
+});
