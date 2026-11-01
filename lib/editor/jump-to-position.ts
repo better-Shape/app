@@ -16,9 +16,11 @@ export function jumpToPosition(view: EditorView, line: number, column = 1): void
     const info = view.state.doc.line(target);
     const offset = Math.max(0, Math.trunc(column) - 1);
     const pos = Math.min(info.from + offset, info.to);
+    // Focus first: focusing an unfocused editor moves the DOM selection to its
+    // start, and a caret placed before that would be dragged back with it.
+    view.focus();
     view.dispatch({
         selection: EditorSelection.cursor(pos),
         effects: EditorView.scrollIntoView(pos, { y: "center" }),
     });
-    view.focus();
 }

@@ -31,6 +31,20 @@ beforeEach(() => {
     // jsdom ships no 2D context and logs a "Not implemented" line for every
     // request. The minimap only needs the element to exist here.
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    // jsdom has no layout, and CodeMirror measures ranges when it scrolls a
+    // jumped-to position into view.
+    if (!("getClientRects" in Range.prototype)) {
+        Object.defineProperty(Range.prototype, "getClientRects", {
+            configurable: true,
+            value: () => ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }),
+        });
+    }
+    if (!("getBoundingClientRect" in Range.prototype)) {
+        Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+            configurable: true,
+            value: () => new DOMRect(),
+        });
+    }
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -59,32 +73,37 @@ const whitespaceMarks = () => host.querySelectorAll(".cm-highlightSpace").length
 /** Brackets nested one level deep, which is the second colour step. */
 const nestedBracketMarks = () => host.querySelectorAll(".cm-bracket-depth-1").length;
 
+/** The view the editor is using now, which a re-render can replace. */
+const currentView = () => {
+    const content = host.querySelector(".cm-content");
+    if (!(content instanceof HTMLElement)) throw new Error("editor content missing");
+    const view = EditorView.findFromDOM(content);
+    if (!view) throw new Error("editor view missing");
+    return view;
+};
+
 describe("markdown editor jumps", () => {
     it("moves the caret when the palette asks for a line", async () => {
         await mount();
-        const content = host.querySelector(".cm-content");
-        if (!(content instanceof HTMLElement)) throw new Error("editor content missing");
-        const view = EditorView.findFromDOM(content);
-        if (!view) throw new Error("editor view missing");
         await act(async () => {
             window.dispatchEvent(
                 new CustomEvent("bettershape-editor-jump", {
                     detail: { path: "/repo/notes.md", line: 3, column: 1 },
                 }),
             );
+            // The listener is installed by the mount effect; give a slow runner
+            // the settle it needs before reading the caret.
+            await new Promise((resolve) => setTimeout(resolve, 100));
         });
         // Line 3 is "A line with several gaps..." in DOC; the caret must be there
         // rather than at the top where the document started.
+        const view = currentView();
         expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(3);
     });
 
     it("ignores a jump aimed at another file", async () => {
         await mount();
-        const content = host.querySelector(".cm-content");
-        if (!(content instanceof HTMLElement)) throw new Error("editor content missing");
-        const view = EditorView.findFromDOM(content);
-        if (!view) throw new Error("editor view missing");
-        const before = view.state.selection.main.head;
+        const before = currentView().state.selection.main.head;
         await act(async () => {
             window.dispatchEvent(
                 new CustomEvent("bettershape-editor-jump", {
@@ -92,7 +111,7 @@ describe("markdown editor jumps", () => {
                 }),
             );
         });
-        expect(view.state.selection.main.head).toBe(before);
+        expect(currentView().state.selection.main.head).toBe(before);
     });
 });
 
