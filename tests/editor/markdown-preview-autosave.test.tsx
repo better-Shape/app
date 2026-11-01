@@ -60,10 +60,15 @@ vi.mock("@/features/panels", () => ({ Panel: () => null }));
 import FileViewer from "@/features/editor/ui/main/editor";
 import { updateSettingSection } from "@/lib/settings";
 import { clearDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
-import { getActiveEditorSurface, setActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { getActiveEditorSurface } from "@/lib/editor/editor-surface";
 
 let host: HTMLDivElement;
 let root: Root | undefined;
+/** Unmounts through the same path the app uses, so the owner release runs. */
+const harnessRelease = () => {
+    act(() => root?.unmount());
+    root = undefined;
+};
 
 beforeEach(() => {
     live.onchange = null;
@@ -194,5 +199,7 @@ it("claims the document surface when the document editor takes focus", async () 
     });
     // The command palette asks this before it offers a file-editor command.
     expect(getActiveEditorSurface()).toBe("preview");
-    setActiveEditorSurface(null);
+    // The viewer releases on unmount, so nothing is left claimed for another pane.
+    harnessRelease();
+    expect(getActiveEditorSurface()).toBeNull();
 });

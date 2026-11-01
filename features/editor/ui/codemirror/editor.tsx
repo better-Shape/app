@@ -65,7 +65,7 @@ import { joinSelectedLines, sortSelectionLines, transformSelectionCase } from "@
 import { gotoBracket } from "@/features/editor/lib/bracket-actions";
 import { runClipboardAction } from "@/features/editor/lib/clipboard-actions";
 import { normalizeEditorAction } from "@/lib/editor/action-contract";
-import { getActiveEditorSurface, setActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
 import { betterShapeEditorChrome } from "./theme";
@@ -271,6 +271,9 @@ export function CodeMirrorEditor({
                 publishBuffer(view);
             }, 250);
         };
+        // One id per mounted editor, so leaving the view releases its own claim and
+        // not another pane's.
+        const surfaceOwner = createSurfaceOwner();
         // Set before the state is built: extensions read it while they are
         // constructed (inline blame fetches for the path it sees).
         pathRef.current = path;
@@ -939,7 +942,7 @@ export function CodeMirrorEditor({
             activeView = view;
             // The palette reads this to decide which editor commands the file
             // editor answers right now.
-            setActiveEditorSurface("codemirror");
+            claimEditorSurface(surfaceOwner, "codemirror");
             publishStatus(view);
         };
         if (!activeView) activeView = view;
@@ -956,7 +959,7 @@ export function CodeMirrorEditor({
             window.removeEventListener("bettershape-editor-flush-buffer", onFlushBuffer);
             window.removeEventListener("bettershape-editor-search", onSearch as EventListener);
             window.removeEventListener("bettershape-editor-action", onEditorAction as EventListener);
-            if (getActiveEditorSurface() === "codemirror") setActiveEditorSurface(null);
+            releaseEditorSurface(surfaceOwner);
             window.removeEventListener("bettershape-editor-jump", onJump as EventListener);
             view.dom.removeEventListener("focusin", markActive);
             view.dom.removeEventListener("pointerdown", markActive);

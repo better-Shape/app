@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { getAppCommands } from "@/features/command-palette/cmd-palette";
 import { editorActionImplemented } from "@/lib/editor/action-contract";
-import { setActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { claimEditorSurface, releaseEditorSurface } from "@/lib/editor/editor-surface";
+
+const OWNER = "command-palette-test";
 
 /**
  * The palette and the CodeMirror handler are two halves of one contract with
@@ -33,7 +35,7 @@ describe("command palette editor commands", () => {
     });
 
     it("drops file-editor commands while the document editor holds focus", () => {
-        setActiveEditorSurface("preview");
+        claimEditorSurface(OWNER, "preview");
         const inPreview = getAppCommands();
         const previewLabels = inPreview.map((command) => command.label);
         // The document editor answers neither, so offering them closes the
@@ -41,11 +43,11 @@ describe("command palette editor commands", () => {
         expect(previewLabels).not.toContain("Fold All Regions");
         expect(previewLabels).not.toContain("Format Document");
         expect(previewLabels).toContain("File: New Text File");
-        setActiveEditorSurface("codemirror");
+        claimEditorSurface(OWNER, "codemirror");
         const labels = getAppCommands().map((command) => command.label);
         expect(labels).toContain("Fold All Regions");
         expect(labels).toContain("Format Document");
-        setActiveEditorSurface(null);
+        releaseEditorSurface(OWNER);
     });
 
     it("uses unique ids", () => {

@@ -30,7 +30,7 @@ import { CodeMirrorEditor } from "../codemirror/editor";
 import { DiffView } from "../diff/diff-view";
 
 import type { EditorGroupId } from "@/core/providers/editor";
-import { setActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 import { isPlanFilePath } from "@/lib/plan/file";
 import { parsePlanMarkdown } from "@/lib/plan/preview";
 
@@ -63,12 +63,15 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const skipTextContent = isRasterImage || (isSvg && showImagePreview) || (isFont && showFontPreview);
 
     /**
-     * Leaving a surface puts the palette back to "no claim": the next editor to
-     * take focus names itself, and a stale name would hide rows that work.
+     * The claim belongs to this viewer: changing file or view mode releases it so
+     * the next editor to take focus names itself, and another pane's claim stays
+     * untouched because the release checks the owner.
      */
+    const [surfaceOwner] = useState(() => createSurfaceOwner());
     useEffect(() => {
-        setActiveEditorSurface(null);
-    }, [mode, path]);
+        releaseEditorSurface(surfaceOwner);
+        return () => releaseEditorSurface(surfaceOwner);
+    }, [mode, path, surfaceOwner]);
 
     const { open_files, project_path } = useProjectState();
 
@@ -738,7 +741,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                     // The document editor answers its own actions; the palette asks
                     // this module which surface the user is in before offering a row.
                     // React's onFocus follows focusin, so it fires for the editor inside.
-                    onFocus={() => setActiveEditorSurface("preview")}
+                    onFocus={() => claimEditorSurface(surfaceOwner, "preview")}
                 >
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
@@ -774,7 +777,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                             children: (
                                 <div
                                     className="h-full w-full min-h-0"
-                                    onFocus={() => setActiveEditorSurface("preview")}
+                                    onFocus={() => claimEditorSurface(surfaceOwner, "preview")}
                                 >
                                     <MarkdownPreview
                                         ref={previewRef}
