@@ -194,4 +194,42 @@ describe("skill-paths: displaySkillPath", () => {
             "etc/skills/pdf/SKILL.md"
         );
     });
+
+    it(
+        "strips Windows verbatim prefixes and collapses internal duplicate separators",
+        () => {
+        expect(normalizeSkillPath("\\\\?\\C:\\Users\\Dev\\\\Project\\.claude\\")).toBe(
+            "C:/Users/Dev/Project/.claude",
+        );
+        expect(normalizeSkillPath("\\\\?\\UNC\\Server\\Share\\\\Team\\SKILL.md")).toBe(
+            "//Server/Share/Team/SKILL.md",
+        );
+        expect(
+            isInsideSkillPath(
+                "\\\\?\\C:\\Users\\Dev\\Project\\.claude\\skills\\pdf\\SKILL.md",
+                "c:/users/dev/project",
+            ),
+        ).toBe(true);
+        expect(
+            isInsideSkillPath(
+                "\\\\?\\UNC\\Server\\Share\\Skills\\pdf\\SKILL.md",
+                "\\\\server\\share",
+            ),
+        ).toBe(true);
+        expect(
+            displaySkillPath(
+                "\\\\?\\C:\\Users\\Dev\\Project\\.claude\\skills\\pdf\\SKILL.md",
+                "C:\\Users\\Dev\\Project",
+                "C:\\Users\\Dev",
+            ),
+        ).toBe(".claude/skills/pdf/SKILL.md");
+        expect(normalizeSkillPath("/home/dev//demo///.agents/skills/")).toBe(
+            "/home/dev/demo/.agents/skills",
+        );
+        expect(normalizeSkillPath("/Users/ada/my\\project//skills/")).toBe(
+            "/Users/ada/my\\project/skills",
+        );
+        expect(normalizeSkillPath("//opt//bin///")).toBe("//opt/bin");
+    });
 });
+

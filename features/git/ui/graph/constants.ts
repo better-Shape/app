@@ -13,11 +13,12 @@ export const SHADOW_OPACITY = 0.55;
 export const EMPTY_ARRAY: never[] = [];
 export const EMPTY_NODE: GraphNode = { lane: 0, color: "var(--color-accent)", paths: [], isMerge: false };
 
+const HEAD_DECORATION_RE = /^head(?:\s*->\s*.+)?$/i;
+
+/** True when a single decoration string represents the checked-out `HEAD` tip. */
+const isHeadDecoration = (ref: string): boolean => HEAD_DECORATION_RE.test(ref.trim());
+
 /** True when this commit is checked out (HEAD tip). */
 export function commitIsHead(refs: string[] | null | undefined): boolean {
-    if (!refs?.length) return false;
-    return refs.some((r) => {
-        const lower = r.toLowerCase();
-        return lower === "head" || lower.startsWith("head ->") || lower.includes("head ->");
-    });
+    return Boolean(refs?.some(isHeadDecoration));
 }

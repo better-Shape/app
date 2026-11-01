@@ -13,17 +13,42 @@ const isAnyPathSep: SepPredicate = (char) => char === "/" || char === "\\";
 const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
 const WINDOWS_DRIVE_PREFIX_RE = /^[A-Za-z]:/;
 const UNC_FORWARD_PREFIX_RE = /^\/\/[^/\\]/;
+const POSIX_EXACT_DOUBLE_SLASH_RE = /^\/\/(?!\/)/;
+const VERBATIM_BACKSLASH_UNC_RE = /^\\\\\?\\UNC\\/i;
+const VERBATIM_BACKSLASH_DRIVE_RE = /^\\\\\?\\[A-Za-z]:/;
+const VERBATIM_FORWARD_UNC_RE = /^\/\/\?\/UNC\//i;
+const VERBATIM_FORWARD_DRIVE_RE = /^\/\/\?\/[A-Za-z]:/;
 
 const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
+
+/** Strips backslash-prefixed Windows extended-length verbatim paths (`\\?\` and `\\?\UNC\`). */
+const stripBackslashVerbatimPrefix = (raw: string): string | null => {
+    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return `\\\\${raw.slice(8)}`;
+    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? raw.slice(4) : null;
+};
+
+/** Strips forward-slash `//?/` verbatim prefixes on Windows hosts. */
+const stripForwardVerbatimPrefix = (raw: string): string => {
+    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return `//${raw.slice(8)}`;
+    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? raw.slice(4) : raw;
+};
+
+/** Strips Windows extended-length verbatim prefixes emitted by Rust `std::fs::canonicalize`. */
+const stripWindowsVerbatimPrefix = (raw: string): string => {
+    const strippedBackslash = stripBackslashVerbatimPrefix(raw);
+    if (strippedBackslash !== null) return strippedBackslash;
+    return isWindows() ? stripForwardVerbatimPrefix(raw) : raw;
+};
 
 /**
  * True when `path` uses Windows drive/backslash syntax or is a `//server` UNC path on Windows.
  * Leading `//` on POSIX remains case-sensitive per POSIX.1-2017 §4.13.
  */
 export function isCaseInsensitiveSkillPath(path: string): boolean {
-    if (UNC_FORWARD_PREFIX_RE.test(path)) return isWindows();
-    if (path.startsWith("/")) return false;
-    return WINDOWS_DRIVE_PREFIX_RE.test(path) || path.includes("\\");
+    const stripped = stripWindowsVerbatimPrefix(path);
+    if (UNC_FORWARD_PREFIX_RE.test(stripped)) return isWindows();
+    if (stripped.startsWith("/")) return false;
+    return WINDOWS_DRIVE_PREFIX_RE.test(stripped) || stripped.includes("\\");
 }
 
 const trimLeadingSeparators = (value: string, isSep: SepPredicate): string => {
@@ -85,19 +110,33 @@ const collapsePosixLeadingSlashes = (forward: string): string => {
     return rest ? `/${rest}` : "/";
 };
 
+const collapseInternalSlashes = (value: string): string => {
+    const prefix = POSIX_EXACT_DOUBLE_SLASH_RE.test(value) ? "//" : "";
+    const body = collapseSeparators(value.slice(prefix.length), "/", isForwardSep);
+    return `${prefix}${body}`;
+};
+
 /**
- * Normalize Windows separators to forward slashes, collapse 3+ leading POSIX slashes to `/`,
- * and drop trailing separators while preserving POSIX literal backslashes, `//`, and `X:/`.
+ * Normalize Windows verbatim/backslash separators to forward slashes, collapse duplicate `/`
+ * runs (and 3+ leading POSIX slashes to `/`), and drop trailing separators while preserving
+ * POSIX literal backslashes, exact two-slash `//`, and `X:/`.
  */
 export function normalizeSkillPath(path: string): string {
-    const forward = isCaseInsensitiveSkillPath(path) ? path.replaceAll("\\", "/") : path;
+    const stripped = stripWindowsVerbatimPrefix(path);
+    const forward = isCaseInsensitiveSkillPath(stripped)
+        ? stripped.replaceAll("\\", "/")
+        : stripped;
     const trimmed = trimRootAwareTrailingSeparators(forward, "/", isForwardSep);
-    return collapsePosixLeadingSlashes(trimmed);
+    return collapseInternalSlashes(collapsePosixLeadingSlashes(trimmed));
 }
 
 const usesWindowsBackslashSep = (dir: string): boolean => {
-    if (dir.startsWith("/")) return false;
-    return dir.includes("\\") || (WINDOWS_DRIVE_PREFIX_RE.test(dir) && !dir.includes("/"));
+    const stripped = stripWindowsVerbatimPrefix(dir);
+    if (stripped.startsWith("/")) return false;
+    return (
+        stripped.includes("\\") ||
+        (WINDOWS_DRIVE_PREFIX_RE.test(stripped) && !stripped.includes("/"))
+    );
 };
 
 /**
@@ -116,10 +155,11 @@ const needsJoinSeparator = (base: string, sep: "\\" | "/"): boolean =>
  * backslashes and `X:` drive-relative prefixes.
  */
 export function joinSkillPath(dir: string, relativePath: string): string {
-    const sep = skillPathSep(dir);
-    const isSep = isCaseInsensitiveSkillPath(dir) ? isAnyPathSep : isForwardSep;
+    const cleanDir = stripWindowsVerbatimPrefix(dir);
+    const sep = skillPathSep(cleanDir);
+    const isSep = isCaseInsensitiveSkillPath(cleanDir) ? isAnyPathSep : isForwardSep;
     const relative = collapseSeparators(trimLeadingSeparators(relativePath, isSep), sep, isSep);
-    const base = trimRootAwareTrailingSeparators(dir, sep, isSep);
+    const base = trimRootAwareTrailingSeparators(cleanDir, sep, isSep);
     if (!relative) return base;
     return needsJoinSeparator(base, sep) ? `${base}${sep}${relative}` : `${base}${relative}`;
 }

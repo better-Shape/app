@@ -954,4 +954,37 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
             removeItemSpy.mockRestore();
         }
     });
+
+    it(
+        "deduplicates and labels skills when canonicalization returns Windows verbatim paths",
+        async () => {
+        const winProject = "C:\\Users\\Ada\\Demo";
+        mocks.getProjectPath.mockReturnValue(winProject);
+        serveSkillFs(
+            mocks,
+            {
+                "C:/Users/Ada/Demo/.claude/skills/pdf/SKILL.md": skillFile(
+                    "pdf-verbatim",
+                    "Verbatim skill.",
+                    "Steps.",
+                ),
+            },
+            { homeDir: "C:/Users/Ada" },
+        );
+
+        const baseEnsure = mocks.ensurePathWithin.getMockImplementation();
+        mocks.ensurePathWithin.mockImplementation(async (candidate: string, root: string) => {
+            const resolved = baseEnsure ? await baseEnsure(candidate, root) : candidate;
+            return `\\\\?\\${resolved.replaceAll("/", "\\")}`;
+        });
+        mocks.listCustomSkillFolders.mockReturnValue([
+            "\\\\?\\C:\\Users\\Ada\\Demo\\.claude\\skills",
+        ]);
+
+        const result = await discoverSkills();
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]?.name).toBe("pdf-verbatim");
+        expect(result.items[0]?.relPath).toBe(".claude/skills/pdf/SKILL.md");
+    });
 });
+

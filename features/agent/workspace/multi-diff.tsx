@@ -78,6 +78,7 @@ function LazyFileDiff({
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
     const [hover, setHover] = useState(false);
+    const [focusWithin, setFocusWithin] = useState(false);
     const [holdActive, setHoldActive] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
     const [diff, setDiff] = useScopedState<FileDiff | null>(
@@ -144,7 +145,13 @@ function LazyFileDiff({
         await openProjectFile(abs, name);
     };
 
-    const showOverlay = hover || holdActive;
+    const showOverlay = hover || focusWithin || holdActive;
+
+    const handleSectionBlurCapture = (event: React.FocusEvent<HTMLElement>) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+        setFocusWithin(false);
+    };
 
     return (
         <section
@@ -153,6 +160,8 @@ function LazyFileDiff({
             role="presentation"
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
+            onFocusCapture={() => setFocusWithin(true)}
+            onBlurCapture={handleSectionBlurCapture}
         >
             <div className="sticky top-1 z-[1] flex h-9 items-center gap-2 bg-panel pl-3 border-b border-border">
                 <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border-subtle">

@@ -2,6 +2,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SearchInput } from "@/components/ui/search";
 import {
     ExcludePatternsSelect,
     FontFamilySelect,
@@ -436,12 +437,20 @@ describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects
         expect(parentDir("C:\\repo")).toBe("C:\\");
         expect(parentDir("C:/repo")).toBe("C:/");
         expect(parentDir("C:\\Users\\ada\\repo\\")).toBe("C:\\Users\\ada");
+        expect(parentDir("C:\\Users\\\\ada\\repo")).toBe("C:\\Users\\ada");
+        expect(parentDir("\\\\?\\C:\\Users\\ada\\repo")).toBe("C:\\Users\\ada");
+        expect(parentDir("\\\\?\\UNC\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share\\")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("/repo")).toBe("/");
         expect(parentDir("/Users/ada/repo/")).toBe("/Users/ada");
+        expect(parentDir("/Users/ada//repo")).toBe("/Users/ada");
         expect(parentDir("/Users/ada/my\\work/repo")).toBe("/Users/ada/my\\work");
+        expect(parentDir("///Users/ada/my\\work/repo")).toBe("/Users/ada/my\\work");
+        expect(parentDir("//")).toBe("//");
+        expect(parentDir("//opt")).toBe("//");
+        expect(parentDir("//opt/repo")).toBe("//opt");
     });
 
     it("uses +1 surface step hover without light-fill inversion and reveals overflow projects via Collapse", () => {
@@ -536,4 +545,35 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             .join(" ");
         expect(labelledByText).toBe("Font Family Berkeley Mono");
     });
+
+    it(
+        "falls back on empty FontFamilySelect value and omits redundant SearchInput aria-label",
+        () => {
+        render(
+            <div>
+                <span id="ext-search-label">Filter files</span>
+                <SearchInput aria-labelledby="ext-search-label" placeholder="Type to filter" />
+                <SearchInput placeholder="   " />
+                <SettingCard>
+                    <SettingRow title="Font Family">
+                        <FontFamilySelect
+                            value=""
+                            presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                            onChange={() => {}}
+                        />
+                    </SettingRow>
+                </SettingCard>
+            </div>,
+        );
+
+        const inputs = Array.from(container.querySelectorAll("input[type='search']"));
+        expect(inputs[0]?.getAttribute("aria-labelledby")).toBe("ext-search-label");
+        expect(inputs[0]?.getAttribute("aria-label")).toBeNull();
+        expect(inputs[1]?.getAttribute("aria-label")).toBe("Search");
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("JetBrains Mono");
+        expect(container.textContent).not.toContain("Change");
+    });
 });
+

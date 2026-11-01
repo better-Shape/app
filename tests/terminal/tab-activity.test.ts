@@ -213,7 +213,16 @@ describe("terminal tab activity", () => {
         expect(projectPathKey("C:")).toBe("c:");
         expect(sameProjectPath("C:\\", "C:")).toBe(false);
         expect(sameProjectPath("C:\\Users\\\\Ada\\Repo\\", "c:/users/ada/repo")).toBe(true);
+        expect(sameProjectPath("\\\\?\\C:\\Users\\Ada\\Repo\\", "c:/users/ada/repo")).toBe(true);
+        expect(
+            sameProjectPath("\\\\?\\UNC\\Server\\Share\\Repo\\", "\\\\server\\share\\repo"),
+        ).toBe(true);
         expect(sameProjectPath("/home/Ada/my\\repo", "/home/ada/my\\repo")).toBe(false);
         expect(sameProjectPath("/home/Ada//my\\repo/", "/home/Ada/my\\repo")).toBe(true);
+        expect(sameProjectPath("///home/Ada/my\\repo/", "/home/Ada/my\\repo")).toBe(true);
+        expect(sameProjectPath("///home/Ada/my\\repo", "/home/ada/my\\repo")).toBe(false);
+        expect(projectPathKey("//")).toBe("//");
+        expect(projectPathKey("///")).toBe("/");
     });
 });
+

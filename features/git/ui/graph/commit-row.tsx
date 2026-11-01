@@ -43,6 +43,90 @@ const COMMIT_FILE_STATUS_COLOR: Record<string, string> = {
     D: "var(--git-deleted)",
 };
 
+const HEAD_TARGET_RE = /^head(?:\s*->\s*(.+))?$/i;
+
+const resolveHeadTargetLabel = (target: string | undefined): string => {
+    const cleaned = target ? target.trim() : "";
+    return cleaned || "head";
+};
+
+/** Normalizes one raw `git log %D` ref token without mutating branch substrings. */
+const parseLogRefInfo = (raw: string): RefInfo => {
+    const trimmed = raw.trim();
+    const headMatch = HEAD_TARGET_RE.exec(trimmed);
+    const label = headMatch ? resolveHeadTargetLabel(headMatch[1]) : trimmed;
+    return {
+        label,
+        isRemote: label.startsWith("origin/") || label.startsWith("upstream/"),
+        isHead: headMatch !== null,
+        isTag: /^tag:\s*/i.test(label),
+    };
+};
+
+const isSymbolicHeadPointer = (ref: RefInfo): boolean => {
+    const lower = ref.label.toLowerCase();
+    return lower === "head" || lower === "origin/head";
+};
+
+const selectDisplayableRefs = (allRefs: readonly RefInfo[]): readonly RefInfo[] => {
+    const preferred = allRefs.filter((ref) => !isSymbolicHeadPointer(ref));
+    return preferred.length > 0 ? preferred : allRefs;
+};
+
+const stripTagPrefix = (label: string): string => label.replace(/^tag:\s*/i, "");
+
+/** Renders overflow ref badges for panel or full-page Git Manager rows. */
+const ExtraRefsBadge = ({
+    isManager,
+    extraRefs,
+}: {
+    isManager: boolean;
+    extraRefs: readonly RefInfo[];
+}) => {
+    const count = extraRefs.length;
+    if (isManager) {
+        return (
+            <span
+                className="text-xs text-text-muted shrink-0 tabular-nums cursor-default"
+                title={extraRefs.map((r) => stripTagPrefix(r.label)).join(", ")}
+            >
+                +{count}
+            </span>
+        );
+    }
+    return (
+        <Tooltip
+            content={
+                <div className="flex flex-col gap-1 max-w-[240px]">
+                    <span className="text-xs text-text-muted">
+                        +{count} more ref{count === 1 ? "" : "s"}
+                    </span>
+                    {extraRefs.map((r) => (
+                        <span key={r.label} className="text-sm text-text-primary truncate">
+                            {stripTagPrefix(r.label)}
+                        </span>
+                    ))}
+                </div>
+            }
+            side="top"
+            delayDuration={200}
+        >
+            <span className="text-xs text-text-muted shrink-0 tabular-nums cursor-default">
+                +{count}
+            </span>
+        </Tooltip>
+    );
+};
+
+const hasRowKeyModifier = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    event.metaKey || event.ctrlKey || event.altKey;
+
+const isDirectUnmodifiedRowEvent = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    event.target === event.currentTarget && !event.repeat && !hasRowKeyModifier(event);
+
+const isRowActivationKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    isDirectUnmodifiedRowEvent(event) && (event.key === "Enter" || event.key === " ");
+
 /** Splits a commit file path into basename and optional directory prefix. */
 const splitCommitFilePath = (filePath: string): { name: string; folder: string } => {
     const slashIdx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
@@ -193,16 +277,10 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     const isDraggingRef = useRef(false);
     const closeTimeoutRef = useRef<number | null>(null);
 
-    const allRefs = useMemo((): RefInfo[] => {
-        if (!log.refs || log.refs.length === 0) return [];
-        return log.refs.map(r => {
-            const cleaned = r.replace(/HEAD -> /g, '').replace(/HEAD/g, 'head').trim();
-            const isRemote = cleaned.startsWith('origin/') || cleaned.startsWith('upstream/');
-            const isHeadRef = r.toLowerCase().includes('head');
-            const isTag = cleaned.startsWith('tag: ');
-            return { label: cleaned, isRemote, isHead: isHeadRef, isTag };
-        });
-    }, [log.refs]);
+    const allRefs = useMemo(
+        (): RefInfo[] => (log.refs?.length ? log.refs.map(parseLogRefInfo) : []),
+        [log.refs],
+    );
 
     let rowMaxLane = node.lane;
     for (const p of node.paths) {
@@ -210,13 +288,19 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
         if (p.toX > rowMaxLane) rowMaxLane = p.toX;
     }
 
-    const visibleRefs = useMemo(() => {
-        const preferred = allRefs.filter((r) => r.label.toLowerCase() !== "head" && r.label !== "origin/head");
-        const list = preferred.length > 0 ? preferred : allRefs;
-        if (compact) return list.filter((r) => r.isTag).slice(0, 2);
-        return list.slice(0, 3);
-    }, [allRefs, compact]);
-    const extraRefCount = Math.max(0, allRefs.filter((r) => r.label.toLowerCase() !== "head").length - visibleRefs.length);
+    const displayableRefs = useMemo(() => selectDisplayableRefs(allRefs), [allRefs]);
+    const visibleRefs = useMemo(
+        () =>
+            compact
+                ? displayableRefs.filter((r) => r.isTag).slice(0, 2)
+                : displayableRefs.slice(0, 3),
+        [compact, displayableRefs],
+    );
+    const extraRefs = useMemo(
+        () => (compact ? [] : displayableRefs.slice(visibleRefs.length)),
+        [compact, displayableRefs, visibleRefs.length],
+    );
+    const extraRefCount = extraRefs.length;
     const interactiveRefPills = isManager && Boolean(onRefActivate);
     const safeFiles = Array.isArray(files) ? files : [];
 
@@ -249,8 +333,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
 
     const handleRowKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLButtonElement>) => {
-            if (event.target !== event.currentTarget || event.repeat) return;
-            if (event.key !== "Enter" && event.key !== " ") return;
+            if (!isRowActivationKeyDown(event)) return;
             event.preventDefault();
             event.stopPropagation();
             activateRow();
@@ -374,42 +457,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                                     />
                                 ))}
                             {!compact && extraRefCount > 0 && (
-                                isManager ? (
-                                    <span
-                                        className="text-xs text-text-muted shrink-0 tabular-nums cursor-default"
-                                        title={allRefs
-                                            .filter((r) => r.label.toLowerCase() !== "head")
-                                            .slice(visibleRefs.length)
-                                            .map((r) => r.label.replace(/^tag:\s*/i, ""))
-                                            .join(", ")}
-                                    >
-                                        +{extraRefCount}
-                                    </span>
-                                ) : (
-                                    <Tooltip
-                                        content={
-                                            <div className="flex flex-col gap-1 max-w-[240px]">
-                                                <span className="text-xs text-text-muted">
-                                                    +{extraRefCount} more ref{extraRefCount === 1 ? "" : "s"}
-                                                </span>
-                                                {allRefs
-                                                    .filter((r) => r.label.toLowerCase() !== "head")
-                                                    .slice(visibleRefs.length)
-                                                    .map((r) => (
-                                                        <span key={r.label} className="text-sm text-text-primary truncate">
-                                                            {r.label.replace(/^tag:\s*/i, "")}
-                                                        </span>
-                                                    ))}
-                                            </div>
-                                        }
-                                        side="top"
-                                        delayDuration={200}
-                                    >
-                                        <span className="text-xs text-text-muted shrink-0 tabular-nums cursor-default">
-                                            +{extraRefCount}
-                                        </span>
-                                    </Tooltip>
-                                )
+                                <ExtraRefsBadge isManager={isManager} extraRefs={extraRefs} />
                             )}
                             {!compact && isMerge && <Icon icon={BranchRequest20Regular} className="text-text-primary shrink-0 opacity-80" />}
                             {isManager ? (

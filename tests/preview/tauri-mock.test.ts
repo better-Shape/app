@@ -389,4 +389,29 @@ describe("window and turn-journal preview commands", () => {
         expect(handle("plugin:window|inner_size")).toEqual({ width: 1440, height: 900 });
         expect(handle("plugin:window|scale_factor")).toBe(1);
     });
+
+    it(
+        "assigns distinct hashes on rapid commits and retargets HEAD across diverged branches",
+        () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("git_switch_branch", { branchName: "preview/browser-qa" });
+        handle("git_commit", { message: "feat: first qa commit" });
+        handle("git_commit", { message: "feat: second qa commit" });
+
+        const afterCommits = handle("git_log") as Array<{
+            hash: string;
+            refs: string[];
+            parents: string[];
+        }>;
+        expect(afterCommits[0]?.hash).not.toBe(afterCommits[1]?.hash);
+        expect(afterCommits[0]?.refs).toEqual(["HEAD -> preview/browser-qa"]);
+        expect(afterCommits[2]?.refs).toEqual(["main"]);
+
+        handle("git_switch_branch", { branchName: "main" });
+        handle("git_create_branch", { branchName: "feat/branched-from-main" });
+        const afterSwitchBack = handle("git_log") as Array<{ hash: string; refs: string[] }>;
+        expect(afterSwitchBack[0]?.refs).toEqual(["preview/browser-qa"]);
+        expect(afterSwitchBack[2]?.refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+    });
 });
+

@@ -1147,4 +1147,71 @@ describe("HoldButton", () => {
         expect(holdingMenuEvent.defaultPrevented).toBe(true);
         expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
     });
+
+    it(
+        "ignores Ctrl+Click and modified shortcuts while releasing active keyboard holds",
+        () => {
+        const onConfirm = vi.fn();
+        const onAncestorKeyDown = vi.fn();
+        const onAncestorKeyUp = vi.fn();
+        render(
+            <div onKeyDown={onAncestorKeyDown} onKeyUp={onAncestorKeyUp}>
+                <HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />
+            </div>,
+        );
+        const btn = getButton();
+
+        // macOS Ctrl+Click reports button === 0 && ctrlKey === true to open context menus.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    ctrlKey: true,
+                    pointerId: 51,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+        const ctrlContextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(ctrlContextMenu);
+        });
+        expect(ctrlContextMenu.defaultPrevented).toBe(false);
+
+        // Cmd+Enter / Ctrl+Enter while idle bubble cleanly without arming or starting a hold.
+        const cmdEnterDown = new KeyboardEvent("keydown", {
+            key: "Enter",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        const cmdEnterUp = new KeyboardEvent("keyup", {
+            key: "Enter",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        act(() => {
+            btn.dispatchEvent(cmdEnterDown);
+            btn.dispatchEvent(cmdEnterUp);
+        });
+        expect(cmdEnterDown.defaultPrevented).toBe(false);
+        expect(cmdEnterUp.defaultPrevented).toBe(false);
+        expect(onAncestorKeyDown).toHaveBeenCalledTimes(1);
+        expect(onAncestorKeyUp).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("idle");
+
+        // Pressing a modifier mid-hold still allows keyup to release the active keyboard hold.
+        act(() => {
+            btn.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+            vi.advanceTimersByTime(300);
+            btn.dispatchEvent(
+                new KeyboardEvent("keyup", { key: " ", ctrlKey: true, bubbles: true }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
 });
+

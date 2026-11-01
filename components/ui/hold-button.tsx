@@ -649,6 +649,11 @@ const useHoldState = ({
         [],
     );
 
+    const isKeyboardPressActive = React.useCallback(
+        (key: string) => matchesActivePress("keyboard", key),
+        [matchesActivePress],
+    );
+
     return {
         state,
         pending,
@@ -662,10 +667,27 @@ const useHoldState = ({
         handleBlur,
         handleClick,
         shouldSuppressContextMenu,
+        isKeyboardPressActive,
     };
 };
 
 type HoldController = ReturnType<typeof useHoldState>;
+
+const isPrimaryPointerPress = (event: React.PointerEvent<HTMLButtonElement>): boolean =>
+    event.button === 0 && !event.ctrlKey;
+
+const hasKeyModifier = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    event.metaKey || event.ctrlKey || event.altKey;
+
+const isUnmodifiedActivationKey = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    !event.repeat && !hasKeyModifier(event) && isActivationKey(event.key);
+
+const shouldHandleActivationKeyUp = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    hold: HoldController,
+): boolean =>
+    isActivationKey(event.key) &&
+    (!hasKeyModifier(event) || hold.isKeyboardPressActive(event.key));
 
 /** Composes external button event handlers (such as Radix Slot props) with HoldButton logic. */
 const composeHoldButtonEvents = (
@@ -681,7 +703,7 @@ const composeHoldButtonEvents = (
     },
     onPointerDown: (event) => {
         external.onPointerDown?.(event);
-        if (event.button !== 0) return;
+        if (!isPrimaryPointerPress(event)) return;
         event.stopPropagation();
         releaseImplicitPointerCapture(event);
         hold.beginPress("pointer", event.pointerId);
@@ -714,7 +736,7 @@ const composeHoldButtonEvents = (
             hold.abortActiveHold();
             return;
         }
-        if (!event.repeat && isActivationKey(event.key)) {
+        if (isUnmodifiedActivationKey(event)) {
             event.preventDefault();
             event.stopPropagation();
             hold.beginPress("keyboard", event.key);
@@ -722,7 +744,7 @@ const composeHoldButtonEvents = (
     },
     onKeyUp: (event) => {
         external.onKeyUp?.(event);
-        if (isActivationKey(event.key)) {
+        if (shouldHandleActivationKeyUp(event, hold)) {
             event.preventDefault();
             event.stopPropagation();
             hold.releasePress("keyboard", event.key);
@@ -733,6 +755,7 @@ const composeHoldButtonEvents = (
         hold.handleBlur();
     },
     onClick: (event) => {
+        if (event.ctrlKey) return;
         event.stopPropagation();
         if (hold.handleClick()) external.onClick?.(event);
     },

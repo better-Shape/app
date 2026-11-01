@@ -16,6 +16,7 @@ vi.mock("@/lib/backend", async (importOriginal) => {
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(async () => true) }));
 
 import { GraphCommitRow } from "@/features/git/ui/graph/commit-row";
+import { commitIsHead } from "@/features/git/ui/graph/constants";
 import type { RefInfo } from "@/features/git/ui/graph/ref-pill";
 import type { GitFileParams, GitLogEntry, GraphNode } from "@/lib/backend/types";
 
@@ -230,9 +231,46 @@ describe("commit row activation", () => {
             });
             expect(tooltipKey.defaultPrevented).toBe(false);
             expect(onToggleExpand).not.toHaveBeenCalled();
+
+            // Modified shortcuts (Cmd+Enter / Ctrl+Enter) must bubble without toggling the row.
+            const cmdEnter = new KeyboardEvent("keydown", {
+                key: "Enter",
+                metaKey: true,
+                bubbles: true,
+                cancelable: true,
+            });
+            act(() => {
+                rowTrigger().dispatchEvent(cmdEnter);
+            });
+            expect(cmdEnter.defaultPrevented).toBe(false);
+            expect(onToggleExpand).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
             globalThis.ResizeObserver = prevResizeObserver;
         }
     });
+
+    it("distinguishes HEAD decorations from origin/HEAD and branch names containing HEAD", () => {
+        expect(commitIsHead(["HEAD -> main"])).toBe(true);
+        expect(commitIsHead(["HEAD"])).toBe(true);
+        expect(commitIsHead(["origin/HEAD -> origin/main", "origin/main"])).toBe(false);
+        expect(commitIsHead(["feat/header-loader", "fix/HEADSPACE"])).toBe(false);
+
+        renderRow({
+            log: {
+                ...LOG,
+                refs: ["origin/main", "origin/HEAD", "fix/HEADSPACE"],
+            },
+            surface: "editor",
+            onRefActivate: () => {},
+        });
+
+        const branchPill = container.querySelector<HTMLButtonElement>(
+            'button[title="Branch: fix/HEADSPACE"]',
+        );
+        expect(branchPill).not.toBeNull();
+        expect(branchPill?.textContent).toContain("fix/HEADSPACE");
+        expect(container.textContent).not.toContain("+1");
+    });
 });
+

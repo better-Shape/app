@@ -297,6 +297,7 @@ export function SettingSelect<T extends string>({
     );
 }
 
+/** Toggle switch that inherits accessible title and description IDs from `SettingRow`. */
 export function SettingSwitch({
     checked,
     onChange,
@@ -353,16 +354,21 @@ export const SettingTextarea = React.forwardRef<
 
 SettingTextarea.displayName = "SettingTextarea";
 
+/** Numeric preset dropdown delegating accessible row labelling to `SettingSelect`. */
 export function SettingNumberSelect({
     value,
     options,
     onChange,
     formatLabel,
+    disabled,
+    "aria-label": ariaLabel,
 }: {
     value: number;
     options: number[];
     onChange: (v: number) => void;
     formatLabel?: (n: number) => string;
+    disabled?: boolean;
+    "aria-label"?: string;
 }) {
     const fmt = formatLabel ?? ((n: number) => String(n));
     const allValues = options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
@@ -372,6 +378,8 @@ export function SettingNumberSelect({
         <SettingSelect
             value={String(value)}
             options={selectOptions}
+            disabled={disabled}
+            aria-label={ariaLabel}
             onChange={(v) => onChange(Number(v))}
         />
     );
@@ -413,19 +421,41 @@ export const COMMON_EXCLUDE_PATTERNS = [
 
 const CUSTOM_FONT_VALUE = "__custom__";
 
+const resolveFontSelectValue = (
+    value: string,
+    isCustom: boolean,
+    presets: readonly { value: string; label: string }[],
+): string => {
+    if (isCustom) return CUSTOM_FONT_VALUE;
+    if (value.trim()) return value;
+    return presets[0]?.value ?? "";
+};
+
+const resolveFontSelectDisplayLabel = (
+    value: string,
+    isCustom: boolean,
+    presets: readonly { value: string; label: string }[],
+): string | undefined => {
+    if (isCustom) return value;
+    if (!value.trim()) return presets[0]?.label ?? "Default";
+    return undefined;
+};
+
 /** Preset font selector with custom `.ttf`/`.otf`/`.woff`/`.woff2` upload support. */
 export function FontFamilySelect({
     value,
     presets,
     onChange,
+    "aria-label": ariaLabel,
 }: {
     value: string;
     presets: readonly { value: string; label: string }[];
     onChange: (v: string) => void;
+    "aria-label"?: string;
 }) {
     const presetValues = presets.map((p) => p.value);
-    const isCustom = !presetValues.includes(value);
-    const selectValue = isCustom ? CUSTOM_FONT_VALUE : value;
+    const isCustom = value.trim().length > 0 && !presetValues.includes(value);
+    const selectValue = resolveFontSelectValue(value, isCustom, presets);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const options = [
@@ -447,7 +477,8 @@ export function FontFamilySelect({
         <div className="flex flex-col items-start gap-2">
             <SettingSelect
                 value={selectValue}
-                displayLabel={isCustom ? value : undefined}
+                displayLabel={resolveFontSelectDisplayLabel(value, isCustom, presets)}
+                aria-label={ariaLabel}
                 options={options}
                 onChange={(v) => {
                     if (v === CUSTOM_FONT_VALUE) {

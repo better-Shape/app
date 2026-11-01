@@ -21,6 +21,29 @@ const POSIX_DOUBLE_SLASH_RE = /^\/\/(?!\/)/;
 const DRIVE_ROOT_RE = /^[A-Za-z]:\//;
 const DRIVE_PREFIX_RE = /^[A-Za-z]:/;
 const DRIVE_SPECIFIER_RE = /^[A-Za-z]:$/;
+const VERBATIM_BACKSLASH_UNC_RE = /^\\\\\?\\UNC\\/i;
+const VERBATIM_BACKSLASH_DRIVE_RE = /^\\\\\?\\[A-Za-z]:/;
+const VERBATIM_FORWARD_UNC_RE = /^\/\/\?\/UNC\//i;
+const VERBATIM_FORWARD_DRIVE_RE = /^\/\/\?\/[A-Za-z]:/;
+
+/** Strips backslash-prefixed Windows verbatim prefixes (`\\?\` and `\\?\UNC\`). */
+const stripMockBackslashVerbatim = (raw: string): string | null => {
+    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return `\\\\${raw.slice(8)}`;
+    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? raw.slice(4) : null;
+};
+
+/** Strips forward-slash `//?/` verbatim prefixes on Windows hosts. */
+const stripMockForwardVerbatim = (raw: string): string => {
+    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return `//${raw.slice(8)}`;
+    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? raw.slice(4) : raw;
+};
+
+/** Strips Windows extended-length verbatim prefixes so mock lookups match Rust paths. */
+const stripMockVerbatimPrefix = (raw: string): string => {
+    const strippedBackslash = stripMockBackslashVerbatim(raw);
+    if (strippedBackslash !== null) return strippedBackslash;
+    return isWindows() ? stripMockForwardVerbatim(raw) : raw;
+};
 
 /** True when `raw` uses backslash UNC syntax or `//server/share` on a Windows host. */
 const isRawUncCandidate = (raw: string): boolean =>
@@ -28,8 +51,9 @@ const isRawUncCandidate = (raw: string): boolean =>
 
 /** Extracts the lowercase `//server/share` root when `raw` is a UNC path. */
 const extractUncShareKey = (raw: string): string | null => {
-    if (!isRawUncCandidate(raw)) return null;
-    const match = UNC_SHARE_RE.exec(raw.replaceAll("\\", "/"));
+    const stripped = stripMockVerbatimPrefix(raw);
+    if (!isRawUncCandidate(stripped)) return null;
+    const match = UNC_SHARE_RE.exec(stripped.replaceAll("\\", "/"));
     return match ? match[0].toLowerCase() : null;
 };
 
@@ -63,8 +87,9 @@ const collectUncShareKeys = (
 
 /** Converts Windows backslashes to `/` while preserving POSIX literal backslashes. */
 const toForwardPath = (raw: string): string => {
-    if (isRawUncCandidate(raw)) return raw.replaceAll("\\", "/");
-    return raw.startsWith("/") ? raw : raw.replaceAll("\\", "/");
+    const stripped = stripMockVerbatimPrefix(raw);
+    if (isRawUncCandidate(stripped)) return stripped.replaceAll("\\", "/");
+    return stripped.startsWith("/") ? stripped : stripped.replaceAll("\\", "/");
 };
 
 /** Splits `X:/...` drive-root paths separately from bare `X:...` drive-relative paths. */

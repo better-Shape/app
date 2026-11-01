@@ -186,18 +186,86 @@ const previewCommitFiles = (filesChanged: number) =>
         { path: "src/main.ts", status: "A", staged: false },
     ].slice(0, Math.max(0, filesChanged));
 
-/** Moves the `HEAD -> <branch>` decoration onto `nextBranch` in a commit's ref list. */
-const retargetPreviewHeadRef = (
-    refs: string[],
+/** Clones a preview git log entry so callers cannot mutate shared fixture arrays. */
+const clonePreviewLogEntry = <T extends { refs: string[]; parents: string[] }>(entry: T): T => ({
+    ...entry,
+    refs: [...entry.refs],
+    parents: [...entry.parents],
+});
+
+/** Builds a unique 40-char preview commit hash even across same-millisecond commits. */
+const buildPreviewCommitHash = (seq: number): string => {
+    const prefix = `preview${seq.toString(16).padStart(4, "0")}${Date.now().toString(16)}`;
+    return prefix.padEnd(40, "0").slice(0, 40);
+};
+
+/** Strips `branch` and `HEAD -> branch` from existing commit decorations before prepending. */
+const stripBranchRefs = <T extends { refs: string[] }>(entries: T[], branch: string): T[] => {
+    const headRef = `HEAD -> ${branch}`;
+    return entries.map((entry) => ({
+        ...entry,
+        refs: entry.refs.filter((ref) => ref !== branch && ref !== headRef),
+    }));
+};
+
+/** Demotes `HEAD -> prevBranch` back to `prevBranch` and returns its commit index. */
+const demotePreviewHead = <T extends { refs: string[] }>(
+    entries: T[],
+    prevBranch: string,
+): { entries: T[]; headIndex: number } => {
+    const prevHead = `HEAD -> ${prevBranch}`;
+    let headIndex = 0;
+    const next = entries.map((entry, idx) => {
+        if (!entry.refs.includes(prevHead)) return entry;
+        headIndex = idx;
+        return {
+            ...entry,
+            refs: entry.refs.map((ref) => (ref === prevHead ? prevBranch : ref)),
+        };
+    });
+    return { entries: next, headIndex };
+};
+
+/** Promotes `nextBranch` to `HEAD -> nextBranch` on the target commit index. */
+const promotePreviewBranchHead = <T extends { refs: string[] }>(
+    entries: T[],
+    targetIndex: number,
+    nextBranch: string,
+): T[] => {
+    const nextHead = `HEAD -> ${nextBranch}`;
+    return entries.map((entry, idx) => {
+        if (idx !== targetIndex) return entry;
+        const rest = entry.refs.filter((ref) => ref !== nextBranch && ref !== nextHead);
+        return { ...entry, refs: [nextHead, ...rest] };
+    });
+};
+
+/** Retargets `HEAD -> <branch>` across `entries`, following diverged branch tips when present. */
+const switchPreviewBranchEntries = <T extends { refs: string[] }>(
+    entries: T[],
     prevBranch: string,
     nextBranch: string,
-): string[] => {
-    const prevHead = `HEAD -> ${prevBranch}`;
-    const nextHead = `HEAD -> ${nextBranch}`;
-    const carried = refs
-        .map((ref) => (ref === prevHead ? prevBranch : ref))
-        .filter((ref) => ref !== nextBranch && ref !== nextHead);
-    return [nextHead, ...carried];
+): T[] => {
+    if (entries.length === 0 || prevBranch === nextBranch) return entries;
+    const { entries: demoted, headIndex } = demotePreviewHead(entries, prevBranch);
+    const existingIdx = demoted.findIndex((entry) => entry.refs.includes(nextBranch));
+    const targetIdx = existingIdx >= 0 ? existingIdx : headIndex;
+    return promotePreviewBranchHead(demoted, targetIdx, nextBranch);
+};
+
+/** Attaches a newly created branch decoration onto the current `HEAD` commit. */
+const attachPreviewBranchAtHead = <T extends { refs: string[] }>(
+    entries: T[],
+    currentBranch: string,
+    newBranch: string,
+): T[] => {
+    if (entries.some((entry) => entry.refs.includes(newBranch))) return entries;
+    const headRef = `HEAD -> ${currentBranch}`;
+    const rawIdx = entries.findIndex((entry) => entry.refs.includes(headRef));
+    const targetIdx = rawIdx >= 0 ? rawIdx : 0;
+    return entries.map((entry, idx) =>
+        idx === targetIdx ? { ...entry, refs: [...entry.refs, newBranch] } : entry,
+    );
 };
 
 /** Seeded Git history, newest first, in the backend's wire shape. */
@@ -273,6 +341,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
     // id; unlisten arrives with the latter. Map between them.
     const subscriptionCallbacks = new Map<number, number>();
     let nextEventId = 1;
+    let nextCommitSeq = 0;
 
     /** Current project state in the backend's event payload shape. */
     const projectState = () => ({
@@ -463,11 +532,13 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
     const recordCommit = (message: string) => {
         const stagedCount = state.gitChanges.filter((c) => c.staged).length;
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
-        const [first, ...rest] = state.logEntries;
-        const parents = first ? [first.hash] : [];
         const headRef = `HEAD -> ${state.branch}`;
+        const headEntry =
+            state.logEntries.find((e) => e.refs.includes(headRef)) ?? state.logEntries[0];
+        const parents = headEntry ? [headEntry.hash] : [];
+        nextCommitSeq += 1;
         const entry = {
-            hash: `preview${Date.now().toString(16)}0000000000000000000`.slice(0, 40),
+            hash: buildPreviewCommitHash(nextCommitSeq),
             message: message.trim() || "preview: commit",
             author: "Preview Fixture",
             author_email: "preview@example.invalid",
@@ -479,12 +550,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             parent_count: parents.length,
             parents,
         };
-        const remainingFirstRefs = first
-            ? first.refs.filter((ref) => ref !== state.branch && ref !== headRef)
-            : [];
-        state.logEntries = first
-            ? [entry, { ...first, refs: remainingFirstRefs }, ...rest]
-            : [entry];
+        state.logEntries = [entry, ...stripBranchRefs(state.logEntries, state.branch)];
     };
 
     /** Rewrite the HEAD entry's message, like a real amend. */
@@ -689,18 +755,17 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_current_branch: () => state.branch,
         git_create_branch: (args) => {
             const name = String(args.branchName ?? "");
-            if (name && !state.branches.includes(name)) state.branches.push(name);
+            if (name && !state.branches.includes(name)) {
+                state.branches.push(name);
+                state.logEntries = attachPreviewBranchAtHead(state.logEntries, state.branch, name);
+            }
             return null;
         },
         git_switch_branch: (args) => {
             const name = String(args.branchName ?? "");
             if (name) {
                 if (!state.branches.includes(name)) state.branches.push(name);
-                const [first, ...rest] = state.logEntries;
-                if (first && name !== state.branch) {
-                    const nextRefs = retargetPreviewHeadRef(first.refs, state.branch, name);
-                    state.logEntries = [{ ...first, refs: nextRefs }, ...rest];
-                }
+                state.logEntries = switchPreviewBranchEntries(state.logEntries, state.branch, name);
                 state.branch = name;
             }
             return null;
@@ -718,7 +783,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_has_remote: () => false,
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
-        git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
+        git_log: () => state.logEntries.map(clonePreviewLogEntry),
         git_commit_files: (args) => {
             const hash = typeof args?.hash === "string" ? args.hash : "";
             if (!hash) return previewCommitFiles(1);
@@ -738,7 +803,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const entries = state.logEntries;
             const limit = typeof args.limit === "number" ? args.limit : entries.length;
             const offset = state.logStreamOffsets.get(key) ?? 0;
-            const page = entries.slice(offset, offset + limit);
+            const page = entries.slice(offset, offset + limit).map(clonePreviewLogEntry);
             state.logStreamOffsets.set(key, offset + page.length);
             return page;
         },

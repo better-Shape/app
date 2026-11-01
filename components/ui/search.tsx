@@ -22,6 +22,17 @@ export type SearchInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>,
     onClear?: () => void;
 };
 
+const resolveSearchAriaLabel = (
+    ariaLabel: string | undefined,
+    ariaLabelledBy: string | undefined,
+    placeholder: string,
+): string | undefined => {
+    if (ariaLabel) return ariaLabel;
+    if (ariaLabelledBy) return undefined;
+    return placeholder.trim() || "Search";
+};
+
+/** Accessible search input with optional loading spinner and one-click clear button. */
 export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
     (
         {
@@ -37,6 +48,7 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
             onClear,
             placeholder = "Search",
             "aria-label": ariaLabel,
+            "aria-labelledby": ariaLabelledBy,
             ...props
         },
         ref,
@@ -95,7 +107,8 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
                     type="search"
                     disabled={disabled}
                     placeholder={placeholder}
-                    aria-label={ariaLabel ?? placeholder}
+                    aria-label={resolveSearchAriaLabel(ariaLabel, ariaLabelledBy, placeholder)}
+                    aria-labelledby={ariaLabelledBy}
                     value={isControlled ? current : undefined}
                     defaultValue={isControlled ? undefined : defaultValue}
                     onChange={(e) => {

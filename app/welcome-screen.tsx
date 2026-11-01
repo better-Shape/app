@@ -18,34 +18,117 @@ import {
     subscribeRepoHistory,
     type RepoHistoryEntry,
 } from "@/lib/workspace/repo-history";
+import { getPlatform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
-const isPosixAbsolutePath = (raw: string): boolean =>
-    raw.startsWith("/") && !raw.startsWith("//");
+const DOUBLE_SLASH_PREFIX_RE = /^\/\/(?!\/)/;
+const UNC_SHARE_ROOT_RE = /^\/\/[^/]+\/[^/]+$/;
+const DRIVE_ROOT_PREFIX_RE = /^[A-Za-z]:\//;
+const DRIVE_SPECIFIER_ONLY_RE = /^[A-Za-z]:$/;
+const VERBATIM_BACKSLASH_UNC_RE = /^\\\\\?\\UNC\\/i;
+const VERBATIM_BACKSLASH_DRIVE_RE = /^\\\\\?\\[A-Za-z]:/;
+const VERBATIM_FORWARD_UNC_RE = /^\/\/\?\/UNC\//i;
+const VERBATIM_FORWARD_DRIVE_RE = /^\/\/\?\/[A-Za-z]:/;
 
-const formatWithPathSeparators = (normalizedTarget: string, originalPath: string): string =>
-    !isPosixAbsolutePath(originalPath) && originalPath.includes("\\")
+/** Strips backslash-prefixed Windows verbatim prefixes (`\\?\` and `\\?\UNC\`). */
+const stripBackslashDisplayVerbatim = (raw: string): string | null => {
+    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return `\\\\${raw.slice(8)}`;
+    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? raw.slice(4) : null;
+};
+
+/** Strips forward-slash `//?/` verbatim prefixes on Windows hosts. */
+const stripForwardDisplayVerbatim = (raw: string): string => {
+    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return `//${raw.slice(8)}`;
+    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? raw.slice(4) : raw;
+};
+
+/** Strips Windows extended-length verbatim prefixes before formatting display paths. */
+const stripDisplayVerbatimPrefix = (raw: string): string => {
+    const strippedBackslash = stripBackslashDisplayVerbatim(raw);
+    if (strippedBackslash !== null) return strippedBackslash;
+    return getPlatform() === "windows" ? stripForwardDisplayVerbatim(raw) : raw;
+};
+
+const isUncDisplayPath = (stripped: string): boolean =>
+    stripped.startsWith("\\\\") ||
+    (DOUBLE_SLASH_PREFIX_RE.test(stripped) && getPlatform() === "windows");
+
+const isPosixDisplayPath = (stripped: string): boolean =>
+    stripped.startsWith("/") && !isUncDisplayPath(stripped);
+
+const collapseDisplaySlashes = (value: string): string => {
+    let out = "";
+    let prevSlash = false;
+    for (const char of value) {
+        if (char === "/") {
+            if (!prevSlash) out += "/";
+            prevSlash = true;
+        } else {
+            out += char;
+            prevSlash = false;
+        }
+    }
+    return out;
+};
+
+const normalizeDisplaySlashes = (forward: string): string => {
+    const prefix = DOUBLE_SLASH_PREFIX_RE.test(forward) ? "//" : "";
+    return `${prefix}${collapseDisplaySlashes(forward.slice(prefix.length))}`;
+};
+
+const resolveMinDisplayRootLength = (collapsed: string): number => {
+    if (DRIVE_ROOT_PREFIX_RE.test(collapsed)) return 3;
+    return collapsed.startsWith("//") ? 2 : 1;
+};
+
+const trimDisplayTrailingSlashes = (collapsed: string): string => {
+    const minLength = resolveMinDisplayRootLength(collapsed);
+    let end = collapsed.length;
+    while (end > minLength && collapsed.charCodeAt(end - 1) === 47) end -= 1;
+    return collapsed.slice(0, end);
+};
+
+const formatWithPathSeparators = (normalizedTarget: string, strippedOriginal: string): string =>
+    !isPosixDisplayPath(strippedOriginal) && strippedOriginal.includes("\\")
         ? normalizedTarget.replaceAll("/", "\\")
         : normalizedTarget;
 
+const isSlashOrDriveRoot = (trimmed: string): boolean =>
+    trimmed === "/" ||
+    trimmed === "//" ||
+    (trimmed.length === 3 && DRIVE_ROOT_PREFIX_RE.test(trimmed));
+
+const isFixedDisplayRoot = (trimmed: string, isUnc: boolean): boolean =>
+    isSlashOrDriveRoot(trimmed) || (isUnc && UNC_SHARE_ROOT_RE.test(trimmed));
+
+const resolveLeadingSlashParent = (trimmed: string, lastSlashIdx: number): string | null => {
+    if (lastSlashIdx === 0) return "/";
+    return lastSlashIdx === 1 && trimmed.startsWith("//") ? "//" : null;
+};
+
+const sliceDisplayParent = (trimmed: string, lastSlashIdx: number): string => {
+    const rootSlash = resolveLeadingSlashParent(trimmed, lastSlashIdx);
+    if (rootSlash) return rootSlash;
+    const parent = trimmed.slice(0, lastSlashIdx);
+    return DRIVE_SPECIFIER_ONLY_RE.test(parent) ? `${parent}/` : parent;
+};
+
+const toTrimmedDisplayPath = (stripped: string): string => {
+    const forward = isPosixDisplayPath(stripped) ? stripped : stripped.replaceAll("\\", "/");
+    return trimDisplayTrailingSlashes(normalizeDisplaySlashes(forward));
+};
+
 /** Parent directory portion of a path, rendered with the path's own separators. */
 export const parentDir = (path: string): string => {
-    const normalized = isPosixAbsolutePath(path) ? path : path.replaceAll("\\", "/");
-    if (normalized === "/" || /^[A-Za-z]:\/+$/.test(normalized)) return path;
-    let end = normalized.length;
-    while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;
-    const trimmed = normalized.slice(0, end);
-    if (/^\/\/[^/]+\/[^/]+$/.test(trimmed)) {
-        return formatWithPathSeparators(trimmed, path);
+    if (!path) return "";
+    const stripped = stripDisplayVerbatimPrefix(path);
+    const trimmed = toTrimmedDisplayPath(stripped);
+    if (isFixedDisplayRoot(trimmed, isUncDisplayPath(stripped))) {
+        return formatWithPathSeparators(trimmed, stripped);
     }
     const idx = trimmed.lastIndexOf("/");
-    if (idx < 0) return path;
-    if (idx === 0) return formatWithPathSeparators("/", path);
-    const parent = trimmed.slice(0, idx);
-    if (/^[A-Za-z]:$/.test(parent)) {
-        return formatWithPathSeparators(`${parent}/`, path);
-    }
-    return formatWithPathSeparators(parent, path);
+    if (idx < 0) return stripped;
+    return formatWithPathSeparators(sliceDisplayParent(trimmed, idx), stripped);
 };
 
 /** Single welcome-screen action tile (icon over label, +1 surface step on hover). */
