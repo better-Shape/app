@@ -4,13 +4,20 @@ import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { getSettings, type UpdateChannel } from "@/lib/settings";
 
+/**
+ * The state of the one update check the app can do.
+ *
+ * Releases are published on GitHub and this build updates by hand, so there is
+ * no download to report progress for and nothing to install: the check names
+ * the version and offers its release page.
+ */
 export type UpdateStatus =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "available"; version: string; notes: string; url?: string }
-  | { kind: "downloading"; version: string; progress: number }
-  | { kind: "ready"; version: string }
   | { kind: "upToDate" }
+  /** GitHub answered, and the repository has published no release yet. */
+  | { kind: "noRelease" }
   | { kind: "error"; message: string };
 
 type Listener = () => void;
@@ -51,17 +58,15 @@ export function getUpdateStatus(): UpdateStatus {
   return status;
 }
 
-/** Copy for Settings / dialogs. Never call an undownloaded update "ready to install". */
+/** Copy for Settings / dialogs. Never claim an update was downloaded or installed. */
 export function describeUpdateStatus(next: UpdateStatus): string {
   switch (next.kind) {
     case "checking":
-      return "Checking…";
+      return "Checking for updates...";
     case "available":
-      return `${next.version} is available. Install it, then restart.`;
-    case "downloading":
-      return `Downloading ${next.version}… ${next.progress}%`;
-    case "ready":
-      return `${next.version} is downloaded. Restart BetterShape to finish.`;
+      return `${next.version} is available. Open its release page to download it.`;
+    case "noRelease":
+      return "No releases have been published yet.";
     case "upToDate":
     case "idle":
       return "You're on the latest version.";
@@ -82,17 +87,26 @@ export function dismissAvailableUpdate(): void {
   setStatus({ kind: "idle" });
 }
 
+/**
+ * Asks GitHub for the newest release on the configured channel.
+ *
+ * This is the only outbound call in the update path and it only runs when a
+ * surface asks for it: the app never polls on startup or on a timer, because a
+ * request the user did not make is not one this app sends.
+ */
 export async function checkForAppUpdates(options?: {
   silent?: boolean;
   force?: boolean;
   channel?: UpdateChannel;
 }): Promise<UpdateStatus> {
-  // Releases are published on GitHub and this build updates manually: the check
-  // asks GitHub for the newest tag and the update is offered as a link, so no
-  // server of ours is involved and nothing is installed silently.
+  const channel = options?.channel ?? getSettings().updates.channel;
   if (!options?.silent) setStatus({ kind: "checking" });
   try {
-    const info = await commands.checkAppUpdate();
+    const info = await commands.checkAppUpdate(channel);
+    if (!info.published) {
+      setStatus({ kind: "noRelease" });
+      return status;
+    }
     if (!info.newer) {
       setStatus({ kind: "upToDate" });
       return status;
@@ -115,39 +129,7 @@ export async function checkForAppUpdates(options?: {
 }
 
 /** Opens the release page for the waiting version, or the releases index. */
-export async function downloadAndInstallUpdate(): Promise<void> {
+export async function openUpdateDownloadPage(): Promise<void> {
   const url = (status.kind === "available" && status.url) || HELP_LINKS.changelog;
   await commands.openUrlExternal(url);
-}
-
-export async function relaunchToApplyUpdate(): Promise<void> {
-  const { relaunch } = await import("@tauri-apps/plugin-process");
-  await relaunch();
-}
-
-export async function installUpdateAndRelaunch(): Promise<void> {
-  await downloadAndInstallUpdate();
-}
-
-let autoCheckStarted = false;
-
-/** Start background update checks (call once from the main workbench). */
-export function startAutoUpdateChecks(): () => void {
-  if (autoCheckStarted || typeof window === "undefined") return () => {};
-  autoCheckStarted = true;
-
-  const run = () => {
-    const settings = getSettings().updates;
-    if (!settings.autoUpdate) return;
-    // Only looks: the chip is the affordance, and opening a browser on a timer
-    // the user never asked for would be a different kind of surprise.
-    void checkForAppUpdates({ silent: true });
-  };
-
-  run();
-  const id = window.setInterval(run, 4 * 60 * 60 * 1000);
-  return () => {
-    window.clearInterval(id);
-    autoCheckStarted = false;
-  };
 }

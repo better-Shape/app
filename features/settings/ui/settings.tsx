@@ -37,9 +37,8 @@ import { isWorkspaceTrusted, listTrustedWorkspaces, trustWorkspace, untrustWorks
 import {
     checkForAppUpdates,
     describeUpdateStatus,
-    downloadAndInstallUpdate,
     getUpdateStatus,
-    relaunchToApplyUpdate,
+    openUpdateDownloadPage,
     subscribeUpdateStatus,
 } from "@/lib/window/updater";
 import { HostedSidebarBack } from "@/features/agent/sidebar/hosted-nav";
@@ -455,39 +454,29 @@ function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
     const [busy, setBusy] = useState(false);
     const status = React.useSyncExternalStore(subscribeUpdateStatus, getUpdateStatus, getUpdateStatus);
 
+    // The version comes from the bundle. The check itself stays behind the
+    // button: opening Settings is not a request to contact GitHub.
     useEffect(() => {
         void import("@tauri-apps/api/app")
             .then(({ getVersion }) => getVersion())
             .then(setVersion)
             .catch(() => {});
-        void (async () => {
-            const next = await checkForAppUpdates({ force: true, silent: true });
-            if (next.kind === "available" && u.autoUpdate) {
-                await downloadAndInstallUpdate();
-            }
-        })();
-    }, [u.autoUpdate]);
+    }, []);
 
-    const statusLine = describeUpdateStatus(status);
+    // `idle` is the state before any check, so it has no result to describe.
+    const statusLine = status.kind === "idle" ? "" : ` ${describeUpdateStatus(status)}`;
+    const checking = status.kind === "checking";
 
-    const runAction = async (kind: "check" | "install" | "restart") => {
+    const runCheck = async () => {
         setBusy(true);
         try {
-            if (kind === "check") {
-                await checkForAppUpdates({ force: true, silent: false });
-            } else if (kind === "install") {
-                await downloadAndInstallUpdate();
-            } else {
-                await relaunchToApplyUpdate();
-            }
+            await checkForAppUpdates({ force: true, silent: false });
         } catch {
             /* status is already set on the updater */
         } finally {
             setBusy(false);
         }
     };
-
-    const downloading = status.kind === "downloading" || status.kind === "checking";
 
     return (
         <SettingSection id="settings-updates" title="About BetterShape">
@@ -496,65 +485,45 @@ function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium text-text-primary">App</div>
                         <div className="text-xs text-text-muted">
-                            Current version is v{version}. {statusLine}
+                            Current version is v{version}.{statusLine}
                         </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                         {status.kind === "available" ? (
                             <Button
                                 size="sm"
-                                disabled={busy || downloading}
-                                onClick={() => void runAction("install")}
-                            >
-                                Install {status.version}
-                            </Button>
-                        ) : null}
-                        {status.kind === "ready" ? (
-                            <Button
-                                size="sm"
                                 disabled={busy}
-                                onClick={() => void runAction("restart")}
+                                onClick={() => {
+                                    void openUpdateDownloadPage().catch(() => undefined);
+                                }}
                             >
-                                Restart now
+                                Get {status.version}
                             </Button>
                         ) : null}
                         <Button
                             variant="secondary"
                             size="sm"
-                            disabled={busy || downloading}
-                            onClick={() => void runAction("check")}
+                            disabled={busy || checking}
+                            onClick={() => void runCheck()}
                         >
-                            {status.kind === "checking" ? "Checking…" : "Check for updates"}
+                            {checking ? "Checking..." : "Check for updates"}
                         </Button>
                     </div>
                 </div>
                 <div className="flex items-center gap-3 px-3.5 py-3">
                     <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-text-primary">Updater</div>
+                        <div className="text-sm font-medium text-text-primary">How updates arrive</div>
                         <div className="text-xs text-text-muted">
-                            {u.autoUpdate
-                                ? "Downloads in the background. Restart to finish."
-                                : "Manual checks only."}{" "}
-                            Channel: {u.channel === "nightly" ? "Nightly" : "Stable"}.
+                            Releases are published on GitHub. A check only reads the newest version; the
+                            button opens the release page, where you download the installer yourself.
                         </div>
                     </div>
                 </div>
             </SettingCard>
-            <SettingRow title="Automatic updates" description="Download new versions when they ship. Restart to apply them.">
-                <SettingSwitch
-                    checked={u.autoUpdate}
-                    onChange={(v) => {
-                        updateSettingSection("updates", { autoUpdate: v });
-                        if (v) {
-                            void (async () => {
-                                const next = await checkForAppUpdates({ force: true, silent: true });
-                                if (next.kind === "available") await downloadAndInstallUpdate();
-                            })();
-                        }
-                    }}
-                />
-            </SettingRow>
-            <SettingRow title="Update channel">
+            <SettingRow
+                title="Update channel"
+                description="Stable reads the newest published release. Nightly also counts pre-releases."
+            >
                 <SettingSelect
                     value={u.channel}
                     options={[
@@ -564,10 +533,6 @@ function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
                     onChange={(v) => {
                         const channel = v as BetterShapeSettings["updates"]["channel"];
                         updateSettingSection("updates", { channel });
-                        void (async () => {
-                            const next = await checkForAppUpdates({ force: true, silent: true, channel });
-                            if (next.kind === "available" && u.autoUpdate) await downloadAndInstallUpdate();
-                        })();
                     }}
                 />
             </SettingRow>

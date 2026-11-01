@@ -165,7 +165,8 @@ export const commands = {
     reorderFiles: (files: FileInfo[]) => invokeCommand("reorder_files", { files }),
     getRustDeps: (projectPath: string) => invokeCommand<[string, string][]>("get_rust_deps", { projectPath }),
     getProjectState: () => invokeCommand<ProjectState>("get_project_state"),
-    checkAppUpdate: () => invokeCommand<AppUpdateInfo>("check_app_update"),
+    checkAppUpdate: (channel?: "stable" | "nightly") =>
+        invokeCommand<AppUpdateInfo>("check_app_update", { channel: channel ?? null }),
     openUrlExternal: (url: string) => invokeCommand("open_url_external", { url }),
     pinToTaskbar: () => invokeCommand<void>("pin_to_taskbar"),
     agentBrowseStop: () => invokeCommand<void>("agent_browse_stop"),

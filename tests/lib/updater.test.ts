@@ -22,11 +22,12 @@ beforeEach(() => {
 });
 
 describe("checkForAppUpdates", () => {
-    const release = (overrides: Partial<{ latest: string; newer: boolean }> = {}) => ({
+    const release = (overrides: Partial<{ latest: string; newer: boolean; published: boolean }> = {}) => ({
         current: "1.0.3",
         latest: "1.1.0",
         newer: true,
-        url: "https://github.com/Owie6789/BetterShape/releases/tag/v1.1.0",
+        published: true,
+        url: "https://github.com/better-Shape/app/releases/tag/v1.1.0",
         notes: "Fixes",
         ...overrides,
     });
@@ -41,7 +42,7 @@ describe("checkForAppUpdates", () => {
             kind: "available",
             version: "1.1.0",
             notes: "Fixes",
-            url: "https://github.com/Owie6789/BetterShape/releases/tag/v1.1.0",
+            url: "https://github.com/better-Shape/app/releases/tag/v1.1.0",
         });
         expect(updater.getUpdateStatus().kind).toBe("available");
     });
@@ -51,6 +52,27 @@ describe("checkForAppUpdates", () => {
         const updater = await loadUpdater();
 
         expect((await updater.checkForAppUpdates()).kind).toBe("upToDate");
+    });
+
+    it("reports a repository that has published nothing as no release", async () => {
+        // A project with no release answers 404, which is an answer, not a failure.
+        backend.checkAppUpdate.mockResolvedValue(
+            release({ latest: "", newer: false, published: false }),
+        );
+        const updater = await loadUpdater();
+
+        expect((await updater.checkForAppUpdates()).kind).toBe("noRelease");
+    });
+
+    it("asks for the channel the settings name", async () => {
+        backend.checkAppUpdate.mockResolvedValue(release());
+        const updater = await loadUpdater();
+
+        await updater.checkForAppUpdates({ channel: "nightly" });
+        expect(backend.checkAppUpdate).toHaveBeenLastCalledWith("nightly");
+
+        await updater.checkForAppUpdates();
+        expect(backend.checkAppUpdate).toHaveBeenLastCalledWith("stable");
     });
 
     it("keeps a dismissed version quiet until the check is forced", async () => {
@@ -79,10 +101,10 @@ describe("checkForAppUpdates", () => {
         const updater = await loadUpdater();
         await updater.checkForAppUpdates();
 
-        await updater.downloadAndInstallUpdate();
+        await updater.openUpdateDownloadPage();
 
         expect(backend.openUrlExternal).toHaveBeenCalledWith(
-            "https://github.com/Owie6789/BetterShape/releases/tag/v1.1.0",
+            "https://github.com/better-Shape/app/releases/tag/v1.1.0",
         );
     });
 });
@@ -95,24 +117,18 @@ describe("describeUpdateStatus", () => {
             notes: "",
         };
         expect(describeUpdateStatus(available)).toBe(
-            "1.0.1 is available. Install it, then restart.",
+            "1.0.1 is available. Open its release page to download it.",
         );
         expect(describeUpdateStatus(available).toLowerCase()).not.toContain(
             "ready to install",
         );
+        expect(describeUpdateStatus(available).toLowerCase()).not.toContain("restart");
     });
 
-    it("tells you to restart only after the download finished", () => {
-        expect(describeUpdateStatus({ kind: "ready", version: "1.0.1" })).toBe(
-            "1.0.1 is downloaded. Restart BetterShape to finish.",
+    it("says so when the repository has published nothing", () => {
+        expect(describeUpdateStatus({ kind: "noRelease" })).toBe(
+            "No releases have been published yet.",
         );
-        expect(
-            describeUpdateStatus({
-                kind: "downloading",
-                version: "1.0.1",
-                progress: 40,
-            }),
-        ).toBe("Downloading 1.0.1… 40%");
     });
 
     it("stays boring when nothing is pending", () => {
@@ -122,5 +138,6 @@ describe("describeUpdateStatus", () => {
         expect(describeUpdateStatus({ kind: "upToDate" })).toBe(
             "You're on the latest version.",
         );
+        expect(describeUpdateStatus({ kind: "checking" })).toBe("Checking for updates...");
     });
 });

@@ -294,29 +294,26 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 break;
             case "Check for Updates":
             case "Check for Updates...": {
-                const { checkForAppUpdates, downloadAndInstallUpdate, relaunchToApplyUpdate } =
-                    await import("@/lib/window/updater");
+                const { checkForAppUpdates, openUpdateDownloadPage } = await import("@/lib/window/updater");
                 const { ask, message } = await import("@tauri-apps/plugin-dialog");
                 const status = await checkForAppUpdates({ force: true });
                 if (status.kind === "available") {
                     // This build updates by hand: the offer opens the release
-                    // page, and the restart prompt below only appears for a
-                    // build that installed the update itself.
+                    // page, and nothing is downloaded or installed for the user.
                     const confirmed = await ask(
                         `BetterShape ${status.version} is available. Open the release page?`,
                         { title: "Update available", kind: "info" },
                     );
-                    if (confirmed) await downloadAndInstallUpdate();
+                    if (confirmed) await openUpdateDownloadPage();
                 } else if (status.kind === "upToDate") {
                     await message("You're on the latest version.", { title: "Check for Updates", kind: "info" });
-                } else if (status.kind === "error") {
-                    await message(status.message, { title: "Check for Updates", kind: "error" });
-                } else if (status.kind === "ready") {
-                    const restart = await ask("An update is ready. Restart BetterShape now?", {
-                        title: "Restart required",
+                } else if (status.kind === "noRelease") {
+                    await message("No releases have been published yet.", {
+                        title: "Check for Updates",
                         kind: "info",
                     });
-                    if (restart) await relaunchToApplyUpdate();
+                } else if (status.kind === "error") {
+                    await message(status.message, { title: "Check for Updates", kind: "error" });
                 }
                 break;
             }

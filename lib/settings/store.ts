@@ -204,8 +204,6 @@ export interface BetterShapeSettings {
         toolingInstall: "prompt" | "auto" | "off";
     };
     updates: {
-        /** Poll for updates automatically. */
-        autoUpdate: boolean;
         /** Stable = latest GitHub release. Nightly = latest GitHub prerelease. */
         channel: UpdateChannel;
     };
@@ -339,7 +337,6 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         toolingInstall: "off",
     },
     updates: {
-        autoUpdate: true,
         channel: "stable",
     },
     appearance: {

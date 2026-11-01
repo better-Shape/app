@@ -14,7 +14,7 @@ use std::time::Duration;
 /// Repository whose releases ship this build. The release workflow exports
 /// `GITHUB_REPOSITORY`, so a fork's installer points at the fork; the fallback
 /// keeps an unqualified local build working.
-const FALLBACK_REPO: &str = "Owie6789/BetterShape";
+const FALLBACK_REPO: &str = "better-Shape/app";
 
 const USER_AGENT: &str = "BetterShape-Update-Check";
 
@@ -31,6 +31,9 @@ pub struct AppUpdateInfo {
     pub latest: String,
     /// True only when `latest` is a higher version than `current`.
     pub newer: bool,
+    /// False when the repository has no release yet. A project that has not cut
+    /// a release answers 404, which is not a failure to reach GitHub.
+    pub published: bool,
     /// Release page for `latest`, or the releases index when GitHub omits it.
     pub url: String,
     /// Release notes, as published.
@@ -90,10 +93,21 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     false
 }
 
-async fn latest_release(repo: &str) -> Result<serde_json::Value, AppError> {
-    let endpoint = format!("https://api.github.com/repos/{repo}/releases/latest");
+/// Release endpoint for the channel. Stable asks for the newest published
+/// release; nightly lists releases newest first so a prerelease counts.
+fn release_endpoint(repo: &str, nightly: bool) -> String {
+    if nightly {
+        format!("https://api.github.com/repos/{repo}/releases?per_page=1")
+    } else {
+        format!("https://api.github.com/repos/{repo}/releases/latest")
+    }
+}
+
+/// The release body, or `None` when the repository has published nothing yet.
+async fn fetch_release(repo: &str, nightly: bool) -> Result<Option<serde_json::Value>, AppError> {
+    let endpoint = release_endpoint(repo, nightly);
     // A bounded request: GitHub can accept the connection and then stall, and an
-    // unbounded await would leave the update chip on "checking" until restart.
+    // unbounded await would leave the update check on "checking" until restart.
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(Duration::from_secs(15))
@@ -106,24 +120,54 @@ async fn latest_release(repo: &str) -> Result<serde_json::Value, AppError> {
         .await
         .map_err(reach_failure)?;
     let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
     if !status.is_success() {
         let code = status.as_u16();
-        let message = format!("GitHub answered {code} for the latest release.");
+        let message = format!("GitHub answered {code} for the release list.");
         return Err(AppError::Message(message));
     }
     let payload = response
         .json::<serde_json::Value>()
         .await
         .map_err(parse_failure)?;
-    Ok(payload)
+    if !nightly {
+        return Ok(Some(payload));
+    }
+    // The list endpoint answers an array ordered newest first; an empty array is
+    // the same "nothing published" answer as the 404 above.
+    let first = payload
+        .as_array()
+        .and_then(|releases| releases.first().cloned());
+    Ok(first)
+}
+
+fn channel_is_nightly(channel: Option<&str>) -> bool {
+    matches!(
+        channel.map(|value| value.trim().to_ascii_lowercase()).as_deref(),
+        Some("nightly")
+    )
 }
 
 #[tauri::command]
-pub async fn check_app_update(app: tauri::AppHandle) -> Result<AppUpdateInfo, AppError> {
+pub async fn check_app_update(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Result<AppUpdateInfo, AppError> {
     let current = app.package_info().version.to_string();
     let repo = release_repo();
     let index = format!("https://github.com/{repo}/releases");
-    let payload = latest_release(repo).await?;
+    let Some(payload) = fetch_release(repo, channel_is_nightly(channel.as_deref())).await? else {
+        return Ok(AppUpdateInfo {
+            current,
+            latest: String::new(),
+            newer: false,
+            published: false,
+            url: index,
+            notes: String::new(),
+        });
+    };
 
     let tag = payload.get("tag_name");
     let tag = tag.and_then(|value| value.as_str()).unwrap_or("");
@@ -143,6 +187,7 @@ pub async fn check_app_update(app: tauri::AppHandle) -> Result<AppUpdateInfo, Ap
 
     Ok(AppUpdateInfo {
         newer: is_newer_version(&current, &latest),
+        published: true,
         current,
         latest,
         url,
@@ -172,6 +217,15 @@ mod tests {
         assert!(!is_newer_version("1.4.0", "1.4.0+build.7"));
         assert!(is_newer_version("1.4.0-beta.2", "1.4.1"));
         assert!(!is_newer_version("1.2.0", "1.2"));
+    }
+
+    #[test]
+    fn asks_the_endpoint_the_channel_needs() {
+        assert!(release_endpoint("better-Shape/app", true).ends_with("/releases?per_page=1"));
+        assert!(release_endpoint("better-Shape/app", false).ends_with("/releases/latest"));
+        assert!(channel_is_nightly(Some("Nightly")));
+        assert!(!channel_is_nightly(Some("stable")));
+        assert!(!channel_is_nightly(None));
     }
 
     #[test]
