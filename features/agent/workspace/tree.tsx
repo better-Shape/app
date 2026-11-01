@@ -10,6 +10,7 @@ import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands, type FileEntry } from "@/lib/backend";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { FileIcon } from "@/components/ui/file-icon";
 
@@ -752,14 +753,16 @@ export const FileTree = ({
                                     >
                                         {workspaceFolderLabel(root.path)}
                                     </span>
-                                    <button
+                                    <Button
                                         type="button"
+                                        variant="ghost"
+                                        size="icon"
                                         aria-label={`Remove ${workspaceFolderLabel(root.path)} from the workspace`}
                                         onClick={() => removeWorkspaceFolder(root.path)}
-                                        className="flex size-5 shrink-0 items-center justify-center rounded text-text-muted opacity-0 outline-none transition-opacity hover:text-text-primary focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-border-focus group-hover:opacity-100"
+                                        className="size-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                                     >
                                         <Icon icon={Dismiss20Regular} className="icon-sm" />
-                                    </button>
+                                    </Button>
                                 </div>
                                 {root.error ? (
                                     <div className="px-2 py-1 text-xs text-error">{root.error}</div>
