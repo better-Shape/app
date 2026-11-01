@@ -315,7 +315,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 // a failed fallback has to say so instead of leaving the selection
                 // silently uncopied.
                 if (copyWithHiddenTextarea(selected)) return;
-                import("@/features/notifications").then(({ notify }) => {
+                void import("@/features/notifications").then(({ notify }) => {
                     notify.error("Clipboard", "Could not copy the terminal selection.");
                 });
             };
