@@ -41,6 +41,13 @@ const trimLineEnds = (doc: string): string =>
         })
         .join("\n");
 
+/** Drops the newlines at the end of `text`, one character at a time. */
+const stripTrailingNewlines = (text: string): string => {
+    let end = text.length;
+    while (end > 0 && text.charCodeAt(end - 1) === 0x0a) end -= 1;
+    return end === text.length ? text : text.slice(0, end);
+};
+
 /** Applies Trim trailing whitespace and Insert final newline to an LF document. */
 export function prepareDocForSave(doc: string): string {
     const editor = getSettings().editor;
@@ -69,7 +76,7 @@ export async function formatForSave(path: string, text: string): Promise<string>
         // setting that decides that for a save, so its answer is the one that
         // counts: a file saved without one must not grow one from the formatter.
         if (!settings.editor.insertFinalNewline && !text.endsWith("\n")) {
-            return formatted.replace(/\n+$/, "");
+            return stripTrailingNewlines(formatted);
         }
         return formatted;
     } catch (error) {

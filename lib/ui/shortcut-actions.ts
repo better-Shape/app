@@ -157,9 +157,15 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
                     defaultPath: state.project_path ? `${state.project_path}/${name}` : name,
                 });
                 if (typeof selected !== "string") return;
-                const content = await commands.readFile(active);
+                // Save As is a save of the document on screen, so it reads the
+                // live buffer and runs the same on-save processing, in the
+                // source file's line ending.
+                const { readLatestContent } = await import("@/lib/editor/buffer-read");
+                const { saveContents } = await import("@/lib/editor/save-pipeline");
+                const { liveEolFor } = await import("@/lib/editor/live-eol");
+                const content = await readLatestContent(active);
                 await commands.grantIpcPath(selected).catch(() => undefined);
-                await commands.saveFile(selected, content);
+                await saveContents(selected, content, liveEolFor(active));
                 await commands.openFile(selected, selected.split(/[\\/]/).pop() || selected);
             })();
             return true;

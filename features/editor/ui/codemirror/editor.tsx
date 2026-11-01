@@ -52,6 +52,7 @@ import { optionExtensions } from "@/features/editor/ui/codemirror/options";
 import { stageDirtyBuffer, saveDirtyBuffer, flushDirtyBuffers, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import { commands, getProjectPath } from "@/lib/backend";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { rememberLiveEol } from "@/lib/editor/live-eol";
 import { requestLocalHistory } from "@/lib/editor/local-history";
 import { LocalHistoryPicker } from "@/features/editor/ui/local-history-picker";
 import { getSettings } from "@/lib/settings";
@@ -191,6 +192,9 @@ export function CodeMirrorEditor({
         const publishStatus = (view: EditorView) => {
             const head = view.state.selection.main.head;
             const line = view.state.doc.lineAt(head);
+            // Menu saves have no view to ask, so record the ending this file
+            // was loaded with for them.
+            rememberLiveEol(pathRef.current, view.state.lineBreak === "\r\n" ? "CRLF" : "LF");
             window.dispatchEvent(
                 new CustomEvent("bettershape-editor-status", {
                     detail: {

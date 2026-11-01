@@ -1,4 +1,4 @@
-import { dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
+import { clearDirtyBuffer, dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
 import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -126,16 +126,31 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 if (typeof selected === "string") {
                     const content = await ctx.readLatestContent(ctx.activeFile);
                     await commands.grantIpcPath(selected).catch(() => undefined);
-                    await commands.saveFile(selected, content);
+                    // A menu save is a save: the copy gets the same on-save
+                    // processing, in the source file's line ending.
+                    const { saveContents } = await import("@/lib/editor/save-pipeline");
+                    const { liveEolFor } = await import("@/lib/editor/live-eol");
+                    await saveContents(selected, content, liveEolFor(ctx.activeFile));
+                    // The copy is on disk, so the draft it came from is not owed
+                    // to any later reopen of the source file.
+                    clearDirtyBuffer(selected);
                     await commands.openFile(selected, getFileName(selected));
                 }
                 break;
             }
             case "Save All": {
+                // Saving every dirty file used to write each buffer straight to
+                // disk, skipping Trim trailing whitespace, Insert final newline,
+                // Format on save and Fix on save.
+                const { saveContents } = await import("@/lib/editor/save-pipeline");
+                const { liveEolFor } = await import("@/lib/editor/live-eol");
                 for (const file of dirtyOpenFiles(ctx.openFiles)) {
                     if (isBinaryAssetPath(file.path)) continue;
                     const content = await ctx.readLatestContent(file.path);
-                    await commands.saveFile(file.path, content);
+                    const written = await saveContents(file.path, content, liveEolFor(file.path));
+                    // On-save processing can change the text, so the draft is the
+                    // old bytes; clearing it is what stops a reopen restoring them.
+                    if (written !== content) clearDirtyBuffer(file.path);
                 }
                 break;
             }
