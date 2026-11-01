@@ -94,10 +94,12 @@ export function noteDevRunOutput(chunk: string) {
  * still running, so a mismatch is ignored once the dev run's own PTY is known.
  */
 export function noteDevRunExit(code: number | null, ptyId?: number | null) {
-    clearStartingTimer();
     if (state.status === "idle") return;
+    // An exit that is not this run's leaves the run exactly as it was, including
+    // the fallback that stops a silent start from reading "Starting" forever.
     if (awaitingPtyBinding) return;
     if (ptyId != null && state.ptyId != null && ptyId !== state.ptyId) return;
+    clearStartingTimer();
     if (code === 0) {
         awaitingPtyBinding = false;
         state = { status: "idle", command: null, ptyId: null, alive: false };

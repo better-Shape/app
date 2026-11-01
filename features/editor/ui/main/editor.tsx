@@ -1,6 +1,6 @@
 "use client";
 
-import { stageDirtyBuffer, saveDirtyBuffer, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, loadDirtyBuffer, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
 import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallback } from "react";
 import { useEditorView } from "@/core/providers/editor";
@@ -122,7 +122,12 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             const written = await saveContents(targetPath, doc, eol);
             // Typing during the write wins: the buffer on screen is newer. A
             // path change means this text belongs to another file now.
-            if (pathRef.current === targetPath && currentContentRef.current === doc) {
+            // A newer draft for the same path is a reopened file with unsaved
+            // text: this write describes older bytes and must not clear a marker
+            // that belongs to the newer buffer.
+            const newer = loadDirtyBuffer(targetPath);
+            const newerTextExists = Boolean(newer && newer.content !== doc);
+            if (!newerTextExists && pathRef.current === targetPath && currentContentRef.current === doc) {
                 currentContentRef.current = written;
                 // Keep the on-disk line ending in the baseline: the next save
                 // reads the convention from it, and `written` is LF.

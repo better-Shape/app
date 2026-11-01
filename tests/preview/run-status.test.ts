@@ -43,3 +43,14 @@ it("does not inherit the previous run's PTY id", () => {
     noteDevRunExit(1, 12);
     expect(getDevRunSnapshot().status).toBe("error");
 });
+
+it("keeps the starting fallback when an exit is ignored", () => {
+    vi.useFakeTimers();
+    startDevRun("npm run dev");
+    noteDevRunExit(0, 4242);
+    expect(getDevRunSnapshot().status).toBe("starting");
+    // A start that never prints a ready line must still settle on its own.
+    vi.advanceTimersByTime(15_000);
+    expect(getDevRunSnapshot().status).toBe("running");
+    vi.useRealTimers();
+});

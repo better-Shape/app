@@ -55,13 +55,10 @@ vi.mock("@/features/editor/ui/markdown/live-editor", () => ({
 }));
 vi.mock("@/features/editor/ui/markdown/markdown", () => ({ MarkdownPreview: () => null }));
 vi.mock("@/features/panels", () => ({ Panel: () => null }));
-vi.mock("@/lib/workspace/dirty-buffers", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("@/lib/workspace/dirty-buffers")>();
-    return { ...actual, stageDirtyBuffer: () => undefined, saveDirtyBuffer: () => undefined };
-});
 
 import FileViewer from "@/features/editor/ui/main/editor";
 import { updateSettingSection } from "@/lib/settings";
+import { clearDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
 let host: HTMLDivElement;
 let root: Root | undefined;
@@ -159,4 +156,29 @@ it("keeps the pending edit when Auto Save is switched off before the switch", as
     });
     const written = backend.saveFile.mock.calls.map((call) => call as unknown as [string, string]);
     expect(written.some(([path]) => path === "/repo/notes.md")).toBe(false);
+});
+
+it("does not clear a newer buffer's dirty marker when the unmounted write lands", async () => {
+    await render("/repo/notes.md");
+    if (!live.onchange) throw new Error("markdown editor did not mount");
+    await act(async () => {
+        live.onchange?.("edited before closing");
+    });
+    let settle!: () => void;
+    const write = new Promise<undefined>((resolve) => {
+        settle = () => resolve(undefined);
+    });
+    backend.saveFile.mockReturnValueOnce(write);
+    await act(async () => {
+        root?.unmount();
+        root = undefined;
+    });
+    // The file came back and was edited again while the write was in flight.
+    saveDirtyBuffer("/repo/notes.md", "newer text", "edited before closing");
+    await act(async () => {
+        settle();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(backend.markFileDirty).not.toHaveBeenCalledWith("/repo/notes.md", false);
+    clearDirtyBuffer("/repo/notes.md");
 });
