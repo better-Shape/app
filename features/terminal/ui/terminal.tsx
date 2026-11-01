@@ -60,6 +60,7 @@ import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import { createClipboardQueue } from "@/lib/ui/clipboard-queue";
+import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
 import {
     clearTerminalSnapshot,
     saveTerminalSnapshots,
@@ -310,15 +311,13 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             // copy lands.
             const copySelected = (selected: string) => {
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
-                const area = document.createElement("textarea");
-                area.value = selected;
-                area.setAttribute("readonly", "");
-                area.style.position = "fixed";
-                area.style.left = "-9999px";
-                document.body.appendChild(area);
-                area.select();
-                document.execCommand("copy");
-                area.remove();
+                // `execCommand` needs the activation the asynchronous copy lost, so
+                // a failed fallback has to say so instead of leaving the selection
+                // silently uncopied.
+                if (copyWithHiddenTextarea(selected)) return;
+                import("@/features/notifications").then(({ notify }) => {
+                    notify.error("Clipboard", "Could not copy the terminal selection.");
+                });
             };
             const writeClipboard = createClipboardQueue((text) => {
                 if (!navigator.clipboard) return Promise.reject(new Error("no async clipboard"));

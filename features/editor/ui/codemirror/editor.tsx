@@ -560,6 +560,10 @@ export function CodeMirrorEditor({
                 // preview reads its own ending from this ref.
                 const onDisk = toDiskText(written, writeEol);
                 savedContentRef.current = onDisk;
+                // The write holds the disk, not the buffer: an ending the picker
+                // changed while it ran leaves the buffer holding text the disk
+                // does not have, and that stays dirty until the next write.
+                if (eol !== writeEol) return;
                 isDirtyRef.current = false;
                 // The draft in recovery is the text from before the save. Rebase it
                 // on what was written, so reopening the file cannot restore an

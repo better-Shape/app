@@ -223,3 +223,36 @@ it("takes the ending a menu save used, not the one the picker holds now", async 
     expect(saved.current).toBe("one\r\ntwo");
     expect(dirty.current).toBe(false);
 });
+
+it("keeps the buffer dirty when the ending changes while its save is in flight", async () => {
+    updateSettingSection("files", { defaultEol: "CRLF" });
+    updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 40 });
+    const { view, saved, dirty } = await mount("one\r\ntwo", "one\r\ntwo");
+    let release!: () => void;
+    backend.saveFile.mockReturnValueOnce(
+        new Promise<undefined>((resolve) => {
+            release = () => resolve(undefined);
+        }),
+    );
+    await act(async () => {
+        view.dispatch({ changes: { from: 0, insert: "x" } });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    expect(backend.saveFile).toHaveBeenCalled();
+    // The write is in flight when the picker switches the file to LF.
+    await act(async () => {
+        window.dispatchEvent(
+            new CustomEvent("bettershape-editor-action", { detail: { action: "setEol", value: "LF" } }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+        release();
+        await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    expect(view.state.lineBreak).toBe("\n");
+    // The disk got CRLF bytes for older text: the LF buffer is not saved over them.
+    expect(saved.current).toContain("\r\n");
+    expect(dirty.current).toBe(true);
+    updateSettingSection("editor", { autoSave: "off" });
+});
