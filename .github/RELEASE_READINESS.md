@@ -12,7 +12,7 @@ explained below the table.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --all-features` in `src-tauri/` | **453 passed, 0 failed** |
+| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --all-features` in `src-tauri/` | **455 passed, 0 failed** |
 | Rust formatting | `cargo fmt --all -- --check` | clean |
 | Rust lints | `cargo clippy --all-targets --all-features -- -D warnings` | clean, 0 warnings |
 | TypeScript | `npx tsc --noEmit` | clean |

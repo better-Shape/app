@@ -203,9 +203,13 @@ async fn fetch_release(repo: &str, nightly: bool) -> Result<Option<serde_json::V
     if !nightly {
         return Ok(Some(payload));
     }
-    // The list endpoint answers an array ordered newest first; an empty array is
-    // the same "nothing published" answer as the 404 above. Anything else is a
-    // body this build cannot read, which must not read as "no releases".
+    nightly_page(payload)
+}
+
+/// Reads one nightly release page. An empty array is the same "nothing
+/// published" answer as the 404 above; any other non-array body is a body this
+/// build cannot read, which must not read as "no releases".
+fn nightly_page(payload: serde_json::Value) -> Result<Option<serde_json::Value>, AppError> {
     let Some(releases) = payload.as_array() else {
         let message = "GitHub sent a release list this build cannot read.".to_string();
         return Err(AppError::Message(message));
@@ -355,6 +359,27 @@ mod tests {
     fn nightly_reads_an_empty_list_as_nothing_published() {
         let releases = serde_json::json!([]);
         assert!(nightly_release(releases.as_array().expect("an array")).is_none());
+    }
+
+    #[test]
+    fn a_nightly_page_that_is_not_a_list_is_an_error_not_an_empty_channel() {
+        // An object body used to read as "nothing published", which told a
+        // nightly build it was current instead of reporting the answer it could
+        // not read.
+        let wrong = serde_json::json!({ "message": "API rate limit exceeded" });
+        let failed = nightly_page(wrong);
+        assert!(
+            matches!(failed, Err(AppError::Message(ref message)) if message.contains("cannot read"))
+        );
+
+        // An empty list is the documented "nothing published" answer.
+        assert!(matches!(nightly_page(serde_json::json!([])), Ok(None)));
+
+        let one = serde_json::json!([{ "tag_name": "v2.0.0-nightly.1", "prerelease": true }]);
+        let picked = nightly_page(one)
+            .expect("a list reads")
+            .and_then(|release| release["tag_name"].as_str().map(str::to_string));
+        assert_eq!(picked, Some("v2.0.0-nightly.1".to_string()));
     }
 
     #[test]
