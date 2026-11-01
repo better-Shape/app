@@ -1,33 +1,34 @@
 # Release readiness
 
 A snapshot of what is verified green, what this branch fixed, and what is still
-open. Regenerate the evidence with the commands at the bottom; every claim here
-was produced by one of them, not by reading code and hoping.
+open. The green table and the commands at the bottom were produced by running
+them; the event wiring section records what each call site showed.
 
 ## Verified green
 
-Re-measured in a restricted sandbox against the vendor branch on 2026-10-17. The vendored toolchain
-is Rust 1.89.0, which meets the lockfile's MSRV, so the cargo rows need no `--ignore-rust-version`;
-`CARGO_BUILD_JOBS=1` is explained below the table.
+Re-measured in a restricted sandbox on 2026-11-01. The vendored toolchain is Rust 1.89.0, which meets
+the lockfile's MSRV, so the cargo rows need no `--ignore-rust-version`; `CARGO_BUILD_JOBS=1` is
+explained below the table.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --all-features --manifest-path src-tauri/Cargo.toml` | **313 passed, 0 failed** |
-| Rust formatting | `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | clean |
-| Rust lints | `cargo clippy --all-targets --all-features --manifest-path src-tauri/Cargo.toml -- -D warnings` | clean, 0 errors |
+| Rust unit tests | `CARGO_BUILD_JOBS=1 cargo test --all-features` in `src-tauri/` | **453 passed, 0 failed** |
+| Rust formatting | `cargo fmt --all -- --check` | clean |
+| Rust lints | `cargo clippy --all-targets --all-features -- -D warnings` | clean, 0 warnings |
 | TypeScript | `npx tsc --noEmit` | clean |
-| ESLint | `npx eslint --quiet` | clean, 0 errors |
-| JS/TS tests | `npx vitest run` | 106 files, 864 tests, all passing |
+| Test typing | `npx tsc --noEmit -p tests/tsconfig.json` | clean |
+| ESLint | `npm run lint:strict` | clean, 0 warnings |
+| JS/TS tests | `npm run test:all` | 295 files, 3035 tests, all passing |
 | Skill lock | `npm run skills:verify` | 53 of 53 locked skills verified |
-| Browser smoke specs | `PLAYWRIGHT_BROWSERS_PATH=<vendored> PLAYWRIGHT_SANDBOX_LIBS=<vendored closure> npx playwright test e2e/smoke.spec.ts` | 6 of 6 passed |
-| Browser suite, CI mode | `npm run build:preview && E2E_STATIC=1 npx playwright test --grep-invert @visual` (same env) | 22 passed |
+| Browser suite, CI mode | `npm run build:preview && E2E_STATIC=1 npx playwright test` | 37 passed |
+| Secret scan | `git diff <base>...HEAD --unified=0 \| node scripts/ci/check-secrets.mjs` | no obvious secret values in added lines |
 
 The vendored toolchain is Rust 1.89.0, matching the `src-tauri/Cargo.toml` pin and
 `notify-rust@4.18.0`'s `rust-version = "1.89.0"`, so the cargo rows run unmodified. `CARGO_BUILD_JOBS=1`
 keeps parallel test linking inside a small sandbox's memory. The Rust rows in this table were
 measured against the current payload (`7c4c878`), whose sysroot is usr-merged with no absolute or
-dangling library symlinks. Every Cargo row runs from the repository root and carries
-`--manifest-path src-tauri/Cargo.toml`, because the repository has no root manifest.
+dangling library symlinks. The cargo rows run from `src-tauri/`, because the repository has no root
+manifest; the reproducing commands below keep the `--manifest-path` spelling for a root shell.
 
 Rust runs in the sandbox as well, against the vendor branch: the orphan branch
 `vendor/sandbox-toolchain` carries the 1.89.0 components, the crate registry and a Debian 12 dev
@@ -75,48 +76,66 @@ offline. `scripts/dev/rust-toolchain.sh` remains the npm-only path for `cargo fm
   local runtimes, and a custom base URL).
 - Account layer (login, credits, tiers, telemetry, update feed): removed.
 
-## Known gaps (verified dead event wiring)
+## Event wiring
 
-These are hooks whose other half does not exist. They are *listed*, not hidden,
-because each one is either a missing producer or a leftover from a removed
-feature. None of them breaks a flow that is otherwise complete; the two that
-would have (explorer shortcuts, chat selection context) are fixed above.
+`node scripts/qa/audit-glue.mjs` scans 553 modules and reports orphan modules,
+module-level dead ends, and event channels that only one side names. Its event
+matcher is literal (`new Event("name")`, `addEventListener("name")`), so a name
+dispatched through a helper, or listened to from an array of names, is invisible
+to it. Every channel it listed was read at its call site before it was believed,
+and the ones it reported as one-sided all have both halves:
 
-Produced, never consumed:
-
-- `bettershape-chat-pins-changed` (`lib/sidebar/chat-list-meta.ts`)
-- `bettershape-composer-insert-mention` (`features/preview/design/shell.tsx`)
-- `bettershape-workspace-folders-changed` (`lib/workspace/folders.ts`)
-
-Consumed, never produced:
-
+- `bettershape-chat-pins-changed`, `-unread-changed`, `-collections-changed`,
+  `-colors-changed`: dispatched by `announce()` in
+  `lib/sidebar/chat-list-meta.ts`, listened to by `ensureCrossWindowSync` in the
+  same file.
+- `mcp-servers-changed`: a Tauri event. The Rust side emits it
+  (`mcp_cmds.rs`, `meta.rs`); `lib/chat/mention-warm-cache.ts` and the MCP
+  settings page listen.
+- `bettershape-terminal-open`: dispatched by `features/agent/terminal-dock.tsx`,
+  read by the titlebar through `useStoredFlag`.
+- `bettershape-workspace-opened`, `-trusted`, `-untrusted`: dispatched by
+  `lib/workspace/trust.ts`, listened to from the event list in
+  `features/settings/ui/settings.tsx`.
 - `bettershape-editor-edit-action`, `bettershape-editor-search`,
-  `bettershape-editor-split`
-- `bettershape-terminal-run-restart`, `bettershape-terminal-run-stop`,
-  `bettershape-terminal-view`
-- `bettershape-toggle-design-mode`, `bettershape-toggle-browser-design-mode`
-- `bettershape-typescript-version`
-- `open-folder-request` (`components/layout/main.tsx`)
+  `bettershape-editor-split`, `bettershape-terminal-run-restart`,
+  `bettershape-terminal-run-stop`, `bettershape-toggle-browser-design-mode` and
+  `bettershape-workspace-folders-changed`: a dispatcher and a listener each, some
+  named in an array or through a stored-flag helper.
+
+Four names the earlier audit listed have no occurrence in the tree at all, so
+nothing is waiting on them: `bettershape-terminal-view`,
+`bettershape-toggle-design-mode`, `bettershape-typescript-version` and
+`open-folder-request`.
 
 Removed by this branch, so no longer on either list: `bettershape-chat-fork`,
-`bettershape-chat-restore-last`, `bettershape-editor-search-count`,
+`bettershape-chat-incognito`, `bettershape-chat-restore-last`,
+`bettershape-composer-insert-mention` (replaced by
+`bettershape-chat-attach-element`), `bettershape-editor-search-count`,
 `bettershape-open-browser`, `bettershape-open-preview`,
 `bettershape-open-subagents-for`, `bettershape-set-panel-tab`,
-`bettershape-swap-sidebars`.
+`bettershape-swap-sidebars` and `bettershape-workspace-trust-required`.
 
-Two more known items, not yet re-verified on this branch:
+Two earlier recon items were re-checked here and were wrong:
 
-- the agent-workbench status bar is reported as unmounted in earlier recon;
-- docs reference `.shape/agent-out/` and a plans path that `meta.rs` spells
-  differently.
+- the agent-workbench status bar is mounted: `features/agent/layout.tsx` imports
+  `./workbench/status`;
+- the plan and spill paths in the docs did not match the code. Plans are written
+  under the app data folder (`BetterShape/plans/<project>/`,
+  `plan_storage_dir` in `agent/tools/dispatch/meta.rs`), not into the project,
+  and tool spill goes to `.bettershape/agent-out/`
+  (`agent/tools/spill.rs`). Both docs pages now say what the code does.
 
 ## Reproducing the checks
 
 ```bash
 npm ci
 npx tsc --noEmit
-npx eslint --quiet
-npx vitest run
+npx tsc --noEmit -p tests/tsconfig.json
+npm run lint:strict
+npm run test:all
+npm run skills:verify
+npm run build:preview && E2E_STATIC=1 npx playwright test
 
 # Rust. In a restricted sandbox prefix the cargo commands with the environment
 # from vendor/sandbox-toolchain and add CARGO_BUILD_JOBS=1 for the linker

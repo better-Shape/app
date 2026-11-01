@@ -4,7 +4,7 @@ import { ChevronLeft20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { ArrowUndo20Regular } from "@fluentui/react-icons/headless/svg/arrow-undo";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -106,6 +106,24 @@ export const useFileHunks = (repoPath: string | null, filePath: string, mode: Hu
         return () => window.removeEventListener("bettershape-git-refresh", onRefresh);
     }, [reload]);
 
+    // The restore dialog is a window in which the diff can reload: a refresh
+    // from another pane, a save, a file watcher event. The captured hunk belongs
+    // to the list it was read from, so the action checks that the same change is
+    // still listed before it deletes anything.
+    const hunksRef = useRef(hunks);
+    useEffect(() => {
+        hunksRef.current = hunks;
+    }, [hunks]);
+
+    /** True while the captured hunk is still the listed change with the same body. */
+    const stillListed = useCallback(
+        (target: GitHunk): boolean =>
+            hunksRef.current.some(
+                (candidate) => candidate.index === target.index && candidate.header === target.header,
+            ),
+        [],
+    );
+
     /** Stages, unstages or restores the whole hunk, then re-reads the diff. */
     const apply = useCallback(
         async (operation: "stage" | "unstage" | "restore") => {
@@ -116,7 +134,19 @@ export const useFileHunks = (repoPath: string | null, filePath: string, mode: Hu
                 // Restoring throws the hunk's changes away with nothing to undo
                 // it, so it asks first, the same way discarding a whole file
                 // does. Staging is an edit a second press can reverse.
-                if (operation === "restore" && !(await confirmRestore())) return;
+                if (operation === "restore") {
+                    if (!(await confirmRestore())) return;
+                    // A reused position would discard a different hunk than the
+                    // one the dialog described, which is why the check is here
+                    // and not before the question.
+                    if (!stillListed(hunk)) {
+                        notify.error(
+                            "Git",
+                            "The diff changed while the dialog was open. Check the hunk again before restoring it.",
+                        );
+                        return;
+                    }
+                }
                 if (operation === "stage") await commands.gitStageHunk(repoPath, filePath, hunk.index);
                 else if (operation === "unstage") await commands.gitUnstageHunk(repoPath, filePath, hunk.index);
                 else await commands.gitRestoreHunk(repoPath, filePath, hunk.index);
@@ -127,7 +157,7 @@ export const useFileHunks = (repoPath: string | null, filePath: string, mode: Hu
                 setBusy(false);
             }
         },
-        [busy, filePath, hunks, index, loading, repoPath],
+        [busy, filePath, hunks, index, loading, repoPath, stillListed],
     );
 
     const step = useCallback(

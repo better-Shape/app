@@ -16,6 +16,7 @@ vi.mock("@/features/notifications", () => ({ notify: { error: vi.fn() } }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: dialog.ask }));
 
 import { HunkActions, useFileHunks, type HunkMode } from "@/features/git/ui/shared/hunk-actions";
+import { notify } from "@/features/notifications";
 import type { GitHunk } from "@/lib/backend/types";
 
 const hunk = (index: number): GitHunk => ({
@@ -153,6 +154,39 @@ describe("hunk actions", () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
         });
         expect(api.loading).toBe(false);
+    });
+
+    it("refuses a restore whose hunk list reloaded while the dialog was open", async () => {
+        let answer = () => {};
+        dialog.ask.mockImplementationOnce(
+            () => new Promise<boolean>((resolve) => { answer = () => resolve(true); }),
+        );
+        backend.gitListHunks.mockResolvedValue(hunkList(3, 7));
+        await mount({ repoPath: "/repo", filePath: "a.ts" });
+        act(() => api.step(1));
+        expect(api.index).toBe(1);
+
+        let restore: Promise<void> = Promise.resolve();
+        await act(async () => {
+            restore = api.apply("restore");
+            await Promise.resolve();
+        });
+
+        // Another pane's refresh lands while the question is still up, and the
+        // change at position 1 is now a different hunk.
+        backend.gitListHunks.mockResolvedValue(hunkList(9, 11));
+        await act(async () => {
+            window.dispatchEvent(new Event("bettershape-git-refresh"));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        await act(async () => {
+            answer();
+            await restore;
+        });
+
+        // The captured index would have thrown away a hunk the dialog never named.
+        expect(backend.gitRestoreHunk).not.toHaveBeenCalled();
+        expect(notify.error).toHaveBeenCalled();
     });
 
     it("never shows or acts on a hunk list read for another file", async () => {

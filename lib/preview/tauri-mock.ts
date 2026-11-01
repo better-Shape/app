@@ -224,7 +224,6 @@ note = Callout("Local fixture", "This saved conversation does not contact an AI 
     },
 ];
 
-/** Three saved versions of the active fixture file, newest first. */
 /** Three saved versions, fifteen minutes apart, matching the Rust store's shape. */
 const previewHistoryEntries = (now: number) =>
     [0, 1, 2].map((index) => {
@@ -482,6 +481,9 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
 
     /** Whether a fake-tree path is a known file or directory. */
     const pathKnown = (path: string): boolean => path in state.dirs || path in state.files;
+    /** The fixture's text for a path, with the placeholder a seeded miss reads as. */
+    const fixtureText = (path: string): string =>
+        state.files[path] ?? "# Preview fixture\n\nNo seeded content for this path.\n";
 
     /** Whether a copy or move between two fake-tree paths can proceed. */
     const canRelocate = (oldPath: string, newPath: string): boolean => {
@@ -638,7 +640,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const entries = state.dirs[path] ?? [];
             return entries.map((e) => ({ name: e.name, path: `${path}/${e.name}`, is_dir: e.is_dir }));
         },
-        read_file: (args) => state.files[String(args.path ?? "")] ?? "# Preview fixture\n\nNo seeded content for this path.\n",
+        read_file: (args) => fixtureText(String(args.path ?? "")),
         read_file_within: (args) => state.files[String(args.path ?? "")] ?? "",
         read_file_bytes: () => [],
         save_file: (args) => {
@@ -828,10 +830,12 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
         git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
         // Local history: the editor's picker lists these and restores one into
-        // the buffer. The real backend keeps 50 versions per file on save.
+        // the buffer. The real backend keeps 50 versions per file on save and
+        // answers with the text of the version it restored; the fixture holds one
+        // version per file, so the restore reads that file back rather than
+        // putting placeholder text over the buffer the user was editing.
         get_file_history_command: () => previewHistoryEntries(Date.now()),
-        restore_history_version_command: (args) =>
-            `// restored ${String(args.versionId ?? "version")}\n// preview fixture content\n`, 
+        restore_history_version_command: (args) => fixtureText(String(args.filePath ?? "")),
         // The commit detail panel lists these. Without a handler the fallback
         // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {

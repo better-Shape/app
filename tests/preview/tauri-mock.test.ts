@@ -158,6 +158,17 @@ describe("preview invoke handler", () => {
         window.sessionStorage.clear();
     });
 
+    it("restores a file's own text instead of a fixed placeholder", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const path = `${PREVIEW_PROJECT_PATH}/README.md`;
+        handle("save_file", { path, content: "# edited in the preview\n" });
+        // The fixture keeps one version per file, so the restore answers with the
+        // text on disk. A constant string put unrelated comments over the buffer.
+        expect(handle("restore_history_version_command", { filePath: path, versionId: "v1" })).toBe(
+            "# edited in the preview\n",
+        );
+    });
+
     it("keeps the two settings files apart", () => {
         const { handle } = createPreviewInvokeHandler("project");
         handle("write_settings_file", {

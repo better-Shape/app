@@ -532,7 +532,7 @@ export const FileTree = ({
     const [query, setQuery] = useState("");
     const [statusByPath, setStatusByPath] = useState<Map<string, string>>(() => new Map());
     const title = projectPath.replace(/(?<![\\/])[\\/]+$/, "").split(/[\\/]/).pop() || projectPath;
-    const shown = filterEntries(roots, query);
+    const shown = useMemo(() => filterEntries(roots, query), [query, roots]);
 
     const [refreshTick, setRefreshTick] = useState(0);
     useEffect(() => {

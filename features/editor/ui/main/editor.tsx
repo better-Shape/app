@@ -197,14 +197,29 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         await writePreview(path, doc, eol);
     }, [path, writePreview]);
 
+    /**
+     * Auto Save's `onFocusChange` answers a blur. The preview is the editor for
+     * this file, so it has to answer one: the code editor saves from CodeMirror's
+     * blur facet, and the preview has no facet to hang that on. Both the window
+     * blur and the preview container's focus loss call this.
+     */
+    const saveOnFocusChange = useCallback(() => {
+        if (getSettings().editor.autoSave !== "onFocusChange" || !isDirtyRef.current) return;
+        void writePreview(
+            path,
+            currentContentRef.current,
+            lineEndingOf(savedContentRef.current || currentContentRef.current),
+        );
+    }, [path, writePreview]);
+
     /** Schedules the autosave the editor settings ask for, if any. */
     const schedulePreviewAutosave = useCallback(() => {
         if (previewAutosaveRef.current !== null) window.clearTimeout(previewAutosaveRef.current);
         previewAutosaveRef.current = null;
         pendingPreviewRef.current = null;
         const editorSettings = getSettings().editor;
-        // `onFocusChange` has no delay to schedule: the blur handler in the preview
-        // effect writes the buffer when the window loses focus.
+        // `onFocusChange` has no delay to schedule: `saveOnFocusChange` writes the
+        // buffer when the editor, or the window around it, loses focus.
         if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
         const doc = currentContentRef.current;
         // Hold the whole write now: the viewer can move to another file before
@@ -486,28 +501,23 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 new CustomEvent("bettershape-editor-buffer", { detail: { path, content: detail.content } }),
             );
         };
-        /**
-         * Auto Save's `onFocusChange` is a blur save. The preview is the editor
-         * for this file, so it has to answer it: without this, a Markdown preview
-         * left for another window kept its edit unsaved.
-         */
-        const onBlur = () => {
-            if (getSettings().editor.autoSave !== "onFocusChange" || !isDirtyRef.current) return;
-            void writePreview(path, currentContentRef.current, lineEndingOf(savedContentRef.current || currentContentRef.current));
-        };
+        // Leaving the whole window is a focus change as well. The container's
+        // `onBlur` below covers moving to another control inside the window,
+        // which is the case the code editor's blur facet already saves.
+        const onWindowBlur = saveOnFocusChange;
         window.addEventListener("bettershape-file-saved", onFileSaved);
         window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
-        window.addEventListener("blur", onBlur);
+        window.addEventListener("blur", onWindowBlur);
         window.addEventListener("save-request", handleSave);
         window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
             window.removeEventListener("bettershape-file-saved", onFileSaved);
             window.removeEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
-            window.removeEventListener("blur", onBlur);
+            window.removeEventListener("blur", onWindowBlur);
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
-    }, [isMarkdown, mode, path, content, setContent, persistPreview, schedulePreviewAutosave, writePreview]);
+    }, [isMarkdown, mode, path, content, setContent, persistPreview, saveOnFocusChange, schedulePreviewAutosave, writePreview]);
 
     const workspace = variant === "workspace";
 
@@ -742,6 +752,14 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                     // this module which surface the user is in before offering a row.
                     // React's onFocus follows focusin, so it fires for the editor inside.
                     onFocus={() => claimEditorSurface(surfaceOwner, "document")}
+                    // Auto Save's `onFocusChange` is the editor losing focus, not
+                    // the app window losing it: moving the caret to another
+                    // control saves here the way the code editor's blur does.
+                    onBlur={(event) => {
+                        const next = event.relatedTarget as Node | null;
+                        if (next && event.currentTarget.contains(next)) return;
+                        saveOnFocusChange();
+                    }}
                 >
                     <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
