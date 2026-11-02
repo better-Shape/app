@@ -7,6 +7,7 @@ import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
 import { getSettings, useSettings } from "@/lib/settings";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { notify } from "@/features/notifications";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -156,7 +157,10 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             // and that text is not on disk yet.
             clearSavedDirtyBuffer(targetPath, doc);
         } catch (e) {
-            const { notify } = await import("@/features/notifications");
+            // `notify` is imported up front, not loaded here: every caller of
+            // this write fires it without awaiting, so a rejection would land
+            // as an unhandled one. An import awaited in a catch block can
+            // reject on its own and leave the save error unreported.
             notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
                 code: 4000,
             });

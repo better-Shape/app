@@ -59,7 +59,8 @@ vi.mock("@/features/panels", () => ({ Panel: () => null }));
 
 import FileViewer from "@/features/editor/ui/main/editor";
 import { updateSettingSection } from "@/lib/settings";
-import { clearDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { clearDirtyBuffer, loadDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { notificationStore } from "@/features/notifications";
 import { getActiveEditorSurface } from "@/lib/editor/editor-surface";
 
 let host: HTMLDivElement;
@@ -74,6 +75,7 @@ beforeEach(() => {
     live.onchange = null;
     live.content = "";
     backend.saveFile.mockClear();
+    notificationStore.clearAll();
     updateSettingSection("editor", { autoSave: "afterDelay", autoSaveDelay: 5000 });
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -132,6 +134,27 @@ it("adopts the text a menu save wrote over the preview buffer", async () => {
     // Save All ran the pipeline over exactly this text, so the preview shows what
     // reached the disk instead of staying dirty against it.
     expect(live.content).toBe("typed text\n");
+});
+
+it("reports a failed preview save without leaving the text only on screen", async () => {
+    await render("/repo/notes.md");
+    if (!live.onchange) throw new Error("markdown editor did not mount");
+    await act(async () => {
+        live.onchange?.("edited onto a full disk");
+    });
+    backend.saveFile.mockRejectedValueOnce(new Error("No space left on device"));
+    // The menu save is the awaited path: its handler runs the same write the
+    // autosave timer and the blur hook fire without awaiting.
+    await act(async () => {
+        window.dispatchEvent(new Event("save-request"));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const { notifications } = notificationStore.getSnapshot();
+    const reported = notifications.at(-1);
+    expect(reported?.message).toBe("Save Error");
+    expect(reported?.description).toContain("No space left on device");
+    // A save the user is told about still has a draft behind it.
+    expect(loadDirtyBuffer("/repo/notes.md")?.content).toContain("edited onto a full disk");
 });
 
 it("writes a dirty preview when the window loses focus and Auto Save is set to that", async () => {
