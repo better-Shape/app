@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClipboardQueue } from "@/lib/ui/clipboard-queue";
+import { clipboardQueue, createClipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
 
 const deferred = () => {
     let resolve!: () => void;
@@ -67,5 +67,27 @@ describe("clipboard queue", () => {
         await queue("two");
         expect(write).toHaveBeenCalledTimes(2);
         expect(write).toHaveBeenLastCalledWith("two");
+    });
+
+    it("drops a queued write when another terminal copied later", async () => {
+        const writeText = vi.fn(async () => undefined);
+        Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+        // One terminal queues its selection because the async write is slow.
+        const older = nextCopyRequest();
+        const pending = clipboardQueue("older tab", { shouldWrite: () => isNewestCopyRequest(older) });
+        // A second terminal copies while the first is still waiting. Its own queue
+        // would have seen nothing of this.
+        nextCopyRequest();
+        await pending;
+        await flush();
+        expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it("writes the newest shared request", async () => {
+        const writeText = vi.fn(async () => undefined);
+        Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+        const newest = nextCopyRequest();
+        await clipboardQueue("newest tab", { shouldWrite: () => isNewestCopyRequest(newest) });
+        expect(writeText).toHaveBeenCalledWith("newest tab");
     });
 });

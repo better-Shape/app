@@ -47,3 +47,31 @@ export function createClipboardQueue(
         return chain;
     };
 }
+
+/**
+ * The app's one clipboard queue and one copy sequence.
+ *
+ * Two terminals can copy at the same time, and a queue per terminal let a slow
+ * write from one land over a newer copy made in the other. Both live here, so
+ * every surface shares the order: a request that anything newer has superseded
+ * is dropped instead of written late.
+ */
+let latestCopyRequest = 0;
+
+/** Takes the next copy number. Call it for the direct path as well as the queued one. */
+export const nextCopyRequest = (): number => {
+    latestCopyRequest += 1;
+    return latestCopyRequest;
+};
+
+/** Whether this copy is still the newest one asked for anywhere in the app. */
+export const isNewestCopyRequest = (seq: number): boolean => seq === latestCopyRequest;
+
+/** The shared queue over the async clipboard. */
+export const clipboardQueue: (text: string, request?: ClipboardRequest) => Promise<void> =
+    createClipboardQueue((text) => {
+        if (typeof navigator === "undefined" || !navigator.clipboard) {
+            return Promise.reject(new Error("no async clipboard"));
+        }
+        return navigator.clipboard.writeText(text);
+    });

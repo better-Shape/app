@@ -59,7 +59,7 @@ import {
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
-import { createClipboardQueue } from "@/lib/ui/clipboard-queue";
+import { clipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
 import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
 import {
     clearTerminalSnapshot,
@@ -316,22 +316,18 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     })
                     .catch(() => undefined);
             };
-            const writeClipboard = createClipboardQueue((text) => {
-                if (!navigator.clipboard) return Promise.reject(new Error("no async clipboard"));
-                return navigator.clipboard.writeText(text);
-            });
-            // Every copy takes a number, whether it lands synchronously or waits
-            // in the queue. A queued write checks its number before writing, so a
-            // selection copied synchronously in the meantime is not overwritten by
-            // the older text when the slow write finally runs.
-            let copySeq = 0;
+            // Every copy takes a number from the shared sequence, whether it lands
+            // synchronously or waits in the shared queue. The number is app-wide
+            // because two terminals copy at once: with one sequence per terminal, a
+            // delayed write from one tab could land over a newer copy from another,
+            // and the older text would be on the clipboard.
             const copyNow = (selected: string) => {
-                const seq = ++copySeq;
+                const seq = nextCopyRequest();
                 if (copyWithHiddenTextarea(selected)) return;
-                writeClipboard(selected, {
-                    shouldWrite: () => seq === copySeq,
+                clipboardQueue(selected, {
+                    shouldWrite: () => isNewestCopyRequest(seq),
                     onFailure: () => {
-                        if (seq === copySeq) notifyCopyFailed();
+                        if (isNewestCopyRequest(seq)) notifyCopyFailed();
                     },
                 }).catch(() => undefined);
             };
