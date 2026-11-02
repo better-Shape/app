@@ -209,6 +209,17 @@ describe("source status refresh", () => {
         expect(statusProgress.getMessage()).toBeNull();
     });
 
+    it("takes away the status message when the newest refresh finds no repository", async () => {
+        // An earlier refresh left the entry, and this one has no repository to read.
+        statusProgress.push("git-refresh", "Refreshing git status...");
+        await mount({ projectPath: "/plain-folder", scmRepoPath: null, repoKey: "/plain-folder\n" });
+        await act(async () => {
+            await refresh({ track: false });
+        });
+        // Nothing in flight, so nothing should still be claiming a refresh.
+        expect(statusProgress.getMessage()).toBeNull();
+    });
+
     it("clears status only once discovery has finished with no repository", async () => {
         // The panel still shows a repository's files while discovery reports none.
         await mount({

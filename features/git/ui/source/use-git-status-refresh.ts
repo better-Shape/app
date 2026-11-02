@@ -115,11 +115,17 @@ export const useGitStatusRefresh = (args: {
                 // guard, it is a count rather than one shared entry.
                 if (latestRequestRef.current === requestId) statusProgress.remove("git-refresh");
             }
-        } else if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
-            // Only clear after discovery finished with no repo — never during the async gap.
-            setIsGitRepo(false);
-            setChanges([]);
-            setLastCommit(null);
+        } else {
+            if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
+                // Only clear after discovery finished with no repo — never during the async gap.
+                setIsGitRepo(false);
+                setChanges([]);
+                setLastCommit(null);
+            }
+            // This path pushes no entry, so the newest one has to take an earlier
+            // refresh's entry away: the read it belonged to is superseded and skips
+            // its own removal, and the store has no expiry.
+            if (latestRequestRef.current === requestId) statusProgress.remove("git-refresh");
         }
     }, [
         projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
