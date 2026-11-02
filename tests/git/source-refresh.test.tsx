@@ -23,6 +23,7 @@ vi.mock("@/features/notifications", () => ({ notify: notifications }));
 
 import { useGitStatusRefresh } from "@/features/git/ui/source/use-git-status-refresh";
 import type { GitFileParams } from "@/lib/backend/types";
+import { statusProgress } from "@/lib/ui/status-progress";
 
 type Refresh = ReturnType<typeof useGitStatusRefresh>;
 type Setters = {
@@ -178,6 +179,34 @@ describe("source status refresh", () => {
             await call;
         });
         expect(setters.changes).toEqual([]);
+    });
+
+    it("keeps the status message while a newer refresh is still running", async () => {
+        const older = deferred();
+        const newer = deferred();
+        backend.gitStatus.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+        await mount({ projectPath: "/repo", scmRepoPath: "/repo", repoKey: "/repo\n" });
+
+        let first: Promise<void> = Promise.resolve();
+        let second: Promise<void> = Promise.resolve();
+        await act(async () => {
+            first = refresh({ track: false });
+            second = refresh({ track: false });
+            await Promise.resolve();
+        });
+
+        // The older read settles first. The newer one is still asking the backend.
+        await act(async () => {
+            older.resolve([file("before.ts")]);
+            await first;
+        });
+        expect(statusProgress.getMessage()).toBe("Refreshing git status...");
+
+        await act(async () => {
+            newer.resolve([file("after.ts")]);
+            await second;
+        });
+        expect(statusProgress.getMessage()).toBeNull();
     });
 
     it("clears status only once discovery has finished with no repository", async () => {

@@ -109,7 +109,11 @@ export const useGitStatusRefresh = (args: {
                 ]);
             } finally {
                 if (track) stopLoading();
-                statusProgress.remove("git-refresh");
+                // The progress entry belongs to whichever refresh is newest: an
+                // older read finishing first would blank the status bar while the
+                // newer one is still running. The loading count needs no such
+                // guard, it is a count rather than one shared entry.
+                if (latestRequestRef.current === requestId) statusProgress.remove("git-refresh");
             }
         } else if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
             // Only clear after discovery finished with no repo — never during the async gap.
