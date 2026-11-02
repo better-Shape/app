@@ -9,10 +9,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({
     saveFile: vi.fn(async () => undefined),
-    readFile: vi.fn(async () => ""),
+    // Serves the cached bytes, as the command does: a hit answers from the cache.
+    readFile: vi.fn(async (path: string) => {
+        if (path === "/repo/notes.md") return "preview notes";
+        if (path === "/repo/crlf.md") return "one\r\ntwo\r\n";
+        return "";
+    }),
     markFileDirty: vi.fn(async () => undefined),
     gitBlameFile: vi.fn(async () => []),
-    getCachedFileContent: vi.fn(async (path: string) => (path === "/repo/notes.md" ? "preview notes" : "other")),
+    // Synchronous, like the real command: the viewer reads it during render.
+    getCachedFileContent: vi.fn((path: string) => {
+        if (path === "/repo/notes.md") return "preview notes";
+        if (path === "/repo/crlf.md") return "one\r\ntwo\r\n";
+        return "other";
+    }),
     invalidateFileCache: vi.fn(),
     invalidateAllFileCaches: vi.fn(),
 }));
@@ -62,6 +72,7 @@ import { updateSettingSection } from "@/lib/settings";
 import { clearDirtyBuffer, loadDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 import { notificationStore } from "@/features/notifications";
 import { getActiveEditorSurface } from "@/lib/editor/editor-surface";
+import { liveEolFor } from "@/lib/editor/live-eol";
 
 let host: HTMLDivElement;
 let root: Root | undefined;
@@ -134,6 +145,13 @@ it("adopts the text a menu save wrote over the preview buffer", async () => {
     // Save All ran the pipeline over exactly this text, so the preview shows what
     // reached the disk instead of staying dirty against it.
     expect(live.content).toBe("typed text\n");
+});
+
+it("records the ending the file was loaded with, for the saves that have no editor", async () => {
+    await render("/repo/crlf.md");
+    // Save All and Save As ask the pipeline for the ending; the preview surface is
+    // the editor for a markdown file, so nothing else would have recorded it.
+    expect(liveEolFor("/repo/crlf.md")).toBe("CRLF");
 });
 
 it("reports a failed preview save without leaving the text only on screen", async () => {

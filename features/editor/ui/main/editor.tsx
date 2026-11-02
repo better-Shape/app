@@ -8,6 +8,7 @@ import { useProjectState, commands } from "@/lib/backend";
 import { getSettings, useSettings } from "@/lib/settings";
 import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
 import { notify } from "@/features/notifications";
+import { lineEndingOfText } from "@/lib/editor/live-eol";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -34,10 +35,6 @@ import type { EditorGroupId } from "@/core/providers/editor";
 import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 import { isPlanFilePath } from "@/lib/plan/file";
 import { parsePlanMarkdown } from "@/lib/plan/preview";
-
-
-/** The line ending a file uses on disk, read from the bytes that were loaded. */
-const lineEndingOf = (text: string): "LF" | "CRLF" => (text.includes("\r\n") ? "CRLF" : "LF");
 
 /** Compares two documents without treating the line-ending convention as a change. */
 const sameLines = (a: string, b: string) => a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
@@ -197,7 +194,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         pendingPreviewRef.current = null;
         if (pathRef.current !== path) return;
         const doc = currentContentRef.current;
-        const eol = lineEndingOf(savedContentRef.current || doc);
+        const eol = lineEndingOfText(savedContentRef.current || doc);
         await writePreview(path, doc, eol);
     }, [path, writePreview]);
 
@@ -212,7 +209,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         void writePreview(
             path,
             currentContentRef.current,
-            lineEndingOf(savedContentRef.current || currentContentRef.current),
+            lineEndingOfText(savedContentRef.current || currentContentRef.current),
         );
     }, [path, writePreview]);
 
@@ -228,7 +225,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         const doc = currentContentRef.current;
         // Hold the whole write now: the viewer can move to another file before
         // the delay ends, and the text still belongs to this one.
-        const pending = { path, doc, eol: lineEndingOf(savedContentRef.current || doc) };
+        const pending = { path, doc, eol: lineEndingOfText(savedContentRef.current || doc) };
         pendingPreviewRef.current = pending;
         previewAutosaveRef.current = window.setTimeout(() => {
             previewAutosaveRef.current = null;
@@ -495,7 +492,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             const ending =
                 detail.eol === "CRLF" || detail.eol === "LF"
                     ? detail.eol
-                    : lineEndingOf(savedContentRef.current || detail.content);
+                    : lineEndingOfText(savedContentRef.current || detail.content);
             savedContentRef.current = toDiskText(detail.content, ending);
             setContent(detail.content);
             isDirtyRef.current = false;

@@ -14,6 +14,9 @@ export type LiveEol = "LF" | "CRLF";
 const MAX_TRACKED = 512;
 const endings = new Map<string, LiveEol>();
 
+/** The ending a text on disk uses, read from its bytes. */
+export const lineEndingOfText = (text: string): LiveEol => (text.includes("\r\n") ? "CRLF" : "LF");
+
 /** Records the ending the editor loaded for `path`. */
 export function rememberLiveEol(path: string, eol: LiveEol): void {
     if (!path) return;
