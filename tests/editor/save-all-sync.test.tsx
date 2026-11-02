@@ -114,4 +114,7 @@ it("leaves edits typed during the save alone", async () => {
         await handler("Save All");
     });
     expect(view.state.doc.toString()).toContain("typed ");
+    // The write carried the text read before those keystrokes, so the draft is
+    // the only copy of them. Dropping it would leave nothing to recover.
+    expect(loadDirtyBuffer(PATH)?.content).toContain("typed ");
 });

@@ -1,4 +1,4 @@
-import { clearDirtyBuffer, dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
+import { clearDirtyBuffer, clearSavedDirtyBuffer, dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
 import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -147,10 +147,13 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 for (const file of dirtyOpenFiles(ctx.openFiles)) {
                     if (isBinaryAssetPath(file.path)) continue;
                     const content = await ctx.readLatestContent(file.path);
-                    const written = await saveContents(file.path, content, liveEolFor(file.path));
-                    // On-save processing can change the text, so the draft is the
-                    // old bytes; clearing it is what stops a reopen restoring them.
-                    if (written !== content) clearDirtyBuffer(file.path);
+                    await saveContents(file.path, content, liveEolFor(file.path));
+                    // On-save processing can change the text, so the draft holds
+                    // the bytes from before it; dropping the draft is what stops a
+                    // reopen restoring them. It goes only while it still holds
+                    // those bytes: a keystroke that arrived during the write is not
+                    // on disk, and Save All is also how a closing window saves.
+                    clearSavedDirtyBuffer(file.path, content);
                 }
                 break;
             }
