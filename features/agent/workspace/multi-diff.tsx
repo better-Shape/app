@@ -17,11 +17,12 @@ import { openProjectFile } from "@/lib/window/open-project-file";
 import { DiffView } from "@/features/editor/ui/diff/diff-view";
 import { Button } from "@/components/ui/button";
 import { HoldButton } from "@/components/ui/hold-button";
-import { discardGitFileChange } from "./file-diff";
 import { Tooltip } from "@/components/ui/tooltip";
+import { discardGitFileChange } from "./file-diff";
 
-export const ALL_CHANGES_TAB_PATH = "bettershape://all-changes";
-export const ALL_CHANGES_TAB_ID = "__all_changes__";
+import { ALL_CHANGES_FOCUS_EVENT, ALL_CHANGES_FOCUS_KEY, openAllChangesTab } from "@/lib/window/open-all-changes";
+
+export { openAllChangesTab };
 
 function fileName(path: string) {
     return path.split(/[\\/]/).pop() || path;
@@ -66,17 +67,20 @@ function LazyFileDiff({
     file,
     split,
     focused,
+    revision,
 }: {
     repo: string;
     file: GitFileParams;
     split: boolean;
     focused: boolean;
+    /** Bumped by every refresh; a changed value drops the cached diff. */
+    revision: number;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
     const [hover, setHover] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
-    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
+    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key, revision], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
     const dir = fileDir(file.path);
     const name = fileName(file.path);
     const domId = `md-file-${file.path.replace(/[\\/]/g, "-")}`;
@@ -109,8 +113,8 @@ function LazyFileDiff({
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when path/stage flips
-    }, [visible, repo, key, setDiff]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when path/stage/revision flips
+    }, [visible, repo, key, revision, setDiff]);
 
     const toggleStage = async () => {
         try {
@@ -211,7 +215,7 @@ function LazyFileDiff({
                         Scroll to load diff
                     </div>
                 ) : diff?.loading ? (
-                    <div className="p-4 text-sm text-text-muted">Loading…</div>
+                    <div className="p-4 text-sm text-text-muted">Loading...</div>
                 ) : (
                     <DiffView
                         path={file.path}
@@ -226,6 +230,9 @@ function LazyFileDiff({
     );
 }
 
+/** Shared empty list, so a pending project does not churn dependent memos. */
+const EMPTY_FILES: GitFileParams[] = [];
+
 export function MultiDiffEditor({
     projectPath,
     focusPath,
@@ -233,19 +240,53 @@ export function MultiDiffEditor({
     projectPath: string;
     focusPath?: string;
 }) {
-    const [repo, setRepo] = useState<string | null>(null);
-    const [files, setFiles] = useState<GitFileParams[]>([]);
+    // The repository and the file list are tagged with the project they were read
+    // for. Discovery and status are async, so a project switch has to invalidate
+    // them at once: staging from another project's list would act on a repository
+    // nobody is looking at.
+    const [loaded, setLoaded] = useState<{
+        project: string;
+        repo: string;
+        files: GitFileParams[];
+        // A failed read is its own state: reporting it as "no local changes"
+        // tells the user their tree is clean when the truth is unknown.
+        error: string | null;
+    } | null>(null);
     const [busy, setBusy] = useState(false);
     const [split, setSplit] = useState(true);
+    // The file list can be identical after a refresh while the contents moved,
+    // so every successful refresh also bumps a revision the diffs key on.
+    const [revision, setRevision] = useState(0);
+    const current = loaded?.project === projectPath ? loaded : null;
+    const loading = Boolean(projectPath) && !current;
+    const repo = current?.repo ?? null;
+    const files = current?.files ?? EMPTY_FILES;
 
-    const refresh = useCallback(() => discoverGitRepos(projectPath).then(async repos => {
+    // Latest refresh wins: a status request for a previous project must not
+    // replace the current project's repo or file list when it resolves late.
+    const requestRef = useRef(0);
+    const refresh = useCallback(() => {
+        const request = ++requestRef.current;
+        return discoverGitRepos(projectPath).then(async repos => {
             const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
-            setRepo(path);
             const list = await commands.gitStatus(path);
-            setFiles(list);
-    }).catch(() => {
-            setFiles([]);
-    }), [projectPath]);
+            if (request !== requestRef.current) return;
+            setLoaded({ project: projectPath, repo: path, files: list, error: null });
+            setRevision((count) => count + 1);
+        }).catch((err) => {
+            if (request === requestRef.current) {
+                // Settle the request so the view leaves "Loading...", keeping the
+                // reason: discovery or status can fail for reasons a retry fixes.
+                setLoaded({
+                    project: projectPath,
+                    repo: "",
+                    files: EMPTY_FILES,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+                setRevision((count) => count + 1);
+            }
+        });
+    }, [projectPath]);
 
     useEffect(() => {
         void refresh();
@@ -363,8 +404,31 @@ export function MultiDiffEditor({
             </div>
 
             {files.length === 0 || !repo ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-text-muted">
-                    {files.length === 0 ? "No local changes" : "Loading…"}
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-sm text-text-muted">
+                    {loading ? (
+                        "Loading..."
+                    ) : current?.error ? (
+                        <>
+                            <span className="text-text-primary">Could not read changes</span>
+                            <span className="max-w-[420px] text-center text-xs" title={current.error}>
+                                {current.error}
+                            </span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => {
+                                    setBusy(true);
+                                    void refresh().finally(() => setBusy(false));
+                                }}
+                            >
+                                Retry
+                            </Button>
+                        </>
+                    ) : (
+                        "No local changes"
+                    )}
                 </div>
             ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
@@ -380,6 +444,7 @@ export function MultiDiffEditor({
                                 file={file}
                                 split={split}
                                 focused={focused}
+                                revision={revision}
                             />
                         );
                     })}
@@ -389,14 +454,43 @@ export function MultiDiffEditor({
     );
 }
 
-/** Open All changes as a main-area tab (same chrome as chat) — does not enter Files mode. */
-export function openAllChangesTab(focusPath?: string) {
-    if (focusPath) {
+/**
+ * Workspace tab body for the all-changes view. The focus path is handed over
+ * once through sessionStorage because the tab is created by an event that
+ * carries only its kind.
+ */
+export function AllChangesTab({ projectPath }: { projectPath: string }) {
+    const [focusPath, setFocusPath] = useState<string | undefined>(() => {
         try {
-            sessionStorage.setItem("bettershape-all-changes-focus", focusPath);
+            return sessionStorage.getItem(ALL_CHANGES_FOCUS_KEY) ?? undefined;
+        } catch {
+            return undefined;
+        }
+    });
+    useEffect(() => {
+        try {
+            sessionStorage.removeItem(ALL_CHANGES_FOCUS_KEY);
         } catch {
             /* ignore */
         }
-    }
-    window.dispatchEvent(new CustomEvent("bettershape-center-view", { detail: "all-changes" }));
+        // Opening the tab again while it is already mounted must move the view
+        // to the new file, so the request is also delivered as an event.
+        const onFocus = (event: Event) => {
+            // The event has now been delivered, so the stored copy has to go: a
+            // later mount that reads it would focus a file nobody asked for.
+            try {
+                sessionStorage.removeItem(ALL_CHANGES_FOCUS_KEY);
+            } catch {
+                /* unavailable storage cannot hold a stale path either */
+            }
+            setFocusPath((event as CustomEvent<string | undefined>).detail || undefined);
+        };
+        window.addEventListener(ALL_CHANGES_FOCUS_EVENT, onFocus);
+        return () => window.removeEventListener(ALL_CHANGES_FOCUS_EVENT, onFocus);
+    }, []);
+    return (
+        <div className="h-full min-h-0 bg-sidebar">
+            <MultiDiffEditor projectPath={projectPath} focusPath={focusPath} />
+        </div>
+    );
 }

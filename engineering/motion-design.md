@@ -48,7 +48,7 @@ Use the spatial token only when the view travels or changes a large region. Use 
 - During resize or drag, update directly. Do not put a transition on the value being controlled by the pointer. A short settle after release is optional only if it clarifies the final snapped state.
 - Tabs identify the selected location with the indicator. Do not animate the tab panel itself on each selection.
 
-Current examples include `features/agent/sidebar/index.tsx`, `features/agent/layout.tsx`, `features/agent/terminal-dock.tsx`, `features/chat/ui/blocks/carousel.module.css`, `features/chat/ui/blocks/browse-frame.tsx`, the live reduced-motion handling in `features/chat/ui/composer/input.tsx`, the empty-chat positioning in `features/chat/ui/chat.tsx`, and `components/ui/tabs.tsx`.
+Current examples include `features/agent/sidebar/index.tsx`, `features/agent/layout.tsx`, `features/agent/terminal-dock.tsx`, `features/chat/ui/blocks/browse-frame.tsx`, the live reduced-motion handling in `features/chat/ui/composer/input.tsx`, the empty-chat positioning in `features/chat/ui/chat.tsx`, and `components/ui/tabs.tsx`.
 
 ## Input, frequency, and interruption
 
@@ -82,7 +82,7 @@ The app preference is applied early in `app/layout.tsx`. The shared JavaScript c
 - Use layout transitions sparingly. For a disclosure, a grid-row transition is acceptable when the content is small and its height change is the point. Keep it short and make hidden descendants inert.
 - Reuse a single motion token across related surfaces. Do not add one-off `duration-200`, `duration-500`, or inline millisecond strings when an existing token fits.
 - Prefer static placeholders over ambient shimmer or pulse. Use a spinner or indeterminate progress only for active work; stop it as soon as work ends. Reduced-motion rules must also stop infinite animations.
-- `components/ui/morph-menu.tsx` has no in-repo consumer. It is a legacy opt-in, not the default menu pattern. Do not use it for command or keyboard menus. Any future use needs an explicit review of its layout cost, focus model, and reduced-motion behavior.
+- The legacy morph menu was removed on 2026-10-30. It had no in-repo consumer, and `components/ui/dropdown.tsx` is the menu pattern. A future morph surface needs an explicit review of its layout cost, focus model, and reduced-motion behavior.
 - Keep the motion preference live for JavaScript animators. `prefersReducedMotion` is the one-shot helper; `useReducedMotion` observes system and app-setting changes during component lifetimes. Sidebar FLIP, animated-size helpers, and composer hint transitions follow the same preference.
 
 ## Review and verification checklist

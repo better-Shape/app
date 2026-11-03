@@ -172,16 +172,6 @@ export const UrlBar = ({
     const { items, selected, setSelected } = useSuggestions(value, open);
     const showing = open && items.length > 0;
 
-    useEffect(() => {
-        /** Selects the whole address, so the next keystroke replaces it. */
-        const focusBar = () => {
-            inputRef.current?.focus();
-            inputRef.current?.select();
-        };
-        window.addEventListener("bettershape-browser-focus-url", focusBar);
-        return () => window.removeEventListener("bettershape-browser-focus-url", focusBar);
-    }, []);
-
     /** Moves the highlight by one row, wrapping at both ends so a held key cycles. */
     const cycle = (delta: number) =>
         setSelected((index) => (index + delta + items.length) % items.length);

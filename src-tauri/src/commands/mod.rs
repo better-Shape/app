@@ -17,5 +17,6 @@ pub mod pty;
 pub mod shortcuts;
 pub mod stats;
 pub mod testing;
+pub mod update;
 
 pub mod settings;

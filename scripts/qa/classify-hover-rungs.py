@@ -65,7 +65,6 @@ ROW_SITES = {
     "features/agent/workspace/browser.tsx": [700, 726],          # result cards in a list
     "features/agent/workspace/tree.tsx": [156, 224],             # file tree rows
     "features/agent/sidebar/sections.tsx": [424, 654, 855],      # chat rows, shelf header
-    "features/agent/sidebar/agent-tabs-chip.tsx": [46, 72],      # rows
     "components/ui/collapsible.tsx": [58],                       # section header
     "features/chat/ui/blocks/questions.tsx": [219],              # option rows
     "features/chat/ui/composer/mentions.tsx": [490, 514, 549],   # suggestion rows
@@ -78,7 +77,6 @@ ROW_SITES = {
     "features/agent/workbench/status/ui/status-item.tsx": [24],
     "features/editor/ui/main/ui/breadcrumb.tsx": [291, 347],     # breadcrumb chips
     "components/ui/checkmark.tsx": [34],
-    "features/chat/ui/md/diff.tsx": [244],
 }
 
 REPLACEMENTS = [

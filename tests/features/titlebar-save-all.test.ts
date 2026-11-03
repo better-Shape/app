@@ -4,9 +4,11 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import { createMenuActionHandler } from "@/features/agent/workbench/titlebar/menu-actions";
 import { clearDirtyBuffer, loadDirtyBuffer, saveDirtyBuffer, stageDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { resetSettings, updateSettingSection } from "@/lib/settings";
+import { rememberLiveEol } from "@/lib/editor/live-eol";
 
-beforeEach(() => { resetDirtyBufferRecovery(); invoke.mockReset().mockResolvedValue(undefined); });
-afterEach(() => { clearDirtyBuffer("/a.txt"); resetDirtyBufferRecovery(); });
+beforeEach(() => { resetDirtyBufferRecovery(); resetSettings(); invoke.mockReset().mockResolvedValue(undefined); });
+afterEach(() => { clearDirtyBuffer("/a.txt"); clearDirtyBuffer("/b.txt"); resetDirtyBufferRecovery(); resetSettings(); });
 function handler(openFiles: Array<{ path: string; is_dirty: boolean }>, content: string) {
     return createMenuActionHandler({ projectPath: "/", activeFile: null, openFiles, closeWindow: vi.fn(), readLatestContent: async () => content });
 }
@@ -14,14 +16,14 @@ function handler(openFiles: Array<{ path: string; is_dirty: boolean }>, content:
 it("saves a recovered file even if the native dirty flag has not caught up", async () => {
     saveDirtyBuffer("/a.txt", "recovered", "disk");
     await handler([{ path: "/a.txt", is_dirty: false }], "recovered")("Save All");
-    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/a.txt", content: "recovered" });
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/a.txt", content: "recovered\n" });
     expect(loadDirtyBuffer("/a.txt")).toBeNull();
 });
 
 it("includes an in-memory edit before its recovery debounce completes", async () => {
     stageDirtyBuffer("/a.txt", "last keystroke", "disk");
     await handler([{ path: "/a.txt", is_dirty: false }], "last keystroke")("Save All");
-    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/a.txt", content: "last keystroke" });
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/a.txt", content: "last keystroke\n" });
     expect(loadDirtyBuffer("/a.txt")).toBeNull();
 });
 
@@ -35,4 +37,16 @@ it("propagates failed saves and preserves their recovery", async () => {
 it("does not run binary assets through a text save", async () => {
     await handler([{ path: "/photo.png", is_dirty: true }], "not image bytes")("Save All");
     expect(invoke).not.toHaveBeenCalled();
+});
+
+it("applies the on-save settings, which Save All used to skip", async () => {
+    updateSettingSection("editor", { trimTrailingWhitespace: true, insertFinalNewline: false });
+    await handler([{ path: "/a.txt", is_dirty: true }], "trailing   ")("Save All");
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/a.txt", content: "trailing" });
+});
+
+it("writes a CRLF file back with the ending its editor loaded", async () => {
+    rememberLiveEol("/b.txt", "CRLF");
+    await handler([{ path: "/b.txt", is_dirty: true }], "one\ntwo")("Save All");
+    expect(invoke).toHaveBeenCalledWith("save_file", { path: "/b.txt", content: "one\r\ntwo\r\n" });
 });

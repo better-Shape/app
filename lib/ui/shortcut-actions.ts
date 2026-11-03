@@ -1,4 +1,5 @@
 import { commands } from "@/lib/backend/commands";
+import { requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { requestTerminalCommand } from "@/features/terminal/commands";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
@@ -19,6 +20,12 @@ function isExplorerFocused(): boolean {
     const el = document.activeElement as HTMLElement | null;
     return !!el?.closest?.('[data-explorer-root="true"]');
 }
+
+const notifySaveAsFailed = (error: unknown) => {
+    void import("@/features/notifications").then(({ notify }) => {
+        notify.error("Could not save a copy", error instanceof Error ? error.message : String(error));
+    });
+};
 
 /** Dispatch a keybinding action by label. Returns true if handled locally. */
 export function dispatchShortcutAction(label: string, _key: string): boolean {
@@ -75,10 +82,10 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
             );
             return true;
         case "Toggle Design Mode":
-            window.dispatchEvent(new CustomEvent("bettershape-set-active-tab", { detail: "browser" }));
             window.dispatchEvent(
                 new CustomEvent("bettershape-layout-toggle", { detail: { id: "agent-workspace", value: true } }),
             );
+            requestWorkspaceTab("design");
             return true;
         case "Go to Line/Column...":
             window.dispatchEvent(new CustomEvent("bettershape-command-palette", {
@@ -156,11 +163,25 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
                     defaultPath: state.project_path ? `${state.project_path}/${name}` : name,
                 });
                 if (typeof selected !== "string") return;
-                const content = await commands.readFile(active);
+                // Save As is a save of the document on screen, so it reads the
+                // live buffer and runs the same on-save processing, in the
+                // source file's line ending.
+                const { readLatestContent } = await import("@/lib/editor/buffer-read");
+                const { saveContents } = await import("@/lib/editor/save-pipeline");
+                const { liveEolFor } = await import("@/lib/editor/live-eol");
+                const content = await readLatestContent(active);
                 await commands.grantIpcPath(selected).catch(() => undefined);
-                await commands.saveFile(selected, content);
+                await saveContents(selected, content, liveEolFor(active));
+                // The copy is on disk; a draft left over from an earlier attempt
+                // at this path would open in the editor instead of the file.
+                const { clearDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
+                clearDirtyBuffer(selected);
                 await commands.openFile(selected, selected.split(/[\\/]/).pop() || selected);
-            })();
+            })().catch((error) => {
+                // A fire-and-forget save that fails silently leaves the user
+                // believing the copy exists.
+                notifySaveAsFailed(error);
+            });
             return true;
         case "Keyboard Shortcuts":
             window.dispatchEvent(new Event("bettershape-open-shortcuts"));

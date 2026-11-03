@@ -21,6 +21,7 @@ import { Shield20Regular } from "@fluentui/react-icons/headless/svg/shield";
 import { Sparkle24Regular } from "@fluentui/react-icons/headless/svg/sparkle";
 import { CodeText16Regular } from "@fluentui/react-icons/headless/svg/code-text";
 import { WindowConsole20Regular } from "@fluentui/react-icons/headless/svg/window-console";
+import { Mic24Regular } from "@fluentui/react-icons/headless/svg/mic";
 import type { IconGlyph } from "@/components/ui/icon";
 
 export type SettingsNavLeaf = {
@@ -76,6 +77,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         id: "features",
         label: "Features",
         children: [
+            { id: "voice", label: "Voice", icon: Mic24Regular, targetId: "settings-microphone" },
             { id: "terminal", label: "Terminal", icon: WindowConsole20Regular, targetId: "settings-terminal" },
             { id: "git", label: "Git", icon: BranchCompare24Regular, targetId: "settings-git" },
         ],
@@ -112,6 +114,7 @@ export type SettingsCategoryId =
     | "editor"
     | "terminal"
     | "git"
+    | "voice"
     | "application"
     | "motion";
 
@@ -152,6 +155,12 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         label: "Git",
         icon: BranchFork20Regular,
         keywords: ["source", "control", "scm"],
+    },
+    {
+        id: "voice",
+        label: "Voice",
+        icon: Mic24Regular,
+        keywords: ["microphone", "input", "dictation", "audio", "device"],
     },
     {
         id: "motion",

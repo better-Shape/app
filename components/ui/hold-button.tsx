@@ -128,6 +128,9 @@ const clearAllTimers = (timers: HoldTimers) => {
     clearTimerSlot(timers, "clickGuard");
 };
 
+const isPromiseLike = (value: unknown): value is PromiseLike<void | boolean> =>
+    Boolean(value && typeof (value as PromiseLike<void | boolean>).then === "function");
+
 /**
  * Owns the hold-to-confirm state machine:
  * - Continuous press (`pointerdown` or `Enter`/`Space` held for `holdMs`) charges `.t-hold__fill`
@@ -136,9 +139,6 @@ const clearAllTimers = (timers: HoldTimers) => {
  * - Quick tap (< 240ms) or assistive-tech `.click()` enters `armed` so keyboard, switch-access,
  *   and motor-impaired users can confirm with a second non-timed press (WCAG 2.2.1 & 2.5.2).
  */
-const isPromiseLike = (value: unknown): value is PromiseLike<void | boolean> =>
-    Boolean(value && typeof (value as PromiseLike<void | boolean>).then === "function");
-
 const useHoldState = (
     onConfirm: () => HoldConfirmResult,
     holdMs: number,

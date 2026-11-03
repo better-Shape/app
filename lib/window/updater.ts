@@ -1,14 +1,23 @@
 "use client";
 
+import { commands } from "@/lib/backend";
+import { HELP_LINKS } from "@/lib/errors/help-links";
 import { getSettings, type UpdateChannel } from "@/lib/settings";
 
+/**
+ * The state of the one update check the app can do.
+ *
+ * Releases are published on GitHub and this build updates by hand, so there is
+ * no download to report progress for and nothing to install: the check names
+ * the version and offers its release page.
+ */
 export type UpdateStatus =
   | { kind: "idle" }
   | { kind: "checking" }
-  | { kind: "available"; version: string; notes: string }
-  | { kind: "downloading"; version: string; progress: number }
-  | { kind: "ready"; version: string }
+  | { kind: "available"; version: string; notes: string; url?: string }
   | { kind: "upToDate" }
+  /** GitHub answered, and the channel has nothing published to compare with. */
+  | { kind: "noRelease" }
   | { kind: "error"; message: string };
 
 type Listener = () => void;
@@ -27,6 +36,15 @@ function persistDismissedVersion(version: string | null) {
   }
 }
 
+function dismissedVersion(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(DISMISS_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function emit() {
   for (const l of listeners) l();
 }
@@ -40,17 +58,15 @@ export function getUpdateStatus(): UpdateStatus {
   return status;
 }
 
-/** Copy for Settings / dialogs. Never call an undownloaded update "ready to install". */
+/** Copy for Settings / dialogs. Never claim an update was downloaded or installed. */
 export function describeUpdateStatus(next: UpdateStatus): string {
   switch (next.kind) {
     case "checking":
-      return "Checking…";
+      return "Checking for updates...";
     case "available":
-      return `${next.version} is available. Install it, then restart.`;
-    case "downloading":
-      return `Downloading ${next.version}… ${next.progress}%`;
-    case "ready":
-      return `${next.version} is downloaded. Restart BetterShape to finish.`;
+      return `${next.version} is available. Open its release page to download it.`;
+    case "noRelease":
+      return "Nothing has been published on this channel yet.";
     case "upToDate":
     case "idle":
       return "You're on the latest version.";
@@ -71,58 +87,51 @@ export function dismissAvailableUpdate(): void {
   setStatus({ kind: "idle" });
 }
 
+/**
+ * Asks GitHub for the newest release on the configured channel.
+ *
+ * This is the only outbound call in the update path and it only runs when a
+ * surface asks for it: the app never polls on startup or on a timer, because a
+ * request the user did not make is not one this app sends.
+ *
+ * `force` re-offers a version the user dismissed, for the menu item and the
+ * Settings button, which are explicit requests.
+ */
 export async function checkForAppUpdates(options?: {
-  silent?: boolean;
   force?: boolean;
   channel?: UpdateChannel;
 }): Promise<UpdateStatus> {
-  // Self-hosted builds have no update feed: there is no BetterShape server to ask and
-  // no signed artifact to install. Releases are published on GitHub, so the
-  // app points people there instead of silently phoning home.
-  if (!options?.silent) {
-    setStatus({ kind: "upToDate" });
+  const channel = options?.channel ?? getSettings().updates.channel;
+  setStatus({ kind: "checking" });
+  try {
+    const info = await commands.checkAppUpdate(channel);
+    if (!info.published) {
+      setStatus({ kind: "noRelease" });
+      return status;
+    }
+    if (!info.newer) {
+      setStatus({ kind: "upToDate" });
+      return status;
+    }
+    if (!options?.force && dismissedVersion() === info.latest) {
+      setStatus({ kind: "idle" });
+      return status;
+    }
+    setStatus({ kind: "available", version: info.latest, notes: info.notes, url: info.url });
+  } catch (error) {
+    setStatus({
+      kind: "error",
+      message:
+        error instanceof Error
+          ? `Could not check for updates: ${error.message}`
+          : "Could not check for updates.",
+    });
   }
   return status;
 }
 
-export async function downloadAndInstallUpdate(): Promise<void> {
-  setStatus({
-    kind: "error",
-    message: "This build updates manually — download the newest release from GitHub.",
-  });
-}
-
-export async function relaunchToApplyUpdate(): Promise<void> {
-  const { relaunch } = await import("@tauri-apps/plugin-process");
-  await relaunch();
-}
-
-export async function installUpdateAndRelaunch(): Promise<void> {
-  await downloadAndInstallUpdate();
-}
-
-let autoCheckStarted = false;
-
-/** Start background update checks (call once from the main workbench). */
-export function startAutoUpdateChecks(): () => void {
-  if (autoCheckStarted || typeof window === "undefined") return () => {};
-  autoCheckStarted = true;
-
-  const run = () => {
-    const settings = getSettings().updates;
-    if (!settings.autoUpdate) return;
-    void (async () => {
-      const next = await checkForAppUpdates({ silent: true });
-      if (next.kind === "available") {
-        await downloadAndInstallUpdate();
-      }
-    })();
-  };
-
-  run();
-  const id = window.setInterval(run, 4 * 60 * 60 * 1000);
-  return () => {
-    window.clearInterval(id);
-    autoCheckStarted = false;
-  };
+/** Opens the release page for the waiting version, or the releases index. */
+export async function openUpdateDownloadPage(): Promise<void> {
+  const url = (status.kind === "available" && status.url) || HELP_LINKS.changelog;
+  await commands.openUrlExternal(url);
 }

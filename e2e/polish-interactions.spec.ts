@@ -83,13 +83,35 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
             const appMenuItem = page
                 .locator("[data-radix-popper-content-wrapper]")
                 .getByRole("menuitem", { name: /App\.tsx/ });
+            // Opening the Commit menu puts the caret in the message field, so the
+            // first thing a user types is a commit subject rather than nothing.
+            const messageInput = page.getByPlaceholder("Message");
+            await expect(messageInput).toBeFocused();
+            await page.keyboard.type("wip");
+            await expect(messageInput).toHaveValue("wip");
+
+            // Escape still closes the menu from the message field, and reopening
+            // puts the caret back in it.
+            await page.keyboard.press("Escape");
+            await expect(messageInput).toBeHidden();
+            await page.getByRole("button", { name: /^Commit\b/ }).click();
+            await expect(messageInput).toBeFocused();
+
             await expect(appMenuItem).toBeVisible();
-            for (let step = 0; step < 6; step += 1) {
-                const highlighted = await appMenuItem.getAttribute("data-highlighted");
-                if (highlighted !== null) break;
-                await page.keyboard.press("ArrowDown");
-            }
-            await expect(appMenuItem).toHaveAttribute("data-highlighted", "");
+            // ArrowDown walks from the message into the file list. Each press gets a
+            // settle window before the next one: sampling the highlight immediately
+            // after a keypress can read the previous row's state, which used to make
+            // this fail about one run in ten.
+            await expect
+                .poll(
+                    async () => {
+                        if ((await appMenuItem.getAttribute("data-highlighted")) !== null) return true;
+                        await page.keyboard.press("ArrowDown");
+                        return false;
+                    },
+                    { timeout: 10_000, intervals: [150] },
+                )
+                .toBe(true);
             await page.keyboard.press("Enter");
 
             const discardBtn = page.locator("button.t-hold").first();

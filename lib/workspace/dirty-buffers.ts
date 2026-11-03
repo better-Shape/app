@@ -292,6 +292,20 @@ export function clearDirtyBuffer(path: string): boolean {
     return flushDirtyBuffers();
 }
 
+/**
+ * Drop this window's draft for a path, but only while it still holds `saved`.
+ *
+ * A save is asynchronous, and another editor in this window can stage newer text
+ * for the same path before the write returns. That text is not on disk, so the
+ * save it is not part of must not take it out of recovery. The record is left
+ * untouched in that case, and the newer draft keeps its own timestamp.
+ */
+export function clearSavedDirtyBuffer(path: string, saved: string): boolean {
+    const current = pendingBuffers.get(path) ?? ownedBuffers.get(path);
+    if (current && current.content !== saved) return false;
+    return clearDirtyBuffer(path);
+}
+
 export function loadDirtyBuffer(path: string): DirtyBuffer | null {
     const buffer = readAll().get(path);
     if (buffer) ownedBuffers.set(path, { ...buffer });

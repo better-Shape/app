@@ -14,6 +14,7 @@ import {
     type ProblemsState,
 } from "@/features/git/ui/problems/model";
 import { openDiagnostic } from "@/features/git/ui/problems/reveal";
+import { useSettings } from "@/lib/settings";
 
 /**
  * Each run costs one `npx eslint` process per file, so the panel waits for the
@@ -52,6 +53,7 @@ function errorMessage(error: unknown): string {
 
 export function ProblemsTab() {
     const { open_files, active_file, project_path } = useProjectState();
+    const eslintEnabled = useSettings().eslint.enable;
     const [run, setRun] = useState<LintRun>(NO_RUN);
     const [busy, setBusy] = useState(false);
     const [manualRun, setManualRun] = useState(0);
@@ -79,14 +81,16 @@ export function ProblemsTab() {
         || !Object.is(runInputs[0], project_path)
         || !Object.is(runInputs[1], selection)
         || !Object.is(runInputs[2], active_file)
-        || !Object.is(runInputs[3], manualRun)) {
-        setRunInputs([project_path, selection, active_file, manualRun]);
-        setBusy(Boolean(project_path && selection.targets.length));
+        || !Object.is(runInputs[3], manualRun)
+        || !Object.is(runInputs[4], eslintEnabled)) {
+        setRunInputs([project_path, selection, active_file, manualRun, eslintEnabled]);
+        // A switched-off linter never starts, so it must never look busy.
+        setBusy(Boolean(project_path && selection.targets.length && eslintEnabled));
     }
 
     useEffect(() => {
         const { targets, skipped } = selection;
-        if (!project_path || targets.length === 0) {
+        if (!project_path || targets.length === 0 || !eslintEnabled) {
             return;
         }
 
@@ -134,7 +138,7 @@ export function ProblemsTab() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [project_path, selection, active_file, manualRun]);
+    }, [project_path, selection, active_file, manualRun, eslintEnabled]);
 
     useEffect(() => {
         /** Invalidate the lint run when workspace file notifications arrive; the owning effect debounces the work. */
@@ -151,6 +155,9 @@ export function ProblemsTab() {
 
     const state: ProblemsState = useMemo(() => {
         if (!project_path) return { kind: "no-project" };
+        // Nothing was run, so no other state is honest: an empty list would look
+        // like a clean file.
+        if (!eslintEnabled) return { kind: "off" };
         if (selection.targets.length === 0) {
             return {
                 kind: "no-files",
@@ -175,7 +182,7 @@ export function ProblemsTab() {
             skippedCount: run.skippedCount,
             partialErrors: run.partialErrors,
         };
-    }, [project_path, selection, open_files.length, run, busy]);
+    }, [project_path, selection, open_files.length, run, busy, eslintEnabled]);
 
     return (
         <div

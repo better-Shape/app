@@ -18,7 +18,7 @@ export function registerElementMention(el: BrowserPickedElement): string {
     registerMentionToken(token, {
         kind: "element",
         path: el.selector,
-        label: `<${tag}>`,
+        label: el.label?.trim() || `<${tag}>`,
         id: keyOf(token),
     });
     return token;
@@ -34,15 +34,19 @@ export function elementMentionBlock(tokenOrId: string, el: BrowserPickedElement)
         v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const lines = [
         el.selector ? `Selector: ${el.selector}` : "",
+        el.source ? `Source: ${el.source}` : "",
         el.url ? `Page: ${el.url}` : "",
         el.size ? `Size: ${el.size.w}×${el.size.h}px` : "",
-        el.text ? `Text: ${el.text}` : "",
+        // Escaped: page text is untrusted and could otherwise close the block.
+        el.text ? `Text: ${esc(el.text)}` : "",
         el.styles
             ? `Computed: ${Object.entries(el.styles)
                   .map(([k, v]) => `${k} ${v}`)
                   .join("; ")}`
             : "",
-        el.html ? `\n${el.html}` : "",
+        // Markup stays readable, but it cannot terminate the wrapper early.
+        el.html ? `\n${el.html.replace(/<\/mention_context/gi, "&lt;/mention_context")}` : "",
     ].filter(Boolean);
-    return `<mention_context type="element" tag="${esc(el.tag)}" selector="${esc(el.selector || "")}" url="${esc(el.url || "")}" token="${esc(tokenOrId)}">\nThe user selected this element in the Browser tab. Find the source that renders it and work on that.\n${lines.join("\n")}\n</mention_context>`;
+    const surface = el.origin === "design" ? "Design tab" : "Browser tab";
+    return `<mention_context type="element" tag="${esc(el.tag)}" selector="${esc(el.selector || "")}" url="${esc(el.url || "")}" token="${esc(tokenOrId)}">\nThe user selected this element in the ${surface}. Find the source that renders it and work on that.\n${lines.join("\n")}\n</mention_context>`;
 }

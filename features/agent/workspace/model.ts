@@ -4,6 +4,8 @@ import { Branch20Regular } from "@fluentui/react-icons/headless/svg/branch";
 import { BranchRequest20Regular } from "@fluentui/react-icons/headless/svg/branch-request";
 import { DocumentText20Regular } from "@fluentui/react-icons/headless/svg/document-text";
 import { DocumentSearch20Regular } from "@fluentui/react-icons/headless/svg/document-search";
+import { DocumentMultiple20Regular } from "@fluentui/react-icons/headless/svg/document-multiple";
+import { PaintBrush20Regular } from "@fluentui/react-icons/headless/svg/paint-brush";
 import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 import { PersonAccounts20Regular } from "@fluentui/react-icons/headless/svg/person-accounts";
@@ -12,7 +14,7 @@ import { TaskListSquareLtr20Regular } from "@fluentui/react-icons/headless/svg/t
 import { Warning20Regular } from "@fluentui/react-icons/headless/svg/warning";
 import { randomSuffix } from "@/lib/utils";
 
-export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "prs" | "browser" | "problems" | "search" | "packages" | "blame";
+export type TabKind = "graph" | "agents" | "plan" | "file" | "diff" | "files" | "all-changes" | "design" | "prs" | "browser" | "problems" | "search" | "packages" | "blame";
 
 export type WorkspaceTab = {
     id: string;
@@ -55,6 +57,10 @@ export function iconFor(kind: TabKind): IconGlyph {
             return BranchRequest20Regular;
         case "files":
             return Folder20Filled;
+        case "all-changes":
+            return DocumentMultiple20Regular;
+        case "design":
+            return PaintBrush20Regular;
         case "prs":
             return BranchRequest20Regular;
         case "browser":

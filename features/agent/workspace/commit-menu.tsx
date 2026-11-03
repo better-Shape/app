@@ -5,7 +5,7 @@ import { Branch20Regular } from "@fluentui/react-icons/headless/svg/branch";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { commands, type GitFileParams } from "@/lib/backend";
 import { Button } from "@/components/ui/button";
@@ -514,6 +514,7 @@ const CommitMessageComposer = ({
     hasFiles,
     onCommitAll,
     onSuggest,
+    titleInputRef,
 }: {
     title: string;
     setTitle: (next: string) => void;
@@ -525,10 +526,12 @@ const CommitMessageComposer = ({
     hasFiles: boolean;
     onCommitAll: () => void;
     onSuggest: () => void;
+    titleInputRef: React.RefObject<HTMLInputElement | null>;
 }) => (
     <div className="overflow-hidden squircle-xl border border-border-subtle bg-surface-2 transition-colors focus-within:border-border-secondary">
         <div className="relative flex items-center">
             <Input
+                ref={titleInputRef}
                 value={title}
                 placeholder="Message"
                 className="h-[34px] border-none bg-transparent px-3 pr-9 text-sm shadow-none focus-visible:ring-0"
@@ -967,6 +970,7 @@ const handleCommitMenuOpenChange = ({
 
 /** Renders the composer, primary Commit button, secondary submenu, and file list inside `CommitMenu`. */
 const CommitDropdownPanel = ({
+    open,
     snapshot,
     busy,
     canCommit,
@@ -994,61 +998,74 @@ const CommitDropdownPanel = ({
     onSelectFile: (file: GitFileParams) => void;
     onOpenNewBranch: () => void;
     onOpenPublish: () => void;
-}) => (
-    <DropdownMenuContent align="end" className="w-[320px]">
-        <div
-            className="flex flex-col gap-2 p-1.5"
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            <CommitMessageComposer
-                title={title}
-                setTitle={setTitle}
-                description={description}
-                setDescription={setDescription}
-                descriptionOpen={descriptionOpen}
-                setDescriptionOpen={setDescriptionOpen}
-                busy={busy}
-                hasFiles={snapshot.files.length > 0}
-                onCommitAll={git.commitAll}
-                onSuggest={() => {
-                    git.suggest().catch(() => undefined);
-                }}
-            />
-            <div className="flex items-center gap-1.5">
-                <Button
-                    variant="default"
-                    size="md"
-                    className="flex-1"
-                    disabled={!canCommit}
-                    onClick={git.commitAll}
-                >
-                    Commit
-                </Button>
-                <CommitSecondarySubmenu
-                    snapshot={snapshot}
+    open: boolean;
+}) => {
+    const titleInputRef = useRef<HTMLInputElement>(null);
+    // The panel opens to write a commit message, but Radix focuses the content
+    // box, so the first keystrokes were swallowed. Take the caret back once the
+    // menu has finished mounting; ArrowDown still walks into the file list.
+    useEffect(() => {
+        if (!open) return;
+        const frame = requestAnimationFrame(() => titleInputRef.current?.focus());
+        return () => cancelAnimationFrame(frame);
+    }, [open]);
+    return (
+        <DropdownMenuContent align="end" className="w-[320px]">
+            <div
+                className="flex flex-col gap-2 p-1.5"
+                onPointerDown={(event) => event.stopPropagation()}
+            >
+                <CommitMessageComposer
+                    titleInputRef={titleInputRef}
+                    title={title}
+                    setTitle={setTitle}
+                    description={description}
+                    setDescription={setDescription}
+                    descriptionOpen={descriptionOpen}
+                    setDescriptionOpen={setDescriptionOpen}
                     busy={busy}
-                    stashTitle={title.trim() || "WIP"}
-                    onAmend={git.amend}
-                    onCommitStaged={git.commitStaged}
-                    onStageAll={() => {
-                        git.stageAll().catch(() => undefined);
+                    hasFiles={snapshot.files.length > 0}
+                    onCommitAll={git.commitAll}
+                    onSuggest={() => {
+                        git.suggest().catch(() => undefined);
                     }}
-                    onDiscardAll={() => {
-                        git.discardAll().catch(() => undefined);
-                    }}
-                    onPush={() => {
-                        git.push().catch(() => undefined);
-                    }}
-                    onCreateBranch={onOpenNewBranch}
-                    onOpenPublish={onOpenPublish}
-                    withRepo={git.withRepo}
-                    runGit={git.runGit}
                 />
+                <div className="flex items-center gap-1.5">
+                    <Button
+                        variant="default"
+                        size="md"
+                        className="flex-1"
+                        disabled={!canCommit}
+                        onClick={git.commitAll}
+                    >
+                        Commit
+                    </Button>
+                    <CommitSecondarySubmenu
+                        snapshot={snapshot}
+                        busy={busy}
+                        stashTitle={title.trim() || "WIP"}
+                        onAmend={git.amend}
+                        onCommitStaged={git.commitStaged}
+                        onStageAll={() => {
+                            git.stageAll().catch(() => undefined);
+                        }}
+                        onDiscardAll={() => {
+                            git.discardAll().catch(() => undefined);
+                        }}
+                        onPush={() => {
+                            git.push().catch(() => undefined);
+                        }}
+                        onCreateBranch={onOpenNewBranch}
+                        onOpenPublish={onOpenPublish}
+                        withRepo={git.withRepo}
+                        runGit={git.runGit}
+                    />
+                </div>
             </div>
-        </div>
-        <CommitChangesList files={snapshot.files} onSelectFile={onSelectFile} />
-    </DropdownMenuContent>
-);
+            <CommitChangesList files={snapshot.files} onSelectFile={onSelectFile} />
+        </DropdownMenuContent>
+    );
+};
 
 /** Modal dialog for naming and switching to a newly created Git branch. */
 const CreateBranchDialog = ({
@@ -1146,6 +1163,7 @@ export const CommitMenu = ({ projectPath }: { projectPath: string }) => {
             >
                 <CommitTriggerButton busy={busy} totals={totals} />
                 <CommitDropdownPanel
+                    open={menuOpen}
                     snapshot={snapshot}
                     busy={busy}
                     canCommit={canCommit}

@@ -24,6 +24,7 @@ vi.mock("@/lib/backend", async (importOriginal) => {
 
 import { commands, type EslintDiagnostic, type EslintLintResult } from "@/lib/backend";
 import { ProblemsTab } from "@/features/agent/workspace/problems-tab";
+import { updateSettingSection } from "@/lib/settings";
 import { ProblemsPanel, type ProblemTarget } from "@/features/git/ui/problems/panel";
 import {
     formatPosition,
@@ -540,6 +541,23 @@ describe("problems tab", () => {
             expect(calls.lint).toEqual([A, B]);
         } finally {
             unmount(root, host);
+        }
+    });
+
+    it("does not spawn ESLint when ESLint is switched off, and says why", async () => {
+        updateSettingSection("eslint", { enable: false });
+        try {
+            const { host, root } = mount(createElement(ProblemsTab));
+            try {
+                await pause(900);
+                expect(calls.lint).toEqual([]);
+                expect(host.textContent).toContain("ESLint is off");
+                expect(host.textContent).not.toContain("No problems");
+            } finally {
+                unmount(root, host);
+            }
+        } finally {
+            updateSettingSection("eslint", { enable: true });
         }
     });
 

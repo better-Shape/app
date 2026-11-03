@@ -23,9 +23,10 @@ export const WORKBENCH_TAB_FADE_CLASS =
 export const WORKBENCH_TAB_ACTIONS_CLASS =
     "box-border flex h-full shrink-0 items-center gap-0.5 px-1";
 
-export function workbenchTabItemClass(active: boolean, dragging?: boolean) {
+export function workbenchTabItemClass(active: boolean, dragging?: boolean, compact?: boolean) {
     return cn(
-        "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center gap-2 overflow-hidden whitespace-nowrap squircle-lg px-2.5 font-normal press-spring",
+        "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center overflow-hidden whitespace-nowrap squircle-lg font-normal press-spring",
+        compact ? "gap-1 px-1.5" : "gap-2 px-2.5",
         active
             ? "is-active min-w-[60px] bg-white/10 text-text-primary"
             : "text-text-muted hover:bg-[var(--row-hover)] hover:text-text-secondary",

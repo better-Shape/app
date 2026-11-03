@@ -245,11 +245,15 @@ export const DesignPreviewGallery = ({
             <img src={src} alt={item.name || "Preview"} className={className} draggable={false} />
         );
 
+    // `data-design-pick` marks the gallery specifically: approval and plugin cards
+    // carry the same pending marker, and the pending-pick notice must not be
+    // silenced by a card that has nothing to do with a design choice.
     return (
         <div
             className="my-2 w-full max-w-[340px]"
             data-pending-approval={canPick ? "true" : undefined}
             data-pending-approval-kind={canPick ? "approval" : undefined}
+            data-design-pick={canPick ? "true" : undefined}
         >
             <div
                 className={cn(

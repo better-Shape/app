@@ -1242,7 +1242,6 @@ pub async fn get_project_state(state: State<'_, AppState>) -> Result<ProjectStat
         open_files: state.open_files.clone(),
         active_file: state.active_file.clone(),
         diagnostics: state.diagnostics.clone(),
-        color_history: state.color_history.clone(),
     })
 }
 

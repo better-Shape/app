@@ -5,6 +5,7 @@ import { getProjectPath } from "@/lib/backend/project-state";
 import { getHomeDir, listCustomSkillFolders } from "@/lib/chat/skill-folders";
 import { parseSkillDocument } from "@/lib/chat/skill-frontmatter";
 import { displaySkillPath, joinSkillPath, normalizeSkillPath } from "@/lib/chat/skill-paths";
+import { isCaseInsensitivePath } from "@/lib/path/utils";
 import { SKILL_FILE_NAME, listSkillRoots, type SkillRoot, type SkillRootScope } from "@/lib/chat/skill-roots";
 import { listSkills, skillIdFromName, skillTitle, type Skill } from "@/lib/chat/skills";
 
@@ -46,11 +47,6 @@ export type SkillScan = {
 
 /** Prefix for the per-project localStorage key holding dismissed files. */
 const DISMISSED_KEY_PREFIX = "bettershape-dismissed-discovered:";
-
-/** Windows paths are case-insensitive; POSIX ones (Linux) are not. */
-function isCaseInsensitivePath(projectPath: string): boolean {
-    return projectPath.includes("\\") || /^[a-zA-Z]:/.test(projectPath);
-}
 
 /**
  * LocalStorage key storing dismissed paths for one project. The path keeps its

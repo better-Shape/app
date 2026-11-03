@@ -1,10 +1,14 @@
 "use client";
 
-import { stageDirtyBuffer, saveDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { stageDirtyBuffer, saveDirtyBuffer, loadDirtyBuffer, clearSavedDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
-import React, { useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
+import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallback } from "react";
 import { useEditorView } from "@/core/providers/editor";
 import { useProjectState, commands } from "@/lib/backend";
+import { getSettings, useSettings } from "@/lib/settings";
+import { saveContents, toDiskText } from "@/lib/editor/save-pipeline";
+import { notify } from "@/features/notifications";
+import { lineEndingOfText } from "@/lib/editor/live-eol";
 import { diffLines } from "diff";
 import { MarkdownPreview } from "../markdown/markdown";
 import { Panel } from "@/features/panels";
@@ -14,6 +18,7 @@ import { getFileExtension, isImageExtension, isFontExtension } from "../../lib/i
 import { Breadcrumbs } from "./ui/breadcrumb";
 import { MarkdownViewSwitch, PlanEditorHeader } from "./ui/plan-editor-header";
 import { MarkdownLiveEditor } from "../markdown/live-editor";
+import { LocalHistoryPicker } from "../local-history-picker";
 import { ErrorView } from "./ui/error";
 import { ImageView } from "./ui/image";
 import { FontView } from "./ui/font";
@@ -27,8 +32,12 @@ import { CodeMirrorEditor } from "../codemirror/editor";
 import { DiffView } from "../diff/diff-view";
 
 import type { EditorGroupId } from "@/core/providers/editor";
+import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 import { isPlanFilePath } from "@/lib/plan/file";
 import { parsePlanMarkdown } from "@/lib/plan/preview";
+
+/** Compares two documents without treating the line-ending convention as a change. */
+const sameLines = (a: string, b: string) => a.replace(/\r\n/g, "\n") === b.replace(/\r\n/g, "\n");
 
 // Main file viewer component handling various file types (text, image, markdown)
 export default function FileViewer({ path, group: _group = "left", variant = "editor" }: { path: string; group?: EditorGroupId; variant?: "editor" | "workspace" }) {
@@ -42,11 +51,25 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const isRasterImage = isImage && !isSvg;
     const isMarkdown = /\.(md|mdx|markdown)$/i.test(path);
     const isPlanFile = isPlanFilePath(path);
-    const defaultMode = isImage || isFont || isMarkdown ? "preview" : "raw";
+    const imagePreviewEnabled = useSettings().editor.imagePreview;
+    // Image preview decides how images open. Markdown and fonts open in their
+    // own previews either way, so turning image previews off must not demote them.
+    const defaultMode = isImage && !imagePreviewEnabled ? "raw" : isImage || isFont || isMarkdown ? "preview" : "raw";
     const mode = getViewMode(path, defaultMode);
-    const showImagePreview = isImage && (mode === "preview" || mode === "split");
+    const showImagePreview = isImage && imagePreviewEnabled && (mode === "preview" || mode === "split");
     const showFontPreview = isFont && (mode === "preview" || mode === "split");
     const skipTextContent = isRasterImage || (isSvg && showImagePreview) || (isFont && showFontPreview);
+
+    /**
+     * The claim belongs to this viewer: changing file or view mode releases it so
+     * the next editor to take focus names itself, and another pane's claim stays
+     * untouched because the release checks the owner.
+     */
+    const [surfaceOwner] = useState(() => createSurfaceOwner());
+    useEffect(() => {
+        releaseEditorSurface(surfaceOwner);
+        return () => releaseEditorSurface(surfaceOwner);
+    }, [mode, path, surfaceOwner]);
 
     const { open_files, project_path } = useProjectState();
 
@@ -86,8 +109,133 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
     const { content, setContent, originalContent, error, loading } = useFileContent(
         path, skipTextContent, isDiff, savedContentRef, bufferVersionRef
     );
+
     const currentContentRef = useRef(content);
     useLayoutEffect(() => { currentContentRef.current = content; }, [content]);
+    const previewAutosaveRef = useRef<number | null>(null);
+    /** The write a pending autosave timer owes, so a path change can still land it. */
+    const pendingPreviewRef = useRef<{ path: string; doc: string; eol: "LF" | "CRLF" } | null>(null);
+    const pathRef = useRef(path);
+    useLayoutEffect(() => { pathRef.current = path; }, [path]);
+
+    /**
+     * Writes preview text through the shared save pipeline.
+     *
+     * The pipeline can trim or format the text, so the returned document is
+     * what the preview shows afterwards; leaving the old buffer on screen would
+     * both misreport the file and leave it marked dirty against its own disk
+     * contents. The path and the ending are arguments because a pending write
+     * can belong to a file the viewer has already moved away from.
+     */
+    const writePreview = useCallback(async (targetPath: string, doc: string, eol: "LF" | "CRLF") => {
+        try {
+            const written = await saveContents(targetPath, doc, eol);
+            // Typing during the write wins: the buffer on screen is newer. A
+            // path change means this text belongs to another file now.
+            // A newer draft for the same path is a reopened file with unsaved
+            // text: this write describes older bytes and must not clear a marker
+            // that belongs to the newer buffer.
+            const newer = loadDirtyBuffer(targetPath);
+            const newerTextExists = Boolean(newer && newer.content !== doc);
+            if (!newerTextExists && pathRef.current === targetPath && currentContentRef.current === doc) {
+                currentContentRef.current = written;
+                // Keep the on-disk line ending in the baseline: the next save
+                // reads the convention from it, and `written` is LF.
+                savedContentRef.current = toDiskText(written, eol);
+                setContent(written);
+                isDirtyRef.current = false;
+                await commands.markFileDirty(targetPath, false).catch(() => undefined);
+                window.dispatchEvent(
+                    new CustomEvent("bettershape-editor-buffer", { detail: { path: targetPath, content: written } }),
+                );
+            }
+            // Only the draft this save wrote leaves recovery. Another editor can
+            // stage newer text for the same path while the write is in flight,
+            // and that text is not on disk yet.
+            clearSavedDirtyBuffer(targetPath, doc);
+        } catch (e) {
+            // `notify` is imported up front, not loaded here: every caller of
+            // this write fires it without awaiting, so a rejection would land
+            // as an unhandled one. An import awaited in a catch block can
+            // reject on its own and leave the save error unreported.
+            notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
+                code: 4000,
+            });
+        }
+    }, [setContent]);
+
+    useEffect(
+        () => () => {
+            // The viewer stays mounted while the path changes. The pending edit
+            // is not dropped with the timer: the delay had not elapsed, but the
+            // text is still unsaved, and recovery is not where a file belongs.
+            if (previewAutosaveRef.current !== null) {
+                window.clearTimeout(previewAutosaveRef.current);
+                previewAutosaveRef.current = null;
+            }
+            const pending = pendingPreviewRef.current;
+            pendingPreviewRef.current = null;
+            // The setting that asked for the write can be off by now, and a timer
+            // that fires anyway would write a file the setting refuses; the draft
+            // in recovery is what carries the edit in that case.
+            if (pending && getSettings().editor.autoSave === "afterDelay") {
+                void writePreview(pending.path, pending.doc, pending.eol);
+            }
+        },
+        [path, writePreview],
+    );
+
+    /** Writes the buffer on screen, cancelling a pending autosave. */
+    const persistPreview = useCallback(async () => {
+        if (previewAutosaveRef.current !== null) {
+            window.clearTimeout(previewAutosaveRef.current);
+            previewAutosaveRef.current = null;
+        }
+        pendingPreviewRef.current = null;
+        if (pathRef.current !== path) return;
+        const doc = currentContentRef.current;
+        const eol = lineEndingOfText(savedContentRef.current || doc);
+        await writePreview(path, doc, eol);
+    }, [path, writePreview]);
+
+    /**
+     * Auto Save's `onFocusChange` answers a blur. The preview is the editor for
+     * this file, so it has to answer one: the code editor saves from CodeMirror's
+     * blur facet, and the preview has no facet to hang that on. Both the window
+     * blur and the preview container's focus loss call this.
+     */
+    const saveOnFocusChange = useCallback(() => {
+        if (getSettings().editor.autoSave !== "onFocusChange" || !isDirtyRef.current) return;
+        void writePreview(
+            path,
+            currentContentRef.current,
+            lineEndingOfText(savedContentRef.current || currentContentRef.current),
+        );
+    }, [path, writePreview]);
+
+    /** Schedules the autosave the editor settings ask for, if any. */
+    const schedulePreviewAutosave = useCallback(() => {
+        if (previewAutosaveRef.current !== null) window.clearTimeout(previewAutosaveRef.current);
+        previewAutosaveRef.current = null;
+        pendingPreviewRef.current = null;
+        const editorSettings = getSettings().editor;
+        // `onFocusChange` has no delay to schedule: `saveOnFocusChange` writes the
+        // buffer when the editor, or the window around it, loses focus.
+        if (editorSettings.autoSave !== "afterDelay" || !isDirtyRef.current) return;
+        const doc = currentContentRef.current;
+        // Hold the whole write now: the viewer can move to another file before
+        // the delay ends, and the text still belongs to this one.
+        const pending = { path, doc, eol: lineEndingOfText(savedContentRef.current || doc) };
+        pendingPreviewRef.current = pending;
+        previewAutosaveRef.current = window.setTimeout(() => {
+            previewAutosaveRef.current = null;
+            if (pendingPreviewRef.current === pending) pendingPreviewRef.current = null;
+            // Auto Save can be switched off while the delay is pending, and a
+            // timer that fires anyway would write a file the setting now refuses.
+            if (getSettings().editor.autoSave !== "afterDelay") return;
+            void writePreview(pending.path, pending.doc, pending.eol);
+        }, Math.max(250, editorSettings.autoSaveDelay));
+    }, [path, writePreview]);
     const planTitle = isPlanFile ? parsePlanMarkdown(content || "").title : "";
 
     useEffect(() => {
@@ -281,14 +429,7 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         if (!(isMarkdown && mode === "preview")) return;
 
         const handleSave = async () => {
-            try {
-                await commands.saveFile(path, content);
-            } catch (e) {
-                const { notify } = await import("@/features/notifications");
-                notify.error("Save Error", `Failed to save file: ${e instanceof Error ? e.message : String(e)}`, {
-                    code: 4000,
-                });
-            }
+            await persistPreview();
         };
 
         const handleEditorAction = (event: Event) => {
@@ -302,8 +443,11 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 setContent(prev);
                 window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: prev } }));
-                const dirty = prev !== savedContentRef.current;
+                const dirty = !sameLines(prev, savedContentRef.current);
                 isDirtyRef.current = dirty;
+                // Undo and redo are edits like any other: without the schedule a
+                // preview edit made by undo and left alone never reaches the disk.
+                schedulePreviewAutosave();
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             } else if (action === "redo") {
                 const next = markdownRedoRef.current.pop();
@@ -314,8 +458,9 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                 setContent(next);
                 window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
                 window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
-                const dirty = next !== savedContentRef.current;
+                const dirty = !sameLines(next, savedContentRef.current);
                 isDirtyRef.current = dirty;
+                schedulePreviewAutosave();
                 void commands.markFileDirty(path, dirty).catch(() => undefined);
             }
         };
@@ -325,18 +470,55 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
             if (detail?.path !== path || typeof detail.content !== "string") return;
             savedContentRef.current = detail.content;
             saveDirtyBuffer(path, currentContentRef.current, detail.content);
-            isDirtyRef.current = currentContentRef.current !== detail.content;
-            if (isDirtyRef.current) void commands.markFileDirty(path, true).catch(() => undefined);
+            isDirtyRef.current = !sameLines(currentContentRef.current, detail.content);
+            // Always state the answer: a save that now matches the buffer has to
+            // clear a dirty marker an earlier edit set.
+            void commands.markFileDirty(path, isDirtyRef.current).catch(() => undefined);
         };
+        /**
+         * A save started elsewhere went through the pipeline with the text this
+         * preview was showing. Adopting the written text keeps the preview and the
+         * file in step; text that has moved on since is the user typing.
+         */
+        const onBufferSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ path?: string; content?: string; submitted?: string; eol?: string }>)
+                .detail;
+            if (!detail || detail.path !== path) return;
+            if (typeof detail.content !== "string" || typeof detail.submitted !== "string") return;
+            if (currentContentRef.current !== detail.submitted) return;
+            currentContentRef.current = detail.content;
+            // The baseline takes the ending the write used, so a picker change
+            // during the save cannot make the preview compare the wrong bytes.
+            const ending =
+                detail.eol === "CRLF" || detail.eol === "LF"
+                    ? detail.eol
+                    : lineEndingOfText(savedContentRef.current || detail.content);
+            savedContentRef.current = toDiskText(detail.content, ending);
+            setContent(detail.content);
+            isDirtyRef.current = false;
+            saveDirtyBuffer(path, detail.content, savedContentRef.current);
+            void commands.markFileDirty(path, false).catch(() => undefined);
+            window.dispatchEvent(
+                new CustomEvent("bettershape-editor-buffer", { detail: { path, content: detail.content } }),
+            );
+        };
+        // Leaving the whole window is a focus change as well. The container's
+        // `onBlur` below covers moving to another control inside the window,
+        // which is the case the code editor's blur facet already saves.
+        const onWindowBlur = saveOnFocusChange;
         window.addEventListener("bettershape-file-saved", onFileSaved);
+        window.addEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
+        window.addEventListener("blur", onWindowBlur);
         window.addEventListener("save-request", handleSave);
         window.addEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         return () => {
             window.removeEventListener("bettershape-file-saved", onFileSaved);
+            window.removeEventListener("bettershape-buffer-saved", onBufferSaved as EventListener);
+            window.removeEventListener("blur", onWindowBlur);
             window.removeEventListener("save-request", handleSave);
             window.removeEventListener("bettershape-editor-action", handleEditorAction as EventListener);
         };
-    }, [isMarkdown, mode, path, content, setContent]);
+    }, [isMarkdown, mode, path, content, setContent, persistPreview, saveOnFocusChange, schedulePreviewAutosave, writePreview]);
 
     const workspace = variant === "workspace";
 
@@ -346,6 +528,30 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
 
     if (showFontPreview) {
         return <FontView path={path.replace(/^diff:(un)?staged:/, "")} />;
+    }
+
+    if (isRasterImage && !imagePreviewEnabled) {
+        return (
+            <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-3 bg-editor px-6 text-center">
+                <p className="text-sm text-text-secondary">
+                    Image preview is off.
+                </p>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                        window.dispatchEvent(
+                            new CustomEvent("bettershape-settings-navigate", { detail: { category: "editor" } }),
+                        );
+                        void import("@/lib/window/open-settings").then(({ openSettingsWindow }) =>
+                            openSettingsWindow({ category: "editor" }),
+                        );
+                    }}
+                >
+                    Open editor settings
+                </Button>
+            </div>
+        );
     }
 
     if (showImagePreview) {
@@ -513,12 +719,13 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
         setContent(next);
         window.dispatchEvent(new CustomEvent("bettershape-editor-changed", { detail: { path } }));
         window.dispatchEvent(new CustomEvent("bettershape-editor-buffer", { detail: { path, content: next } }));
-        isDirtyRef.current = next !== savedContentRef.current;
+        isDirtyRef.current = !sameLines(next, savedContentRef.current);
         try {
             await commands.markFileDirty(path, isDirtyRef.current);
         } catch {
             /* ignore */
         }
+        schedulePreviewAutosave();
     };
 
     if (isMarkdown && !isPlanFile && mode === "preview") {
@@ -540,9 +747,32 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                         />
                     </div>
                 )}
-                <div className="flex-1 w-full min-h-0 overflow-hidden relative">
-                    <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} />
+                <div
+                    className="flex-1 w-full min-h-0 overflow-hidden relative"
+                    // The document editor answers its own actions; the palette asks
+                    // this module which surface the user is in before offering a row.
+                    // React's onFocus follows focusin, so it fires for the editor inside.
+                    onFocus={() => claimEditorSurface(surfaceOwner, "document")}
+                    // Auto Save's `onFocusChange` is the editor losing focus, not
+                    // the app window losing it: moving the caret to another
+                    // control saves here the way the code editor's blur does.
+                    onBlur={(event) => {
+                        const next = event.relatedTarget as Node | null;
+                        if (next && event.currentTarget.contains(next)) return;
+                        saveOnFocusChange();
+                    }}
+                >
+                    <MarkdownLiveEditor content={content} onChange={(next) => void applyMarkdownContent(next)} path={path} />
                 </div>
+                <LocalHistoryPicker
+                    path={path}
+                    onRestore={(next) => {
+                        // A restore that lands after the viewer switched files
+                        // would write the old file's text into the new one.
+                        if (pathRef.current !== path) return;
+                        void applyMarkdownContent(next);
+                    }}
+                />
             </div>
         );
     }
@@ -564,13 +794,20 @@ export default function FileViewer({ path, group: _group = "left", variant = "ed
                             minSize: 150,
                             flexible: true,
                             children: (
-                                <MarkdownPreview
-                                    ref={previewRef}
-                                    content={content}
-                                    filePath={path}
-                                    projectPath={project_path}
-                                    onApplyContent={(next) => void applyMarkdownContent(next)}
-                                />
+                                <div
+                                    className="h-full w-full min-h-0"
+                                    // The rendered pane answers no editor action, so its
+                                    // claim says so instead of borrowing the document's.
+                                    onFocus={() => claimEditorSurface(surfaceOwner, "rendered")}
+                                >
+                                    <MarkdownPreview
+                                        ref={previewRef}
+                                        content={content}
+                                        filePath={path}
+                                        projectPath={project_path}
+                                        onApplyContent={(next) => void applyMarkdownContent(next)}
+                                    />
+                                </div>
                             ),
                         },
                     ]}

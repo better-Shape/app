@@ -1,4 +1,4 @@
-import { dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
+import { clearDirtyBuffer, clearSavedDirtyBuffer, dirtyOpenFiles } from "@/lib/workspace/dirty-buffers";
 import { commands } from "@/lib/backend";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isPopoutPath } from "@/lib/window/tauri-window";
@@ -126,16 +126,34 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 if (typeof selected === "string") {
                     const content = await ctx.readLatestContent(ctx.activeFile);
                     await commands.grantIpcPath(selected).catch(() => undefined);
-                    await commands.saveFile(selected, content);
+                    // A menu save is a save: the copy gets the same on-save
+                    // processing, in the source file's line ending.
+                    const { saveContents } = await import("@/lib/editor/save-pipeline");
+                    const { liveEolFor } = await import("@/lib/editor/live-eol");
+                    await saveContents(selected, content, liveEolFor(ctx.activeFile));
+                    // The copy is on disk, so the draft it came from is not owed
+                    // to any later reopen of the source file.
+                    clearDirtyBuffer(selected);
                     await commands.openFile(selected, getFileName(selected));
                 }
                 break;
             }
             case "Save All": {
+                // Saving every dirty file used to write each buffer straight to
+                // disk, skipping Trim trailing whitespace, Insert final newline,
+                // Format on save and Fix on save.
+                const { saveContents } = await import("@/lib/editor/save-pipeline");
+                const { liveEolFor } = await import("@/lib/editor/live-eol");
                 for (const file of dirtyOpenFiles(ctx.openFiles)) {
                     if (isBinaryAssetPath(file.path)) continue;
                     const content = await ctx.readLatestContent(file.path);
-                    await commands.saveFile(file.path, content);
+                    await saveContents(file.path, content, liveEolFor(file.path));
+                    // On-save processing can change the text, so the draft holds
+                    // the bytes from before it; dropping the draft is what stops a
+                    // reopen restoring them. It goes only while it still holds
+                    // those bytes: a keystroke that arrived during the write is not
+                    // on disk, and Save All is also how a closing window saves.
+                    clearSavedDirtyBuffer(file.path, content);
                 }
                 break;
             }
@@ -279,35 +297,26 @@ export function createMenuActionHandler(ctx: MenuActionContext) {
                 break;
             case "Check for Updates":
             case "Check for Updates...": {
-                const { checkForAppUpdates, downloadAndInstallUpdate, getUpdateStatus, relaunchToApplyUpdate } =
+                const { checkForAppUpdates, describeUpdateStatus, openUpdateDownloadPage } =
                     await import("@/lib/window/updater");
                 const { ask, message } = await import("@tauri-apps/plugin-dialog");
                 const status = await checkForAppUpdates({ force: true });
                 if (status.kind === "available") {
+                    // This build updates by hand: the offer opens the release
+                    // page, and nothing is downloaded or installed for the user.
                     const confirmed = await ask(
-                        `BetterShape ${status.version} is available. Download and install now?`,
+                        `BetterShape ${status.version} is available. Open the release page?`,
                         { title: "Update available", kind: "info" },
                     );
-                    if (confirmed) {
-                        await downloadAndInstallUpdate();
-                        if (getUpdateStatus().kind === "ready") {
-                            const restart = await ask("Update installed. Restart BetterShape now?", {
-                                title: "Restart required",
-                                kind: "info",
-                            });
-                            if (restart) await relaunchToApplyUpdate();
-                        }
-                    }
-                } else if (status.kind === "upToDate") {
-                    await message("You're on the latest version.", { title: "Check for Updates", kind: "info" });
+                    if (confirmed) await openUpdateDownloadPage();
                 } else if (status.kind === "error") {
                     await message(status.message, { title: "Check for Updates", kind: "error" });
-                } else if (status.kind === "ready") {
-                    const restart = await ask("An update is ready. Restart BetterShape now?", {
-                        title: "Restart required",
+                } else if (status.kind === "upToDate" || status.kind === "noRelease") {
+                    // One wording for both surfaces: the status names itself.
+                    await message(describeUpdateStatus(status), {
+                        title: "Check for Updates",
                         kind: "info",
                     });
-                    if (restart) await relaunchToApplyUpdate();
                 }
                 break;
             }

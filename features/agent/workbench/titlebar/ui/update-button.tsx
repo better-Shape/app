@@ -8,8 +8,7 @@ import { Icon } from "@/components/ui/icon";
 import {
     getUpdateStatus,
     subscribeUpdateStatus,
-    downloadAndInstallUpdate,
-    relaunchToApplyUpdate,
+    openUpdateDownloadPage,
     dismissAvailableUpdate,
     type UpdateStatus,
 } from "@/lib/window/updater";
@@ -23,61 +22,49 @@ import {
  */
 const QUIET_LABELS: Record<UpdateStatus["kind"], string | null> = {
     idle: null,
-    checking: "Checking…",
+    checking: "Checking for updates...",
     available: "Update available",
-    downloading: null,
-    ready: "Restart to update",
     upToDate: null,
+    noRelease: null,
     error: null,
 };
 
 /** The button's label, or nothing when there is no update to show. */
-const labelFor = (status: UpdateStatus): string | null => {
-    if (status.kind === "downloading") return `Downloading ${status.progress}%`;
-    return QUIET_LABELS[status.kind];
-};
+const labelFor = (status: UpdateStatus): string | null => QUIET_LABELS[status.kind];
 
 /**
- * The hover tip: the version when one is waiting, the reason when a restart is all that is
- * left, and the button's own label otherwise.
+ * The hover tip: the version and where the press leads when one is waiting, and
+ * the button's own label otherwise.
  */
 const tipFor = (status: UpdateStatus, label: string) => {
-    if (status.kind === "available") return `Update available: ${status.version}`;
-    if (status.kind === "ready") return "Restart BetterShape to finish updating";
+    if (status.kind === "available") return `Update available: ${status.version}. Opens the release page.`;
     return label;
 };
 
 /**
- * Runs whatever the current status can do, and answers the rejection here.
- *
- * An available or failed update downloads and installs; a ready one relaunches into the build
- * already on disk. The store reports a failed install by moving to `error`, which the button
- * already reads, so a rejection has nothing left to say.
+ * Pressing the chip opens the waiting release's page. This build has no in-app
+ * downloader, so there is nothing else for the press to do, and the store
+ * reports a failed launch by moving to `error`, which the chip stays quiet about.
  */
 const runUpdate = (status: UpdateStatus) => {
-    const action =
-        status.kind === "available" || status.kind === "error"
-            ? downloadAndInstallUpdate()
-            : status.kind === "ready"
-              ? relaunchToApplyUpdate()
-              : Promise.resolve();
-    action.catch(() => undefined);
+    if (status.kind !== "available") return;
+    openUpdateDownloadPage().catch(() => undefined);
 };
 
 /**
  * The update affordance in the titlebar: the state that names itself, and a dismiss for the
  * one state a user has to be able to get rid of.
  *
- * Pressing it is inert while a check or a download is already running, because the second
- * press has nothing to start; the dismiss is only offered for an available update, since
- * that is the only state a user can decline.
+ * Pressing it is inert while a check is already running, because the second press has
+ * nothing to start; the dismiss is only offered for an available update, since that is
+ * the only state a user can decline.
  */
 export const TitlebarUpdateButton = () => {
     const status = useSyncExternalStore(subscribeUpdateStatus, getUpdateStatus, getUpdateStatus);
     const label = labelFor(status);
     if (!label) return null;
 
-    const busy = status.kind === "checking" || status.kind === "downloading";
+    const busy = status.kind === "checking";
     const canDismiss = status.kind === "available";
 
     /** One press, one action: what it does is a function of the status it was rendered from. */

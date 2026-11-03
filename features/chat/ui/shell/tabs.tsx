@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { TabBarShell } from "@/features/editor/ui/tabs/tab-bar-shell";
+import { ChatMoreMenu } from "./more";
 import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
@@ -284,14 +285,17 @@ export function ChatTabBar({
             onDragEnd={handleDragEnd}
             className="h-full min-w-0 flex-1 bg-transparent px-1"
             listEnd={
-                <button
-                    type="button"
-                    onClick={onNewChat}
-                    className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "ml-0.5 shrink-0 self-center")}
-                    aria-label="New chat"
-                >
-                    <Icon icon={Add20Regular} />
-                </button>
+                <>
+                    <button
+                        type="button"
+                        onClick={onNewChat}
+                        className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "ml-0.5 shrink-0 self-center")}
+                        aria-label="New chat"
+                    >
+                        <Icon icon={Add20Regular} />
+                    </button>
+                    <ChatMoreMenu />
+                </>
             }
         >
             {list.map((tab) => (

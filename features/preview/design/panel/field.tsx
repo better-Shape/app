@@ -3,7 +3,7 @@
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -15,7 +15,9 @@ import { type IconGlyph, Icon } from "@/components/ui/icon";
 
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
+import { isNumericDraft, parseNumericDraft } from "./numeric-draft";
 import type { Styles } from "./types";
 import { isTokenProperty, TokenMenu } from "./tokens";
 
@@ -45,6 +47,14 @@ export function Field({
 }) {
     const [draft, setDraft] = useState(value ?? "");
     const dragged = useRef(false);
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const controls = useSettings().tailwindControls;
+    // Scrub and wheel are both opt-out: users who scroll the inspector with the
+    // pointer over a field should not nudge values by accident.
+    const scrubbable = controls.enable && controls.numberScrubbing;
+    // A number, optionally followed by a unit, written either adjacent (`12px`)
+    // or spaced (`12 px`).
+    const numeric = isNumericDraft(draft);
     const [valueScope, setValueScope] = useState<readonly [typeof value] | null>(null);
     if (valueScope === null || !Object.is(valueScope[0], value)) {
         setValueScope([value]);
@@ -53,6 +63,37 @@ export function Field({
     }
     const hasPrefix = Boolean(label || icon);
     const tokenable = hasPrefix && isTokenProperty(property);
+    /** Returns whether the field actually stepped, so the caller only swallows
+     * the wheel when it did: a value like `auto` leaves the panel scrollable. */
+    const stepBy = (delta: number, magnitude: number) => {
+        const parsed = parseNumericDraft(draft);
+        if (!parsed) return false;
+        const unit = parsed.unit;
+        const next = Math.round((Number.parseFloat(parsed.value) + delta) * magnitude) / magnitude;
+        const text = `${next}${unit}`;
+        setDraft(text);
+        onPreview({ [property]: mapValue(text) });
+        onCommit({ [property]: mapValue(text) });
+        return true;
+    };
+    const wheelEnabled = controls.enable && controls.wheelOnInputs;
+    const stepRef = useRef(stepBy);
+    useEffect(() => {
+        stepRef.current = stepBy;
+    });
+    useEffect(() => {
+        const input = inputRef.current;
+        if (!input || !wheelEnabled) return;
+        // React's onWheel is passive, so stepping needs its own non-passive listener.
+        const onWheel = (event: WheelEvent) => {
+            if (event.deltaY === 0) return;
+            const direction = event.deltaY > 0 ? -1 : 1;
+            const stepped = stepRef.current(direction * (event.shiftKey ? 0.1 : 1), event.shiftKey ? 10 : 1);
+            if (stepped) event.preventDefault();
+        };
+        input.addEventListener("wheel", onWheel, { passive: false });
+        return () => input.removeEventListener("wheel", onWheel);
+    }, [wheelEnabled]);
     const scrub = (event: React.PointerEvent<HTMLElement>) => {
         const match = (draft ?? "").trim().match(/^(-?\d*\.?\d+)(.*)$/);
         if (!match) return;
@@ -101,12 +142,17 @@ export function Field({
             data-align="inline-start"
             onPointerDown={(event) => {
                 dragged.current = false;
+                if (!scrubbable) return;
                 scrub(event);
             }}
             onClick={(event) => {
                 if (dragged.current) event.preventDefault();
             }}
-            className="order-first flex h-full shrink-0 cursor-ew-resize items-center justify-center pl-2 text-text-muted"
+            className={cn(
+                "order-first flex h-full shrink-0 items-center justify-center pl-2 text-text-muted",
+                scrubbable && "cursor-ew-resize",
+                scrubbable && controls.scrubDecorations && numeric && "border-b border-dashed border-border",
+            )}
         >
             {icon ? (
                 <Icon icon={icon} />
@@ -131,6 +177,7 @@ export function Field({
                 prefix
             )}
             <Input
+                ref={inputRef}
                 value={draft}
                 onChange={(event) => {
                     setDraft(event.target.value);

@@ -59,6 +59,8 @@ import {
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
+import { clipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
+import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
 import {
     clearTerminalSnapshot,
     saveTerminalSnapshots,
@@ -304,32 +306,50 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 },
             });
 
-// History only, no clipboard write: this runs on every selection change, and a
-            // drag across the terminal selects continuously.
+            // The hidden textarea is the path that still works when the async
+            // clipboard is denied, and it comes out of the body whether or not the
+            // copy lands.
+            const notifyCopyFailed = () => {
+                import("@/features/notifications")
+                    .then(({ notify }) => {
+                        notify.error("Clipboard", "Could not copy the terminal selection.");
+                    })
+                    .catch(() => undefined);
+            };
+            // Every copy takes a number from the shared sequence, whether it lands
+            // synchronously or waits in the shared queue. The number is app-wide
+            // because two terminals copy at once: with one sequence per terminal, a
+            // delayed write from one tab could land over a newer copy from another,
+            // and the older text would be on the clipboard.
+            const copyNow = (selected: string) => {
+                const seq = nextCopyRequest();
+                if (copyWithHiddenTextarea(selected)) return;
+                clipboardQueue(selected, {
+                    shouldWrite: () => isNewestCopyRequest(seq),
+                    onFailure: () => {
+                        if (isNewestCopyRequest(seq)) notifyCopyFailed();
+                    },
+                }).catch(() => undefined);
+            };
+            // History on every selection change; the clipboard follows only when
+            // Terminal → Copy on select is on, because a drag selects continuously.
+            //
+            // The synchronous copy runs first because the gesture is still live:
+            // `execCommand` needs that activation, and an asynchronous rejection can
+            // arrive after it expired. The queued write is the fallback, and it keeps
+            // the writes in order so an older one cannot land over a newer one.
             const publishSelection = () => {
                 if (suppressSelectionClip) return;
                 const selected = term?.getSelection();
                 if (!selected) return;
                 rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
+                if (!getSettings().terminal.copyOnSelect) return;
+                copyNow(selected);
             };
             term.onSelectionChange(() => {
                 if (!term?.hasSelection()) return;
                 publishSelection();
             });
-// The hidden textarea is the path that still works when the async clipboard is
-            // denied, and it comes out of the body whether or not the copy lands.
-            const copySelected = (selected: string) => {
-                rememberBetterShapeClip({ kind: "terminal", text: selected, label: tab.title || "Terminal" });
-                const area = document.createElement("textarea");
-                area.value = selected;
-                area.setAttribute("readonly", "");
-                area.style.position = "fixed";
-                area.style.left = "-9999px";
-                document.body.appendChild(area);
-                area.select();
-                document.execCommand("copy");
-                area.remove();
-            };
             const host = terminalRef.current;
 // Takes the event only when the terminal holds a selection, so the browser keeps
             // its own copy behaviour for every other copy on the page.
@@ -376,7 +396,9 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (!selected) return;
                 event.preventDefault();
                 event.stopPropagation();
-                copySelected(selected);
+                // The key press is the gesture, so the synchronous copy is the one
+                // that works; the queued write is the fallback.
+                copyNow(selected);
             };
             host?.addEventListener("copy", onCopy);
             host?.addEventListener("keydown", onCopyKey, true);
@@ -469,7 +491,10 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                         term.write(`\r\n\x1b[38;2;120;120;120m[Process exited with code ${code}]\x1b[0m\r\n`);
                         term.scrollToBottom();
                         void loadRunStatus().then(({ noteDevRunExit }) => {
-                            noteDevRunExit(code);
+                            // The run store ignores exits that are not this run's: it
+                            // drops every exit until the run's own PTY is known, and
+                            // other terminals' exits after that.
+                            noteDevRunExit(code, e.payload.id);
                         }).catch(() => undefined);
                     }
                 });
@@ -826,18 +851,11 @@ const Terminal = ({
     }, []);
 
     useEffect(() => {
-// Pulls the browser tab module in on demand; the event fires once and the
-        // terminal does not need that module to render.
-        const handleOpenBrowser = () => {
-            import("@/lib/window/browser-tab").then(({ openBrowserTab }) => openBrowserTab()).catch(() => undefined);
-        };
         const handleOpenWorkspaceTerminal = () => {
             setActiveView("terminal");
         };
-        window.addEventListener("bettershape-open-preview", handleOpenBrowser);
         window.addEventListener("bettershape-open-workspace-terminal", handleOpenWorkspaceTerminal);
         return () => {
-            window.removeEventListener("bettershape-open-preview", handleOpenBrowser);
             window.removeEventListener(
                 "bettershape-open-workspace-terminal",
                 handleOpenWorkspaceTerminal,
@@ -1068,19 +1086,9 @@ const Terminal = ({
         // Commands requested while the panel was closed replay from here.
         const detachCommandHost = attachTerminalCommandHost();
 
-        // Accepts only the two views this panel renders; anything else leaves the
-        // active view where it was.
-        const handleTerminalView = (e: Event) => {
-            const view = (e as CustomEvent<string>).detail;
-            if (view === "tests" || view === "terminal") {
-                setActiveView(view);
-            }
-        };
-        window.addEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         return () => {
             detachCommandHost();
             window.removeEventListener("bettershape-terminal-shortcut", handleTerminalShortcut as EventListener);
-            window.removeEventListener("bettershape-terminal-view", handleTerminalView as EventListener);
         };
     }, [addTab, closeTab, onClose, safeCwd, activeTerminalId, secondaryTerminalId, focusedGroup, setActiveTerminalId, currentTabs, ensurePanelOpen, resolveAvailableDefaultShell, splitTerminal, clearActiveTerminal]);
 
