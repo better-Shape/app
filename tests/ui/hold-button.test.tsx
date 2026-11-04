@@ -1289,7 +1289,7 @@ describe("HoldButton", () => {
             });
             expect(btn.dataset.state).toBe("holding");
 
-            // Button disables during the press, optionally outlasting the 500ms click-guard fallback,
+            // Button disables during the press, optionally outlasting the 64ms click-guard fallback,
             // then re-enables before the finger lifts.
             render(
                 <HoldButton ariaLabel="Discard" label="Discard" disabled onConfirm={onConfirm} />,
