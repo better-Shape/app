@@ -651,6 +651,7 @@ describe("HoldButton", () => {
                     bubbles: true,
                     button: 0,
                     pointerId: 21,
+                    pointerType: "touch",
                     clientX: 40,
                     clientY: 20,
                 }),
@@ -668,6 +669,7 @@ describe("HoldButton", () => {
                 new PointerEvent("pointermove", {
                     bubbles: true,
                     pointerId: 21,
+                    pointerType: "touch",
                     clientX: 165,
                     clientY: 20,
                 }),
@@ -681,6 +683,7 @@ describe("HoldButton", () => {
                 new PointerEvent("pointerup", {
                     bubbles: true,
                     pointerId: 21,
+                    pointerType: "touch",
                     clientX: 165,
                     clientY: 20,
                 }),
@@ -695,6 +698,7 @@ describe("HoldButton", () => {
                     bubbles: true,
                     button: 0,
                     pointerId: 23,
+                    pointerType: "touch",
                     clientX: 40,
                     clientY: 20,
                 }),
@@ -703,6 +707,7 @@ describe("HoldButton", () => {
                 new PointerEvent("pointermove", {
                     bubbles: true,
                     pointerId: 23,
+                    pointerType: "touch",
                     clientX: 165,
                     clientY: 20,
                 }),
@@ -711,6 +716,7 @@ describe("HoldButton", () => {
                 new PointerEvent("pointerup", {
                     bubbles: true,
                     pointerId: 23,
+                    pointerType: "touch",
                     clientX: 40,
                     clientY: 20,
                 }),
