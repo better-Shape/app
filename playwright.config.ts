@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
-import { defineConfig } from "@playwright/test";
+import { defineConfig, type ReporterDescription } from "@playwright/test";
 
 /**
  * Browser Preview + agent QA suite. See `e2e/README.md` for the full guide.
@@ -170,6 +170,11 @@ export default defineConfig({
         ["list"],
         ["html", { open: "never" }],
         ["json", { outputFile: "test-results/results.json" }],
+        // In Actions this renders one annotation per failed test. Without it a
+        // red job only says "exit code 1": the HTML report and the JSON results
+        // both live in an artifact, which is not reachable from every sandbox
+        // that has to explain the failure.
+        ...(process.env.GITHUB_ACTIONS ? ([["github"]] as ReporterDescription[]) : []),
     ],
     use: {
         baseURL,

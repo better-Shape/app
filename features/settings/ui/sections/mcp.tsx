@@ -397,6 +397,7 @@ export function McpSettingsView() {
     const [openId, setOpenId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [reloading, setReloading] = useState(false);
 
     const refresh = useCallback(() => listMcpServers().then(async listed => {
         setServers(listed);
@@ -442,6 +443,37 @@ export function McpSettingsView() {
         };
     }, [refresh, refreshFromAgent]);
 
+    // Servers the agent wrote, or that the user hand-edited into mcp.json, are
+    // only live after a re-read: the settings list and the runtime both come
+    // from that call, so one button keeps them in step.
+    const reloadFromFile = useCallback(async () => {
+        setReloading(true);
+        try {
+            const nextStatuses = await commands.mcpReloadFromFile();
+            const statuses = Array.isArray(nextStatuses) ? nextStatuses : [];
+            setStatuses(statuses);
+            setServers(await listMcpServers());
+            // The reload returns a status per server, and a failure is a status
+            // the cards do not spell out: saying "reloaded" after every
+            // connection failed would hide it.
+            const failed = statuses.filter((status) => status.status === "error");
+            if (failed.length === 0) {
+                notify.success("Reloaded the servers in mcp.json.");
+            } else {
+                notify.error(
+                    failed.length === 1
+                        ? `${failed[0].name} could not connect.`
+                        : `${failed.length} servers could not connect.`,
+                    failed.find((status) => status.error)?.error ?? "Check mcp.json and the server logs.",
+                );
+            }
+        } catch (err) {
+            notify.error(err instanceof Error ? err.message : "Could not reload mcp.json.");
+        } finally {
+            setReloading(false);
+        }
+    }, []);
+
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
         if (!q) return servers;
@@ -476,6 +508,15 @@ export function McpSettingsView() {
                             <div className="flex gap-2">
                                 <Button variant="ghost" size="sm" className={SETTING_CONTROL_BTN} onClick={() => void openMcpConfig()}>
                                     Open mcp.json
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={SETTING_CONTROL_BTN}
+                                    disabled={reloading}
+                                    onClick={() => void reloadFromFile()}
+                                >
+                                    Reload from file
                                 </Button>
                                 <Button size="sm" onClick={() => setAdding(true)}>
                                     Add server

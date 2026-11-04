@@ -679,6 +679,9 @@ const isPrimaryPointerPress = (event: React.PointerEvent<HTMLButtonElement>): bo
 const hasKeyModifier = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
     event.metaKey || event.ctrlKey || event.altKey;
 
+const hasClickModifier = (event: React.MouseEvent<HTMLButtonElement>): boolean =>
+    event.metaKey || event.ctrlKey || event.altKey;
+
 const isUnmodifiedActivationKey = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
     !event.repeat && !hasKeyModifier(event) && isActivationKey(event.key);
 
@@ -696,10 +699,12 @@ const composeHoldButtonEvents = (
     activeState: HoldButtonState,
 ): React.ButtonHTMLAttributes<HTMLButtonElement> => ({
     onContextMenu: (event) => {
+        if (hold.shouldSuppressContextMenu()) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
         external.onContextMenu?.(event);
-        if (!hold.shouldSuppressContextMenu()) return;
-        event.preventDefault();
-        event.stopPropagation();
     },
     onPointerDown: (event) => {
         external.onPointerDown?.(event);
@@ -755,8 +760,8 @@ const composeHoldButtonEvents = (
         hold.handleBlur();
     },
     onClick: (event) => {
-        if (event.ctrlKey) return;
         event.stopPropagation();
+        if (hasClickModifier(event)) return;
         if (hold.handleClick()) external.onClick?.(event);
     },
 });

@@ -1,5 +1,13 @@
 /** Path helpers shared across the IDE (no preview dependency). */
 
+/**
+ * True for a path from a filesystem that folds case (Windows). Linux keeps
+ * `/repo` and `/Repo` apart, so callers must not compare those two by folding.
+ */
+export function isCaseInsensitivePath(filePath: string): boolean {
+    return filePath.includes("\\") || /^[a-zA-Z]:/.test(filePath);
+}
+
 export function normalizePath(filePath: string): string {
     return filePath.replace(/\\/g, "/");
 }

@@ -3,9 +3,18 @@
 import { appRoute } from "@/lib/window/app-route";
 import { WebviewWindow } from "@/lib/tauri/client-api";
 
-function popoutLabel(filePath: string) {
+/**
+ * Window label for a popped-out file.
+ *
+ * The readable part is cut at 48 characters, so two long paths under the same
+ * folder would share it and the second one would focus the first one's window
+ * instead of opening its own file. The hash of the whole path keeps them apart.
+ */
+export function popoutLabel(filePath: string) {
     const safe = filePath.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 48);
-    return `popout-${safe}`;
+    let hash = 0;
+    for (let i = 0; i < filePath.length; i += 1) hash = (hash * 31 + filePath.charCodeAt(i)) >>> 0;
+    return `popout-${safe}-${hash.toString(36)}`;
 }
 
 export async function openEditorPopout(filePath: string) {

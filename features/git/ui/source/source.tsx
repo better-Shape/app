@@ -19,7 +19,7 @@ import { LayoutRowTwo20Regular } from "@fluentui/react-icons/headless/svg/layout
 import { MoreHorizontal20Regular } from "@fluentui/react-icons/headless/svg/more-horizontal";
 
 
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { cn } from "@/lib/utils";
@@ -29,6 +29,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FileIcon } from "@/components/ui/file-icon";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
+import { openAllChangesTab } from "@/lib/window/open-all-changes";
+import { HunkActions } from "@/features/git/ui/shared/hunk-actions";
 import {
     GenerateStarButton,
     streamTextInto,
@@ -51,7 +53,6 @@ import {
     GitRepoInfo,
 } from "@/lib/backend";
 import { notify } from "@/features/notifications";
-import { statusProgress } from "@/lib/ui/status-progress";
 import { getSettings, useSettings } from "@/lib/settings";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -74,27 +75,8 @@ import { useLoading } from "@/features/loading/context";
 import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { useGitRepos } from "@/lib/git/repos";
-
-/** Error fragments that mean "no usable repo here", not a failure worth surfacing. */
-const BENIGN_GIT_ERROR_FRAGMENTS = [
-    "not a git repository",
-    "could not find repository",
-    ".invalid",
-    "unborn",
-];
-
-/** Whether error text reports an invalid git reference. */
-const hasInvalidReference = (message: string): boolean =>
-    message.includes("reference") && message.includes("not valid");
-
-/** Errors that mean "no usable repo here", not a failure worth surfacing. */
-const isBenignGitError = (err: unknown): boolean => {
-    const message = String(err).toLowerCase();
-    return BENIGN_GIT_ERROR_FRAGMENTS.some((fragment) => message.includes(fragment)) || hasInvalidReference(message);
-};
-
-/** Display text for an unknown thrown value. */
-const errorText = (err: unknown): string => err instanceof Error ? err.message : String(err);
+import { errorText } from "./git-errors";
+import { useGitStatusRefresh } from "./use-git-status-refresh";
 
 /** Last segment of a file path, falling back to the whole path. */
 const pathBaseName = (path: string): string => path.split(/[/\\]/).pop() || path;
@@ -443,6 +425,12 @@ const useEmbeddedDiffContent = (
     embedded: boolean,
     gitRepo: string | null,
     diffFile: { path: string; staged: boolean } | null,
+    /**
+     * Bumped by a Git mutation. The file can keep the same path and staged flag
+     * while its hunks change under it, and the object identity alone would keep
+     * the previous content on screen.
+     */
+    refreshToken: number,
     setDiffOriginal: (value: string) => void,
     setDiffModified: (value: string) => void,
     setDiffLoading: (value: boolean) => void,
@@ -452,9 +440,10 @@ const useEmbeddedDiffContent = (
         inputs === null ||
         !Object.is(inputs[0], embedded) ||
         !Object.is(inputs[1], gitRepo) ||
-        !Object.is(inputs[2], diffFile)
+        !Object.is(inputs[2], diffFile) ||
+        !Object.is(inputs[3], refreshToken)
     ) {
-        setInputs([embedded, gitRepo, diffFile]);
+        setInputs([embedded, gitRepo, diffFile, refreshToken]);
         setDiffOriginal("");
         setDiffModified("");
         setDiffLoading(embedded && gitRepo !== null && diffFile !== null);
@@ -482,116 +471,7 @@ const useEmbeddedDiffContent = (
         return () => {
             cancelled = true;
         };
-    }, [embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading]);
-};
-
-/** Whether a refresh has both a project and a repo to query. */
-const hasRepoTarget = (
-    projectPath: string | null | undefined,
-    repoPath: string | null,
-): repoPath is string => Boolean(projectPath && repoPath);
-
-/** Whether refresh should clear status: project open, discovery done, no repo. */
-/**
- * Whether the panel still shows git state for a project that has no repository.
- *
- * `hasStaleStatus` keeps the clear from running when there is nothing to clear.
- * Writing `setIsGitRepo(false)` over an already-false value still schedules a
- * render, so the predicate carries the current state instead of assuming it.
- */
-const shouldClearWithoutRepo = (
-    projectPath: string | null | undefined,
-    reposLoading: boolean,
-    hasStaleStatus: boolean,
-): boolean => Boolean(projectPath && !reposLoading && hasStaleStatus);
-
-/** Status refresh for one project+repo, dropping results written after a repo switch. */
-const useGitStatusRefresh = (args: {
-    projectPath: string | null | undefined;
-    scmRepoPath: string | null;
-    repoKey: string;
-    reposCount: number;
-    reposLoading: boolean;
-    startLoading: () => void;
-    stopLoading: () => void;
-    setChanges: (files: GitFileParams[]) => void;
-    setCurrentBranch: (branch: string) => void;
-    setHasRemote: (value: boolean) => void;
-    setLastCommit: (entry: GitLogEntry | null) => void;
-    setNeedsSync: (value: boolean) => void;
-    setIsGitRepo: (value: boolean) => void;
-    latestRepoKeyRef: React.RefObject<string>;
-    /** Whether the panel currently shows git state worth clearing. */
-    isGitRepo: boolean;
-    changeCount: number;
-    hasLastCommit: boolean;
-}) => {
-    const {
-        projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
-        startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
-        setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
-        isGitRepo, changeCount, hasLastCommit,
-    } = args;
-
-    return useCallback(async (opts?: { track?: boolean }) => {
-        const track = opts?.track !== false;
-        const repoPath = scmRepoPath;
-        const keyAtStart = repoKey;
-        /** Whether the repo changed after this refresh started. */
-        const stale = () => latestRepoKeyRef.current !== keyAtStart;
-        if (hasRepoTarget(projectPath, repoPath)) {
-            statusProgress.push("git-refresh", "Refreshing git status...");
-            if (track) startLoading();
-            try {
-                await Promise.all([
-                    commands.gitStatus(repoPath).then((files) => {
-                        if (stale()) return;
-                        setIsGitRepo(true);
-                        setChanges(files);
-                    }).catch((err) => {
-                        if (stale()) return;
-                        if (isBenignGitError(err)) {
-                            setIsGitRepo(reposCount > 0);
-                            setChanges([]);
-                        } else {
-                            notify.error("Source Control Error", `Failed to load git status: ${errorText(err)}`);
-                        }
-                    }),
-                    commands.gitCurrentBranch(repoPath).then((branch) => {
-                        if (!stale()) setCurrentBranch(branch);
-                    }).catch(() => {
-                        if (!stale()) setCurrentBranch("master");
-                    }),
-                    commands.gitHasRemote(repoPath).then((value) => {
-                        if (!stale()) setHasRemote(value);
-                    }).catch(() => {
-                        if (!stale()) setHasRemote(false);
-                    }),
-                    commands.gitLog(repoPath, 1)
-                        .then((logs) => {
-                            if (stale()) return;
-                            setLastCommit(logs.length > 0 ? logs[0] : null);
-                        }).catch(() => { if (!stale()) setLastCommit(null); }),
-                    commands.gitSyncStatus(repoPath).then((status) => {
-                        if (!stale()) setNeedsSync(status.ahead > 0);
-                    }).catch(() => { if (!stale()) setNeedsSync(false); }),
-                ]);
-            } finally {
-                if (track) stopLoading();
-                statusProgress.remove("git-refresh");
-            }
-        } else if (shouldClearWithoutRepo(projectPath, reposLoading, isGitRepo || changeCount > 0 || hasLastCommit)) {
-            // Only clear after discovery finished with no repo — never during the async gap.
-            setIsGitRepo(false);
-            setChanges([]);
-            setLastCommit(null);
-        }
-    }, [
-        projectPath, scmRepoPath, repoKey, reposCount, reposLoading,
-        startLoading, stopLoading, setChanges, setCurrentBranch, setHasRemote,
-        setLastCommit, setNeedsSync, setIsGitRepo, latestRepoKeyRef,
-        isGitRepo, changeCount, hasLastCommit,
-    ]);
+    }, [embedded, gitRepo, diffFile, refreshToken, setDiffOriginal, setDiffModified, setDiffLoading]);
 };
 
 /** Stage every unstaged change, one command per file. */
@@ -919,6 +799,19 @@ const useGitPanelHandlers = (ctx: {
         }
     };
 
+    /**
+     * Re-reads the panel after a command changed the working tree.
+     *
+     * The event is what the panel's listener answers by bumping the diff token as
+     * well as refreshing status, so an open diff re-reads its text. A bare
+     * `refresh()` left an embedded diff pane showing the pre-command content,
+     * because staging, stashing and aborting change the diff without changing
+     * its path or staged flag.
+     */
+    const announceWorkingTreeChange = () => {
+        window.dispatchEvent(new Event("bettershape-git-refresh"));
+    };
+
     /** Add the remote named in the dialog form. */
     const handleAddRemote = async () => {
         if (!gitRepo || !newRemoteName.trim() || !newRemoteUrl.trim()) return;
@@ -975,7 +868,7 @@ const useGitPanelHandlers = (ctx: {
             await commands.gitSync(gitRepo);
             notify.info("Git Sync", "Successfully synced with remote.");
             setNeedsSync(false);
-            await refresh({ track: false });
+            announceWorkingTreeChange();
         } catch (err) {
             notify.gitError(err, "Sync failed");
         } finally {
@@ -1007,7 +900,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitPull(gitRepo);
             notify.info("Git", "Pulled successfully.");
-            await refresh({ track: false });
+            announceWorkingTreeChange();
         } catch (err) {
             notify.gitError(err, "Pull failed");
         } finally {
@@ -1087,7 +980,7 @@ const useGitPanelHandlers = (ctx: {
         if (!gitRepo) return;
         try {
             await commands.gitStageAll(gitRepo);
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stage all failed");
         }
@@ -1098,7 +991,7 @@ const useGitPanelHandlers = (ctx: {
         if (!gitRepo) return;
         try {
             await commands.gitUnstageAll(gitRepo);
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Unstage all failed");
         }
@@ -1110,7 +1003,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitStashSave(gitRepo, "", true);
             notify.success("Git", "Changes stashed.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stash failed");
         }
@@ -1122,7 +1015,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitStashPop(gitRepo, 0);
             notify.success("Git", "Stash applied and dropped.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Stash pop failed");
         }
@@ -1134,7 +1027,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitMergeAbort(gitRepo);
             notify.info("Git", "Merge aborted.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Merge abort failed");
         }
@@ -1146,7 +1039,7 @@ const useGitPanelHandlers = (ctx: {
         try {
             await commands.gitRebaseAbort(gitRepo);
             notify.info("Git", "Rebase aborted.");
-            refresh().catch(() => undefined);
+            announceWorkingTreeChange();
         } catch (e) {
             notify.gitError(e, "Rebase abort failed");
         }
@@ -1223,6 +1116,7 @@ const MoreActionsDropdown = ({
             <DropdownMenuItem onClick={handleFetch}>Fetch All</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePull}>Pull</DropdownMenuItem>
             <DropdownMenuItem onClick={handlePush}>Push</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openAllChangesTab()}>Open All Changes</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={stageAllChanges}>Stage All Changes</DropdownMenuItem>
             <DropdownMenuItem onClick={unstageAllChanges}>Unstage All Changes</DropdownMenuItem>
@@ -2225,11 +2119,15 @@ const CommitActionsRow = ({
 /** Header for the embedded diff pane: file name, staged state, layout toggle, and close. */
 const DiffPaneHeader = ({
     diffFile,
+    repoPath,
+    active,
     sideBySide,
     setSideBySide,
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean };
+    repoPath: string | null;
+    active: boolean;
     sideBySide: boolean;
     setSideBySide: (value: boolean | ((previous: boolean) => boolean)) => void;
     setDiffFile: (value: { path: string; staged: boolean } | null) => void;
@@ -2245,6 +2143,12 @@ const DiffPaneHeader = ({
     <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">
         {diffFile.path}
     </span>
+    <HunkActions
+        repoPath={repoPath}
+        filePath={diffFile.path}
+        mode={diffFile.staged ? "staged" : "unstaged"}
+        active={active}
+    />
     <span className="shrink-0 text-xs text-text-muted">
         {diffFile.staged ? "Staged" : "Unstaged"}
     </span>
@@ -2280,6 +2184,7 @@ const DiffPaneHeader = ({
 /** Embedded diff pane: empty state, or the diff header plus the Monaco diff editor. */
 const DiffPane = ({
     diffFile,
+    repoPath,
     diffLoading,
     diffOriginal,
     diffModified,
@@ -2289,6 +2194,7 @@ const DiffPane = ({
     setDiffFile,
 }: {
     diffFile: { path: string; staged: boolean } | null;
+    repoPath: string | null;
     diffLoading: boolean;
     diffOriginal: string;
     diffModified: string;
@@ -2305,7 +2211,14 @@ const DiffPane = ({
             </div>
         ) : (
             <>
-<DiffPaneHeader diffFile={diffFile} sideBySide={sideBySide} setSideBySide={setSideBySide} setDiffFile={setDiffFile} />
+<DiffPaneHeader
+                    diffFile={diffFile}
+                    repoPath={repoPath}
+                    active={active}
+                    sideBySide={sideBySide}
+                    setSideBySide={setSideBySide}
+                    setDiffFile={setDiffFile}
+                />
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                     {diffLoading ? (
                         <div className="flex h-full items-center justify-center text-sm text-text-muted">
@@ -2512,6 +2425,7 @@ const EmbeddedSourceBody = ({
                 children: (
                     <DiffPane
                         diffFile={diffFile}
+                        repoPath={gitRepo}
                         diffLoading={diffLoading}
                         diffOriginal={diffOriginal}
                         diffModified={diffModified}
@@ -2716,6 +2630,7 @@ const Source = ({
     const [conflictHelp, setConflictHelp] = useState<string | null>(null);
     const [conflictHelpLoading, setConflictHelpLoading] = useState(false);
     const [diffFile, setDiffFile] = useState<{ path: string; staged: boolean } | null>(null);
+    const [diffRefreshToken, setDiffRefreshToken] = useState(0);
     const [diffOriginal, setDiffOriginal] = useState("");
     const [diffModified, setDiffModified] = useState("");
     const [diffLoading, setDiffLoading] = useState(false);
@@ -2794,7 +2709,12 @@ const Source = ({
 
     useEffect(() => {
         /** Refresh on the window-level git-refresh event (staging, discard, repo switch). */
-        const handleGitRefresh = () => { refresh().catch(() => undefined); };
+        const handleGitRefresh = () => {
+            // The open diff is re-read too: staging a hunk changes the diff that
+            // is on screen without changing its path or staged flag.
+            setDiffRefreshToken((token) => token + 1);
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", handleGitRefresh);
         return () => window.removeEventListener("bettershape-git-refresh", handleGitRefresh);
     }, [refresh]);
@@ -2822,7 +2742,15 @@ const Source = ({
     });
 
 
-    useEmbeddedDiffContent(embedded, gitRepo, diffFile, setDiffOriginal, setDiffModified, setDiffLoading);
+    useEmbeddedDiffContent(
+        embedded,
+        gitRepo,
+        diffFile,
+        diffRefreshToken,
+        setDiffOriginal,
+        setDiffModified,
+        setDiffLoading,
+    );
 
     const handleCommit = useHandleCommit({
         gitRepo, commitTitle, commitDescription, lastCommit, hasRemote, changes,

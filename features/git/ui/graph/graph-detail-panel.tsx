@@ -108,6 +108,9 @@ export function GraphDetailPanel({
         void commands
             .gitCommitFiles(repoPath, log.hash)
             .then((files) => {
+                // The command is typed as a list, but a backend that answers
+                // nothing (an older build, the browser preview before this was
+                // modeled) would put `null` in state and crash the next render.
                 if (!cancelled) setCommitFiles(Array.isArray(files) ? files : []);
             })
             .catch(() => {

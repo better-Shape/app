@@ -77,7 +77,6 @@ const EXEMPT: Record<string, string> = {
     "components/ui/scroll.tsx :: scrollbar-hover": "scrollbar thumb, not chrome",
     "components/ui/button.tsx :: surface-4": "secondary variant lifts to a raised surface, an elevation step rather than a state layer",
     "components/ui/button.tsx :: surface-2": "labels on a disabled button, which never take a pointer",
-    "features/chat/ui/blocks/carousel.tsx :: text-muted": "slide indicator dot over media",
     "features/chat/ui/blocks/lightbox.tsx :: black/70": "close control over a full-screen image, where a white layer would be invisible",
     "features/chat/ui/blocks/lightbox.tsx :: white/55": "thumbnail dot over the image scrim",
     "features/chat/ui/shell/history-stepper.tsx :: text-muted": "step indicator dot",

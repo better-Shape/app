@@ -230,6 +230,13 @@ describe("skill-paths: displaySkillPath", () => {
             "/Users/ada/my\\project/skills",
         );
         expect(normalizeSkillPath("//opt//bin///")).toBe("//opt/bin");
+        expect(joinSkillPath("\\\\?\\C:\\Users\\Dev\\Project\\", ".claude/skills")).toBe(
+            "\\\\?\\C:\\Users\\Dev\\Project\\.claude\\skills",
+        );
+        expect(joinSkillPath("\\\\?\\C:\\", ".claude/skills")).toBe("\\\\?\\C:\\.claude\\skills");
+        expect(joinSkillPath("\\\\?\\UNC\\Server\\Share\\", "team/SKILL.md")).toBe(
+            "\\\\?\\UNC\\Server\\Share\\team\\SKILL.md",
+        );
     });
 });
 

@@ -111,29 +111,39 @@ test.describe("micro-interactions, accessible settings switches, and workspace e
 
             // Open Commit menu and navigate via keyboard ArrowDown + Enter to open SingleFileDiffEditor.
             await page.getByRole("button", { name: /^Commit\b/ }).click();
-            const commitMenu = page.locator("[data-radix-popper-content-wrapper] [role='menu']");
-            const appMenuItem = commitMenu.getByRole("menuitem", { name: /App\.tsx/ });
+            const appMenuItem = page
+                .locator("[data-radix-popper-content-wrapper]")
+                .getByRole("menuitem", { name: /App\.tsx/ });
+            // Opening the Commit menu puts the caret in the message field, so the
+            // first thing a user types is a commit subject rather than nothing.
+            const messageInput = page.getByPlaceholder("Message");
+            await expect(messageInput).toBeFocused();
+            await page.keyboard.type("wip");
+            await expect(messageInput).toHaveValue("wip");
+
+            // Escape still closes the menu from the message field, and reopening
+            // puts the caret back in it.
+            await page.keyboard.press("Escape");
+            await expect(messageInput).toBeHidden();
+            await page.getByRole("button", { name: /^Commit\b/ }).click();
+            await expect(messageInput).toBeFocused();
+
             await expect(appMenuItem).toBeVisible();
+            // ArrowDown walks from the message into the file list. Each press gets a
+            // settle window before the next one: sampling the highlight immediately
+            // after a keypress can read the previous row's state.
             await expect
-                .poll(() =>
-                    commitMenu.evaluate((menu) => {
-                        const active = document.activeElement;
-                        return menu === active || menu.contains(active);
-                    }),
+                .poll(
+                    async () => {
+                        if ((await appMenuItem.getAttribute("data-highlighted")) !== null) {
+                            return true;
+                        }
+                        await page.keyboard.press("ArrowDown");
+                        return false;
+                    },
+                    { timeout: 10_000, intervals: [150] },
                 )
                 .toBe(true);
-            for (let step = 0; step < 8; step += 1) {
-                const highlighted = await appMenuItem.getAttribute("data-highlighted");
-                if (highlighted !== null) break;
-                await page.keyboard.press("ArrowDown");
-                await page.evaluate(
-                    () =>
-                        new Promise<null>((resolve) => {
-                            requestAnimationFrame(() => setTimeout(() => resolve(null), 0));
-                        }),
-                );
-            }
-            await expect(appMenuItem).toHaveAttribute("data-highlighted", "");
             await page.keyboard.press("Enter");
 
             const discardBtn = page.locator("button.t-hold").first();

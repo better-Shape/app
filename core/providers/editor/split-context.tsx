@@ -378,6 +378,24 @@ function publishFocusedFile(path: string | null) {
     focusedListeners.forEach((listener) => listener());
 }
 
+/**
+ * The file the focused editor group is showing, readable from app chrome.
+ *
+ * Inside the provider the context is authoritative. Outside it, the backend's
+ * active file can still name the left group's tab while the right group has
+ * focus, so the published focused path wins whenever the provider reported one.
+ */
+export const useFocusedEditorFile = (fallback: string | null | undefined): string | null => {
+    const split = useEditorSplitOptional();
+    const published = useSplitFocusedFile();
+    if (split) {
+        return split.splitEnabled && split.focusedGroup === "right"
+            ? split.getGroupActiveFile("right")
+            : (fallback ?? null);
+    }
+    return published ?? fallback ?? null;
+};
+
 /** The focused group's active file, readable from anywhere. Null until the provider mounts. */
 export const useSplitFocusedFile = () =>
     useSyncExternalStore(

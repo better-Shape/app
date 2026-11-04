@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import { listen } from "@tauri-apps/api/event";
 import { notify } from "@/features/notifications";
+import { lineEndingOfText, rememberLiveEol } from "@/lib/editor/live-eol";
 
 export function useFileContent(
     path: string,
@@ -145,6 +146,10 @@ export function useFileContent(
                 } else {
                     const data = await commands.readFile(path);
                     if (cancelled || seq !== loadSeq) return;
+                    // Recorded here rather than in an editor, because the preview
+                    // surface is the editor for a markdown file, and Save All and
+                    // Save As save files whose editor is not on screen.
+                    rememberLiveEol(path, lineEndingOfText(data));
                     const { loadDirtyBuffer } = await import("@/lib/workspace/dirty-buffers");
                     if (cancelled || seq !== loadSeq) return;
                     const dirty = loadDirtyBuffer(path);

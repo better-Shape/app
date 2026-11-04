@@ -1,0 +1,386 @@
+#!/usr/bin/env node
+/**
+ * Glue audit: measures the four ways a shipped surface can be stranded.
+ *
+ * 1. Modules no app code imports (a component nothing renders).
+ * 2. Event channels with a listener and no dispatcher, or the reverse.
+ * 3. Settings keys stored in the schema that no code mentions at all. Limits:
+ *    a key mapped through an options object (for example
+ *    `getEditorOptionsFromSettings`) reads as used even when the code that
+ *    builds the control never applies the mapped value. That second question
+ *    needs a reader per consumer, not a grep.
+ * 4. Exported names defined in more than one module (drift risk).
+ *
+ * The counts are the proof: run it before and after a fix and compare.
+ * Output: human table on stdout, JSON at .qa-artifacts/glue-audit.json.
+ *
+ * Run: node scripts/qa/audit-glue.mjs
+ */
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
+
+const ROOT = process.cwd();
+const CODE_ROOTS = ["app", "components", "features", "lib", "core"];
+const IGNORED_DIRS = new Set(["node_modules", ".next", "out", "dist", "build", "coverage", ".qa-artifacts"]);
+const ROUTE_FILES = new Set([
+    "page.tsx", "layout.tsx", "error.tsx", "global-error.tsx", "not-found.tsx",
+    "template.tsx", "default.tsx", "loading.tsx", "route.ts", "route.tsx",
+]);
+
+const walk = (dir, out = []) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full, out);
+        else if (/\.[cm]?[jt]sx?$/.test(entry.name)) out.push(full);
+    }
+    return out;
+};
+
+const files = CODE_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(join(ROOT, root)) : []));
+// Tests, the e2e suite and the QA scripts are importers too. A module that only
+// they import is not app-reachable, but it is not dead either.
+const CONSUMER_ROOTS = ["tests", "e2e", "scripts"];
+const consumerFiles = CONSUMER_ROOTS.flatMap((root) => (existsSync(join(ROOT, root)) ? walk(join(ROOT, root)) : []));
+const isRouteFile = (file) => file.startsWith(join(ROOT, "app")) && ROUTE_FILES.has(basename(file));
+
+const resolveSpecifier = (fromFile, specifier) => {
+    let base;
+    if (specifier.startsWith("@/")) base = join(ROOT, specifier.slice(2));
+    else if (specifier.startsWith(".")) base = resolve(dirname(fromFile), specifier);
+    else return null;
+    const candidates = [
+        base,
+        `${base}.ts`, `${base}.tsx`, `${base}.mts`, `${base}.cts`,
+        join(base, "index.ts"), join(base, "index.tsx"),
+    ];
+    for (const candidate of candidates) {
+        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    }
+    return null;
+};
+
+/**
+ * Import specifiers, read by scanning rather than by pattern.
+ *
+ * Four forms have to be found: `import x from "…"` (and `export … from`),
+ * `import("…")`, `require("…")`, and the side-effect `import "…"` at line start,
+ * which has no `from` clause. A scanner keeps every one of them linear; the
+ * regexes this replaces had to be de-nested twice before they stopped
+ * backtracking on long specifier lists.
+ */
+const isWordChar = (char) => char !== "" && /[A-Za-z0-9_$]/.test(char);
+const isSpace = (char) => char === " " || char === "\t" || char === "\n" || char === "\r";
+
+/** Skips spaces and tabs forward from `index`. */
+const skipSpace = (source, index) => {
+    let at = index;
+    while (at < source.length && isSpace(source[at])) at += 1;
+    return at;
+};
+
+/** Reads a quoted specifier whose opening quote is at `index`. */
+const specifierAt = (source, index) => {
+    const quote = source[index];
+    if (quote !== '"' && quote !== "'") return null;
+    const close = source.indexOf(quote, index + 1);
+    return close === -1 ? null : source.slice(index + 1, close);
+};
+
+const specifiersIn = (source) => {
+    const found = new Set();
+    const addAfterKeyword = (keyword, form) => {
+        let at = source.indexOf(keyword);
+        while (at !== -1) {
+            const before = at === 0 ? "" : source[at - 1];
+            const after = source[at + keyword.length] ?? "";
+            if (!isWordChar(before) && !isWordChar(after)) {
+                let cursor = skipSpace(source, at + keyword.length);
+                if (form === "call") {
+                    if (source[cursor] === "(") cursor = skipSpace(source, cursor + 1);
+                    else cursor = -1;
+                }
+                if (form === "line-start") {
+                    const lineStart = source.lastIndexOf("\n", at) + 1;
+                    cursor = source.slice(lineStart, at).trim() === "" ? cursor : -1;
+                }
+                if (cursor !== -1) {
+                    const specifier = specifierAt(source, cursor);
+                    if (specifier) found.add(specifier);
+                }
+            }
+            at = source.indexOf(keyword, at + keyword.length);
+        }
+    };
+    addAfterKeyword("from", "plain");
+    addAfterKeyword("require", "call");
+    addAfterKeyword("import", "call");
+    addAfterKeyword("import", "line-start");
+    return [...found];
+};
+
+const importGraph = new Map();
+for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    importGraph.set(file, specifiersIn(source));
+}
+
+const imported = new Set();
+for (const [file, specifiers] of importGraph) {
+    for (const specifier of specifiers) {
+        const target = resolveSpecifier(file, specifier);
+        if (target && target !== file) imported.add(target);
+    }
+}
+
+const consumerImported = new Set();
+for (const file of consumerFiles) {
+    const source = readFileSync(file, "utf8");
+    for (const specifier of specifiersIn(source)) {
+        const target = resolveSpecifier(file, specifier);
+        if (target) consumerImported.add(target);
+    }
+}
+
+const orphans = [];
+const testOnly = [];
+for (const file of files) {
+    if (imported.has(file) || isRouteFile(file)) continue;
+    (consumerImported.has(file) ? testOnly : orphans).push(relative(ROOT, file));
+}
+const byName = (left, right) => left.localeCompare(right);
+orphans.sort(byName);
+testOnly.sort(byName);
+
+// Event channels
+const EVENT_LISTEN_RE = /addEventListener\(\s*["']([^"']+)["']/g;
+const EVENT_DISPATCH_RE = /new\s+(?:Custom)?Event\(\s*["']([^"']+)["']/g;
+const listeners = new Map();
+const dispatchers = new Map();
+const record = (map, name, file) => {
+    if (!map.has(name)) map.set(name, new Set());
+    map.get(name).add(relative(ROOT, file));
+};
+for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(EVENT_LISTEN_RE)) record(listeners, match[1], file);
+    for (const match of source.matchAll(EVENT_DISPATCH_RE)) record(dispatchers, match[1], file);
+}
+const DOM_EVENTS = new Set([
+    "click", "dblclick", "keydown", "keyup", "keypress", "pointerdown", "pointerup", "pointermove",
+    "pointerenter", "pointerleave", "pointercancel", "mousedown", "mouseup", "mousemove", "mouseenter",
+    "mouseleave", "wheel", "scroll", "resize", "focus", "blur", "focusin", "focusout", "input", "change",
+    "submit", "paste", "copy", "cut", "drop", "dragover", "dragleave", "dragstart", "dragend", "contextmenu",
+    "storage", "hashchange", "popstate", "online", "offline", "beforeunload", "message", "animationend",
+    "transitionend", "selectstart", "visibilitychange", "load", "error", "touchstart", "touchmove", "touchend",
+]);
+const channelName = (name) => /^[a-z][a-z0-9:_-]*$/i.test(name);
+const listenerOnly = [...listeners.keys()]
+    .filter((name) => !dispatchers.has(name) && !DOM_EVENTS.has(name) && channelName(name))
+    .sort(byName)
+    .map((name) => ({ name, listeners: [...listeners.get(name)] }));
+const dispatchOnly = [...dispatchers.keys()]
+    .filter((name) => !listeners.has(name) && !DOM_EVENTS.has(name) && channelName(name))
+    .sort(byName)
+    .map((name) => ({ name, dispatchers: [...dispatchers.get(name)] }));
+
+// Settings keys with no reader outside the settings system
+const storePath = join(ROOT, "lib/settings/store.ts");
+const settingsKeys = [];
+if (existsSync(storePath)) {
+    const store = readFileSync(storePath, "utf8");
+    const start = store.indexOf("DEFAULT_SETTINGS");
+    const end = start < 0 ? -1 : store.indexOf("\n};", start);
+    const region = start < 0 ? "" : store.slice(start, end < 0 ? undefined : end);
+    // Indentation is the nesting: `git: { blame: { enabled: false } }` has to be
+    // reported as `git.blame.enabled`. Reading only two levels would record the
+    // `blame` group and never check the leaf anything actually reads.
+    const groups = [];
+    const identifier = /^[A-Za-z_$][\w$]*$/;
+    for (const line of region.split("\n")) {
+        // Parsed by index rather than matched: a `^\s*(...):\s*(.*)$` pattern
+        // backtracks super-linearly on long whitespace runs.
+        const trimmed = line.trimStart();
+        const indent = line.length - trimmed.length;
+        const colon = trimmed.indexOf(":");
+        if (indent === 0 || colon <= 0) continue;
+        const name = trimmed.slice(0, colon);
+        if (!identifier.test(name)) continue;
+        const rest = trimmed.slice(colon + 1).trim();
+        while (groups.length > 0 && groups[groups.length - 1].indent >= indent) groups.pop();
+        // `{}` and `[]` are empty values, not groups to descend into.
+        if (rest.startsWith("{") && !rest.startsWith("{}")) {
+            groups.push({ indent, name });
+            continue;
+        }
+        const path = [...groups.map((group) => group.name), name];
+        if (path.length < 2) continue;
+        settingsKeys.push({ section: path.slice(0, -1).join("."), key: path[path.length - 1] });
+    }
+}
+// Three kinds of reader, because they prove different amounts:
+//   app     - a surface outside the settings system consumes the key
+//   mapping - only the settings layer reads it, e.g. getEditorOptionsFromSettings
+//   none    - nothing reads it
+// The settings UI itself is never a reader: rendering a key is not consuming it.
+const settingsUi = join(ROOT, "features/settings/ui");
+const settingsLayer = join(ROOT, "lib/settings");
+/**
+ * Drops type declarations, which name a key without reading it.
+ *
+ * The store declares `codingAssistance: boolean;` next to the default and the
+ * mapper; leaving that line in makes every declared-but-unused key look like it
+ * has a reader inside the settings layer.
+ */
+const withoutTypeDeclarations = (source) =>
+    source
+        .split("\n")
+        .filter((line) => !/^ {4,}\w+\??:[^;]*;$/.test(line))
+        .join("\n");
+const withoutDefaults = (source) => {
+    const start = source.indexOf("DEFAULT_SETTINGS");
+    if (start < 0) return source;
+    const end = source.indexOf("};", start);
+    return end < 0 ? source : source.slice(0, start) + source.slice(end);
+};
+const SETTINGS_ROOT = "(?:getSettings\\(\\)|useSettings\\(\\)|settings)";
+/** `const alias = getSettings().terminal` — a local name for one section. */
+const aliasPattern = new RegExp(`(?:const|let|var)\\s+(\\w+)\\s*=\\s*${SETTINGS_ROOT}\\s*\\.\\s*([\\w.]+)`, "g");
+/** `const { fontFamily, fontSize } = getSettings().terminal` — section fields. */
+const destructuredPattern = new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${SETTINGS_ROOT}\\s*\\.\\s*([\\w.]+)`, "g");
+/**
+ * Aliases and destructuring per file.
+ *
+ * Code reads `const termSettings = getSettings().terminal` and then
+ * `termSettings.fontFamily`; matching only the literal `terminal.fontFamily`
+ * reported a wired setting as dead.
+ */
+const readSettingsShape = (source) => {
+    const aliases = new Map();
+    for (const match of source.matchAll(aliasPattern)) aliases.set(match[1], match[2]);
+    const destructured = new Map();
+    for (const match of source.matchAll(destructuredPattern)) {
+        const names = match[1]
+            .split(",")
+            .map((part) => part.split(/[:=]/)[0].trim())
+            .filter(Boolean);
+        const existing = destructured.get(match[2]) ?? new Set();
+        for (const name of names) existing.add(name);
+        destructured.set(match[2], existing);
+    }
+    return { aliases, destructured };
+};
+const readSources = (predicate) =>
+    files
+        .filter((file) => predicate(file))
+        .map((file) => {
+            const source = withoutTypeDeclarations(withoutDefaults(readFileSync(file, "utf8")));
+            return { file: relative(ROOT, file), source, ...readSettingsShape(source) };
+        });
+const appSources = readSources((file) => !file.startsWith(settingsUi) && !file.startsWith(settingsLayer));
+const mappingSources = readSources((file) => file.startsWith(settingsLayer));
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// `fontSize` and `enabled` exist in several sections, so a bare mention proves
+// nothing about which one is read. Only unique names may match unqualified.
+const keyNameCounts = new Map();
+for (const { key } of settingsKeys) keyNameCounts.set(key, (keyNameCounts.get(key) ?? 0) + 1);
+/**
+ * True when `source` reads `section.key`.
+ *
+ * A top-level key also matches on its own name, because code destructures
+ * (`const { fontSize } = settings.editor`). A nested key has to be qualified by
+ * its parent: a leaf named `enabled` or `timeout` would otherwise match any
+ * unrelated code and report a dead setting as wired.
+ */
+// `settings.python.interpreterPath` and `settings?.python?.interpreterPath` are
+// the same read, so the separator is optional-chaining aware.
+const chainPattern = (...parts) =>
+    new RegExp(`\\b${parts.map(escapeRegExp).join("\\s*\\??\\.\\s*")}\\b`);
+const mentions = (entry, section, key) => {
+    if (chainPattern(section, key).test(entry.source)) return true;
+    // A local alias for the section: `const termSettings = getSettings().terminal`.
+    for (const [alias, path] of entry.aliases) {
+        if (path !== section) continue;
+        if (chainPattern(alias, key).test(entry.source)) return true;
+    }
+    const nested = section.split(".");
+    if (nested.length > 1) {
+        // `const { blame } = settings.git` then `blame.enabled`.
+        return chainPattern(nested[nested.length - 1], key).test(entry.source);
+    }
+    if (entry.destructured.get(section)?.has(key)) return true;
+    // A name that exists in one section only can be matched on its own, and as
+    // a property of anything; a repeated name can only be trusted qualified.
+    if ((keyNameCounts.get(key) ?? 0) > 1) return false;
+    const bare = new RegExp(`\\b${escapeRegExp(key)}\\b`);
+    return bare.test(entry.source);
+};
+const unreadSettings = [];
+const mappedOnlySettings = [];
+for (const { section, key } of settingsKeys) {
+    const name = `${section}.${key}`;
+    if (appSources.some((entry) => mentions(entry, section, key))) continue;
+    const mappers = mappingSources.filter((entry) => mentions(entry, section, key)).map((entry) => entry.file);
+    if (mappers.length > 0) mappedOnlySettings.push({ key: name, mappers });
+    else unreadSettings.push(name);
+}
+
+// Duplicate exported names
+const EXPORT_RE = /export\s+(?:async\s+)?(?:function|const|class|let)\s+([A-Za-z_$][\w$]*)/g;
+const exportsByName = new Map();
+for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(EXPORT_RE)) {
+        const name = match[1];
+        if (!exportsByName.has(name)) exportsByName.set(name, new Set());
+        exportsByName.get(name).add(relative(ROOT, file));
+    }
+}
+const duplicates = [...exportsByName.entries()]
+    .filter(([, owners]) => owners.size > 1)
+    .map(([name, owners]) => ({ name, owners: [...owners].sort(byName) }))
+    .sort((left, right) => byName(left.name, right.name));
+
+const summary = {
+    generatedAt: new Date().toISOString(),
+    counts: {
+        modules: files.length,
+        orphanModules: orphans.length,
+        testOnlyModules: testOnly.length,
+        listenerOnlyChannels: listenerOnly.length,
+        dispatchOnlyChannels: dispatchOnly.length,
+        duplicateExports: duplicates.length,
+        settingsKeys: settingsKeys.length,
+        unreadSettings: unreadSettings.length,
+        mappedOnlySettings: mappedOnlySettings.length,
+    },
+    orphans,
+    testOnly,
+    listenerOnly,
+    dispatchOnly,
+    unreadSettings,
+    mappedOnlySettings,
+    duplicates,
+};
+
+mkdirSync(join(ROOT, ".qa-artifacts"), { recursive: true });
+writeFileSync(join(ROOT, ".qa-artifacts/glue-audit.json"), `${JSON.stringify(summary, null, 2)}\n`);
+
+console.log(`modules scanned: ${summary.counts.modules}`);
+console.log(`\norphan modules (${orphans.length})`);
+for (const file of orphans) console.log(`  ${file}`);
+console.log(`\ntest-only modules (${testOnly.length})`);
+for (const file of testOnly) console.log(`  ${file}`);
+console.log(`\nevents: listener only (${listenerOnly.length})`);
+for (const channel of listenerOnly) console.log(`  ${channel.name}  <- ${channel.listeners.join(", ")}`);
+console.log(`\nevents: dispatch only (${dispatchOnly.length})`);
+for (const channel of dispatchOnly) console.log(`  ${channel.name}  <- ${channel.dispatchers.join(", ")}`);
+console.log(`\nsettings keys with no reader (${unreadSettings.length})`);
+for (const key of unreadSettings) console.log(`  ${key}`);
+// These are read only by the settings layer, which maps them into options that
+// some surface may or may not consume. The audit cannot see through the mapping,
+// so they are listed rather than counted as wired.
+console.log(`\nsettings keys read only by the settings layer (${mappedOnlySettings.length})`);
+for (const entry of mappedOnlySettings) console.log(`  ${entry.key}  <- ${entry.mappers.join(", ")}`);
+console.log(`\nduplicate exported names (${duplicates.length})`);
+for (const entry of duplicates) console.log(`  ${entry.name}: ${entry.owners.join(", ")}`);

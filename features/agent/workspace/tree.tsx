@@ -4,14 +4,23 @@ import { Chat20Regular } from "@fluentui/react-icons/headless/svg/chat";
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
+import { Folder20Regular } from "@fluentui/react-icons/headless/svg/folder";
+import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands, type FileEntry } from "@/lib/backend";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { FileIcon } from "@/components/ui/file-icon";
 
 import { cn } from "@/lib/utils";
+import {
+    getExtraWorkspaceFolders,
+    isSameWorkspacePath,
+    removeWorkspaceFolder,
+    workspaceFolderLabel,
+} from "@/lib/workspace/folders";
 import {
     getFileClipboard,
     pasteFileClipboard,
@@ -72,6 +81,16 @@ const trimTrailingSlashes = (value: string): string => {
     return value.slice(0, end);
 };
 
+/**
+ * Applies the header filter to one level of the tree. Folders stay visible so a
+ * match deeper down can still be reached; files have to match by name.
+ */
+const filterEntries = (entries: FileEntry[], query: string): FileEntry[] => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return entries;
+    return entries.filter((entry) => entry.is_dir || entry.name.toLowerCase().includes(needle));
+};
+
 /** Resolves an explorer entry path relative to the workspace root when nested inside it. */
 const relativeExplorerPath = (entryPath: string, projectPath: string): string => {
     const cleanEntry = entryPath.replace(/\\/g, "/");
@@ -100,6 +119,9 @@ const formatExplorerMentionToken = (entryPath: string, projectPath: string, isDi
         label: base,
     })} `;
 };
+
+/** A folder added to the workspace, listed after the primary project. */
+type ExtraRoot = { path: string; entries: FileEntry[]; error: string | null };
 
 type TreeNodeProps = {
     entry: FileEntry;
@@ -502,22 +524,54 @@ export const FileTree = ({
     onOpenFile: (path: string) => void;
 }) => {
     const [roots, setRoots] = useState<FileEntry[]>([]);
+    /**
+     * Folders added with "Add Folder to Workspace". The backend already grants
+     * them IPC access; without a row here the action looked like it did nothing.
+     */
+    const [extraRoots, setExtraRoots] = useState<ExtraRoot[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [query, setQuery] = useState("");
     const [statusByPath, setStatusByPath] = useState<Map<string, string>>(() => new Map());
     const title = projectPath.replace(/(?<![\\/])[\\/]+$/, "").split(/[\\/]/).pop() || projectPath;
-    const shown = useMemo(() => {
-        const needle = query.trim().toLowerCase();
-        if (!needle) return roots;
-        return roots.filter((entry) => entry.is_dir || entry.name.toLowerCase().includes(needle));
-    }, [query, roots]);
+    const shown = useMemo(() => filterEntries(roots, query), [query, roots]);
 
     const [refreshTick, setRefreshTick] = useState(0);
     useEffect(() => {
         const b = () => setRefreshTick((n) => n + 1);
         window.addEventListener("bettershape-files-changed", b);
-        return () => window.removeEventListener("bettershape-files-changed", b);
+        window.addEventListener("bettershape-workspace-folders-changed", b);
+        return () => {
+            window.removeEventListener("bettershape-files-changed", b);
+            window.removeEventListener("bettershape-workspace-folders-changed", b);
+        };
     }, []);
+
+    useEffect(() => {
+        // A folder the user adds twice, or the project folder itself, would draw a
+        // second tree for files that are already listed above it.
+        const paths = getExtraWorkspaceFolders().filter((path) => !isSameWorkspacePath(path, projectPath));
+        let cancelled = false;
+        void Promise.all(
+            paths.map(async (path): Promise<ExtraRoot> => {
+                try {
+                    return { path, entries: sortEntries(await commands.lsDir(path)), error: null };
+                } catch (cause) {
+                    return {
+                        path,
+                        entries: [],
+                        error: cause instanceof Error ? cause.message : String(cause),
+                    };
+                }
+            }),
+        )
+            .then((list) => {
+                if (!cancelled) setExtraRoots(list);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [refreshTick, projectPath]);
 
     // The tree's own clipboard: which row the keyboard acts on, what is cut
     // (drawn dimmed), and the last refusal so it can be shown instead of
@@ -634,6 +688,30 @@ export const FileTree = ({
         return statusByPath.get(key);
     }, [statusByPath]);
 
+    /**
+     * One tree row. The project tree and each extra workspace folder render the
+     * same row with a different root, and keeping the props in one place is what
+     * stops the two copies drifting apart.
+     */
+    const renderNode = (entry: FileEntry, root: string) => (
+        <TreeNode
+            key={entry.path}
+            entry={entry}
+            depth={0}
+            projectPath={root}
+            activePath={activePath}
+            query={query}
+            onOpenFile={onOpenFile}
+            statusFor={statusFor}
+            revealDir={revealDir}
+            revealPath={revealPath}
+            selectedPath={selected?.path ?? null}
+            cutPaths={cutPaths}
+            onSelect={select}
+            onClipboard={runClipboard}
+        />
+    );
+
     // Padding on the wrapper (not margin on the island) keeps the flex parent
     // from shifting, the island sits inset without pushing layout sideways.
     return (
@@ -662,24 +740,42 @@ export const FileTree = ({
                             {clipboardError}
                         </div>
                     ) : null}
-                    {shown.map((entry) => (
-                        <TreeNode
-                            key={entry.path}
-                            entry={entry}
-                            depth={0}
-                            projectPath={projectPath}
-                            activePath={activePath}
-                            query={query}
-                            onOpenFile={onOpenFile}
-                            statusFor={statusFor}
-                            revealDir={revealDir}
-                            revealPath={revealPath}
-                            selectedPath={selected?.path ?? null}
-                            cutPaths={cutPaths}
-                            onSelect={select}
-                            onClipboard={runClipboard}
-                        />
-                    ))}
+                    {shown.map((entry) => renderNode(entry, projectPath))}
+                    {extraRoots.map((root) => {
+                        const filtered = filterEntries(root.entries, query);
+                        return (
+                            <section key={root.path} aria-label={workspaceFolderLabel(root.path)} className="mt-3">
+                                <div className="group flex h-7 items-center gap-1.5 rounded-md pl-2 pr-1 text-text-muted hover:bg-[var(--row-hover)]">
+                                    <Icon icon={Folder20Regular} className="icon-sm shrink-0" />
+                                    <span
+                                        className="min-w-0 flex-1 truncate text-xs font-medium text-text-secondary"
+                                        title={root.path}
+                                    >
+                                        {workspaceFolderLabel(root.path)}
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label={`Remove ${workspaceFolderLabel(root.path)} from the workspace`}
+                                        onClick={() => removeWorkspaceFolder(root.path)}
+                                        className="size-5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                                    >
+                                        <Icon icon={Dismiss20Regular} className="icon-sm" />
+                                    </Button>
+                                </div>
+                                {root.error ? (
+                                    <div className="px-2 py-1 text-xs text-error">{root.error}</div>
+                                ) : filtered.length === 0 ? (
+                                    query.trim() ? null : (
+                                        <div className="px-2 py-1 text-xs text-text-muted">Empty folder</div>
+                                    )
+                                ) : (
+                                    filtered.map((entry) => renderNode(entry, root.path))
+                                )}
+                            </section>
+                        );
+                    })}
                 </div>
             </div>
         </div>

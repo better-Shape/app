@@ -173,7 +173,7 @@ async function attachListeners() {
         announcedReady = null;
         if (runtime?.ptyId === ptyId) runtime = null;
         dispose();
-        noteDevRunExit(code);
+        noteDevRunExit(code, ptyId);
     };
     try {
         cleanup.push(await listen<{ id: number; data: string }>("pty-output", ({ payload }) => {

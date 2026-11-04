@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { preventUnpersistedEditorUnload, acknowledgeDirtyBuffer, clearDirtyBuffer, dirtyOpenFiles, flushDirtyBuffers, listDirtyBuffers, loadDirtyBuffer, saveDirtyBuffer, stageDirtyBuffer } from "@/lib/workspace/dirty-buffers";
+import { preventUnpersistedEditorUnload, acknowledgeDirtyBuffer, clearDirtyBuffer, clearSavedDirtyBuffer, dirtyOpenFiles, flushDirtyBuffers, listDirtyBuffers, loadDirtyBuffer, saveDirtyBuffer, stageDirtyBuffer } from "@/lib/workspace/dirty-buffers";
 
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
 afterEach(() => {
@@ -54,6 +54,26 @@ it("acknowledges saved content without clearing a later staged edit", () => {
     stageDirtyBuffer("/a.txt", "second", "disk");
     acknowledgeDirtyBuffer("/a.txt", "first");
     expect(loadDirtyBuffer("/a.txt")).toMatchObject({ content: "second", savedContent: "first" });
+});
+
+it("keeps a draft another editor staged while the save was in flight", async () => {
+    // The editor saved "written" and, before the write returned, a second editor
+    // for the same path staged "newer". Only the saved text reached the disk, so
+    // the newer draft has to stay in recovery.
+    stageDirtyBuffer("/a.txt", "written", "disk");
+    stageDirtyBuffer("/a.txt", "newer", "disk");
+    expect(clearSavedDirtyBuffer("/a.txt", "written")).toBe(false);
+    expect(loadDirtyBuffer("/a.txt")?.content).toBe("newer");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toContain("newer");
+});
+
+it("clears recovery when the draft it saved is still the current one", () => {
+    stageDirtyBuffer("/a.txt", "written", "disk");
+    flushDirtyBuffers();
+    expect(clearSavedDirtyBuffer("/a.txt", "written")).toBe(true);
+    expect(loadDirtyBuffer("/a.txt")).toBeNull();
+    expect(localStorage.getItem("bettershape-dirty-buffers-v2:%2Fa.txt")).toBeNull();
 });
 
 it("merges pending edits with unrelated persisted recovery", () => {

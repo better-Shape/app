@@ -14,6 +14,9 @@ reviews:
     base_branches:
       - main
       - draft/mega-absorb-all
+      # Integration base for the absorbed pull requests; without it every PR
+      # into this branch is skipped, including a manual @coderabbitai review.
+      - mega/absorb-all
   path_filters:
     - "!**/Cargo.lock"
     - "!**/package-lock.json"

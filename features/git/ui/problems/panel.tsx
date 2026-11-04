@@ -222,6 +222,11 @@ export const ProblemsPanel = ({
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {state.kind === "no-project" ? (
                     <PanelStateMessage title="No project open" detail="Open a folder to lint its files." />
+                ) : state.kind === "off" ? (
+                    <PanelStateMessage
+                        title="ESLint is off"
+                        detail="Turn on ESLint in Settings to lint open files."
+                    />
                 ) : state.kind === "no-files" ? (
                     <PanelStateMessage
                         title="Nothing to lint"

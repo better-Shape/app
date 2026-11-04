@@ -64,6 +64,11 @@ const PREVIEW_FILES: Record<string, string> = {
         null,
         2,
     )}\n`,
+    ["/preview/shared-lib/notes.md"]: [
+        "# shared-lib (preview fixture)",
+        "",
+        "A folder added to the workspace, outside the project root.",
+    ].join("\n"),
     [`${PREVIEW_PROJECT_PATH}/src/App.tsx`]: [
         "export default function App() {",
         '    return <main className="app">Hello from the preview fixture</main>;',
@@ -89,6 +94,12 @@ const PREVIEW_DIRS: Record<string, Array<{ name: string; is_dir: boolean }>> = {
     [`${PREVIEW_PROJECT_PATH}/src`]: [
         { name: "App.tsx", is_dir: false },
         { name: "main.ts", is_dir: false },
+    ],
+    // A second root for the "Add Folder to Workspace" path: the explorer lists
+    // extra roots after the project, and QA needs one to look at.
+    "/preview/shared-lib": [
+        { name: "notes.md", is_dir: false },
+        { name: "theme.css", is_dir: false },
     ],
 };
 
@@ -155,6 +166,41 @@ export const MODELED_PLUGIN_COMMANDS = [
 /** Final segment of a slash-delimited preview path. */
 const fileNameOf = (path: string): string => path.split("/").pop() ?? path;
 
+const PREVIEW_SETTINGS_KEY = "bettershape:preview-settings";
+
+/** One settings file's record and revision, in the backend's wire shape. */
+type SettingsSnapshot = { record: Record<string, unknown> | null; revision: string };
+
+/**
+ * Every settings file this tab wrote, keyed by file name.
+ *
+ * `read_settings_file` and `write_settings_file` take a file name, and the real
+ * store keeps `settings.json` and `settings-preferences.json` apart. One shared
+ * snapshot made a read of the one answer with the other's contents.
+ */
+function readSeededSettingsStore(): Record<string, SettingsSnapshot> {
+    try {
+        const raw = window.sessionStorage.getItem(PREVIEW_SETTINGS_KEY);
+        if (!raw) return {};
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return {};
+        const store: Record<string, SettingsSnapshot> = {};
+        for (const [file, value] of Object.entries(parsed as Record<string, unknown>)) {
+            const entry = value as { record?: unknown; revision?: unknown } | null;
+            if (!entry || typeof entry.revision !== "string") continue;
+            store[file] = {
+                record: entry.record && typeof entry.record === "object"
+                    ? (entry.record as Record<string, unknown>)
+                    : null,
+                revision: entry.revision,
+            };
+        }
+        return store;
+    } catch {
+        return {};
+    }
+}
+
 /** Accept only the two supported preview seed modes. */
 const asSeedMode = (value: string | null | undefined): PreviewSeedMode | null =>
     value === "project" || value === "welcome" ? value : null;
@@ -178,13 +224,42 @@ note = Callout("Local fixture", "This saved conversation does not contact an AI 
     },
 ];
 
-/** Files the seeded commits touch, sliced to each commit's change count. */
-const previewCommitFiles = (filesChanged: number) =>
+/** Three saved versions, fifteen minutes apart, matching the Rust store's shape. */
+const previewHistoryEntries = (now: number) =>
+    [0, 1, 2].map((index) => {
+        const at = now - index * 15 * 60 * 1000;
+        return {
+            id: `preview-${at}-${index}`,
+            timestamp: Math.floor(at / 1000),
+            label: `Saved version ${index + 1}`,
+            size: 640 - index * 96,
+        };
+    });
+
+type PreviewCommitFile = { path: string; status: string; staged: boolean };
+
+/**
+ * Files the seeded commits touch, sliced to each commit's change count.
+ * Matches `src-tauri/src/commands/git/mod.rs` (`git_commit_files`), where
+ * committed rows carry `staged: true`.
+ */
+const previewCommitFiles = (filesChanged: number): PreviewCommitFile[] =>
     [
-        { path: "src/App.tsx", status: "M", staged: false },
-        { path: "README.md", status: "M", staged: false },
-        { path: "src/main.ts", status: "A", staged: false },
+        { path: "src/App.tsx", status: "M", staged: true },
+        { path: "README.md", status: "M", staged: true },
+        { path: "src/main.ts", status: "A", staged: true },
     ].slice(0, Math.max(0, filesChanged));
+
+/** Merges newly staged files into a commit's recorded file list during `git_commit_amend`. */
+const mergeAmendedCommitFiles = (
+    existing: PreviewCommitFile[],
+    staged: PreviewCommitFile[],
+): PreviewCommitFile[] => {
+    const byPath = new Map<string, PreviewCommitFile>();
+    for (const file of existing) byPath.set(file.path, { ...file, staged: true });
+    for (const file of staged) byPath.set(file.path, { ...file, staged: true });
+    return [...byPath.values()];
+};
 
 /** Clones a preview git log entry so callers cannot mutate shared fixture arrays. */
 const clonePreviewLogEntry = <T extends { refs: string[]; parents: string[] }>(entry: T): T => ({
@@ -197,6 +272,16 @@ const clonePreviewLogEntry = <T extends { refs: string[]; parents: string[] }>(e
 const buildPreviewCommitHash = (seq: number): string => {
     const prefix = `preview${seq.toString(16).padStart(4, "0")}${Date.now().toString(16)}`;
     return prefix.padEnd(40, "0").slice(0, 40);
+};
+
+/** Locates the commit entry carrying `HEAD -> <branch>`, falling back to index `0`. */
+const findPreviewHeadIndex = <T extends { refs: string[] }>(
+    entries: T[],
+    branch: string,
+): number => {
+    const headRef = `HEAD -> ${branch}`;
+    const idx = entries.findIndex((entry) => entry.refs.includes(headRef));
+    return idx >= 0 ? idx : 0;
 };
 
 /** Strips `branch` and `HEAD -> branch` from existing commit decorations before prepending. */
@@ -260,14 +345,11 @@ const attachPreviewBranchAtHead = <T extends { refs: string[] }>(
     newBranch: string,
 ): T[] => {
     if (entries.some((entry) => entry.refs.includes(newBranch))) return entries;
-    const headRef = `HEAD -> ${currentBranch}`;
-    const rawIdx = entries.findIndex((entry) => entry.refs.includes(headRef));
-    const targetIdx = rawIdx >= 0 ? rawIdx : 0;
+    const targetIdx = findPreviewHeadIndex(entries, currentBranch);
     return entries.map((entry, idx) =>
         idx === targetIdx ? { ...entry, refs: [...entry.refs, newBranch] } : entry,
     );
 };
-
 /** Seeded Git history, newest first, in the backend's wire shape. */
 const previewLogEntries = () => {
     const now = Date.now();
@@ -335,6 +417,15 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             { path: "README.md", status: "M", staged: true },
         ] as Array<{ path: string; status: string; staged: boolean }>,
         logStreamOffsets: new Map<string, number>(),
+        // The paths each commit in this session actually recorded, so the commit
+        // detail panel shows the files that were committed rather than the first
+        // N entries of the seed list.
+        commitFiles: new Map<string, Array<{ path: string; status: string; staged: boolean }>>(),
+        // Seeded empty, then written through by `write_settings_file`. Before
+        // this the preview always answered "no record", so every settings change
+        // was lost on the next navigation.
+        settingsFiles: readSeededSettingsStore(),
+        settingsRevision: 0,
     };
     const listeners = new Map<string, Set<number>>();
     // `listen` records the callback id but returns a separate subscription
@@ -497,6 +588,9 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
 
     /** Whether a fake-tree path is a known file or directory. */
     const pathKnown = (path: string): boolean => path in state.dirs || path in state.files;
+    /** The fixture's text for a path, with the placeholder a seeded miss reads as. */
+    const fixtureText = (path: string): string =>
+        state.files[path] ?? "# Preview fixture\n\nNo seeded content for this path.\n";
 
     /** Whether a copy or move between two fake-tree paths can proceed. */
     const canRelocate = (oldPath: string, newPath: string): boolean => {
@@ -530,11 +624,11 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
 
     /** Drop staged changes and prepend a commit entry, like a real commit. */
     const recordCommit = (message: string) => {
-        const stagedCount = state.gitChanges.filter((c) => c.staged).length;
+        const committed = state.gitChanges.filter((c) => c.staged);
+        const stagedCount = committed.length;
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
         const headRef = `HEAD -> ${state.branch}`;
-        const headEntry =
-            state.logEntries.find((e) => e.refs.includes(headRef)) ?? state.logEntries[0];
+        const headEntry = state.logEntries[findPreviewHeadIndex(state.logEntries, state.branch)];
         const parents = headEntry ? [headEntry.hash] : [];
         nextCommitSeq += 1;
         const entry = {
@@ -550,15 +644,31 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             parent_count: parents.length,
             parents,
         };
+        state.commitFiles.set(
+            entry.hash,
+            committed.map((change) => ({ ...change, staged: true })),
+        );
         state.logEntries = [entry, ...stripBranchRefs(state.logEntries, state.branch)];
     };
 
-    /** Rewrite the HEAD entry's message, like a real amend. */
+    /** Rewrite the checked-out `HEAD -> <branch>` commit's message and staged file list. */
     const recordAmend = (message: string) => {
+        if (state.logEntries.length === 0) return;
+        const staged = state.gitChanges.filter((c) => c.staged);
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
-        const [first, ...rest] = state.logEntries;
-        if (!first) return;
-        state.logEntries = [{ ...first, message: message.trim() || first.message }, ...rest];
+        const targetIdx = findPreviewHeadIndex(state.logEntries, state.branch);
+        const target = state.logEntries[targetIdx];
+        const priorFiles =
+            state.commitFiles.get(target.hash) ?? previewCommitFiles(target.files_changed);
+        const nextFiles =
+            staged.length > 0 ? mergeAmendedCommitFiles(priorFiles, staged) : priorFiles;
+        state.commitFiles.set(target.hash, nextFiles);
+        const nextMessage = message.trim() || target.message;
+        state.logEntries = state.logEntries.map((entry, idx) =>
+            idx === targetIdx
+                ? { ...entry, message: nextMessage, files_changed: nextFiles.length }
+                : entry,
+        );
     };
 
     /** Body stored under a fake-tree key, or empty when absent. */
@@ -582,13 +692,46 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── settings files ───────────────────────────────────────────────
         // Mirrors src-tauri/src/commands/settings.rs: a file that is not on
         // disk reads as `{ record: null, revision: "missing" }`, which is what
-        // `revision()` returns for `None`. The preview holds no settings files,
-        // so every read reports that and every write is accepted against the
-        // revision it was given. Returning nothing left the app unable to tell
+        // `revision()` returns for `None`. A write carries the revision it
+        // expects and is refused when that revision has moved, which is the
+        // native lost-update guard: without it the preview hid the conflict
+        // that the app reports. Returning nothing left the app unable to tell
         // "never saved" from "the backend failed", and the QA crawl listed the
         // command as unmodelled.
-        read_settings_file: () => ({ record: null, revision: "missing" }),
-        write_settings_file: (args) => (typeof args.expected === "string" ? args.expected : "missing"),
+        // Backed by sessionStorage, not module state: the mock is reinstalled on
+        // every navigation, so an in-memory record made each settings change
+        // vanish on reload and every settings-gated surface look switched off.
+        read_settings_file: (args) => {
+            const file = String(args.file ?? "");
+            const stored = state.settingsFiles[file];
+            return stored ? { ...stored } : { record: null, revision: "missing" };
+        },
+        write_settings_file: (args) => {
+            const file = String(args.file ?? "");
+            // Native parity: a write against a revision that has moved is
+            // refused, so a lost update fails in the preview the way it fails
+            // in the app instead of silently replacing the saved record.
+            if ((state.settingsFiles[file]?.revision ?? "missing") !== String(args.expected ?? "")) {
+                throw new Error("Settings changed before they could be saved");
+            }
+            // Round-trip like the real file store: the revision moves and the
+            // record reads back, so a switch flipped in Settings survives a
+            // reload and a settings-gated surface can be clicked through.
+            // The real file wraps the preferences under `settings`; storing the
+            // bare object made `get("settings")` return undefined, so a reload
+            // read the record as present but empty and fell back to defaults.
+            const snapshot: SettingsSnapshot = {
+                record: { settings: structuredClone(args.settings ?? null) },
+                revision: `preview-${++state.settingsRevision}`,
+            };
+            state.settingsFiles[file] = snapshot;
+            try {
+                window.sessionStorage.setItem(PREVIEW_SETTINGS_KEY, JSON.stringify(state.settingsFiles));
+            } catch {
+                /* a preview without session storage keeps the in-memory copy */
+            }
+            return snapshot.revision;
+        },
 
         // ── indexing toggles ─────────────────────────────────────────────
         // Both return `Result<(), AppError>` natively, so the preview accepts
@@ -621,7 +764,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const entries = state.dirs[path] ?? [];
             return entries.map((e) => ({ name: e.name, path: `${path}/${e.name}`, is_dir: e.is_dir }));
         },
-        read_file: (args) => state.files[String(args.path ?? "")] ?? "# Preview fixture\n\nNo seeded content for this path.\n",
+        read_file: (args) => fixtureText(String(args.path ?? "")),
         read_file_within: (args) => state.files[String(args.path ?? "")] ?? "",
         read_file_bytes: () => [],
         save_file: (args) => {
@@ -715,12 +858,42 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         ensure_path_within: (args) => (typeof args?.path === "string" ? args.path : null),
         get_rust_deps: () => [],
 
+        // ── design mode ──────────────────────────────────────────────────
+        // The fixture has no React app to inspect, so the studio opens on its
+        // designed "unsupported project" state instead of crashing on null.
+        inspect_design_project: () => ({
+            projectRoot: PREVIEW_PROJECT_PATH,
+            framework: "unsupported" as const,
+            supported: false,
+        }),
+        list_design_assets: () => [],
+        remember_preview_url_cmd: () => null,
+        probe_preview_url: () => false,
+        design_mode_log: () => null,
+
         // ── git ──────────────────────────────────────────────────────────
         git_discover_repos: () => [{ path: PREVIEW_PROJECT_PATH, name: "bettershape-demo", isBare: false }],
         git_resolve_repo_for_file: () => PREVIEW_PROJECT_PATH,
         // Status codes match the Rust backend (single letters, e.g.
         // "M"/"A"/"C"); the Git UI keys colors and glyphs off them.
         git_status: () => state.gitChanges.map((c) => ({ ...c })),
+        // One region per file, attributed to the same fixture author as the log,
+        // so Settings -> Git -> Inline Git Blame has something real to draw.
+        git_blame_file: (args) => {
+            const file = String(args.filePath ?? "");
+            if (!file) return [];
+            const lines = (state.files[file] ?? "").split("\n").length;
+            return [
+                {
+                    line: 1,
+                    line_count: Math.max(1, lines),
+                    commit: "preview1",
+                    author: "Preview Fixture",
+                    date: String(Math.floor(Date.now() / 1000) - 86_400),
+                    summary: "preview: wire browser QA fixtures",
+                },
+            ];
+        },
         git_stage: (args) => {
             const change = state.gitChanges.find((c) => c.path === String(args.filePath ?? ""));
             if (change) change.staged = true;
@@ -784,9 +957,19 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
         git_log: () => state.logEntries.map(clonePreviewLogEntry),
+        // Local history: the editor's picker lists these and restores one into
+        // the buffer. The real backend keeps 50 versions per file on save and
+        // answers with the text of the version it restored; the fixture holds one
+        // version per file, so the restore reads that file back rather than
+        // putting placeholder text over the buffer the user was editing.
+        get_file_history_command: () => previewHistoryEntries(Date.now()),
+        restore_history_version_command: (args) => fixtureText(String(args.filePath ?? "")),
+        // The commit detail panel lists these. Without a handler the fallback
+        // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {
             const hash = typeof args?.hash === "string" ? args.hash : "";
-            if (!hash) return previewCommitFiles(1);
+            const recorded = state.commitFiles.get(hash);
+            if (recorded) return recorded.map((file) => ({ ...file }));
             const entry = state.logEntries.find((candidate) => candidate.hash === hash);
             return entry ? previewCommitFiles(entry.files_changed) : [];
         },
@@ -885,6 +1068,17 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // ── GitHub / MCP / misc services ─────────────────────────────────
         github_auth_status: () => ({ loggedIn: false, username: null, avatarUrl: null, provider: "none" }),
         get_mcp_status: () => [],
+        // The browser preview runs the same version as the fixture, so the
+        // update check answers "nothing newer" instead of reaching GitHub.
+        check_app_update: () => ({
+            current: "1.0.3",
+            latest: "1.0.3",
+            newer: false,
+            published: true,
+            url: "https://github.com/better-Shape/app/releases",
+            notes: "",
+        }),
+        mcp_reload_from_file: () => [],
         get_mcp_tools: () => [],
         get_mcp_config_path: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,
         ensure_mcp_config: () => `${PREVIEW_PROJECT_PATH}/.preview/mcp.json`,

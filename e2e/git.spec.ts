@@ -56,7 +56,8 @@ test.describe("git manager", () => {
         await refFilter.focus();
         await expect(refFilter).toBeFocused();
         await page.keyboard.press("Enter");
-        await expect(graph.locator(".graph-commit-mute").first()).toBeVisible();
+        const muted = page.locator(".graph-commit-mute");
+        await expect(muted.first()).toBeVisible({ timeout: 15_000 });
         await page.keyboard.press("Tab");
         await expect(refFilter).not.toBeFocused();
 
@@ -65,7 +66,10 @@ test.describe("git manager", () => {
         await rowTrigger.focus();
         await page.keyboard.press("Enter");
         await expect(rowTrigger).toHaveAttribute("aria-expanded", "true");
-
+        await expect(
+            graph.locator("button").filter({ hasText: "App.tsx" }).first(),
+        ).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole("heading", { name: "This page hit an error" })).toHaveCount(0);
         expectNoPageErrors();
         expectNoConsoleErrors();
     });

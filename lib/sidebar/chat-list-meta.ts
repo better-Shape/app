@@ -95,6 +95,61 @@ function writeSet(key: string, ids: ReadonlySet<string>) {
 const pinListeners = new Set<() => void>();
 const unreadListeners = new Set<() => void>();
 
+/**
+ * Every cache here is per window, and the sidebar can be open in more than one
+ * (the popped-out chat window). A write in one window used to leave the other
+ * showing a stale pin, unread or colour until it reloaded, because nothing
+ * listened for the change it broadcast.
+ *
+ * `localWrites` marks the synchronous window of a write made here: the event we
+ * dispatch for ourselves must not be treated as a remote change.
+ */
+let localWrites = 0;
+let crossWindowSyncInstalled = false;
+
+function invalidate(keys: readonly string[]) {
+    for (const key of keys) {
+        if (key === PIN_KEY) pinnedCache = null;
+        else if (key === UNREAD_KEY) unreadCache = null;
+        else if (key === COLOR_KEY) colorCache = null;
+        else if (key === COLLECTION_KEY) collectionCache = null;
+    }
+    if (keys.includes(PIN_KEY)) for (const listener of pinListeners) listener();
+    if (keys.includes(UNREAD_KEY)) for (const listener of unreadListeners) listener();
+    if (keys.includes(COLOR_KEY)) for (const listener of colorListeners) listener();
+    if (keys.includes(COLLECTION_KEY)) for (const listener of collectionListeners) listener();
+}
+
+/** One pair of listeners for the whole app, installed on first read. */
+function ensureCrossWindowSync() {
+    if (crossWindowSyncInstalled || typeof window === "undefined") return;
+    crossWindowSyncInstalled = true;
+    const reload = (event: Event) => {
+        if (localWrites > 0) return;
+        if (event.type === "storage") {
+            const key = (event as StorageEvent).key;
+            if (key && ![PIN_KEY, UNREAD_KEY, COLOR_KEY, COLLECTION_KEY].includes(key)) return;
+        }
+        invalidate([PIN_KEY, UNREAD_KEY, COLOR_KEY, COLLECTION_KEY]);
+    };
+    window.addEventListener("bettershape-chat-pins-changed", reload);
+    window.addEventListener("bettershape-chat-unread-changed", reload);
+    window.addEventListener("bettershape-chat-collections-changed", reload);
+    window.addEventListener("bettershape-chat-colors-changed", reload);
+    window.addEventListener("storage", reload);
+}
+
+/** Marks the dispatch below as local so this window does not re-read itself. */
+function announce(event: string) {
+    if (typeof window === "undefined") return;
+    localWrites += 1;
+    try {
+        window.dispatchEvent(new CustomEvent(event));
+    } finally {
+        localWrites -= 1;
+    }
+}
+
 export function subscribePinnedChats(cb: () => void) {
     pinListeners.add(cb);
     return () => {
@@ -111,6 +166,7 @@ export function subscribeUnreadChats(cb: () => void) {
 
 /** Stable snapshot for useSyncExternalStore. */
 export function getPinnedChatIds(): ReadonlySet<string> {
+    ensureCrossWindowSync();
     if (!pinnedCache) pinnedCache = readSet(PIN_KEY);
     return pinnedCache;
 }
@@ -130,11 +186,12 @@ export function setChatPinned(id: string, pinned: boolean) {
     writeSet(PIN_KEY, next);
     pinnedCache = next.size === 0 ? EMPTY : next;
     for (const l of pinListeners) l();
-    window.dispatchEvent(new CustomEvent("bettershape-chat-pins-changed"));
+    announce("bettershape-chat-pins-changed");
 }
 
 /** Stable snapshot for useSyncExternalStore. */
 export function getUnreadChatIds(): ReadonlySet<string> {
+    ensureCrossWindowSync();
     if (!unreadCache) unreadCache = readSet(UNREAD_KEY);
     return unreadCache;
 }
@@ -151,6 +208,7 @@ export function markChatUnread(id: string) {
     writeSet(UNREAD_KEY, next);
     unreadCache = next;
     for (const l of unreadListeners) l();
+    announce("bettershape-chat-unread-changed");
 }
 
 function readColors(): Readonly<Record<string, ChatColor>> {
@@ -173,6 +231,7 @@ function readColors(): Readonly<Record<string, ChatColor>> {
 const colorListeners = new Set<() => void>();
 
 export function subscribeChatColors(cb: () => void) {
+    ensureCrossWindowSync();
     colorListeners.add(cb);
     return () => {
         colorListeners.delete(cb);
@@ -180,6 +239,9 @@ export function subscribeChatColors(cb: () => void) {
 }
 
 export function getChatColors(): Readonly<Record<string, ChatColor>> {
+    // A window that only reads colours still has to hear about a write made in
+    // the other one, so the sync is installed on read as well as on subscribe.
+    ensureCrossWindowSync();
     if (!colorCache) colorCache = readColors();
     return colorCache;
 }
@@ -226,6 +288,7 @@ function writeCollections(next: readonly ChatCollection[]) {
     }
     collectionCache = next.length === 0 ? EMPTY_COLLECTIONS : next;
     for (const listener of collectionListeners) listener();
+    announce("bettershape-chat-collections-changed");
 }
 
 export function subscribeCollections(cb: () => void) {
@@ -236,6 +299,7 @@ export function subscribeCollections(cb: () => void) {
 }
 
 export function getCollections(): readonly ChatCollection[] {
+    ensureCrossWindowSync();
     if (!collectionCache) collectionCache = readCollections();
     return collectionCache;
 }
@@ -315,6 +379,7 @@ export function setChatColor(id: string, color: ChatColor | null) {
     }
     colorCache = Object.keys(next).length === 0 ? EMPTY_COLORS : next;
     for (const l of colorListeners) l();
+    announce("bettershape-chat-colors-changed");
 }
 
 export function clearChatUnread(id: string) {
@@ -324,4 +389,5 @@ export function clearChatUnread(id: string) {
     writeSet(UNREAD_KEY, next);
     unreadCache = next.size === 0 ? EMPTY : next;
     for (const l of unreadListeners) l();
+    announce("bettershape-chat-unread-changed");
 }

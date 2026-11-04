@@ -165,7 +165,7 @@ function chromeTheme(dark: boolean) {
             "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
                 {
                     backgroundColor: dark
-                        ? "#264F78 !important"
+                        ? "var(--editor-selection) !important"
                         : "color-mix(in srgb, var(--color-accent) 28%, transparent) !important",
                 },
             ".cm-selectionMatch": {

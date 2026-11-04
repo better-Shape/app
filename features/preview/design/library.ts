@@ -55,6 +55,31 @@ export function isUtilityClass(name: string) {
     return UTILITY.test(value);
 }
 
+/** A value that can sit unquoted in a CSS selector, or null when it cannot. */
+function cssIdent(value: string): string | null {
+    const trimmed = value.trim();
+    return /^-?[A-Za-z_][A-Za-z0-9_-]*$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * A CSS selector for a picked element, for the model to search the source with.
+ *
+ * The bridge's `key` is an opaque handle for one node in one document, not a
+ * selector, so passing it to the chat named nothing that could be looked up. The
+ * id, then the first two author classes, then the tag is what a person would type
+ * into the editor's search box.
+ */
+export function elementSelector(info: { tag: string; id?: string | null; classes?: string[] }) {
+    const tag = cssIdent(info.tag.toLowerCase()) ?? "*";
+    const id = info.id ? cssIdent(info.id) : null;
+    if (id) return `${tag}#${id}`;
+    const classes = (info.classes || [])
+        .map((name) => cssIdent(name))
+        .filter((name): name is string => Boolean(name) && !isUtilityClass(name as string))
+        .slice(0, 2);
+    return classes.length ? `${tag}.${classes.join(".")}` : tag;
+}
+
 export function humanizeIdent(value: string) {
     const text = value
         .replace(/([a-z])([A-Z])/g, "$1 $2")

@@ -8,11 +8,25 @@ type State = {
     status: DevRunStatus;
     command: string | null;
     ptyId: number | null;
+    /**
+     * Whether the process is still running. A compile error keeps the server
+     * alive, so the status can read `error` while there is still something to
+     * stop; the exit handlers are what clear this.
+     */
+    alive: boolean;
 };
 
-let state: State = { status: "idle", command: null, ptyId: null };
+let state: State = { status: "idle", command: null, ptyId: null, alive: false };
 const listeners = new Set<() => void>();
 let startingTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * True between `startDevRun` and the moment the run's own PTY id is known.
+ *
+ * An exit that arrives in that window cannot be attributed to a terminal: the
+ * spawn path reports its own early exit, so the event is ignored rather than
+ * clearing a run over some other tab closing.
+ */
+let awaitingPtyBinding = false;
 
 function emit() {
     for (const l of listeners) l();
@@ -33,7 +47,10 @@ const ERR_RE =
 
 export function startDevRun(command: string, ptyId?: number | null) {
     clearStartingTimer();
-    state = { status: "starting", command, ptyId: ptyId ?? state.ptyId };
+    // A previous run's id must not be inherited: the next one has its own, and
+    // comparing against the old one would reject the exit that matters.
+    awaitingPtyBinding = ptyId == null;
+    state = { status: "starting", command, ptyId: ptyId ?? null, alive: true };
     emit();
     startingTimer = setTimeout(() => {
         if (state.status === "starting") {
@@ -44,6 +61,7 @@ export function startDevRun(command: string, ptyId?: number | null) {
 }
 
 export function setDevRunPtyId(ptyId: number | null) {
+    if (ptyId != null) awaitingPtyBinding = false;
     state = { ...state, ptyId };
     emit();
 }
@@ -68,20 +86,33 @@ export function noteDevRunOutput(chunk: string) {
     }
 }
 
-export function noteDevRunExit(code: number | null) {
-    clearStartingTimer();
+/**
+ * Records the end of the dev run.
+ *
+ * `ptyId` is the terminal that exited. Any terminal can report an exit, and an
+ * unrelated one saying "code 0" would otherwise clear a dev server that is
+ * still running, so a mismatch is ignored once the dev run's own PTY is known.
+ */
+export function noteDevRunExit(code: number | null, ptyId?: number | null) {
     if (state.status === "idle") return;
+    // An exit that is not this run's leaves the run exactly as it was, including
+    // the fallback that stops a silent start from reading "Starting" forever.
+    if (awaitingPtyBinding) return;
+    if (ptyId != null && state.ptyId != null && ptyId !== state.ptyId) return;
+    clearStartingTimer();
     if (code === 0) {
-        state = { status: "idle", command: null, ptyId: null };
+        awaitingPtyBinding = false;
+        state = { status: "idle", command: null, ptyId: null, alive: false };
     } else {
-        state = { ...state, status: "error", ptyId: null };
+        state = { ...state, status: "error", ptyId: null, alive: false };
     }
     emit();
 }
 
 export function clearDevRun() {
     clearStartingTimer();
-    state = { status: "idle", command: null, ptyId: null };
+    awaitingPtyBinding = false;
+    state = { status: "idle", command: null, ptyId: null, alive: false };
     emit();
 }
 

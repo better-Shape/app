@@ -27,6 +27,8 @@ export type ProblemSummary = SeverityCounts & { total: number };
 export type ProblemsState =
     | { kind: "no-project" }
     | { kind: "no-files"; reason: string }
+    /** ESLint is switched off in Settings, so nothing was run at all. */
+    | { kind: "off" }
     | { kind: "loading"; detail?: string }
     | { kind: "failed"; message: string }
     | {

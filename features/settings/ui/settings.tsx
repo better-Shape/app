@@ -34,14 +34,6 @@ import { ProvidersSettingsView } from "./sections/providers";
 import { clearRepoHistory } from "@/lib/workspace/repo-history";
 import { HELP_LINKS } from "@/lib/errors/help-links";
 import { isWorkspaceTrusted, listTrustedWorkspaces, trustWorkspace, untrustWorkspace } from "@/lib/workspace/trust";
-import {
-    checkForAppUpdates,
-    describeUpdateStatus,
-    downloadAndInstallUpdate,
-    getUpdateStatus,
-    relaunchToApplyUpdate,
-    subscribeUpdateStatus,
-} from "@/lib/window/updater";
 import { HostedSidebarBack } from "@/features/agent/sidebar/hosted-nav";
 import { Icon } from "@/components/ui/icon";
 import { SETTINGS_NAV, allSettingsLeaves, type SettingsNavLeaf } from "./shared/nav";
@@ -49,6 +41,8 @@ import { KeyboardShortcutsView } from "./sections/shortcuts";
 import { PluginsSettingsView } from "./sections/plugins";
 import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
+import { MicrophoneSettings } from "./sections/microphone";
+import { UpdatesSettings } from "./sections/updates";
 import { useRouter } from "next/navigation";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
@@ -69,7 +63,8 @@ import {
     type ReportCategory,
 } from "@/lib/feedback/report";
 
-function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
+/** Exported so the row wiring can be tested without mounting the whole settings shell. */
+export function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
     const e = settings.editor;
     const f = settings.files;
     return (
@@ -95,6 +90,23 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={e.fontLigatures}
                     onChange={(v) => updateSettingSection("editor", { fontLigatures: v })}
+                />
+            </SettingRow>
+            <SettingRow title="Render whitespace" description="Show spaces and tabs, so mixed indentation is visible.">
+                <SettingSelect
+                    value={e.renderWhitespace}
+                    options={[
+                        { value: "none", label: "None" },
+                        { value: "selection", label: "Selection" },
+                        { value: "trailing", label: "Trailing" },
+                        { value: "boundary", label: "Boundary" },
+                        { value: "all", label: "All" },
+                    ]}
+                    onChange={(v) =>
+                        updateSettingSection("editor", {
+                            renderWhitespace: v as BetterShapeSettings["editor"]["renderWhitespace"],
+                        })
+                    }
                 />
             </SettingRow>
             <SettingRow title="Word wrap">
@@ -158,6 +170,33 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
         </SettingSection>
         <SettingSection title="Saving">
             <SettingCard>
+            <SettingRow
+                title="Format with Prettier"
+                description="Runs the project's Prettier when a file is saved or formatted."
+            >
+                <SettingSwitch
+                    checked={settings.prettier.enable}
+                    onChange={(v) => updateSettingSection("prettier", { enable: v })}
+                />
+            </SettingRow>
+            <SettingRow
+                title="Missing tooling"
+                description="What to do when the project has no local Prettier."
+            >
+                <SettingSelect
+                    value={settings.workspace.toolingInstall}
+                    options={[
+                        { value: "prompt", label: "Ask" },
+                        { value: "auto", label: "Install automatically" },
+                        { value: "off", label: "Only report" },
+                    ]}
+                    onChange={(v) =>
+                        updateSettingSection("workspace", {
+                            toolingInstall: v as BetterShapeSettings["workspace"]["toolingInstall"],
+                        })
+                    }
+                />
+            </SettingRow>
             <SettingRow title="Format on save">
                 <SettingSwitch
                     checked={e.formatOnSave}
@@ -187,6 +226,26 @@ function EditorSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={e.insertFinalNewline}
                     onChange={(v) => updateSettingSection("editor", { insertFinalNewline: v })}
+                />
+            </SettingRow>
+            </SettingCard>
+        </SettingSection>
+        <SettingSection title="Linting">
+            <SettingCard>
+            <SettingRow
+                title="ESLint"
+                description="Shows ESLint problems for open files and runs it on save."
+            >
+                <SettingSwitch
+                    checked={settings.eslint.enable}
+                    onChange={(v) => updateSettingSection("eslint", { enable: v })}
+                />
+            </SettingRow>
+            <SettingRow title="Fix ESLint issues on save">
+                <SettingSwitch
+                    checked={settings.eslint.fixOnSave}
+                    disabled={!settings.eslint.enable}
+                    onChange={(v) => updateSettingSection("eslint", { fixOnSave: v })}
                 />
             </SettingRow>
             </SettingCard>
@@ -377,132 +436,6 @@ function DeveloperSettings({ settings }: { settings: BetterShapeSettings }) {
                 <SettingSwitch
                     checked={dev.enableDevTools}
                     onChange={(v) => updateSettingSection("developer", { enableDevTools: v })}
-                />
-            </SettingRow>
-        </SettingSection>
-    );
-}
-
-function UpdatesSettings({ settings }: { settings: BetterShapeSettings }) {
-    const u = settings.updates;
-    const [version, setVersion] = useState("0.0.1");
-    const [busy, setBusy] = useState(false);
-    const status = React.useSyncExternalStore(subscribeUpdateStatus, getUpdateStatus, getUpdateStatus);
-
-    useEffect(() => {
-        void import("@tauri-apps/api/app")
-            .then(({ getVersion }) => getVersion())
-            .then(setVersion)
-            .catch(() => {});
-        void (async () => {
-            const next = await checkForAppUpdates({ force: true, silent: true });
-            if (next.kind === "available" && u.autoUpdate) {
-                await downloadAndInstallUpdate();
-            }
-        })();
-    }, [u.autoUpdate]);
-
-    const statusLine = describeUpdateStatus(status);
-
-    const runAction = async (kind: "check" | "install" | "restart") => {
-        setBusy(true);
-        try {
-            if (kind === "check") {
-                await checkForAppUpdates({ force: true, silent: false });
-            } else if (kind === "install") {
-                await downloadAndInstallUpdate();
-            } else {
-                await relaunchToApplyUpdate();
-            }
-        } catch {
-            /* status is already set on the updater */
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const downloading = status.kind === "downloading" || status.kind === "checking";
-
-    return (
-        <SettingSection id="settings-updates" title="About BetterShape">
-            <SettingCard>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-text-primary">App</div>
-                        <div className="text-xs text-text-muted">
-                            Current version is v{version}. {statusLine}
-                        </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                        {status.kind === "available" ? (
-                            <Button
-                                size="sm"
-                                disabled={busy || downloading}
-                                onClick={() => void runAction("install")}
-                            >
-                                Install {status.version}
-                            </Button>
-                        ) : null}
-                        {status.kind === "ready" ? (
-                            <Button
-                                size="sm"
-                                disabled={busy}
-                                onClick={() => void runAction("restart")}
-                            >
-                                Restart now
-                            </Button>
-                        ) : null}
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={busy || downloading}
-                            onClick={() => void runAction("check")}
-                        >
-                            {status.kind === "checking" ? "Checking…" : "Check for updates"}
-                        </Button>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-text-primary">Updater</div>
-                        <div className="text-xs text-text-muted">
-                            {u.autoUpdate
-                                ? "Downloads in the background. Restart to finish."
-                                : "Manual checks only."}{" "}
-                            Channel: {u.channel === "nightly" ? "Nightly" : "Stable"}.
-                        </div>
-                    </div>
-                </div>
-            </SettingCard>
-            <SettingRow title="Automatic updates" description="Download new versions when they ship. Restart to apply them.">
-                <SettingSwitch
-                    checked={u.autoUpdate}
-                    onChange={(v) => {
-                        updateSettingSection("updates", { autoUpdate: v });
-                        if (v) {
-                            void (async () => {
-                                const next = await checkForAppUpdates({ force: true, silent: true });
-                                if (next.kind === "available") await downloadAndInstallUpdate();
-                            })();
-                        }
-                    }}
-                />
-            </SettingRow>
-            <SettingRow title="Update channel">
-                <SettingSelect
-                    value={u.channel}
-                    options={[
-                        { value: "stable", label: "Stable" },
-                        { value: "nightly", label: "Nightly" },
-                    ]}
-                    onChange={(v) => {
-                        const channel = v as BetterShapeSettings["updates"]["channel"];
-                        updateSettingSection("updates", { channel });
-                        void (async () => {
-                            const next = await checkForAppUpdates({ force: true, silent: true, channel });
-                            if (next.kind === "available" && u.autoUpdate) await downloadAndInstallUpdate();
-                        })();
-                    }}
                 />
             </SettingRow>
         </SettingSection>
@@ -804,6 +737,7 @@ export function SettingsView({
         if (section === "rules") return "settings-ai-rules";
         if (section === "workflows") return "settings-ai-workflows";
         if (section === "subagents" || section === "subagent") return "settings-ai-subagents";
+        if (section === "voice" || section === "microphone") return "settings-microphone";
         // Legacy deep link: "memories" (System Instructions) merged into Rules.
         if (section === "memories") return "settings-ai-rules";
         switch (category) {
@@ -820,6 +754,9 @@ export function SettingsView({
                 return "settings-terminal";
             case "git":
                 return "settings-git";
+            case "voice":
+            case "microphone":
+                return "settings-microphone";
             case "appearance":
                 return "settings-editor-font";
             case "motion":
@@ -831,6 +768,15 @@ export function SettingsView({
             case "keybindings":
             case "shortcuts":
                 return "settings-keyboard-shortcuts";
+            // Leaves that exist in the nav but had no deep link: arriving from a
+            // link such as /settings?category=privacy landed on Providers.
+            case "privacy":
+            case "data-control":
+                return "settings-privacy";
+            case "notifications":
+                return "settings-notifications";
+            case "developer":
+                return "settings-developer";
             default:
                 return null;
         }
@@ -1011,6 +957,7 @@ export function SettingsView({
                             {activeLeafId === "ai-skills" ? <SkillsSettings /> : null}
                             {activeLeafId === "ai-context" ? <AiSettings settings={settings} page="context" /> : null}
                             {activeLeafId === "editor-font" ? <EditorSettings settings={settings} /> : null}
+                            {activeLeafId === "voice" ? <MicrophoneSettings /> : null}
                             {activeLeafId === "terminal" ? <TerminalSettings settings={settings} /> : null}
                             {activeLeafId === "git" ? <GitSettings settings={settings} /> : null}
                             {activeLeafId === "motion" ? <MotionSettings settings={settings} /> : null}

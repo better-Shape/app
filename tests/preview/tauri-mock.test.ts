@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
     createPreviewInvokeHandler,
     MODELED_PLUGIN_COMMANDS,
@@ -11,6 +11,12 @@ import {
  * mock regression fails fast in Vitest instead of in a browser.
  */
 describe("preview invoke handler", () => {
+    // Settings live in sessionStorage so they survive a navigation, which means
+    // they also survive a test. Every case starts from an empty store.
+    beforeEach(() => {
+        window.sessionStorage.clear();
+    });
+
     it("welcome seed starts with no project open", () => {
         const { handle } = createPreviewInvokeHandler("welcome");
         expect(handle("get_project_state")).toEqual({
@@ -75,6 +81,150 @@ describe("preview invoke handler", () => {
             expect(commitFiles).toHaveLength(entry.files_changed);
         }
         expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "unknown" })).toEqual([]);
+    });
+
+    it("lists a commit's files, and a list rather than nothing for an unknown hash", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const log = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{ hash: string; files_changed: number }>;
+        const head = log[0];
+        const files = handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: head.hash }) as Array<{
+            path: string;
+            status: string;
+            staged: boolean;
+        }>;
+        expect(files).toHaveLength(head.files_changed);
+        for (const file of files) {
+            expect(typeof file.path).toBe("string");
+            expect(file.path.length).toBeGreaterThan(0);
+            expect(file.status).toMatch(/^[MACDUR?!]$/);
+            // Matches Rust `git_commit_files` (`src-tauri/src/commands/git/mod.rs`),
+            // which marks committed rows `staged: true`.
+            expect(file.staged).toBe(true);
+        }
+        // An unknown hash still answers with a list: the commit panel stores this
+        // straight into state and renders `.length` from it.
+        expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "nope" })).toEqual([]);
+    });
+
+    it("lists the files a session commit actually recorded", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        // Only README.md is staged in the seeded tree.
+        handle("git_commit", { path: PREVIEW_PROJECT_PATH, message: "preview: stage one file" });
+        const log = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{ hash: string }>;
+        const files = handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: log[0].hash }) as Array<{
+            path: string;
+            staged: boolean;
+        }>;
+        // The seed list answers src/App.tsx for one file; the panel must show
+        // the file that was staged and committed, with `staged: true`.
+        expect(files).toEqual([{ path: "README.md", status: "M", staged: true }]);
+    });
+
+    it("blames a fixture file with the author the git log shows", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const regions = handle("git_blame_file", {
+            projectPath: PREVIEW_PROJECT_PATH,
+            filePath: `${PREVIEW_PROJECT_PATH}/README.md`,
+        }) as Array<{ line: number; line_count: number; author: string; summary: string }>;
+        expect(regions).toHaveLength(1);
+        expect(regions[0].line).toBe(1);
+        expect(regions[0].line_count).toBeGreaterThan(1);
+        expect(regions[0].author).toBe("Preview Fixture");
+        expect(regions[0].summary.length).toBeGreaterThan(0);
+    });
+
+    // Settings used to be answered from module memory that reset on every
+    // navigation, so a switch flipped in Settings was gone after a reload and
+    // every settings-gated feature looked broken in the preview.
+    it("writes settings through to a snapshot the next page can read", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        expect(handle("read_settings_file", { file: "preferences" })).toEqual({
+            record: null,
+            revision: "missing",
+        });
+        const revision = handle("write_settings_file", {
+            file: "preferences",
+            settings: { git: { blame: { enabled: true } } },
+            expected: "missing",
+        }) as string;
+        expect(revision).not.toBe("missing");
+        const snapshot = handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { git: { blame: { enabled: boolean } } } };
+            revision: string;
+        };
+        expect(snapshot.revision).toBe(revision);
+        // The file wraps preferences under `settings`; storing the bare object
+        // made the loader read a present-but-empty record and skip hydration.
+        expect(snapshot.record.settings.git.blame.enabled).toBe(true);
+    });
+
+    it("reloads the last written settings from session storage", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "preferences",
+            settings: { editor: { fontSize: 21 } },
+            expected: "missing",
+        });
+        const reopened = createPreviewInvokeHandler("project");
+        const snapshot = reopened.handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(snapshot.record?.settings.editor.fontSize).toBe(21);
+        window.sessionStorage.clear();
+    });
+
+    it("restores a file's own text instead of a fixed placeholder", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        const path = `${PREVIEW_PROJECT_PATH}/README.md`;
+        handle("save_file", { path, content: "# edited in the preview\n" });
+        // The fixture keeps one version per file, so the restore answers with the
+        // text on disk. A constant string put unrelated comments over the buffer.
+        expect(handle("restore_history_version_command", { filePath: path, versionId: "v1" })).toBe(
+            "# edited in the preview\n",
+        );
+    });
+
+    it("keeps the two settings files apart", () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "settings-preferences.json",
+            settings: { editor: { fontSize: 17 } },
+            expected: "missing",
+        });
+        const other = handle("read_settings_file", { file: "settings.json" }) as {
+            record: { settings?: unknown } | null;
+        };
+        // Reading one file must not answer with the other's record.
+        expect(other.record).toBeNull();
+        const written = handle("read_settings_file", { file: "settings-preferences.json" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(written.record?.settings.editor.fontSize).toBe(17);
+        window.sessionStorage.clear();
+    });
+
+    it("refuses a settings write against a revision that moved", () => {
+        window.sessionStorage.clear();
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("write_settings_file", {
+            file: "preferences",
+            settings: { editor: { fontSize: 15 } },
+            expected: "missing",
+        });
+        // The native command rejects the stale write; a mock that accepted it
+        // hid the lost update instead of showing it in the preview.
+        expect(() =>
+            handle("write_settings_file", {
+                file: "preferences",
+                settings: { editor: { fontSize: 99 } },
+                expected: "missing",
+            }),
+        ).toThrow("Settings changed before they could be saved");
+        const snapshot = handle("read_settings_file", { file: "preferences" }) as {
+            record: { settings: { editor: { fontSize: number } } } | null;
+        };
+        expect(snapshot.record?.settings.editor.fontSize).toBe(15);
+        window.sessionStorage.clear();
     });
 
     it("never throws for unmocked commands, safe defaults by shape", () => {
@@ -409,9 +559,32 @@ describe("window and turn-journal preview commands", () => {
 
         handle("git_switch_branch", { branchName: "main" });
         handle("git_create_branch", { branchName: "feat/branched-from-main" });
-        const afterSwitchBack = handle("git_log") as Array<{ hash: string; refs: string[] }>;
+        const afterSwitchBack = handle("git_log") as Array<{
+            hash: string;
+            message: string;
+            refs: string[];
+        }>;
         expect(afterSwitchBack[0]?.refs).toEqual(["preview/browser-qa"]);
         expect(afterSwitchBack[2]?.refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+
+        // Amending on `main` must rewrite `HEAD -> main` (index 2), not `logEntries[0]`.
+        handle("git_stage", { filePath: "src/App.tsx" });
+        handle("git_commit_amend", { message: "chore: amend main tip" });
+        const afterAmend = handle("git_log") as Array<{
+            hash: string;
+            message: string;
+            refs: string[];
+            files_changed: number;
+        }>;
+        expect(afterAmend[0]?.message).toBe("feat: second qa commit");
+        expect(afterAmend[2]?.message).toBe("chore: amend main tip");
+        expect(afterAmend[2]?.refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+        const amendedFiles = handle("git_commit_files", { hash: afterAmend[2]?.hash }) as Array<{
+            path: string;
+            staged: boolean;
+        }>;
+        expect(amendedFiles.every((file) => file.staged)).toBe(true);
+        expect(amendedFiles.map((file) => file.path)).toContain("src/App.tsx");
     });
 });
 

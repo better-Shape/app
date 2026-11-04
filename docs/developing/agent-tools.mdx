@@ -13,7 +13,7 @@ Modes such as Ask and Plan restrict which tools are available. Those restriction
 
 ## Plans
 
-Saved plans are written under `.bettershape/plans/` in the project. The editor can open them with a plan-specific header; building a plan dispatches a chat turn via a window event that the chat session handles.
+Saved plans are written under the app's data folder, `BetterShape/plans/<project>/`, not into the project: `plan_storage_dir` keys the folder off the project path, and `plans_live_under_app_data_not_project` holds it there. The editor can open them with a plan-specific header; building a plan dispatches a chat turn via a window event that the chat session handles.
 
 ## MCP management (`mcp_manage`)
 
@@ -89,7 +89,7 @@ The tool takes an `action`: `compact` (default) folds now, `defer` holds the aut
 
 Policies worth knowing when you touch it:
 
-- **Tiers**: tool-result pruning → redundant-result notes → span fold → spill to `.shape/agent-out/`.
+- **Tiers**: tool-result pruning → redundant-result notes → span fold → spill to `.bettershape/agent-out/`.
 - **Hysteresis**: compaction triggers at 74% of the effective window and stops once the tail fits under 45%, so it does not re-run on every message. The trigger sits in the 70 to 75 percent band on purpose: a pass run at the ceiling prices in the model's own sense of running out of room.
 - **Circuit breaker**: three consecutive failures (or a low-yield pass) open a backoff window instead of retrying in a loop.
 - **Holds**: automatic passes only, never `/compact`. `CompactionState::check_pause` lets a hold skip three passes, 16k tokens of growth, or 15 minutes, and the hard ceiling (92% of the window) overrides it. The hold's reason is pushed into `pins`, which `build_compaction_prompt` renders as notes the summary must keep.

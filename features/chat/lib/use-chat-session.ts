@@ -44,6 +44,7 @@ import { hasAnyUsableProvider as hasUsableProvider } from "@/lib/ai/providers";
 import { readComposerPrefs, writeComposerPrefs } from "@/lib/chat/composer-prefs";
 import { matchSlashCommand } from "@/lib/chat/workflows";
 import { notify } from "@/features/notifications";
+import { shouldAnnouncePendingDesignPick } from "@/lib/agent-preview/pending-notice";
 import {
     isIncognitoChat,
     purgeIncognitoConversation,
@@ -1747,25 +1748,6 @@ export const useChatSession = (
     );
 
     React.useEffect(() => {
-        const onFork = (event: Event) => {
-            const id = (event as CustomEvent<{ id?: string }>).detail?.id;
-            if (id && id !== conversationIdRef.current) return;
-            const msgs = messagesRef.current;
-            let idx = -1;
-            for (let i = msgs.length - 1; i >= 0; i--) {
-                if (msgs[i]?.role === "user") {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx < 0) return;
-            handleForkChat(idx).catch(() => undefined);
-        };
-        window.addEventListener("bettershape-chat-fork", onFork);
-        return () => window.removeEventListener("bettershape-chat-fork", onFork);
-    }, [handleForkChat]);
-
-    React.useEffect(() => {
         writeComposerPrefs({
             model: selectedModel,
             effort: reasoningEffort,
@@ -1830,6 +1812,19 @@ export const useChatSession = (
                         await sendToChatRef.current(message, cid);
                     }
                 })().catch(() => undefined);
+            }),
+        );
+
+        register(
+            listen<{ id?: string }>("agent-design-pick-pending", (event) => {
+                if (!event.payload?.id) return;
+                // The gallery says so itself while it is on screen; this covers
+                // the blocked turn nobody is looking at.
+                if (!shouldAnnouncePendingDesignPick(document)) return;
+                notify.info(
+                    "Pick a design to continue",
+                    "The agent is waiting for a choice in the design gallery.",
+                );
             }),
         );
 

@@ -130,18 +130,12 @@ export default function Main({ children }: { children: React.ReactNode }) {
                 await commands.openFile(selected, name);
             }
         };
-        const handleOpenFolderRequest = () => {
-            window.dispatchEvent(new Event("bettershape-open-project-pick"));
-        };
-
         window.addEventListener("bettershape-open-settings", handleOpenSettings);
         window.addEventListener("open-file-request", handleOpenFileRequest);
-        window.addEventListener("open-folder-request", handleOpenFolderRequest);
 
         return () => {
             window.removeEventListener("bettershape-open-settings", handleOpenSettings);
             window.removeEventListener("open-file-request", handleOpenFileRequest);
-            window.removeEventListener("open-folder-request", handleOpenFolderRequest);
         };
     }, []);
 

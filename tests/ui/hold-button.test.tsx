@@ -1213,5 +1213,50 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("idle");
         expect(onConfirm).not.toHaveBeenCalled();
     });
+
+    it("stops modified clicks without arming and suppresses Slot onContextMenu when holding", () => {
+        const onConfirm = vi.fn();
+        const onAncestorClick = vi.fn();
+        const onSlotContextMenu = vi.fn();
+        render(
+            <div onClick={onAncestorClick}>
+                <HoldButton
+                    ariaLabel="Discard"
+                    label="Discard"
+                    onConfirm={onConfirm}
+                    onContextMenu={onSlotContextMenu}
+                />
+            </div>,
+        );
+        const btn = getButton();
+
+        // Modified clicks (Ctrl+Click, Cmd+Enter, Alt+Enter) neither bubble nor arm.
+        for (const init of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+            act(() => {
+                btn.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true, ...init }),
+                );
+            });
+            expect(btn.dataset.state).toBe("idle");
+        }
+        expect(onAncestorClick).not.toHaveBeenCalled();
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Idle contextmenu invokes Slot-injected onContextMenu; active hold suppresses it first.
+        act(() => {
+            btn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        });
+        expect(onSlotContextMenu).toHaveBeenCalledTimes(1);
+
+        const heldContextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 77 }),
+            );
+            btn.dispatchEvent(heldContextMenu);
+        });
+        expect(heldContextMenu.defaultPrevented).toBe(true);
+        expect(onSlotContextMenu).toHaveBeenCalledTimes(1);
+    });
 });
 

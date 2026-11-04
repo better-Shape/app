@@ -21,23 +21,48 @@ const VERBATIM_FORWARD_DRIVE_RE = /^\/\/\?\/[A-Za-z]:/;
 
 const isDriveSpecifier = (value: string): boolean => DRIVE_SPECIFIER_RE.test(value);
 
-/** Strips backslash-prefixed Windows extended-length verbatim paths (`\\?\` and `\\?\UNC\`). */
-const stripBackslashVerbatimPrefix = (raw: string): string | null => {
-    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return `\\\\${raw.slice(8)}`;
-    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? raw.slice(4) : null;
+type WindowsVerbatimKind = "unc" | "drive" | null;
+
+/** Classifies backslash-prefixed Windows verbatim paths (`\\?\` and `\\?\UNC\`). */
+const detectBackslashVerbatimKind = (raw: string): WindowsVerbatimKind => {
+    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return "unc";
+    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? "drive" : null;
 };
 
-/** Strips forward-slash `//?/` verbatim prefixes on Windows hosts. */
-const stripForwardVerbatimPrefix = (raw: string): string => {
-    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return `//${raw.slice(8)}`;
-    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? raw.slice(4) : raw;
+/** Classifies forward-slash `//?/` verbatim prefixes on Windows hosts. */
+const detectForwardVerbatimKind = (raw: string): WindowsVerbatimKind => {
+    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return "unc";
+    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? "drive" : null;
 };
+
+/** Detects whether `raw` carries a Windows extended-length verbatim prefix. */
+const detectWindowsVerbatimKind = (raw: string): WindowsVerbatimKind => {
+    const backslashKind = detectBackslashVerbatimKind(raw);
+    if (backslashKind !== null) return backslashKind;
+    return isWindows() ? detectForwardVerbatimKind(raw) : null;
+};
+
+const stripVerbatimByKind = (
+    raw: string,
+    kind: Exclude<WindowsVerbatimKind, null>,
+): string => (kind === "unc" ? `\\\\${raw.slice(8)}` : raw.slice(4));
 
 /** Strips Windows extended-length verbatim prefixes emitted by Rust `std::fs::canonicalize`. */
 const stripWindowsVerbatimPrefix = (raw: string): string => {
-    const strippedBackslash = stripBackslashVerbatimPrefix(raw);
-    if (strippedBackslash !== null) return strippedBackslash;
-    return isWindows() ? stripForwardVerbatimPrefix(raw) : raw;
+    const kind = detectWindowsVerbatimKind(raw);
+    if (kind === null) return raw;
+    const stripped = stripVerbatimByKind(raw, kind);
+    return raw.startsWith("//") ? stripped.replaceAll("\\", "/") : stripped;
+};
+
+/** Reattaches a Windows extended-length prefix onto a backslash-joined filesystem path. */
+const reattachWindowsVerbatimPrefix = (
+    joined: string,
+    kind: WindowsVerbatimKind,
+): string => {
+    if (kind === null || !joined) return joined;
+    if (kind === "unc") return `\\\\?\\UNC\\${trimLeadingSeparators(joined, isAnyPathSep)}`;
+    return `\\\\?\\${joined}`;
 };
 
 /**
@@ -130,17 +155,18 @@ export function normalizeSkillPath(path: string): string {
     return collapseInternalSlashes(collapsePosixLeadingSlashes(trimmed));
 }
 
+const hasDriveWithoutForwardSep = (stripped: string): boolean =>
+    WINDOWS_DRIVE_PREFIX_RE.test(stripped) && !stripped.includes("/");
+
 const usesWindowsBackslashSep = (dir: string): boolean => {
+    if (detectWindowsVerbatimKind(dir) !== null) return true;
     const stripped = stripWindowsVerbatimPrefix(dir);
     if (stripped.startsWith("/")) return false;
-    return (
-        stripped.includes("\\") ||
-        (WINDOWS_DRIVE_PREFIX_RE.test(stripped) && !stripped.includes("/"))
-    );
+    return stripped.includes("\\") || hasDriveWithoutForwardSep(stripped);
 };
 
 /**
- * Return the path separator already used by `dir` (`\` on Windows backslash/drive paths,
+ * Return the path separator already used by `dir` (`\` on Windows backslash/drive/verbatim paths,
  * `/` otherwise).
  */
 export function skillPathSep(dir: string): "\\" | "/" {
@@ -150,18 +176,29 @@ export function skillPathSep(dir: string): "\\" | "/" {
 const needsJoinSeparator = (base: string, sep: "\\" | "/"): boolean =>
     Boolean(base) && !base.endsWith(sep) && !isDriveSpecifier(base);
 
+const appendJoinedSegment = (base: string, relative: string, sep: "\\" | "/"): string => {
+    if (!relative) return base;
+    return needsJoinSeparator(base, sep) ? `${base}${sep}${relative}` : `${base}${relative}`;
+};
+
+const prepareJoinDir = (dir: string, verbatimKind: WindowsVerbatimKind): string => {
+    const stripped = stripWindowsVerbatimPrefix(dir);
+    return verbatimKind === null ? stripped : stripped.replaceAll("/", "\\");
+};
+
 /**
- * Join `dir` and `relativePath` using `dir`'s separator while preserving POSIX literal
- * backslashes and `X:` drive-relative prefixes.
+ * Join `dir` and `relativePath` using `dir`'s separator while preserving Windows
+ * extended-length verbatim prefixes (`\\?\` / `\\?\UNC\`), POSIX literal backslashes,
+ * and `X:` drive-relative paths.
  */
 export function joinSkillPath(dir: string, relativePath: string): string {
-    const cleanDir = stripWindowsVerbatimPrefix(dir);
-    const sep = skillPathSep(cleanDir);
+    const verbatimKind = detectWindowsVerbatimKind(dir);
+    const cleanDir = prepareJoinDir(dir, verbatimKind);
+    const sep = skillPathSep(dir);
     const isSep = isCaseInsensitiveSkillPath(cleanDir) ? isAnyPathSep : isForwardSep;
     const relative = collapseSeparators(trimLeadingSeparators(relativePath, isSep), sep, isSep);
     const base = trimRootAwareTrailingSeparators(cleanDir, sep, isSep);
-    if (!relative) return base;
-    return needsJoinSeparator(base, sep) ? `${base}${sep}${relative}` : `${base}${relative}`;
+    return reattachWindowsVerbatimPrefix(appendJoinedSegment(base, relative, sep), verbatimKind);
 }
 
 const toContainmentPair = (
