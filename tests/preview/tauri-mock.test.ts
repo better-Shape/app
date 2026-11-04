@@ -553,9 +553,9 @@ describe("window and turn-journal preview commands", () => {
             refs: string[];
             parents: string[];
         }>;
-        expect(afterCommits[0]?.hash).not.toBe(afterCommits[1]?.hash);
-        expect(afterCommits[0]?.refs).toEqual(["HEAD -> preview/browser-qa"]);
-        expect(afterCommits[2]?.refs).toEqual(["main"]);
+        expect(afterCommits[0].hash).not.toBe(afterCommits[1].hash);
+        expect(afterCommits[0].refs).toEqual(["HEAD -> preview/browser-qa"]);
+        expect(afterCommits[2].refs).toEqual(["main"]);
 
         handle("git_switch_branch", { branchName: "main" });
         handle("git_create_branch", { branchName: "feat/branched-from-main" });
@@ -564,8 +564,8 @@ describe("window and turn-journal preview commands", () => {
             message: string;
             refs: string[];
         }>;
-        expect(afterSwitchBack[0]?.refs).toEqual(["preview/browser-qa"]);
-        expect(afterSwitchBack[2]?.refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+        expect(afterSwitchBack[0].refs).toEqual(["preview/browser-qa"]);
+        expect(afterSwitchBack[2].refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
 
         // Amending on `main` must rewrite `HEAD -> main` (index 2), not `logEntries[0]`.
         handle("git_stage", { filePath: "src/App.tsx" });
@@ -576,10 +576,10 @@ describe("window and turn-journal preview commands", () => {
             refs: string[];
             files_changed: number;
         }>;
-        expect(afterAmend[0]?.message).toBe("feat: second qa commit");
-        expect(afterAmend[2]?.message).toBe("chore: amend main tip");
-        expect(afterAmend[2]?.refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
-        const amendedFiles = handle("git_commit_files", { hash: afterAmend[2]?.hash }) as Array<{
+        expect(afterAmend[0].message).toBe("feat: second qa commit");
+        expect(afterAmend[2].message).toBe("chore: amend main tip");
+        expect(afterAmend[2].refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+        const amendedFiles = handle("git_commit_files", { hash: afterAmend[2].hash }) as Array<{
             path: string;
             staged: boolean;
         }>;

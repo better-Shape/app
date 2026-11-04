@@ -1,5 +1,10 @@
 import { randomSuffix } from "@/lib/utils";
 import { stripShellPromptPrefix } from "@/lib/chat/prompt-history";
+import {
+    collapseRootAwareForwardSlashes,
+    stripWindowsVerbatim,
+    trimRootTrailingForwardSlashes,
+} from "@/lib/path/verbatim";
 import { getPlatform } from "@/lib/platform";
 
 /**
@@ -40,29 +45,6 @@ function createTabId() {
 }
 
 const POSIX_DOUBLE_SLASH_RE = /^\/\/(?!\/)/;
-const VERBATIM_BACKSLASH_UNC_RE = /^\\\\\?\\UNC\\/i;
-const VERBATIM_BACKSLASH_DRIVE_RE = /^\\\\\?\\[A-Za-z]:/;
-const VERBATIM_FORWARD_UNC_RE = /^\/\/\?\/UNC\//i;
-const VERBATIM_FORWARD_DRIVE_RE = /^\/\/\?\/[A-Za-z]:/;
-
-/** Strips backslash-prefixed Windows verbatim paths (`\\?\` and `\\?\UNC\`). */
-const stripBackslashProjectVerbatim = (raw: string): string | null => {
-    if (VERBATIM_BACKSLASH_UNC_RE.test(raw)) return `\\\\${raw.slice(8)}`;
-    return VERBATIM_BACKSLASH_DRIVE_RE.test(raw) ? raw.slice(4) : null;
-};
-
-/** Strips forward-slash `//?/` verbatim prefixes on Windows hosts. */
-const stripForwardProjectVerbatim = (raw: string): string => {
-    if (VERBATIM_FORWARD_UNC_RE.test(raw)) return `//${raw.slice(8)}`;
-    return VERBATIM_FORWARD_DRIVE_RE.test(raw) ? raw.slice(4) : raw;
-};
-
-/** Strips Windows extended-length verbatim prefixes so canonical and raw cwd keys match. */
-const stripProjectVerbatimPrefix = (raw: string): string => {
-    const backslashStripped = stripBackslashProjectVerbatim(raw);
-    if (backslashStripped !== null) return backslashStripped;
-    return getPlatform() === "windows" ? stripForwardProjectVerbatim(raw) : raw;
-};
 
 const isPosixProjectPath = (stripped: string): boolean => {
     if (!stripped.startsWith("/")) return false;
@@ -75,45 +57,13 @@ const isWindowsProjectPath = (stripped: string): boolean => {
     return POSIX_DOUBLE_SLASH_RE.test(stripped);
 };
 
-const collapseForwardSlashes = (value: string): string => {
-    let out = "";
-    let prevSlash = false;
-    for (const char of value) {
-        if (char === "/") {
-            if (!prevSlash) out += "/";
-            prevSlash = true;
-        } else {
-            out += char;
-            prevSlash = false;
-        }
-    }
-    return out;
-};
-
-const collapseProjectSlashes = (forward: string): string => {
-    const prefix = POSIX_DOUBLE_SLASH_RE.test(forward) ? "//" : "";
-    return `${prefix}${collapseForwardSlashes(forward.slice(prefix.length))}`;
-};
-
-const resolveMinProjectRootLength = (collapsed: string): number => {
-    if (/^[A-Za-z]:\//.test(collapsed)) return 3;
-    return collapsed.startsWith("//") ? 2 : 1;
-};
-
-const stripTrailingProjectSlashes = (collapsed: string): string => {
-    const minLength = resolveMinProjectRootLength(collapsed);
-    let end = collapsed.length;
-    while (end > minLength && collapsed.charCodeAt(end - 1) === 47) end -= 1;
-    return collapsed.slice(0, end);
-};
-
 /** Exported so the Terminal UI and session store agree on project path identity. */
 export const projectPathKey = (raw: string): string => {
     if (!raw) return "";
-    const stripped = stripProjectVerbatimPrefix(raw);
+    const stripped = stripWindowsVerbatim(raw, getPlatform() === "windows");
     const isWindows = isWindowsProjectPath(stripped);
     const forward = isPosixProjectPath(stripped) ? stripped : stripped.replaceAll("\\", "/");
-    const trimmed = stripTrailingProjectSlashes(collapseProjectSlashes(forward));
+    const trimmed = trimRootTrailingForwardSlashes(collapseRootAwareForwardSlashes(forward));
     return isWindows ? trimmed.toLowerCase() : trimmed;
 };
 

@@ -64,11 +64,17 @@ test.describe("git manager", () => {
         const rowTrigger = firstCommit.locator("button[data-commit-row-trigger]");
         await expect(rowTrigger).toHaveAttribute("aria-expanded", "false");
         await rowTrigger.focus();
+        await page.keyboard.press("Control+Enter");
+        await expect(rowTrigger).toHaveAttribute("aria-expanded", "false");
         await page.keyboard.press("Enter");
         await expect(rowTrigger).toHaveAttribute("aria-expanded", "true");
-        await expect(
-            graph.locator("button").filter({ hasText: "App.tsx" }).first(),
-        ).toBeVisible({ timeout: 10_000 });
+        const commitFileBtn = graph.locator("button").filter({ hasText: "App.tsx" }).first();
+        await expect(commitFileBtn).toBeVisible({ timeout: 10_000 });
+        await commitFileBtn.click({ button: "right" });
+        await expect(page.getByRole("menuitem", { name: "Copy Path" })).toBeVisible({
+            timeout: 5_000,
+        });
+        await page.keyboard.press("Escape");
         await expect(page.getByRole("heading", { name: "This page hit an error" })).toHaveCount(0);
         expectNoPageErrors();
         expectNoConsoleErrors();

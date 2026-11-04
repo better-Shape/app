@@ -322,6 +322,7 @@ const useHoldState = ({
             pointerLeftBoundsRef.current = false;
             detachPointerListeners();
             if (isPointerEventInsideButton(buttonRef.current, event)) {
+                suppressClickRef.current = true;
                 scheduleClickGuardClear();
             } else {
                 suppressClickRef.current = false;
@@ -337,12 +338,18 @@ const useHoldState = ({
         setPending(false);
     }, []);
 
+    const abortOnDisable = React.useCallback(() => {
+        const wasPointer = sourceRef.current === "pointer";
+        abortActiveHold();
+        if (wasPointer) scheduleClickGuardClear();
+    }, [abortActiveHold, scheduleClickGuardClear]);
+
     React.useLayoutEffect(() => {
         disabledRef.current = disabled;
         if (!disabled) return;
         invalidateInFlightConfirm();
-        if (stateRef.current !== "idle" || armedPressRef.current) cancelHold();
-    }, [disabled, cancelHold, invalidateInFlightConfirm]);
+        if (stateRef.current !== "idle" || armedPressRef.current) abortOnDisable();
+    }, [disabled, abortOnDisable, invalidateInFlightConfirm]);
 
     React.useEffect(() => {
         const timers = timersRef.current;
@@ -620,10 +627,12 @@ const useHoldState = ({
             return false;
         }
         if (isClickIgnored()) return false;
+        pointerLeftBoundsRef.current = false;
+        detachPointerListeners();
         if (stateRef.current === "armed") return fireConfirm();
         enterArmed();
         return false;
-    }, [enterArmed, fireConfirm, isClickIgnored]);
+    }, [detachPointerListeners, enterArmed, fireConfirm, isClickIgnored]);
 
     const handlePointerLeave = React.useCallback(
         (event: React.PointerEvent<HTMLButtonElement>) => {

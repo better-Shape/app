@@ -428,7 +428,7 @@ const resolveFontSelectValue = (
 ): string => {
     if (isCustom) return CUSTOM_FONT_VALUE;
     if (value.trim()) return value;
-    return presets[0]?.value ?? "";
+    return presets.at(0)?.value ?? "";
 };
 
 const resolveFontSelectDisplayLabel = (
@@ -437,7 +437,7 @@ const resolveFontSelectDisplayLabel = (
     presets: readonly { value: string; label: string }[],
 ): string | undefined => {
     if (isCustom) return value;
-    if (!value.trim()) return presets[0]?.label ?? "Default";
+    if (!value.trim()) return presets.at(0)?.label ?? "Default";
     return undefined;
 };
 

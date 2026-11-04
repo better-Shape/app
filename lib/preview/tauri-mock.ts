@@ -855,7 +855,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         reveal_path: () => null,
         open_in_app: () => null,
         open_url_external: () => null,
-        ensure_path_within: (args) => (typeof args?.path === "string" ? args.path : null),
+        ensure_path_within: (args) => (typeof args.path === "string" ? args.path : null),
         get_rust_deps: () => [],
 
         // ── design mode ──────────────────────────────────────────────────
@@ -967,7 +967,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // The commit detail panel lists these. Without a handler the fallback
         // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {
-            const hash = typeof args?.hash === "string" ? args.hash : "";
+            const hash = typeof args.hash === "string" ? args.hash : "";
             const recorded = state.commitFiles.get(hash);
             if (recorded) return recorded.map((file) => ({ ...file }));
             const entry = state.logEntries.find((candidate) => candidate.hash === hash);

@@ -198,7 +198,7 @@ describe("commit row activation", () => {
             expect(event.defaultPrevented).toBe(false);
             expect(onSelect).not.toHaveBeenCalled();
 
-            // Holding Enter/Space (event.repeat === true) must not strobe-toggle the row.
+            // Holding Enter/Space (event.repeat === true) prevents native button click synthesis.
             const repeatEnter = new KeyboardEvent("keydown", {
                 key: "Enter",
                 repeat: true,
@@ -208,11 +208,12 @@ describe("commit row activation", () => {
             act(() => {
                 rowTrigger().dispatchEvent(repeatEnter);
             });
-            expect(repeatEnter.defaultPrevented).toBe(false);
+            expect(repeatEnter.defaultPrevented).toBe(true);
             expect(onToggleExpand).not.toHaveBeenCalled();
 
             // Open the commit message tooltip and press Enter on an action button inside the portal.
             const tooltipTrigger = rowTrigger().querySelector("span[data-state]");
+            expect(tooltipTrigger?.className).toContain("z-10");
             act(() => {
                 tooltipTrigger?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
                 tooltipTrigger?.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
@@ -232,17 +233,25 @@ describe("commit row activation", () => {
             expect(tooltipKey.defaultPrevented).toBe(false);
             expect(onToggleExpand).not.toHaveBeenCalled();
 
-            // Modified shortcuts (Cmd+Enter / Ctrl+Enter) must bubble without toggling the row.
+            // Modified shortcuts (Cmd+Enter / Ctrl+Enter) bubble to window shortcuts while
+            // suppressing native <button> click synthesis and row toggling.
+            const onWindowKeyDown = vi.fn();
+            window.addEventListener("keydown", onWindowKeyDown);
             const cmdEnter = new KeyboardEvent("keydown", {
                 key: "Enter",
                 metaKey: true,
                 bubbles: true,
                 cancelable: true,
             });
-            act(() => {
-                rowTrigger().dispatchEvent(cmdEnter);
-            });
-            expect(cmdEnter.defaultPrevented).toBe(false);
+            try {
+                act(() => {
+                    rowTrigger().dispatchEvent(cmdEnter);
+                });
+            } finally {
+                window.removeEventListener("keydown", onWindowKeyDown);
+            }
+            expect(cmdEnter.defaultPrevented).toBe(true);
+            expect(onWindowKeyDown).toHaveBeenCalledTimes(1);
             expect(onToggleExpand).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();

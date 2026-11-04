@@ -1258,5 +1258,66 @@ describe("HoldButton", () => {
         expect(heldContextMenu.defaultPrevented).toBe(true);
         expect(onSlotContextMenu).toHaveBeenCalledTimes(1);
     });
+
+    it("suppresses release click when disabled toggles mid-pointer-press and re-enables", () => {
+        const onConfirm = vi.fn();
+        render(<HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />);
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 32,
+            width: 100,
+            height: 32,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        for (const holdWhileDisabledMs of [0, 1000]) {
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerdown", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 88,
+                        clientX: 20,
+                        clientY: 16,
+                    }),
+                );
+            });
+            expect(btn.dataset.state).toBe("holding");
+
+            // Button disables during the press, optionally outlasting the 500ms click-guard fallback,
+            // then re-enables before the finger lifts.
+            render(
+                <HoldButton ariaLabel="Discard" label="Discard" disabled onConfirm={onConfirm} />,
+            );
+            expect(btn.dataset.state).toBe("idle");
+            if (holdWhileDisabledMs > 0) {
+                act(() => {
+                    vi.advanceTimersByTime(holdWhileDisabledMs);
+                });
+            }
+            render(<HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />);
+
+            act(() => {
+                document.dispatchEvent(
+                    new PointerEvent("pointerup", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 88,
+                        clientX: 20,
+                        clientY: 16,
+                    }),
+                );
+                btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+                vi.advanceTimersByTime(600);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+        }
+    });
 });
 

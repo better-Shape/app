@@ -83,7 +83,7 @@ const ExtraRefsBadge = ({
     if (isManager) {
         return (
             <span
-                className="text-xs text-text-muted shrink-0 tabular-nums cursor-default"
+                className="relative z-10 shrink-0 cursor-default text-xs tabular-nums text-text-muted"
                 title={extraRefs.map((r) => stripTagPrefix(r.label)).join(", ")}
             >
                 +{count}
@@ -107,7 +107,7 @@ const ExtraRefsBadge = ({
             side="top"
             delayDuration={200}
         >
-            <span className="text-xs text-text-muted shrink-0 tabular-nums cursor-default">
+            <span className="relative z-10 shrink-0 cursor-default text-xs tabular-nums text-text-muted">
                 +{count}
             </span>
         </Tooltip>
@@ -117,11 +117,14 @@ const ExtraRefsBadge = ({
 const hasRowKeyModifier = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
     event.metaKey || event.ctrlKey || event.altKey;
 
-const isDirectUnmodifiedRowEvent = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
-    event.target === event.currentTarget && !event.repeat && !hasRowKeyModifier(event);
+const hasRowClickModifier = (event: React.MouseEvent<HTMLButtonElement>): boolean =>
+    event.metaKey || event.ctrlKey || event.altKey;
+
+const isDirectRowActivationKey = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
+    event.target === event.currentTarget && (event.key === "Enter" || event.key === " ");
 
 const isRowActivationKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): boolean =>
-    isDirectUnmodifiedRowEvent(event) && (event.key === "Enter" || event.key === " ");
+    isDirectRowActivationKey(event) && !event.repeat && !hasRowKeyModifier(event);
 
 /** Splits a commit file path into basename and optional directory prefix. */
 const splitCommitFilePath = (filePath: string): { name: string; folder: string } => {
@@ -161,13 +164,13 @@ const CommitFileRow = ({
 
     return (
         <ContextMenu>
-            <ContextMenuTrigger asChild>
-                <Tooltip
-                    content={`${file.path} • ${statusLabel}`}
-                    side="bottom"
-                    align="start"
-                    delayDuration={400}
-                >
+            <Tooltip
+                content={`${file.path} • ${statusLabel}`}
+                side="bottom"
+                align="start"
+                delayDuration={400}
+            >
+                <ContextMenuTrigger asChild>
                     <button
                         type="button"
                         onClick={(e) => {
@@ -199,8 +202,8 @@ const CommitFileRow = ({
                             {file.status}
                         </span>
                     </button>
-                </Tooltip>
-            </ContextMenuTrigger>
+                </ContextMenuTrigger>
+            </Tooltip>
             <ContextMenuContent>
                 <ContextMenuItem onClick={() => onShowCommitDiff(commitHash, file.path)}>
                     Open Changes
@@ -322,6 +325,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
     const handleRowClick = useCallback(
         (event: React.MouseEvent<HTMLButtonElement>) => {
             event.stopPropagation();
+            if (hasRowClickModifier(event)) return;
             activateRow();
         },
         [activateRow],
@@ -329,8 +333,9 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
 
     const handleRowKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLButtonElement>) => {
-            if (!isRowActivationKeyDown(event)) return;
+            if (!isDirectRowActivationKey(event)) return;
             event.preventDefault();
+            if (!isRowActivationKeyDown(event)) return;
             event.stopPropagation();
             activateRow();
         },
@@ -552,7 +557,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             >
                                 <span
                                     className={cn(
-                                        "min-w-0 flex-1 truncate whitespace-nowrap text-sm",
+                                        "relative z-10 min-w-0 flex-1 truncate whitespace-nowrap text-sm",
                                         isHead || isExpanded ? "text-text-primary font-medium" : "text-text-secondary",
                                     )}
                                 >
@@ -563,7 +568,7 @@ export const GraphCommitRow = React.memo(function GraphCommitRow({
                             <Tooltip content={log.author} side="top" delayDuration={250}>
                                 <span
                                     className={cn(
-                                        "hidden max-w-[100px] shrink-0 truncate whitespace-nowrap",
+                                        "relative z-10 hidden max-w-[100px] shrink-0 truncate whitespace-nowrap",
                                         "text-right text-sm text-text-muted @[408px]:inline",
                                     )}
                                 >

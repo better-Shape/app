@@ -840,7 +840,7 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
 
         const winScan = await discoverSkills();
         expect(winScan.items).toHaveLength(1);
-        expect(winScan.items[0]?.body).toContain("Updated.");
+        expect(winScan.items[0].body).toContain("Updated.");
 
         mocks.getProjectPath.mockReturnValue(PROJECT);
         serveSkillFs(
@@ -909,9 +909,9 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
             );
             const doubleRootScan = await discoverSkills();
             expect(doubleRootScan.items).toHaveLength(1);
-            expect(doubleRootScan.items[0]?.rootPath).toBe("//.claude/skills");
-            expect(doubleRootScan.items[0]?.folder).toBe("//.claude/skills/double-root");
-            expect(doubleRootScan.items[0]?.relPath).toBe(".claude/skills/double-root/SKILL.md");
+            expect(doubleRootScan.items[0].rootPath).toBe("//.claude/skills");
+            expect(doubleRootScan.items[0].folder).toBe("//.claude/skills/double-root");
+            expect(doubleRootScan.items[0].relPath).toBe(".claude/skills/double-root/SKILL.md");
         } finally {
             uaSpy.mockRestore();
         }
@@ -947,7 +947,7 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
             expect(() => restoreDismissedFiles(winProject)).not.toThrow();
             const result = await discoverSkills();
             expect(result.items).toHaveLength(1);
-            expect(result.items[0]?.body).toContain("Still discovered.");
+            expect(result.items[0].body).toContain("Still discovered.");
         } finally {
             lengthSpy.mockRestore();
             setItemSpy.mockRestore();
@@ -983,8 +983,8 @@ describe("canonical root scan filters and resilient dismissal parsing", () => {
 
         const result = await discoverSkills();
         expect(result.items).toHaveLength(1);
-        expect(result.items[0]?.name).toBe("pdf-verbatim");
-        expect(result.items[0]?.relPath).toBe(".claude/skills/pdf/SKILL.md");
+        expect(result.items[0].name).toBe("pdf-verbatim");
+        expect(result.items[0].relPath).toBe(".claude/skills/pdf/SKILL.md");
     });
 });
 

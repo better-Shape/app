@@ -9,6 +9,13 @@ import {
     skillPathSep,
 } from "@/lib/chat/skill-paths";
 import { listSkillRoots } from "@/lib/chat/skill-roots";
+import {
+    collapseRootAwareForwardSlashes,
+    detectWindowsVerbatimKind,
+    reattachWindowsVerbatim,
+    stripWindowsVerbatim,
+    trimRootTrailingForwardSlashes,
+} from "@/lib/path/verbatim";
 
 describe("skill-paths: normalizeSkillPath", () => {
     it("converts backslashes and drops trailing separators", () => {
@@ -237,6 +244,32 @@ describe("skill-paths: displaySkillPath", () => {
         expect(joinSkillPath("\\\\?\\UNC\\Server\\Share\\", "team/SKILL.md")).toBe(
             "\\\\?\\UNC\\Server\\Share\\team\\SKILL.md",
         );
+
+        const uaSpy = vi
+            .spyOn(window.navigator, "userAgent", "get")
+            .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+        try {
+            expect(isInsideSkillPath("//.claude/skills/pdf/SKILL.md", "//")).toBe(true);
+            expect(isInsideSkillPath("/.claude/skills/pdf/SKILL.md", "//")).toBe(false);
+            expect(isInsideSkillPath("//.claude/skills/pdf/SKILL.md", "/")).toBe(false);
+        } finally {
+            uaSpy.mockRestore();
+        }
+
+        expect(detectWindowsVerbatimKind("//?/UNC/Server/Share", true)).toBe("unc");
+        expect(detectWindowsVerbatimKind("//?/C:/Repo", true)).toBe("drive");
+        expect(detectWindowsVerbatimKind("//?/C:/Repo", false)).toBeNull();
+        expect(stripWindowsVerbatim("//?/UNC/Server/Share/Repo", true)).toBe(
+            "//Server/Share/Repo",
+        );
+        expect(stripWindowsVerbatim("//?/C:/Repo", true)).toBe("C:/Repo");
+        expect(reattachWindowsVerbatim("", "drive")).toBe("");
+        expect(
+            trimRootTrailingForwardSlashes(collapseRootAwareForwardSlashes("///var//log///")),
+        ).toBe("/var/log");
+        expect(
+            trimRootTrailingForwardSlashes(collapseRootAwareForwardSlashes("//host///")),
+        ).toBe("//host");
     });
 });
 

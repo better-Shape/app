@@ -567,9 +567,10 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         );
 
         const inputs = Array.from(container.querySelectorAll("input[type='search']"));
-        expect(inputs[0]?.getAttribute("aria-labelledby")).toBe("ext-search-label");
-        expect(inputs[0]?.getAttribute("aria-label")).toBeNull();
-        expect(inputs[1]?.getAttribute("aria-label")).toBe("Search");
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0].getAttribute("aria-labelledby")).toBe("ext-search-label");
+        expect(inputs[0].getAttribute("aria-label")).toBeNull();
+        expect(inputs[1].getAttribute("aria-label")).toBe("Search");
 
         const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
         expect(trigger?.textContent).toContain("JetBrains Mono");
