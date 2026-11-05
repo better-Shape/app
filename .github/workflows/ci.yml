@@ -141,7 +141,7 @@ jobs:
   # gate. NOT in ci-success `needs`, so this is additive and cannot block a merge.
   static-macos:
     name: Static Checks (macOS)
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 20
     permissions:
       contents: read

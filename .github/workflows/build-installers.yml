@@ -43,7 +43,7 @@ jobs:
             bundles: nsis
           # Use native runners for both architectures; SDK slices alone do not
           # cross-compile native dependencies such as OpenSSL.
-          - runner: macos-latest
+          - runner: macos-26
             os: macos
             arch: aarch64
             target: aarch64-apple-darwin
