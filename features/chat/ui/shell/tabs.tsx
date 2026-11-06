@@ -4,7 +4,7 @@ import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
-import { useCallback } from "react";
+import { useCallback, type KeyboardEvent } from "react";
 import { arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { DragEndEvent } from "@dnd-kit/core";
@@ -18,7 +18,12 @@ import {
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
     WORKBENCH_TAB_CONTENT_ACTIVE_CLASS,
     WORKBENCH_TAB_CONTENT_CLASS,
+    focusTabAfterClose,
+    handleWorkbenchTabKey,
+    isWorkbenchTabCloseTarget,
+    workbenchTabClickCommand,
     workbenchTabItemClass,
+    type WorkbenchTabCommand,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { cn } from "@/lib/utils";
 import { ModelAvatarStack, WorkingDots } from "../message/bubble";
@@ -77,6 +82,17 @@ const SortableChatTab = ({
         isDragging,
     } = useSortable({ id: tab.id });
     const generating = useIsChatGenerating(tab.id);
+    const closable = Boolean(canClose && onClose);
+    const forwardSortableKey = (event: KeyboardEvent<HTMLElement>) => listeners?.onKeyDown?.(event);
+    const forwardSortablePointer = listeners?.onPointerDown;
+    const runCommand = (command: WorkbenchTabCommand, tabElement: HTMLElement) => {
+        if (command === "select") {
+            onSelect(tab.id);
+            return;
+        }
+        focusTabAfterClose(tabElement);
+        onClose?.(tab.id);
+    };
 
     const style = {
         transform: transform
@@ -101,6 +117,7 @@ const SortableChatTab = ({
                     {...listeners}
                     role="tab"
                     aria-selected={isActive}
+                    aria-keyshortcuts={closable ? "Delete" : undefined}
                     tabIndex={0}
                     onPointerEnter={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
@@ -108,15 +125,20 @@ const SortableChatTab = ({
                     onFocus={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
                     }}
-                    onClick={() => onSelect(tab.id)}
-                    onKeyDown={(e) => {
-                        listeners?.onKeyDown?.(e);
-                        if (e.defaultPrevented || isDragging || e.target !== e.currentTarget) return;
-                        if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onSelect(tab.id);
-                        }
+                    onPointerDown={(e) => {
+                        // Pressing the close glyph must not start a drag.
+                        if (isWorkbenchTabCloseTarget(e.target)) return;
+                        forwardSortablePointer?.(e);
                     }}
+                    onClick={(e) => runCommand(workbenchTabClickCommand(e.target, closable), e.currentTarget)}
+                    onKeyDown={(e) =>
+                        handleWorkbenchTabKey(
+                            e,
+                            { closable, dragging: isDragging },
+                            runCommand,
+                            forwardSortableKey,
+                        )
+                    }
                     className={workbenchTabItemClass(isActive, isDragging)}
                 >
                     <div
@@ -163,16 +185,12 @@ const SortableChatTab = ({
                             </FadeTruncate>
                         </div>
                     </div>
-                    {canClose && onClose ? (
-                        <button
-                            type="button"
-                            aria-label={`Close ${tab.title}`}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onClose(tab.id);
-                            }}
+                    {closable ? (
+                        <span
+                            data-tab-close
+                            aria-hidden="true"
                             className={cn(
-                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 focus-visible:opacity-100",
+                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 group-focus-visible:opacity-100",
                                 "bg-linear-to-l to-transparent from-50%",
                                 isActive ? "from-surface-3" : "from-panel-hover",
                             )}
@@ -180,7 +198,7 @@ const SortableChatTab = ({
                             <span className={WORKBENCH_TAB_CLOSE_BUTTON_CLASS}>
                                 <Icon icon={Dismiss20Regular} />
                             </span>
-                        </button>
+                        </span>
                     ) : null}
                 </div>
             </ContextMenuTrigger>

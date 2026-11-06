@@ -4,7 +4,7 @@ import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type KeyboardEvent } from "react";
 import { arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { DragEndEvent } from "@dnd-kit/core";
@@ -31,7 +31,12 @@ import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_CONTENT_ACTIVE_CLASS,
     WORKBENCH_TAB_CONTENT_CLASS,
+    focusTabAfterClose,
+    handleWorkbenchTabKey,
+    isWorkbenchTabCloseTarget,
+    workbenchTabClickCommand,
     workbenchTabItemClass,
+    type WorkbenchTabCommand,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/lib/settings";
@@ -67,6 +72,16 @@ function SortableWorkspaceTab({
         transition,
         isDragging,
     } = useSortable({ id: tab.id });
+    const forwardSortableKey = (event: KeyboardEvent<HTMLElement>) => listeners?.onKeyDown?.(event);
+    const forwardSortablePointer = listeners?.onPointerDown;
+    const runCommand = (command: WorkbenchTabCommand, tabElement: HTMLElement) => {
+        if (command === "select") {
+            onSelect(tab.id);
+            return;
+        }
+        focusTabAfterClose(tabElement);
+        onClose(tab.id);
+    };
 
     const style = {
         transform: transform
@@ -92,17 +107,24 @@ function SortableWorkspaceTab({
                     role="tab"
                     aria-label={tab.title}
                     aria-selected={isActive}
+                    aria-keyshortcuts={canClose ? "Delete" : undefined}
                     tabIndex={0}
-                    onClick={() => onSelect(tab.id)}
-                    onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (event.key === "Enter" && !isDragging) {
-                            event.preventDefault();
-                            onSelect(tab.id);
-                            return;
-                        }
-                        listeners?.onKeyDown?.(event);
+                    onPointerDown={(event) => {
+                        // Pressing the close glyph must not start a drag.
+                        if (isWorkbenchTabCloseTarget(event.target)) return;
+                        forwardSortablePointer?.(event);
                     }}
+                    onClick={(event) =>
+                        runCommand(workbenchTabClickCommand(event.target, canClose), event.currentTarget)
+                    }
+                    onKeyDown={(event) =>
+                        handleWorkbenchTabKey(
+                            event,
+                            { closable: canClose, dragging: isDragging },
+                            runCommand,
+                            forwardSortableKey,
+                        )
+                    }
                     className={cn(
                         workbenchTabItemClass(isActive, isDragging, compact),
                         compact ? "max-w-28" : "max-w-44",
@@ -116,7 +138,7 @@ function SortableWorkspaceTab({
                                 "flex items-center justify-center transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                                 // The icon hands its slot to the close button, so both fade
                                 // rather than one blinking out under the pointer.
-                                canClose && "group-hover:opacity-0",
+                                canClose && "group-hover:opacity-0 group-focus-visible:opacity-0",
                             )}
                         >
                             {tab.kind === "browser" && tab.url ? (
@@ -128,18 +150,13 @@ function SortableWorkspaceTab({
                             )}
                         </span>
                         {canClose ? (
-                            <button
-                                type="button"
-                                aria-label={`Close ${tab.title}`}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    onClose(tab.id);
-                                }}
-                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary group-hover:opacity-100 focus-visible:opacity-100"
+                            <span
+                                data-tab-close
+                                aria-hidden="true"
+                                className="absolute inset-0 flex items-center justify-center text-text-muted opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:text-text-primary group-hover:opacity-100 group-focus-visible:opacity-100"
                             >
                                 <Icon icon={Dismiss20Regular} className="icon-sm" />
-                            </button>
+                            </span>
                         ) : null}
                     </div>
                         <span className="min-w-0 truncate text-sm">{tab.title}</span>

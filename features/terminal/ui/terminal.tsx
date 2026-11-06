@@ -47,8 +47,6 @@ import { setLastDevUrl } from "@/features/preview/store";
 import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_BAR_CLASS,
-    WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
-    workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import {
     lookupByProjectPath,
@@ -58,6 +56,7 @@ import {
 } from "@/features/terminal/session";
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
+import { TerminalStripTab } from "./terminal-tab";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import { clipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
 import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
@@ -1349,6 +1348,7 @@ const Terminal = ({
                     size="icon"
                     className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
                     title="Terminal profiles"
+                    aria-label="Terminal profiles"
                 >
                     <Icon icon={ChevronDown20Regular} />
                 </Button>
@@ -1395,55 +1395,21 @@ const Terminal = ({
     ) => (
         <div
             ref={scrollRef}
+            role="tablist"
             onWheel={handleWheel}
             className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
         >
             {tabs.map((tab) => {
                 const isActive = activeId === tab.id;
-                const unread = !isActive && unreadTabs.has(tab.id);
                 return (
-                    <div
+                    <TerminalStripTab
                         key={tab.id}
-                        role="tab"
-                        aria-selected={isActive}
-                        tabIndex={0}
-                        onClick={() => onActivate(tab.id)}
-                        onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            onActivate(tab.id);
-                        }}
-                        className={workbenchTabItemClass(isActive)}
-                    >
-                        <span className="max-w-[160px] truncate text-sm">{tab.title}</span>
-                        {unread ? <span className="sr-only">New output</span> : null}
-                        {/* One 16px slot, two occupants: the unread dot hands it to
-                            the close button under the pointer, at the same beat the
-                            file tabs use, so no state change shifts the title. */}
-                        <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                            <span className="t-tab-dot absolute" data-on={unread ? "true" : "false"} aria-hidden />
-                            <button
-                                type="button"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    closeTab(tab.id);
-                                }}
-                                className={cn(
-                                    WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
-                                    "absolute transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                    isActive
-                                        ? "opacity-100"
-                                        // An inactive tab keeps its close button in the
-                                        // tab order, so it has to become visible when the
-                                        // keyboard reaches it; pointer users get it on hover.
-                                        : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                                )}
-                                aria-label={`Close ${tab.title}`}
-                            >
-                                <Icon icon={Dismiss20Regular} />
-                            </button>
-                        </div>
-                    </div>
+                        title={tab.title}
+                        active={isActive}
+                        unread={!isActive && unreadTabs.has(tab.id)}
+                        onActivate={() => onActivate(tab.id)}
+                        onClose={() => closeTab(tab.id)}
+                    />
                 );
             })}
         </div>
@@ -1470,6 +1436,7 @@ const Terminal = ({
                         size="icon"
                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
                         onClick={() => addTab(resolveAvailableDefaultShell(), group)}
+                        aria-label="New Terminal"
                     >
                         <Icon icon={Add20Regular} />
                     </Button>
@@ -1575,6 +1542,7 @@ const Terminal = ({
                                 </Tooltip>
                                 <Tooltip content="Clear Terminal">
                                     <Button
+                                        aria-label="Clear Terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1585,6 +1553,7 @@ const Terminal = ({
                                 </Tooltip>
                                 <Tooltip content="Split Terminal">
                                     <Button
+                                        aria-label="Split Terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1597,6 +1566,7 @@ const Terminal = ({
                         ) : null}
                         <Tooltip content="Hide Panel">
                             <Button
+                                aria-label="Hide Panel"
                                 onClick={() => onClose?.()}
                                 variant="ghost"
                                 size="icon"
@@ -1606,6 +1576,7 @@ const Terminal = ({
                             </Button>
                         </Tooltip>
                         <Button
+                            aria-label="Close panel"
                             onClick={() => onClose?.()}
                             variant="ghost"
                             size="icon"
