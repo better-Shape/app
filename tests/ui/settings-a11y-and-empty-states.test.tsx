@@ -554,5 +554,25 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(trigger?.textContent).toContain("JetBrains Mono");
         expect(container.textContent).not.toContain("Change");
     });
+
+    it("shows what an empty inheriting font follows instead of the first preset", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        value=""
+                        presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
+                        emptyLabel="Same as editor"
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("Same as editor");
+        expect(trigger?.textContent).not.toContain("IBM Plex Mono");
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Same as editor");
+    });
 });
 

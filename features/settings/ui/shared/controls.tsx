@@ -427,24 +427,23 @@ export const COMMON_EXCLUDE_PATTERNS = [
 
 const CUSTOM_FONT_VALUE = "__custom__";
 
-const resolveFontSelectValue = (
-    value: string,
-    isCustom: boolean,
-    presets: readonly { value: string; label: string }[],
-): string => {
+type FontChoice = { value: string; label: string };
+
+/**
+ * What an empty value shows. A setting that inherits another one shows that, with no option
+ * picked; any other empty value shows the first preset, which is the default font.
+ */
+const emptyFontChoice = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice =>
+    emptyLabel ? { value: "", label: emptyLabel } : (presets.at(0) ?? { value: "", label: "Default" });
+
+const resolveFontSelectValue = (value: string, isCustom: boolean, empty: FontChoice): string => {
     if (isCustom) return CUSTOM_FONT_VALUE;
-    if (value.trim()) return value;
-    return presets.at(0)?.value ?? "";
+    return value.trim() ? value : empty.value;
 };
 
-const resolveFontSelectDisplayLabel = (
-    value: string,
-    isCustom: boolean,
-    presets: readonly { value: string; label: string }[],
-): string | undefined => {
+const resolveFontSelectDisplayLabel = (value: string, isCustom: boolean, empty: FontChoice): string | undefined => {
     if (isCustom) return value;
-    if (!value.trim()) return presets.at(0)?.label ?? "Default";
-    return undefined;
+    return value.trim() ? undefined : empty.label;
 };
 
 /** Preset font selector with custom `.ttf`/`.otf`/`.woff`/`.woff2` upload support. */
@@ -452,16 +451,20 @@ export function FontFamilySelect({
     value,
     presets,
     onChange,
+    emptyLabel,
     "aria-label": ariaLabel,
 }: {
     value: string;
-    presets: readonly { value: string; label: string }[];
+    presets: readonly FontChoice[];
     onChange: (v: string) => void;
+    /** What an empty value inherits, such as "Same as editor". Without it, empty shows the first preset. */
+    emptyLabel?: string;
     "aria-label"?: string;
 }) {
     const presetValues = presets.map((p) => p.value);
     const isCustom = value.trim().length > 0 && !presetValues.includes(value);
-    const selectValue = resolveFontSelectValue(value, isCustom, presets);
+    const empty = emptyFontChoice(presets, emptyLabel);
+    const selectValue = resolveFontSelectValue(value, isCustom, empty);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const options = [
@@ -483,7 +486,7 @@ export function FontFamilySelect({
         <div className="flex flex-col items-start gap-2">
             <SettingSelect
                 value={selectValue}
-                displayLabel={resolveFontSelectDisplayLabel(value, isCustom, presets)}
+                displayLabel={resolveFontSelectDisplayLabel(value, isCustom, empty)}
                 aria-label={ariaLabel}
                 options={options}
                 onChange={(v) => {
