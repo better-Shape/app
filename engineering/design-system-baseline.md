@@ -7,8 +7,8 @@ This is the BetterShape baseline that UI review checks against. The values live 
 1. Tokens only. No hard-coded colors, radii, durations, or font sizes in components.
 2. One button, one icon component, one set of settings controls. Extend them rather than forking.
 3. Dark only. Do not add light-mode branches.
-4. Every interactive element has a visible focus state from `--focus`.
-5. Icon-only controls have `aria-label`. Toggles have `aria-pressed`.
+4. Every interactive element has a visible focus state. Buttons take the shared 2px inset `--accent-text` ring from `app/globals.css`, and text fields show their caret. Do not add `outline-none` to a control without drawing a focus style in its place. Closing a dialog puts focus back where it was; a dialog without a `Dialog.Trigger` passes `useDialogFocusReturn()` as its `onCloseAutoFocus`.
+5. Icon-only controls have `aria-label`. Toggles have `aria-pressed`. Dense session-toolbar controls, session-row hover actions, Git change rows, and commit-generation controls use the `--target-size-min` token to retain a 24 CSS-pixel target floor when rem-based sizing shrinks.
 6. Copy is sentence case and uses `...` rather than the ellipsis character.
 7. Motion follows `engineering/motion-design.md`, uses shared fast/base/spatial tokens, stays immediate for frequent and keyboard-driven actions, and respects both the OS and app reduced-motion preference. One-shot JavaScript motion uses `lib/ui/motion.ts`; components with timers or repeated changes use the live `useReducedMotion` hook from `lib/ui/use-reduced-motion.ts`.
 8. Status colors carry state. Do not use them for decoration.

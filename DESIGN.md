@@ -20,13 +20,13 @@ All colors are tokens in `app/globals.css` `:root`, exposed to Tailwind through 
 | Token | Value | Role |
 | --- | --- | --- |
 | `--chrome` | `#1E1E1E` | Recessed chrome. `--background` aliases it, so `body` uses it |
-| `--sidebar` | `#2D2D2D` | Agent sidebar |
-| `--editor` | `#191919` | Editor and canvas. Context and dropdown menus use it (`--menu-bg`) |
+| `--sidebar` | `#2D2D2D` | Agent sidebar. Dropdown and menubar panels (`dropdown.tsx`) use it too |
+| `--editor` | `#191919` | Editor and canvas. The composer mention popover uses it through `--menu-bg` |
 | `--panel` | `#1B1B1B` | Panels |
 | `--surface-0`, `--surface-1` | `#181818` | Base |
 | `--surface-2` | `#1b1b1b` | Inputs (`--input-bg`) |
 | `--surface-3` | `#202020` | Secondary buttons, disabled controls, muted pills |
-| `--surface-4` | `#252525` | Hover on surface-3 |
+| `--surface-4` | `#252525` | Hover on surface-3. Context menu panels (`context.tsx`) |
 | `--settings-card` | `#2a2a2a` | Settings cards |
 | `--base` | `#f2f2f2` | Foreground |
 
@@ -58,7 +58,7 @@ The comment at `--accent-text` reads "never use --accent (too deep) as body text
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--accent` | `#3946FF` | Primary buttons, focus ring (`--focus` aliases it) |
+| `--accent` | `#3946FF` | Primary buttons. `--focus` aliases it for the older 1px control rings; the shared keyboard focus ring uses `--accent-text` |
 | `--accent-hover` | `#4365FF` | Hover on primary |
 | `--action-label` | `#ffffff` | Text on accent (`--accent-fg`) |
 | `--accent-text` / `-hover` | `#9eb0ff` / `#c4ceff` | Accent text on dark |
@@ -215,7 +215,7 @@ Motion rules:
 - Value swap: when a label or number is replaced in place, it crosses to the new value over `--swap-dur` on `--swap-ease`, ghosting out and copying in. `components/ui/swap.tsx` owns the timing and shortens the token per surface (90ms for the status bar, 140ms for a copy label). A first render never animates; only a change does.
 - Confirmation: "that worked" is drawn, not faded. `DrawnCheck` in `components/ui/checkmark.tsx` renders the stroked path that `t-success-check` rotates, bobs and draws in. A filled Fluent glyph cannot show this, because the draw animates `stroke-dashoffset`. The dense-list case uses `data-motion="compact"` to run the same beat in about 240ms.
 - Container reveal: `components/ui/collapse.tsx` animates `grid-template-rows: 0fr → 1fr` over `--reveal-dur`, which reaches the content's own height without measuring it. Its closed branch is `inert`, so a collapsed section's controls leave the tab order.
-- Terminal activity: `.t-tab-dot` marks a terminal tab that produced output while the user was looking elsewhere. One dot, one meaning, no pulse, because the strip is on screen for the whole session and constant motion there is noise. It shares the close button's reserved slot and hands it over on hover.
+- Terminal activity: `.t-tab-dot` marks a terminal tab that produced output while the user was looking elsewhere. One dot, one meaning, no pulse, because the strip is on screen for the whole session and constant motion there is noise. It shares the close glyph's reserved slot and hands it over on hover or keyboard focus.
 - Spring: only the popover entrance overshoots, through `--ease-overshoot` behind `@supports (animation-timing-function: linear(0, 1))`. `cubic-bezier` is clamped to its endpoints, so `linear()` is the only curve that can pass 1. It is not applied to the press release: returning from `--press-scale` 0.985 means a 12% overshoot moves the control 0.2% of its size, which is invisible.
 
 Reduced motion: the default is to follow the OS. `Settings → Application → Motion` can override it with “Reduce motion”; the preference is stored as `appearance.motionPreference` and applied before hydration to `data-motion-preference`. JavaScript, WAAPI and timed sequences must use `prefersReducedMotion` from `lib/ui/motion.ts` and jump directly to their final state. `app/globals.css` carries the blanket reset (every animation to `0.01ms` for a single iteration, every transition to `0.01ms`), and `app/transitions.css` carries the exception layer on top of it. Decorative waits stop; informational motion (`.animate-spin`, `.imsg-typing span`) slows to 2.4s and **keeps iterating**, since a frozen spinner is indistinguishable from a hung app, and `animation-iteration-count: infinite !important` has to be re-asserted because the blanket reset sets it to `1`, which would otherwise turn a slowed spinner into one slow turn and then a still image. A new animation needs a decision in that block, and a guard on a class that no element carries is worse than no guard because it reads as coverage. `tests/ui/reduced-motion.test.ts` holds the source contract; `scripts/qa/probe-reduced-motion.cjs` holds the computed result in a real engine.
@@ -233,7 +233,7 @@ The shared set lives in `components/ui/`. Extend these before you write a new pr
 | Switch | `switch.tsx` | Radix switch. A `loading` state shows a spinning sync icon |
 | Slider | `slider.tsx` | Radix slider |
 | Tabs | `tabs.tsx` | Radix tabs |
-| Dropdown, context | `dropdown.tsx`, `context.tsx` | Radix dropdown and context menus. Tokens `--menu-*` |
+| Dropdown, context | `dropdown.tsx`, `context.tsx` | Radix dropdown, menubar and context menus. Panels are `bg-sidebar` (dropdown, menubar) and `bg-surface-4` (context). The `--menu-*` tokens style the composer mention popover |
 | Tooltip | `tooltip.tsx` | Radix tooltip, `--z-tooltip` 1200 |
 | Dialog and alert | `alert-dialog.tsx` | Radix alert dialog |
 | Notification | `notification.tsx` | Custom toast stack. `--z-notification` 1300 |
@@ -271,7 +271,27 @@ Sizes (`ButtonSize`):
 | `lg` | 40px | 16px | 14px (`text-base`) | `squircle-3xl` |
 | `icon` | 28px square | 0 | | `squircle-4xl` |
 
+Dense session-toolbar, session-row hover actions, Git change rows, commit-generation controls, the Legal links in Data Control settings, and the Stage and Restore actions that float over an All changes diff use `--target-size-min` (24 CSS pixels) as a minimum width and height. The floating actions need it because the diff text under them takes keyboard focus, which makes it a pointer target of its own. Their rem-based preferred size may grow with text scaling but must not shrink the pointer target below that floor. Glyph size stays unchanged.
+
 Statuses: `idle`, `loading`, `waiting`, `error`. `selected` uses `panel-active` fill. Icon-only buttons need `aria-label`. Toggles need `aria-pressed`.
+
+Menu group labels (`DropdownMenuLabel`, `MenubarLabel`) and shortcut hints (`DropdownMenuShortcut`, `MenubarShortcut`) use `text-secondary`. `text-muted` on the `#2d2d2d` menu surface measures 4.36:1, below the 4.5:1 that 13px text needs.
+
+Keyboard focus on any `button` or `[role="button"]` draws a 2px `--accent-text` ring inside the control's edge, from a base-layer rule in `app/globals.css`. Inside the edge, a parent that clips overflow cannot cut it off. A pointer press does not match `:focus-visible`, so a click draws nothing. `--focus` is not used for it because it measures 2.87:1 against `--surface-2`, below the 3:1 a focus indicator needs. The shared `Button` sets no focus style of its own. A control that styles its own focus with utilities keeps that style, which is why the older `focus-visible:ring-*` rings paired with `outline-none` still draw; a new control should take the shared ring instead. Text fields show their caret.
+
+A dialog that opens from a shortcut, a menu item or an event has no `Dialog.Trigger`, and Radix returns focus to the trigger, so on close focus fell to the page body. Pass `useDialogFocusReturn()` from `lib/ui/use-dialog-focus-return.ts` as the content's `onCloseAutoFocus`. It focuses the most recent element still on the page: the control that opened the dialog, the menu button when a menu item opened it, or wherever the dialog's action sent focus. The command palette, the quick pick, the New file prompt, the attachment preview and the shortcuts sheet use it.
+
+A closable workbench or terminal tab is the only interactive element inside `role="tab"`, and each strip of tabs is a `role="tablist"`. Enter opens the focused tab and Delete closes it, a click on the close glyph closes it, and the workbench context menu offers Close. In the workbench strips every other key goes to drag-and-drop reordering, which picks a tab up with Space. The terminal strip has no reordering, so Space opens a terminal tab as Enter does. When the focused tab closes, focus moves to the tab after it, or to the one before it when it was last, as the WAI-ARIA tabs pattern describes. The glyph is an `aria-hidden` span the tab acts on, because a focusable button nested in a tab is an invalid nested interactive control.
+
+Chat text takes its direction from its own content. The outermost block of a reply (a paragraph, heading, list, blockquote or table), user messages, and the composer textarea with its highlight mirror carry `dir="auto"`. Blocks inside a list, blockquote or table inherit the container's direction rather than carrying their own, because HTML leaves text under a `dir` attribute out of an ancestor's automatic direction. Spacing uses logical utilities (`ms-*`, `ps-*`, `border-s-*`, `text-start`), so right-to-left replies indent, align, and draw quote bars on the correct side. Code blocks, inline code, file chips and display math carry `dir="ltr"`: code reads left to right in any reply, and it never decides the direction of the prose around it. Table header cells set `text-start` themselves, because the user agent stylesheet centres a header cell whose row inherits the initial alignment.
+
+The commit graph scroller takes focus for the graph's keyboard shortcuts and is a group named "Commit graph" around the commit list. It is not a listbox: a listbox must own options, and a focusable widget role would also make it a pointer target under every row's own buttons.
+
+Command palette rows are buttons. Enter and Space run the focused row, and a focused row takes the selection highlight (`--row-selected`) that arrow keys and hover move, so the highlight and the focus ring mark the same row. The delete glyph is an `aria-hidden` span the row acts on when it is clicked. Deleting has no key, because it cannot be undone; it stays in the row's context menu.
+
+A wide chat table scrolls inside a focusable group named "Scrollable table". Its focus ring is an inset `--accent-text` outline, as on workbench tabs, because the rounded frame clips anything drawn outside it. `--focus` measures 2.87:1 against `--surface-2`, below the 3:1 that a focus indicator needs.
+
+Editor text surfaces (`.cm-content`) are named after the file they edit through `editorContentLabel`: `README.md editor`, `App.tsx diff`, and in a split diff `App.tsx original` and `App.tsx modified`. A read-only surface draws no caret, so the editor shows a 2px inset `--accent-text` outline while its content has keyboard focus.
 
 ## 8. Icons
 
