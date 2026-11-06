@@ -9,8 +9,9 @@ from the upstream repositories through the GitHub API or from the installed pack
 `@radix-ui/react-menubar` 1.1.16, `@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2,
 `tailwindcss` 4.1.18. The three keyboard focus sources added with finding 7, the three dialog focus
 sources added with finding 8, the button example, the focus fixup step behind finding 9, the
-Primer mixin behind finding 10 and the CSS Fonts `@font-face` descriptor behind the custom font
-label were read on 2026-11-06, the dialog source at
+Primer mixin behind finding 10, the CSS Fonts `@font-face` descriptor behind the custom font
+label, and the No Keyboard Trap note, the two VS Code terminal sources and the `thesvg` package
+behind the round that closed the open items were read on 2026-11-06, the dialog source at
 `@radix-ui/react-dialog` 1.1.15. The 1.4.11 understanding note was read again that day for finding
 10.
 
@@ -101,6 +102,7 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 | [Understanding SC 2.1.1 Keyboard](https://github.com/w3c/wcag/blob/main/understanding/20/keyboard.html) | All functionality operable from a keyboard | Command palette rows are `role="button"` and now run on Enter and Space |
 | [Understanding SC 4.1.2 Name, Role, Value](https://github.com/w3c/wcag/blob/main/understanding/20/name-role-value.html) | Controls expose a name and a role | The forty-three unnamed or `title`-only icon buttons, and tabs without a tablist |
 | [Understanding SC 2.4.3 Focus Order](https://github.com/w3c/wcag/blob/main/understanding/20/focus-order.html) | Focus moves in an order that preserves meaning | Closing a tab hands focus to its neighbour instead of dropping it to the page |
+| [Understanding SC 2.1.2 No Keyboard Trap](https://github.com/w3c/wcag/blob/main/understanding/20/no-keyboard-trap.html) | A way out other than unmodified Tab, the arrows or Escape is allowed when the user is told it | The terminal keeps Tab for the shell; Ctrl+M and Ctrl+J lead out, and the terminal input's description names them |
 | [Understanding SC 2.4.13 Focus Appearance](https://github.com/w3c/wcag/blob/main/understanding/22/focus-appearance.html) | AAA area and contrast rules for focus indicators | Guides the 2px inset outline; AAA itself is not claimed |
 | [Understanding SC 2.4.11 Focus Not Obscured (Minimum)](https://github.com/w3c/wcag/blob/main/understanding/22/focus-not-obscured-minimum.html) | A focused component is not fully hidden | Rounded, clipped frames use inset outlines so the ring is not cut off |
 | [Understanding SC 2.5.3 Label in Name](https://github.com/w3c/wcag/blob/main/understanding/21/label-in-name.html) | The accessible name contains the visible label | `aria-label` repeats the tooltip text, for example "New Terminal" |
@@ -224,6 +226,9 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 | [radix-ui/primitives#3085](https://github.com/radix-ui/primitives/issues/3085) | Hidden content with focusable descendants is a known Radix report |
 | [radix-ui/primitives#4250](https://github.com/radix-ui/primitives/issues/4250) | Chrome blocks `aria-hidden` on a subtree that still holds focus |
 | [VS Code `terminalActions.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalActions.ts) | `KillActiveTab` binds Delete, and Cmd+Backspace on macOS, while terminal tabs have focus |
+| [VS Code `terminal.ts` `DEFAULT_COMMANDS_TO_SKIP_SHELL`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/common/terminal.ts) | `editor.action.toggleTabFocusMode`, `workbench.action.togglePanel` and `workbench.action.showCommands` skip the shell by default | Ctrl+M and Ctrl+J skip xterm here too |
+| [VS Code `toggleTabFocusMode.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/toggleTabFocusMode/browser/toggleTabFocusMode.ts) | Toggle Tab Key Moves Focus binds Ctrl+M, and Ctrl+Shift+M on macOS | The app binds Ctrl+M on every platform: its keybindings name the Control key on macOS too, where Ctrl+Shift+M is Problems |
+| `thesvg` 3.3.12 (MIT, re-exporting `@thesvg/icons`) | Every toolkit mark the app named on thesvg.org, and the framework and site marks, ship in the package with their variants and a licence per icon | Marks and plugin logos draw from the bundle as `data:` images |
 
 ## Analyzers and CI
 
@@ -302,12 +307,16 @@ Fifty-five reports from comparable chat and editor apps, read in full. Each beca
 - **Keyboard Delete on command palette rows.** Rejected: deleting a conversation cannot be undone. The
   context menu keeps a deliberate Delete.
 - **A full grid or treegrid model for the commit graph.** Deferred to a follow-up. The `group` role fixes
-  the invalid listbox now; arrow-key semantics for screen readers need their own design.
+  the invalid listbox, and since 2026-11-06 a status line announces each commit the shortcuts select;
+  a treegrid would redesign the virtualized graph.
 - **`modal={false}` on Radix menus to silence `aria-hidden-focus`.** Rejected: it gives up focus
   containment to quiet a report about a pattern that works.
-- **Cmd+Backspace as a macOS close key for tabs.** Deferred: VS Code uses it, but adding a second
-  close chord is a product decision.
-- **Recolouring the older 1px focus rings.** Deferred: `ring-border-focus`, `ring-border-focus-ring` and
-  `ring-accent` draw `#3946ff`, which measures 2.29:1 to 2.95:1 on the app's surfaces, below 3:1. The
-  approved scope kept existing rings; pointing `--border-focus` at `--accent-text` is the proposed
-  follow-up, and it would also recolour text field focus borders.
+- **Cmd+Backspace as a macOS close key for tabs.** Taken on 2026-11-06, when the owner delegated the
+  decision: VS Code uses it, and macOS laptop keyboards have no Delete key.
+- **Vendoring Simple Icons for the brand marks.** Rejected on 2026-11-06: the app already bundles
+  `thesvg`, which carries the same marks and the 13 brands Simple Icons does not, such as Slack and
+  LinkedIn.
+- **Recolouring the older 1px focus rings.** Taken on 2026-11-06, when the owner delegated the
+  decision: `ring-border-focus`, `ring-border-focus-ring` and `ring-accent` drew `#3946ff`, which
+  measures 2.29:1 to 2.95:1 on the app's surfaces, below 3:1. `--focus` now names `--accent-text`,
+  which recolours text field focus borders too.
