@@ -49,6 +49,10 @@ import { GraphLoadingStatus } from "./graph-loading-status";
  * that the third skeleton is the same lane as whatever replaces it.
  */
 
+/** A selected commit as a screen reader hears it: its subject, short hash and author. */
+const commitAnnouncement = (log: GitLogEntry): string =>
+    `${log.message.split("\n", 1)[0]}, ${log.hash.slice(0, 7)}, by ${log.author}`;
+
 const OVERSCAN_PX = GRAPH_OVERSCAN_PX;
 
 export type GraphPendingBaseline = {
@@ -1315,6 +1319,12 @@ export default function Graph({
         return () => window.removeEventListener("keydown", onKey, true);
     }, [jumpToNextMatch, jumpToHead, selectedHash, toggleCommitExpansion, rich]);
 
+    // The shortcuts move the selection, not focus, so a screen reader hears each selected commit.
+    const selectionAnnouncement = useMemo(() => {
+        const log = selectedHash ? gitLogs.find((entry) => entry.hash === selectedHash) : undefined;
+        return log ? commitAnnouncement(log) : "";
+    }, [gitLogs, selectedHash]);
+
     // The scroller takes focus for the graph's keyboard shortcuts and holds the commit list.
     // It is a group rather than a listbox: a listbox must own options, and as a focusable
     // widget it would also count as a pointer target under every row's own buttons.
@@ -1645,6 +1655,9 @@ export default function Graph({
                 }}
             />
             {graphList}
+            <p role="status" className="sr-only">
+                {selectionAnnouncement}
+            </p>
         </>
     );
 

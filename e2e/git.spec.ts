@@ -79,4 +79,24 @@ test.describe("git manager", () => {
         expectNoPageErrors();
         expectNoConsoleErrors();
     });
+
+    test("the graph's shortcuts announce the commit they select", async ({ page, expectNoPageErrors }) => {
+        await gotoRoute(page, "/git?section=graph");
+        await expectPreviewActive(page, "project");
+        await expect(page.getByLabel("Loading Git Manager")).toBeHidden({ timeout: 30_000 });
+        const scroller = page.getByRole("group", { name: "Commit graph" });
+        await expect(scroller).toBeVisible({ timeout: 30_000 });
+        const status = page.locator('[role="status"]').filter({ hasText: /, \S{7}, by / });
+
+        await scroller.focus();
+        await page.keyboard.press("ArrowDown");
+        // The shortcut moves the selection and leaves focus on the scroller, so the status line
+        // is what tells a screen reader which commit is selected.
+        await expect(scroller).toBeFocused();
+        await expect(status).toHaveCount(1);
+        const first = await status.textContent();
+        await page.keyboard.press("ArrowDown");
+        await expect(status).not.toHaveText(first ?? "");
+        expectNoPageErrors();
+    });
 });
