@@ -52,6 +52,26 @@ import {
     ContextMenuTrigger,
 } from "@/components/ui/context";
 
+/** A palette row acts on its delete glyph itself, so the glyph is not a control nested in the row. */
+const isPaletteDeleteTarget = (target: EventTarget) =>
+    target instanceof Element && target.closest("[data-palette-delete]") !== null;
+
+/**
+ * Enter and Space run a focused palette row, as on any `role="button"`. Deleting stays a
+ * deliberate pointer or context-menu action, since it cannot be undone. A focused row also
+ * takes the selection, so the highlight and the focus ring mark the same row.
+ */
+const handlePaletteRowKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    action: EditorAction,
+    runAction: (action: EditorAction) => void,
+) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    runAction(action);
+};
+
 interface EditorAction {
     id: string;
     label: string;
@@ -66,7 +86,7 @@ interface EditorAction {
     meta?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     run: () => any;
-    delete?: (e: React.MouseEvent) => void;
+    delete?: (e: React.SyntheticEvent) => void;
     /** Reddit-style nested subagent under a parent agent row. */
     reply?: boolean;
     model?: string;
@@ -400,7 +420,7 @@ export const CommandPalette = () => {
                             }).catch(() => undefined);
                         },
                         run: () => openAgentConversation(conv.id),
-                        delete: (e: React.MouseEvent) => {
+                        delete: (e: React.SyntheticEvent) => {
                             e.stopPropagation();
                             e.preventDefault();
                             commands.deleteConversation(conv.id).then(() => {
@@ -940,7 +960,12 @@ export const CommandPalette = () => {
                                                 }
                                             }
                                         }}
-                                        onClick={() => runAction(action)}
+                                        onFocus={() => setSelectedIndex(idx)}
+                                        onClick={(event) => {
+                                            if (action.delete && isPaletteDeleteTarget(event.target)) action.delete(event);
+                                            else runAction(action);
+                                        }}
+                                        onKeyDown={(event) => handlePaletteRowKey(event, action, runAction)}
                                     >
                                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                                             {action.reply ? (
@@ -981,14 +1006,13 @@ export const CommandPalette = () => {
                                                 <ShortcutBadge shortcut={action.shortcut} />
                                             )}
                                             {action.delete ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={action.delete}
+                                                <span
+                                                    data-palette-delete
+                                                    aria-hidden="true"
                                                     className="ml-2 shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-error/10 hover:text-error"
-                                                    title="Delete"
                                                 >
                                                     <Icon icon={Delete20Filled} />
-                                                </button>
+                                                </span>
                                             ) : null}
                                         </div>
                                     </div>
@@ -1015,7 +1039,7 @@ export const CommandPalette = () => {
                                         {action.delete ? (
                                             <ContextMenuItem
                                                 className="text-error"
-                                                onClick={(e) => action.delete?.(e as unknown as React.MouseEvent)}
+                                                onClick={(e) => action.delete?.(e)}
                                             >
                                                 <Icon icon={Delete20Filled} />
                                                 Delete

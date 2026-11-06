@@ -45,7 +45,7 @@ test.describe("git manager", () => {
         await expect(firstCommit).toHaveAttribute("aria-setsize", /^[1-9]\d*$/);
 
         const axe = await new AxeBuilder({ page })
-            .withRules(["nested-interactive", "button-name"])
+            .withRules(["nested-interactive", "button-name", "aria-required-children", "target-size"])
             .analyze();
         expect(axe.violations).toEqual([]);
 

@@ -182,6 +182,7 @@ export function GraphDetailPanel({
                     <Tooltip content="Back to commit">
                         <Button
                             type="button"
+                            aria-label="Back to commit"
                             variant="ghost"
                             size="icon"
                             className="shrink-0"
@@ -208,6 +209,7 @@ export function GraphDetailPanel({
                         <Tooltip content={sideBySide ? "Inline diff" : "Side by side"}>
                             <Button
                                 type="button"
+                                aria-label={sideBySide ? "Inline diff" : "Side by side"}
                                 variant="ghost"
                                 size="icon"
                                 className="shrink-0"
@@ -232,6 +234,7 @@ export function GraphDetailPanel({
                     size="icon"
                     className="shrink-0"
                     onClick={onClose}
+                    aria-label="Close commit details"
                 >
                     <Icon icon={Dismiss20Regular} />
                 </Button>

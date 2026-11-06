@@ -139,6 +139,7 @@ const EditorStatusItems = ({
             <Tooltip content="Format Document">
                 <button
                     type="button"
+                    aria-label="Format Document"
                     className="hidden @[640px]/status:flex h-full shrink-0 px-1.5 items-center text-text-primary hover:bg-[var(--row-hover)] transition-colors"
                     onClick={() => dispatchEditorAction("format")}
                 >

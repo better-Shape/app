@@ -784,6 +784,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                             <Tooltip content="Clear compare">
                                 <Button
                                     type="button"
+                                    aria-label="Clear compare"
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6 shrink-0 p-0"
@@ -937,6 +938,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
                                             <Tooltip content={sideBySide ? "Inline diff" : "Side by side"}>
                                                 <Button
                                                     type="button"
+                                                    aria-label={sideBySide ? "Inline diff" : "Side by side"}
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-6 w-6 shrink-0 p-0"

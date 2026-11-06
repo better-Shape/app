@@ -184,6 +184,7 @@ export function MarkdownToolbar({
                             size="icon"
                             className="h-8 w-8"
                             disabled={!loggedIn || loading}
+                            aria-label="AI rewrite"
                         >
                             {loading ? (
                                 <div className="h-3.5 w-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
@@ -222,29 +223,29 @@ export function MarkdownToolbar({
 
             <div className="w-px h-5 bg-border-subtle mx-0.5" />
 
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Bold" onClick={() => onFormat("bold")}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Bold" aria-label="Bold" onClick={() => onFormat("bold")}>
                 <Icon icon={TextBold20Regular} />
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Italic" onClick={() => onFormat("italic")}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Italic" aria-label="Italic" onClick={() => onFormat("italic")}>
                 <Icon icon={TextItalic20Regular} />
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Strikethrough" onClick={() => onFormat("strike")}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Strikethrough" aria-label="Strikethrough" onClick={() => onFormat("strike")}>
                 <Icon icon={TextStrikethrough20Regular} />
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Inline code" onClick={() => onFormat("code")}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Inline code" aria-label="Inline code" onClick={() => onFormat("code")}>
                 <Icon icon={Code20Regular} />
             </Button>
 
             <div className="w-px h-5 bg-border-subtle mx-0.5" />
 
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" onClick={() => onList(false)}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Bullet list" aria-label="Bullet list" onClick={() => onList(false)}>
                 <Icon icon={TaskListSquareLtr20Regular} />
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Numbered list" onClick={() => onList(true)}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title="Numbered list" aria-label="Numbered list" onClick={() => onList(true)}>
                 <Icon icon={TextNumberListLtr20Regular} />
             </Button>
 
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 ml-0.5" title="Close" onClick={onClose}>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 ml-0.5" title="Close" aria-label="Close" onClick={onClose}>
                 <Icon icon={Dismiss20Regular} />
             </Button>
         </div>

@@ -72,7 +72,7 @@ export function GenerateStarButton({
                 aria-label={label}
                 aria-busy={loading || undefined}
                 className={cn(
-                    "absolute z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-md",
+                    "absolute z-10 inline-flex size-7 min-h-target-min min-w-target-min shrink-0 items-center justify-center rounded-md",
                     "pointer-events-auto text-text-muted",
                     placement === "corner"
                         ? "bottom-1 right-1"

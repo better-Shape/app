@@ -27,9 +27,7 @@ import {
 import { notify } from "@/features/notifications";
 import { computeGraphRowLayout, computeVisibleRange, GRAPH_LOG_SOFT_CAP, GRAPH_OVERSCAN_PX, rowTop } from "@/lib/git/graph-virtual";
 import { Tooltip } from "@/components/ui/tooltip";
-import {
-    SidebarPanelHeaderFrame,
-} from "@/features/panels";
+import { Panel, SidebarPanelHeaderFrame } from "@/features/panels";
 import { useLoading } from "@/features/loading/context";
 import { useOptionalFilter } from "@/features/git/ui/manager/filter-context";
 import { useGitRepos } from "@/lib/git/repos";
@@ -41,7 +39,6 @@ import { FilterMenu } from "./filter-menu";
 import { GraphCommitRow } from "./commit-row";
 import { GraphDetailPanel, type GraphDetailSelection } from "./graph-detail-panel";
 import type { RefInfo } from "./ref-pill";
-import { Panel } from "@/features/panels";
 import { GitManagerTrigger } from "@/features/git/ui/manager/git-manager-trigger";
 import { GitChromeActions } from "@/features/git/ui/manager/chrome";
 import { GraphLoadingStatus } from "./graph-loading-status";
@@ -1318,9 +1315,12 @@ export default function Graph({
         return () => window.removeEventListener("keydown", onKey, true);
     }, [jumpToNextMatch, jumpToHead, selectedHash, toggleCommitExpansion, rich]);
 
+    // The scroller takes focus for the graph's keyboard shortcuts and holds the commit list.
+    // It is a group rather than a listbox: a listbox must own options, and as a focusable
+    // widget it would also count as a pointer target under every row's own buttons.
     const graphList = (
         <div
-            role="listbox"
+            role="group"
             aria-label="Commit graph"
             className="graph-scroll min-h-0 flex-1 overflow-y-scroll overflow-x-hidden relative outline-none"
             tabIndex={0}
@@ -1566,12 +1566,12 @@ export default function Graph({
                 actions={
                     <>
                     <Tooltip content="Go to HEAD (H)">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={jumpToHead}>
+                        <Button aria-label="Go to HEAD" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={jumpToHead}>
                             <Icon icon={Target20Regular} />
                         </Button>
                     </Tooltip>
                     <Tooltip content="Fetch From All Remotes">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
+                        <Button aria-label="Fetch From All Remotes" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
                             if (!gitRepo) return;
                             startLoading();
                             try {
@@ -1585,7 +1585,7 @@ export default function Graph({
                         </Button>
                     </Tooltip>
                     <Tooltip content="Pull">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
+                        <Button aria-label="Pull" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
                             if (!gitRepo) return;
                             startLoading();
                             try {
@@ -1599,7 +1599,7 @@ export default function Graph({
                         </Button>
                     </Tooltip>
                     <Tooltip content="Push">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
+                        <Button aria-label="Push" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
                             if (!gitRepo) return;
                             startLoading();
                             try {
@@ -1613,7 +1613,7 @@ export default function Graph({
                         </Button>
                     </Tooltip>
                     <Tooltip content="Refresh Graph">
-                        <Button variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => { await refresh(); }}>
+                        <Button aria-label="Refresh Graph" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => { await refresh(); }}>
                             <Icon icon={ArrowSync20Regular} />
                         </Button>
                     </Tooltip>

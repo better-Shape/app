@@ -352,6 +352,7 @@ export const DesignPreviewGallery = ({
                                               <button
                                                   type="button"
                                                   className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
+                                                  aria-label="Previous component"
                                                   disabled={index === 0}
                                                   onClick={() => setIndex((i) => Math.max(0, i - 1))}
                                               >
@@ -360,6 +361,7 @@ export const DesignPreviewGallery = ({
                                               <button
                                                   type="button"
                                                   className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
+                                                  aria-label="Next component"
                                                   disabled={index >= items.length - 1}
                                                   onClick={() => setIndex((i) => Math.min(items.length - 1, i + 1))}
                                               >
@@ -371,6 +373,7 @@ export const DesignPreviewGallery = ({
                                           <Tooltip content="Use this">
                                               <button
                                                   type="button"
+                                                  aria-label="Use this"
                                                   disabled={!canPick}
                                                   className="rounded-md p-1.5 text-text-muted hover:bg-[var(--btn-hover)] hover:text-text-primary disabled:opacity-30"
                                                   onClick={() => choose(item.id)}

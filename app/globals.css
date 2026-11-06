@@ -169,6 +169,7 @@
   --icon-md: 16px;
   --icon-lg: 20px;
 
+  --target-size-min: 24px;
   --chrome-height: 30px;
   --titlebar-height: 34px;
   --statusbar-height: 33px;
@@ -383,6 +384,7 @@
   /* Do NOT map --spacing-xs/sm/md/lg/xl, that hijacks Tailwind max-w-* to 4–24px.
      Use @utility px-sm / py-xs / etc. below instead. */
 
+  --spacing-target-min: var(--target-size-min);
   --spacing-chrome: var(--chrome-height);
   --spacing-titlebar: var(--titlebar-height);
   --spacing-statusbar: var(--statusbar-height);

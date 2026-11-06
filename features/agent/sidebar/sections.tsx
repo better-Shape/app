@@ -580,7 +580,7 @@ const ChatRow = ({
                                             type="button"
                                             aria-label="Pin"
                                             onClick={() => onTogglePin(true)}
-                                            className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                                            className="flex size-6 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                         >
                                             <Icon icon={Pin20Regular} className="icon-sm" />
                                         </button>
@@ -592,7 +592,7 @@ const ChatRow = ({
                                             <button
                                                 type="button"
                                                 aria-label="Chat actions"
-                                                className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                                                className="flex size-6 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                             >
                                                 <Icon icon={MoreHorizontal20Regular} className="icon-sm" />
                                             </button>

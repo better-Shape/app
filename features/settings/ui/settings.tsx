@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
     useSettings,
     updateSettingSection,
@@ -43,7 +43,6 @@ import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
 import { MicrophoneSettings } from "./sections/microphone";
 import { UpdatesSettings } from "./sections/updates";
-import { useRouter } from "next/navigation";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
     AlertDialog,
@@ -530,14 +529,14 @@ function PrivacySettings({ settings, part }: { settings: BetterShapeSettings; pa
                 <div className="px-3.5 py-2 text-sm">
                     <button
                         type="button"
-                        className="block text-text-muted hover:text-text-primary transition-colors"
+                        className="flex min-h-target-min items-center text-text-muted hover:text-text-primary transition-colors"
                         onClick={() => void commands.openUrlExternal(HELP_LINKS.license)}
                     >
                         Terms of Service
                     </button>
                     <button
                         type="button"
-                        className="block text-text-muted hover:text-text-primary transition-colors"
+                        className="flex min-h-target-min items-center text-text-muted hover:text-text-primary transition-colors"
                         onClick={() => void commands.openUrlExternal(HELP_LINKS.privacy)}
                     >
                         Privacy Policy

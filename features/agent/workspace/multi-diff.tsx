@@ -213,15 +213,18 @@ function LazyFileDiff({
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
+                {/* The actions float over the diff text, which takes keyboard focus and so
+                    is a pointer target of its own: each keeps the 24px floor rather than
+                    relying on the space around it. */}
                 {showOverlay ? (
-                    <div className="absolute right-3 top-2 z-[2] flex gap-1">
+                    <div data-diff-actions className="absolute right-3 top-2 z-[2] flex gap-1">
                         <Button
                             type="button"
                             onClick={() => {
                                 toggleStage().catch(() => undefined);
                             }}
                             variant="ghost"
-                            className="bg-surface-4"
+                            className="bg-surface-4 min-h-target-min"
                             size="xs"
                         >
                             {file.staged ? "Unstage" : "Stage"}
@@ -233,7 +236,7 @@ function LazyFileDiff({
                             ariaLabel="Restore file"
                             label="Restore"
                             armedLabel="Confirm"
-                            className="bg-surface-4 text-text-primary"
+                            className="bg-surface-4 text-text-primary min-h-target-min"
                         />
                     </div>
                 ) : null}
