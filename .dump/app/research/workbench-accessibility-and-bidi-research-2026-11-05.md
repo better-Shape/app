@@ -7,8 +7,9 @@ API or from the installed packages under `node_modules`. Library versions are th
 `package-lock.json` at the time: `axe-core` 4.13.0, `@dnd-kit/core` 6.3.1, `react-markdown` 10.1.0,
 `remark-gfm` 4.0.1, `mdast-util-to-hast` 13.2.1, `@radix-ui/react-menubar` 1.1.16,
 `@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2, `tailwindcss` 4.1.18. The three keyboard focus
-sources added with finding 7 and the three dialog focus sources added with finding 8 were read on
-2026-11-06, the dialog source at `@radix-ui/react-dialog` 1.1.15.
+sources added with finding 7, the three dialog focus sources added with finding 8, the button
+example and the focus fixup step behind finding 9 were read on 2026-11-06, the dialog source at
+`@radix-ui/react-dialog` 1.1.15.
 
 The audit that used these sources is
 [`../audits/cumulative-acceptance-ledger-2026-11-05.md`](../audits/cumulative-acceptance-ledger-2026-11-05.md).
@@ -24,7 +25,7 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
    commit graph: a focusable `role="listbox"` around the rows was a target under every row button, and
    a listbox must own options anyway. It is now a `group`, which clears one critical and six serious
    findings.
-2. **A `title` attribute is not an accessible name in this app.** `SuppressNativeTooltips` moves every
+2. **A `title` attribute is not a reliable accessible name in this app.** `SuppressNativeTooltips` moves every
    `title` to `data-native-title` on the first pointer move and on focus. Thirteen icon-only buttons
    were named only by `title`, and thirty had no name beyond a Radix tooltip, which only adds
    `aria-describedby` while it is open. Forty-two now carry `aria-label`, matching the tooltip text
@@ -67,6 +68,19 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
    the element at open time is not enough: `useDialogFocusReturn` keeps a short history of focused
    elements and focuses the most recent one that is still on the page, which is the menu button in
    that case and the element a dialog's action moved focus to in another.
+9. **An element that stops being focusable while it has focus drops focus to the page.** The HTML
+   rendering update runs the focus fixup step: when the focused area is no longer focusable, focus
+   moves to the viewport and a `blur` event fires. Chromium 156 does it at once: a probe that removed
+   `tabindex` from a focused `div` read `document.activeElement` as the body on the next line. A chat
+   table's scroll box is a keyboard stop only while the table overflows, so it keeps the stop while it
+   holds focus, or a table that came to fit, say after Ctrl+B hid the sidebar, would throw focus away.
+10. **A ring inside a filled button has to contrast with the fill as well.** The understanding note on
+   1.4.11 sorts indicators by where they sit. One outside the control needs 3:1 against the page;
+   one at the control's border, inside it and touching the outside, needs 3:1 against both
+   neighbours. The shared ring is drawn 2px inside the edge, so on the `--accent` fill it measured
+   2.9:1 and on `--danger` 1.9:1. The owner chose the label colour over an outside ring with a gap,
+   which containers that hide overflow would clip: white measures 6.0:1 and 3.9:1 on the fills and
+   17:1 on the page.
 
 ## Standards and techniques
 
@@ -74,7 +88,7 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 | --- | --- | --- |
 | [Understanding SC 2.5.8 Target Size (Minimum)](https://github.com/w3c/wcag/blob/main/understanding/22/target-size-minimum.html) | 24 by 24 CSS pixels, or the 24px-circle spacing exception | The floor `--target-size-min` enforces, and why adjacent undersized rows fail |
 | [Understanding SC 2.5.5 Target Size (Enhanced)](https://github.com/w3c/wcag/blob/main/understanding/21/target-size-enhanced.html) | The AAA 44px target and its equivalent-target exception | Out of scope; AA is the bar, recorded so the 24px choice is not mistaken for AAA |
-| [Understanding SC 1.4.11 Non-text Contrast](https://github.com/w3c/wcag/blob/main/understanding/21/non-text-contrast.html) | Focus indicators and control boundaries need 3:1, measured without rounding | `--focus` measures 2.87:1 on `--surface-2`, so new rings use `--accent-text` |
+| [Understanding SC 1.4.11 Non-text Contrast](https://github.com/w3c/wcag/blob/main/understanding/21/non-text-contrast.html) | Focus indicators and control boundaries need 3:1, measured without rounding; an indicator at a control's edge, inside it and touching the outside, needs it against both neighbouring colours | `--focus` measures 2.87:1 on `--surface-2`, so new rings use `--accent-text`; on an `--accent` or `--danger` fill that ring falls to 2.9:1 and 1.9:1, so filled buttons ring in their label colour |
 | [Understanding SC 1.4.3 Contrast (Minimum)](https://github.com/w3c/wcag/blob/main/understanding/20/contrast-minimum.html) | Text needs 4.5:1 | Menu shortcut hints moved from `text-muted` (4.35:1) to `text-secondary` (5.46:1) |
 | [Understanding SC 2.4.7 Focus Visible](https://github.com/w3c/wcag/blob/main/understanding/20/focus-visible.html) | Any keyboard-operable interface has a visible focus indicator; a text field's caret is one | Buttons take the shared 2px inset ring, read-only editors draw no caret and get the same outline, and text fields rely on their caret |
 | [Selectors Level 4: `:focus-visible` heuristics](https://github.com/w3c/csswg-drafts/blob/main/selectors-4/Overview.bs) | Suggested rules for when a browser indicates focus | A pointer press on a button draws no ring, and script focus takes the previous element's state, so the shared ring shows for keyboard use only |
@@ -92,13 +106,15 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 | [Technique H65](https://github.com/w3c/wcag/blob/main/techniques/html/H65.html) | `title` to identify a control | A fallback only, and unusable here because the app strips `title` |
 | [HTML: the `dir` attribute](https://html.spec.whatwg.org/multipage/dom.html#the-dir-attribute) | `auto` resolves from the first strong character and skips descendants with their own `dir` | Nested blocks inherit instead of carrying `dir="auto"` |
 | [HTML rendering: tables](https://html.spec.whatwg.org/multipage/rendering.html#tables-2) | The user agent centres a `th` whose row inherits the initial alignment | Header cells set `text-start` themselves |
+| [HTML: update the rendering, focus fixup](https://github.com/whatwg/html/blob/main/source) | A focused area that is no longer focusable, for example after `hidden` or `disabled`, hands focus to the viewport and usually fires `blur` (`id="focus-fixup-rule"`) | A chat table's scroll box keeps its keyboard stop while it holds focus, so a table that comes to fit does not drop focus |
 
 ## WAI-ARIA Authoring Practices
 
 | Source | What it is | What it settles here |
 | --- | --- | --- |
-| [Tabs pattern](https://github.com/w3c/aria-practices/blob/main/content/patterns/tabs/tabs-pattern.html) | Enter or Space activates; Delete closes and focuses the following tab, else the preceding one, and optionally activates it | The close and focus rule for workbench and terminal tabs |
+| [Tabs pattern](https://github.com/w3c/aria-practices/blob/main/content/patterns/tabs/tabs-pattern.html) | Enter or Space activates; Left and Right Arrow move focus between tabs, wrapping at the ends, and Home and End jump to the first and last; Delete closes and focuses the following tab, else the preceding one, and optionally activates it | The keyboard model of workbench and terminal tabs: arrows move focus without opening a tab, and a held Delete closes only one |
 | [Breadcrumb pattern](https://github.com/w3c/aria-practices/blob/main/content/patterns/breadcrumb/breadcrumb-pattern.html) | A labelled navigation with `aria-current="page"` | The project breadcrumb keeps the list structure and current marker |
+| [Button pattern example](https://github.com/w3c/aria-practices/blob/main/content/patterns/button/examples/js/button.js) | The reference button runs Enter on key down and Space on key up, cancelling Space's key down so the page does not scroll | Palette rows, which are `role="button"`, run Space on key up, and only when the same row took the key down |
 | [Developing a keyboard interface](https://github.com/w3c/aria-practices/blob/main/content/practices/keyboard-interface/keyboard-interface-practice.html) | Focus movement conventions and reserved keys | Space reorders in sortable strips, Enter opens, Delete closes |
 | [Listbox pattern](https://github.com/w3c/aria-practices/blob/main/content/patterns/listbox/listbox-pattern.html) | A listbox owns options and moves a selection | The commit graph scroller is not a listbox |
 | [Dialog (Modal) pattern](https://github.com/w3c/aria-practices/blob/main/content/patterns/dialog-modal/dialog-modal-pattern.html) | When a dialog closes, focus returns to the element that invoked it; if that element no longer exists, to another element that keeps the work flow | `useDialogFocusReturn` steps back past a closed menu item or palette row to the menu button or the control that had focus |

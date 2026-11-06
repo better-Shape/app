@@ -74,4 +74,4 @@ with Escape and checks where focus lands.
 - Naming a control with `title` alone does not work in this app. `SuppressNativeTooltips` moves every `title` to `data-native-title` on the first pointer move and on focus, so the control is unnamed by the time assistive technology reads it. Use `aria-label`.
 - Making text focusable without checking what floats over it. axe treats any focusable element with a widget role as a pointer target, so focusable read-only diff text turned the 22.75px actions above it into target-size failures.
 - A `ui-capture` `type` step with a `selector` clicks the centre of the field first, which drops the caret into existing text. To append, `press` End and then `type` without a selector.
-- ESLint 9 no longer ships the `unix` formatter, so `-f unix` prints nothing rather than failing; use the default formatter or JSON.
+- ESLint 9 no longer ships the `unix` formatter, so `-f unix` exits with an error unless `eslint-formatter-unix` is installed; use the default formatter or JSON.

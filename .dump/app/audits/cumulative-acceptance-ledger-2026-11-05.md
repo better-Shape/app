@@ -16,7 +16,7 @@ Statuses distinguish implementation from verified acceptance. A historical repor
 | A04 | Preserve animated logo and minimal empty stage | Composer and shell implementations; earlier chat report | Source trace incomplete | Inspect welcome and empty project stages in rendered app, including reduced motion |
 | A05 | Restore rotating hints | `RotatingComposerHint` in `features/chat/ui/composer/input-controls.tsx`; use in `input.tsx` | Implementation located | Verify interval, resets, unconfigured-provider state and preference changes at runtime |
 | A06 | Accessible configuration actions | `Open Providers` named control; settings labeling report; current-head browser CI | Implemented with scoped automated evidence | Review keyboard access and focus return in current visual campaign |
-| A07 | 150+ research sources | `.dump/app/research/workbench-accessibility-and-bidi-research-2026-11-05.md` records 165 sources read on 2026-11-05 and 2026-11-06 (standards, APG, MDN, axe-core, library sources, analyzer docs, 55 upstream issues), each with what it settles; `engineering/motion-research-sources.md` keeps the 72 motion sources | Met for this scope | Every link in the new ledger resolved through the GitHub API on 2026-11-05; package sources name the installed version |
+| A07 | 150+ research sources | `.dump/app/research/workbench-accessibility-and-bidi-research-2026-11-05.md` records 167 sources read on 2026-11-05 and 2026-11-06 (standards, APG, MDN, axe-core, library sources, analyzer docs, 55 upstream issues), each with what it settles; `engineering/motion-research-sources.md` keeps the 72 motion sources | Met for this scope | Every link in the new ledger resolved through the GitHub API on 2026-11-05; package sources name the installed version |
 | A08 | 240+ adversarial/upstream scenarios | Current head: 249 scenarios (212 adversarial, 37 reproductions of 55 upstream issues), then a panel-state sweep of every workbench tab kind, the terminal dock, 20 settings sections, the command palette and Git diff states; see the sections below | Run on current head, defects fixed and locked | Harness output stays outside Git; the locks are the specs and tests named below |
 | A09 | Graph arrival and commit interaction bug-class fixes | `.dump/app/reports/graph-arrival-hold-and-settings-a11y-2026-10-30.md`; graph and commit-row tests | Implemented, current CI green | Include behavior and keyboard/menu boundary checks in final audit |
 | A10 | Safe destructive hold interactions | `components/ui/hold-button.tsx`; 20 focused tests; current-head full CI | Implemented, automated verification present | Preserve pointer cancellation, async exclusion, release suppression, disabled transitions and accessible fallback in final review |
@@ -97,11 +97,11 @@ This batch is local and unpushed. Overall acceptance remains open. Do not conver
 ## DeepSource reconciliation
 
 - Run `42caf930-9226-49cd-9dbc-af4af5b7a033` on `2afbe550` lists 573 introduced issues: 228 documentation, 330 anti-pattern, 11 bug-risk, 4 style, 0 performance (category filters on the run page; per-issue pagination needs a DeepSource login).
-- Root cause: GitHub's default branch `main` (`60d5bc74`) shares no history with the PR base `mega/absorb-all` (`7beb8c35`, 876 commits ahead). DeepSource docs (Settings > General > Default branch) say that branch is the baseline for pull request diffing, so whole files appear as new. Of 16 sampled issues, 15 already existed in the base. The repository's `.deepsource.toml` (arrow-helper doc exemption, test patterns, default complexity threshold `high`) is not applied: exempted arrow helpers and CC-6 functions are reported.
+- Likely cause, not yet confirmed against the repository's DeepSource settings, which need a login: GitHub's default branch `main` (`60d5bc74`) shares no history with the PR base `mega/absorb-all` (`7beb8c35`, 876 commits ahead). DeepSource docs (Settings > General > Default branch) say that branch is the baseline for pull request diffing, so whole files would appear as new, and the run page itself warns that the baseline may not be accurate. Of 16 sampled issues, 15 already existed in the base. The repository's `.deepsource.toml` (arrow-helper doc exemption, test patterns, default complexity threshold `high`) is not applied: exempted arrow helpers and CC-6 functions are reported.
 - A local ESLint parity scan (`complexity` 5, `no-invalid-void-type`, namespace imports, `require-await`, `no-array-index-key`, `no-duplicate-imports`, doc-comment rule) reproduced the style count exactly (4) and bug-risk closely (13 vs 11) in whole-file view. On lines this PR adds, it found 6 code findings and 136 doc findings on exempt constructs.
 - Fixed: hold-button outcome type derived once (`HoldConfirmOutcome`), shared `resolveFieldLabelledBy` for switch and textarea labels, `referencedIds`/`referencedText` test helpers, merged duplicate imports in `graph.tsx` and `settings.tsx`, plugin action rows keyed by slug, non-throwing async mocks returned as `Promise.resolve`. Mutation check: inverting the label helper fails the two consumer tests.
 - Skipped with reason: `async` mocks that throw (the rejection is load-bearing), separate `import type` blocks (repository convention), `serveSkillFs` complexity 8 (virtual filesystem test helper below the configured `high` threshold), doc comments on exempt internal arrow helpers (AGENTS.md forbids restating comments).
-- Owner action needed: set DeepSource's default branch to `mega/absorb-all` (or align GitHub's default branch) and either enable `.deepsource.toml` or mirror it in the dashboard. DeepSource Rust and Secrets pass; DeepScan reports 0 new issues; Sonar reports 0 new issues and 0.0% new-code duplication; CodeAnt gates pass.
+- Owner action needed: open the repository's DeepSource settings and check the default branch and whether `.deepsource.toml` is applied. If they match the evidence above, set the default branch to `mega/absorb-all` (or align GitHub's default branch) and enable `.deepsource.toml` or mirror it in the dashboard. DeepSource Rust and Secrets pass; DeepScan reports 0 new issues; Sonar reports 0 new issues and 0.0% new-code duplication; CodeAnt gates pass.
 
 ## Current-head visual stress campaign
 
@@ -136,7 +136,7 @@ routes the crawl visits. Findings, each fixed with a test that fails when the fi
 | P1 | The command palette delete button was nested in a `role="button"` row, and rows ignored Enter and Space | The row acts on the delete glyph; Enter and Space run the row; Delete stays in the context menu because it cannot be undone | `e2e/panel-state-accessibility.spec.ts` |
 | S1 | The Legal links in Data Control settings were under the 24px floor | Floor applied | `e2e/panel-state-accessibility.spec.ts` |
 | P2 | After P1 made palette rows run on Enter, a row focused with Tab still showed nothing: the global button reset removes its outline | A focused row takes the selection highlight that arrow keys and hover already use | `e2e/panel-state-accessibility.spec.ts` (fails without the fix: the focused row keeps the unselected classes) |
-| K1 | Keyboard focus was invisible on most buttons: the shared `Button` turned its ring off, and a rule in `app/globals.css` outside any cascade layer removed the outline from every button (WCAG 2.4.7, baseline rule 4). The owner chose the app-wide fix | A base-layer rule draws a 2px `--accent-text` ring inside the edge of any keyboard-focused `button` or `[role="button"]`; `Button` sets no focus style of its own; controls that style their own focus keep it | `e2e/keyboard-focus-visibility.spec.ts`: Tab walks of the welcome screen, the workbench, settings and the Git window reach 14, 43, 158 and 28 buttons, all with an indicator. With the old rules the same walks report 14, 42, 131 and 27 buttons without one |
+| K1 | Keyboard focus was invisible on most buttons: the shared `Button` turned its ring off, and a rule in `app/globals.css` outside any cascade layer removed the outline from every button (WCAG 2.4.7, baseline rule 4). The owner chose the app-wide fix | A base-layer rule draws a 2px `--accent-text` ring inside the edge of any keyboard-focused `button` or `[role="button"]`; `Button` sets no focus style of its own, except that its filled faces ring in their label colour after the bot review below; controls that style their own focus keep it | `e2e/keyboard-focus-visibility.spec.ts`: Tab walks of the welcome screen, the workbench, settings and the Git window reach 14, 43, 158 and 28 buttons, all with an indicator. With the old rules the same walks report 14, 42, 131 and 27 buttons without one |
 | D1 | Five dialogs that open without a trigger button (command palette, quick pick, New file prompt, attachment preview, shortcuts sheet) dropped focus to the page body on close, so the next Tab started at the window's Minimize button (WCAG 2.4.3). Radix returns focus to a `Dialog.Trigger`, and these have none. Found while recording the focus clips; the owner chose the shared fix for all five | `lib/ui/use-dialog-focus-return.ts` keeps a short history of focused elements and, as each dialog's `onCloseAutoFocus`, focuses the most recent one still on the page: the opener, the menu button when a menu item opened the dialog, or wherever the dialog's action sent focus | `e2e/dialog-focus-return.spec.ts` opens each dialog from a keyboard-focused control (shortcut, palette command, menu item, attachment) and checks that Escape returns focus with its ring; all five fail with the restore disabled. `tests/ui/dialog-focus-return.test.tsx` covers the opener, a removed menu item and a focus move by the dialog's action |
 
 A full WCAG 2.x A and AA axe scan is now clean in every workbench tab kind, the terminal dock, all 20
@@ -166,6 +166,33 @@ Gates on the final code: unit tests 308 files and 3,130 tests, both typecheck co
 suite, 64 of 64, and `skills:verify` (53 of 53 locked skills), with the browser tree from the vendor
 branch (96 of 96 manifest entries verified).
 
+## Bot review of `711c7107`
+
+cubic raised 20 findings and DeepSource 10 inline ones on the pushed batch. Each was checked against
+the code before it was acted on.
+
+- Fixed in code, each locked by a test that fails without the fix:
+  - The dialog focus history could lose the opener after more than 16 rows of a long list took focus. Entries from one dialog or menu now replace each other.
+  - Holding Delete on a tab closed every tab after it, killing each terminal. Repeats are ignored.
+  - Tab strips had the tablist role without its arrow keys. Left, Right, Home and End now move focus without opening a tab, except while a tab is being dragged.
+  - Closing the last tab of a split terminal pane left focus nowhere. It moves to the other pane's selected tab, and the two strips are named "Left terminals" and "Right terminals".
+  - A sent message that began with code or a mention took its direction from that token. Code, paths and chips in sent messages are now `dir="ltr"`.
+  - Every task checkbox was named "Task". A rehype step names each one after its own text, without nested items.
+  - Palette rows ran Space on key down. They now run it on key up, from the same row only, as the WAI-ARIA button example does.
+  - Tables that fit their box were still a keyboard stop named "Scrollable table". The box is a stop only while the table overflows. The overflow measurement `FadeTruncate` already had is now the shared `useHorizontalOverflow`.
+- Fixed in tests: the dialog spec fails on page errors and the chat spec on page and console errors (the dialog spec leaves console errors out because the palette's framework marks load from a CDN an offline run cannot reach), the chat spec throws a named error instead of using non-null assertions, the menu contrast test asserts both hints render, the terminal test's focusable selector covers `select` and `textarea`, the breadcrumb test covers the folder-only and outline-only cases, and the Space test now proves the tab is picked up and dropped. The focus helper also counts a ring inside a fully transparent ancestor as invisible, after transitions finish. Its functions were split under the complexity limit and documented.
+- Fixed in documents: the `title` heading says "not a reliable accessible name", the ESLint `unix` formatter note says it exits with an error (checked: exit code 2), and the DeepSource cause is recorded as likely rather than confirmed.
+- Not changed: a long press on a workspace tab's close glyph opens the tab's context menu. That is what a long press does anywhere on the tab, and a tap still closes it.
+- Found in the self-review of those fixes, each locked by a test that fails without it:
+  - The new arrow keys also took Ctrl, Alt, Shift and Meta chords, so a user's own arrow keybinding would have moved tab focus as well. Only a bare arrow, Home or End moves focus now.
+  - A table that stopped overflowing while it had focus lost its stop, and the browser dropped focus to the page, for example when Ctrl+B hid the sidebar to widen the chat. The box stays a stop while it holds focus.
+  - `FadeTruncate` still accepted a `title` prop it has ignored since native title tooltips were removed app-wide in `dea51634`. The prop and its five callers' values are gone.
+  - The task-label step imported types from `hast`, which is not a direct dependency. It reads the element type through `react-markdown` instead.
+- CodeRabbit raised two findings on the same head:
+  - The shared ring measured 2.9:1 on the blue fill of `default` and `confirm` buttons and 1.9:1 on the red fill of `destructive` and `danger` ones. WCAG's note on 1.4.11 asks a ring drawn at a control's edge to contrast with both neighbours, so this was valid. The owner chose the label colour from three options shown on the app's own button styles (`ask_user` `filled_button_ring`, answer `label_colour`, 2026-11-06). Filled faces of the shared `Button`, the composer's send button and the collection dialog's Create button now ring in white, 6.0:1 on blue, 3.9:1 on red and 17:1 on the page; a checked switch and a ticked checkmark turn their own 1px ring white. A unit test checks the classes and the ratios, and a browser test reads the computed ring in the checkpoint dialog and on the send button.
+  - The quick pick could lose its opener after 16 rows took focus. It is the same history problem cubic found, fixed by the same change.
+- CodeAnt's one nitpick was valid: the skill file-system fixture collapsed `..` segments, so it served `/project/../project/file`, which the backend's file commands refuse in `assert_ipc_sensitive_only`. The fixture now refuses such a path the same way, and the 79 skill tests still pass, so no caller sends one.
+
 ## Motion capture
 
 Three clips with the `ui-capture` skill against the branch's preview build, each under fifteen
@@ -191,6 +218,14 @@ the clips show that are not app defects of this batch: the capture overlay draws
 and ripple in the window's top-left corner instead of under the cursor (see Still open), and in a
 narrow dock the newest terminal tab sits partly past the strip's right edge, because the strip
 never scrolls the active tab into view; both predate the batch.
+
+A third round after the bot review, on build 14, same tools: `filled-button-focus-ring` and
+`tab-strip-arrow-keys`, captured at 24.9 and 28.1 frames a second and encoded at 30, both
+PASS_WITH_WARNINGS because `tesseract` is absent. Read frame by frame: in the checkpoint dialog, Tab
+to Continue draws a white ring inside the blue button and Shift+Tab to Cancel draws the light-blue
+ring on the plain one. In the workbench strip, after a click on README.md, Left Arrow moves the ring
+to Files, then Graph, then wraps to README.md; Home and End jump to Graph and README.md; README.md
+stays the open tab until Enter opens Files.
 
 ## Delivery gate
 
@@ -224,7 +259,8 @@ Run against this batch, per `engineering/design-skills.md`.
 4. Motion check PASS: no new motion. The focused palette row reuses the row's existing colour
    transition on the shared tap tokens.
 5. Accessibility pass PASS: every button shows keyboard focus, icon-only buttons are named, the
-   ring measures 6.63:1 to 8.55:1 against the app's surfaces, and closing a dialog puts focus back.
+   ring measures 6.63:1 to 8.55:1 against the app's surfaces, a filled button's white ring 3.9:1 or
+   more against its fill, and closing a dialog puts focus back.
 6. Skill report: antislop (this gate), antislop-code (comments), ui-capture (clips), the motion and
    design-system documents. None refused.
 7. Capture gate PASS: the second round of clips covers the focus ring, the palette highlight with
@@ -234,6 +270,7 @@ Run against this batch, per `engineering/design-skills.md`.
 
 - **Keyboard focus cannot leave the terminal with Tab.** The terminal (xterm) sends Tab and Shift+Tab to the shell, as terminals do, and Escape belongs to programs such as vim. Ctrl+J does not close the terminal from inside it either, because the shortcut skips text fields and the terminal's input is one. The only way out is the command palette (Ctrl+Shift+P) and its Toggle Terminal Panel command, and nothing tells the user. This predates the batch and needs a design choice: let Ctrl+J and the palette chord pass through the terminal, add VS Code's Ctrl+M switch that makes Tab move focus, or both, and say so in the terminal's accessible description (WCAG 2.1.2).
 - **The capture overlay draws its click marks in the wrong place.** In `.agents/skills/ui-capture/scripts/overlay.js`, the press ring is positioned with an inline `transform: translate()`, and its pulse keyframes animate `transform: scale()`, which replaces the translation while the pulse plays; the ripple is never positioned at all. Both appear in the window's top-left corner. Positioning both with the separate `translate` property, which composes with `transform`, would fix it. The file predates this pull request, so it was left alone.
+- **Framework marks load from a third-party CDN.** `features/chat/ui/shell/brand-marks.tsx` and `features/chat/ui/blocks/search.tsx` draw brand icons from `https://cdn.simpleicons.org/...`, so typing in the command palette requests the Astro, Remix, Vite and Next.js marks from that host. `AGENTS.md` rules out remote fetches on a load path. This predates the batch and belongs with the link-chip favicon requests: bundling the marks, or fetching them only on an explicit action, would stop both.
 - **The older 1px focus rings are low contrast.** Controls that drew their own ring before K1 keep it, as agreed: `ring-border-focus`, `ring-border-focus-ring` and `ring-accent` draw `#3946ff`, which measures 2.29:1 to 2.95:1 on the app's surfaces, below the 3:1 WCAG 1.4.11 asks of a focus indicator. Pointing `--border-focus` and `--color-border-focus-ring` at `--accent-text` would fix them in one place, and would also recolour text field focus borders. Tabs differ too: workspace tabs draw a 2px `--accent-text` ring, while terminal and chat tabs keep the browser's default focus ring, which is visible but does not match.
 - Ten toolbar tooltips use title case, such as "Fetch From All Remotes" and "Split Terminal", where DESIGN.md asks for sentence case. The new accessible names repeat them, so both should change together.
 - Radix modal menus report `aria-hidden-focus` while open, because the page behind is hidden and focus is trapped. Library model, left alone.
