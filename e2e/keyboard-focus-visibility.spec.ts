@@ -130,6 +130,8 @@ test.describe("filled button focus ring", () => {
         const ring = await readRing(page);
         expect(ring).toMatchObject({ outlineStyle: "solid", outlineWidth: "2px", outlineOffset: "-2px" });
         expect(ring?.outlineColor, "the ring takes the label colour").toBe(ring?.color);
+        // A large button's `text-base` sets its size only; the label keeps the filled colour.
+        expect(ring?.color).toBe("rgb(255, 255, 255)");
         expect(ring?.outlineColor).not.toBe(ACCENT_TEXT);
 
         await page.keyboard.press("Shift+Tab");

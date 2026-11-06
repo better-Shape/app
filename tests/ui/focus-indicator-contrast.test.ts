@@ -37,3 +37,9 @@ describe("focus indicator colour", () => {
         expect(offenders).toEqual([]);
     });
 });
+
+describe("the base size", () => {
+    it("is a size only: no theme colour is named base, so text-base cannot also set a colour", () => {
+        expect(css).not.toMatch(/--color-base\s*:/);
+    });
+});

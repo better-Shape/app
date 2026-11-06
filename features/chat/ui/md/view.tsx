@@ -699,7 +699,7 @@ const MarkdownQuote = ({ children }: BlockProps) => {
     return (
         <blockquote
             dir={dir}
-            className="rounded-e border-s-2 border-base/50 bg-panel/30 ps-3 font-sans chat-text font-normal italic text-text-muted"
+            className="rounded-e border-s-2 border-foreground/50 bg-panel/30 ps-3 font-sans chat-text font-normal italic text-text-muted"
         >
             <InheritedBlockDirection.Provider value>{children}</InheritedBlockDirection.Provider>
         </blockquote>

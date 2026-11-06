@@ -109,8 +109,8 @@ describe("filled control focus ring", () => {
 
     it("holds 3:1 against each fill and against the page, where the shared ring does not", () => {
         const sharedRing = cssToken("--accent-text");
-        // `--action-label` is the filled label; `--base` is what a large button's `text-base` paints.
-        for (const label of ["--action-label", "--base"]) {
+        // `--action-label` is the filled label, at every size now that `text-base` sets no colour.
+        for (const label of ["--action-label"]) {
             for (const fill of ["--accent", "--accent-hover", "--danger"]) {
                 expect(contrastRatio(cssToken(label), cssToken(fill)), `${label} on ${fill}`).toBeGreaterThanOrEqual(3);
             }
