@@ -36,7 +36,7 @@ export function SidebarPanelHeaderFrame({
             )}
         >
             <div className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 pl-3 pr-1">
-                <FadeTruncate title={title} className={SIDEBAR_PANEL_TITLE_CLASS}>
+                <FadeTruncate className={SIDEBAR_PANEL_TITLE_CLASS}>
                     {title}
                 </FadeTruncate>
                 {titleExtra}

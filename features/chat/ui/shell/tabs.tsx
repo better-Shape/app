@@ -177,10 +177,7 @@ const SortableChatTab = ({
                             <ModelAvatarStack models={tab.models} size={14} />
                         ) : null}
                         <div className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-1">
-                            <FadeTruncate
-                                title={tab.title}
-                                className="min-w-0 max-w-[140px] text-sm"
-                            >
+                            <FadeTruncate className="min-w-0 max-w-[140px] text-sm">
                                 {tab.title || "New Chat"}
                             </FadeTruncate>
                         </div>
