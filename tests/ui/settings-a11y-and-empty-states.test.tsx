@@ -21,7 +21,7 @@ import { getSettings, updateSettingSection } from "@/lib/settings";
 import { defaultProvidersSettings } from "@/lib/ai/providers";
 
 vi.mock("@tauri-apps/api/event", () => ({
-    listen: vi.fn(async () => () => {}),
+    listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/lib/catalog/store", () => ({
@@ -91,6 +91,16 @@ const findButton = (text: string): HTMLButtonElement => {
     return match;
 };
 
+/** IDs listed in an IDREF attribute such as `aria-labelledby`, in list order. */
+const referencedIds = (element: Element | null, attribute: string): string[] =>
+    (element?.getAttribute(attribute) ?? "").split(/\s+/).filter(Boolean);
+
+/** Name or description text composed from an IDREF attribute, as assistive technology reads it. */
+const referencedText = (element: Element | null, attribute: string): string =>
+    referencedIds(element, attribute)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+        .join(" ");
+
 describe("Settings row accessible labelling", () => {
     it("wires SettingRow title, description, and selected value IDs onto SettingSwitch and SettingSelect", () => {
         render(
@@ -115,24 +125,16 @@ describe("Settings row accessible labelling", () => {
         if (!(switchEl instanceof HTMLButtonElement)) {
             throw new Error("Expected switch button");
         }
-        const labelledBy = switchEl.getAttribute("aria-labelledby") ?? "";
-        const describedBy = switchEl.getAttribute("aria-describedby") ?? "";
-        expect(labelledBy.length).toBeGreaterThan(0);
-        expect(describedBy.length).toBeGreaterThan(0);
-        expect(document.getElementById(labelledBy)?.textContent).toBe("Minimap");
-        expect(document.getElementById(describedBy)?.textContent).toBe(
+        expect(referencedIds(switchEl, "aria-labelledby")).toHaveLength(1);
+        expect(referencedText(switchEl, "aria-labelledby")).toBe("Minimap");
+        expect(referencedIds(switchEl, "aria-describedby")).toHaveLength(1);
+        expect(referencedText(switchEl, "aria-describedby")).toBe(
             "Show a miniature overview beside the editor.",
         );
 
         const selectTrigger = findButton("On");
-        const selectLabelIds = (selectTrigger.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .filter(Boolean);
-        expect(selectLabelIds).toHaveLength(2);
-        const announced = selectLabelIds
-            .map((id) => document.getElementById(id)?.textContent)
-            .join(" ");
-        expect(announced).toBe("Word wrap On");
+        expect(referencedIds(selectTrigger, "aria-labelledby")).toHaveLength(2);
+        expect(referencedText(selectTrigger, "aria-labelledby")).toBe("Word wrap On");
     });
 
     it("preserves selected value announcement when SettingSelect receives an explicit aria-label and wires SettingRow labels onto ExcludePatternsSelect, KeyInput, and TextInput", () => {
@@ -161,22 +163,11 @@ describe("Settings row accessible labelling", () => {
 
         const explicitSelect = findButton("LF");
         expect(explicitSelect.getAttribute("aria-label")).toBeNull();
-        const explicitIds = (explicitSelect.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .filter(Boolean);
-        expect(explicitIds.map((id) => document.getElementById(id)?.textContent).join(" ")).toBe(
-            "Line endings LF",
-        );
+        expect(referencedText(explicitSelect, "aria-labelledby")).toBe("Line endings LF");
 
         const excludeTrigger = findButton("node_modules, .git");
-        const excludeIds = (excludeTrigger.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .filter(Boolean);
-        expect(excludeIds.map((id) => document.getElementById(id)?.textContent).join(" ")).toBe(
-            "Exclude node_modules, .git",
-        );
-        const excludeDescId = excludeTrigger.getAttribute("aria-describedby") ?? "";
-        expect(document.getElementById(excludeDescId)?.textContent).toBe(
+        expect(referencedText(excludeTrigger, "aria-labelledby")).toBe("Exclude node_modules, .git");
+        expect(referencedText(excludeTrigger, "aria-describedby")).toBe(
             "Folders left out of workspace search.",
         );
 
@@ -184,23 +175,15 @@ describe("Settings row accessible labelling", () => {
         if (!(passwordInput instanceof HTMLInputElement)) {
             throw new Error("Expected password input");
         }
-        expect(document.getElementById(passwordInput.getAttribute("aria-labelledby") ?? "")?.textContent).toBe(
-            "API key",
-        );
-        expect(document.getElementById(passwordInput.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-            "Stored in OS keychain.",
-        );
+        expect(referencedText(passwordInput, "aria-labelledby")).toBe("API key");
+        expect(referencedText(passwordInput, "aria-describedby")).toBe("Stored in OS keychain.");
 
         const textInput = container.querySelector('input[type="text"]');
         if (!(textInput instanceof HTMLInputElement)) {
             throw new Error("Expected text input");
         }
-        expect(document.getElementById(textInput.getAttribute("aria-labelledby") ?? "")?.textContent).toBe(
-            "Base URL",
-        );
-        expect(document.getElementById(textInput.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-            "OpenAI-compatible endpoint.",
-        );
+        expect(referencedText(textInput, "aria-labelledby")).toBe("Base URL");
+        expect(referencedText(textInput, "aria-describedby")).toBe("OpenAI-compatible endpoint.");
     });
 
     it("appends an API key role suffix when KeyInput shares a SettingRow whose title omits key", () => {
@@ -229,7 +212,7 @@ describe("Settings row accessible labelling", () => {
         if (!(passwordInput instanceof HTMLInputElement)) {
             throw new Error("Expected password input inside shared SettingRow");
         }
-        const labelIds = (passwordInput.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean);
+        const labelIds = referencedIds(passwordInput, "aria-labelledby");
         expect(labelIds.map((id) => document.getElementById(id)?.textContent)).toEqual([
             "Web search",
             "API key",
@@ -390,8 +373,7 @@ describe("Settings row accessible labelling", () => {
             'textarea[placeholder*="HTTP-Referer"]',
         );
         if (!extraHeaders) throw new Error("Expected Extra headers textarea");
-        const labelledById = extraHeaders.getAttribute("aria-labelledby") ?? "";
-        expect(document.getElementById(labelledById)?.textContent?.trim()).toBe("Extra headers");
+        expect(referencedText(extraHeaders, "aria-labelledby")).toBe("Extra headers");
 
         expect(
             container.querySelector('textarea[aria-label="Compaction instructions"]'),
@@ -539,11 +521,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
 
         const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
         expect(trigger).not.toBeNull();
-        const labelledByText = (trigger?.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
-            .join(" ");
-        expect(labelledByText).toBe("Font Family Berkeley Mono");
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Berkeley Mono");
     });
 
     it(

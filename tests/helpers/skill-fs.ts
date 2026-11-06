@@ -353,6 +353,6 @@ export function serveSkillFs(
     });
 
     if (mocks.homeDir) {
-        mocks.homeDir.mockImplementation(async () => options.homeDir ?? null);
+        mocks.homeDir.mockImplementation(() => Promise.resolve(options.homeDir ?? null));
     }
 }

@@ -42,6 +42,12 @@ const resolveControlLabelledBy = (
     return undefined;
 };
 
+/** Field controls take the row title as their name unless the caller names them with `aria-label`. */
+const resolveFieldLabelledBy = (
+    explicitLabel: string | undefined,
+    rowTitleId: string | undefined,
+): string | undefined => (explicitLabel ? undefined : rowTitleId);
+
 const settingCardClass = "overflow-hidden squircle-[18px] bg-settings-card";
 
 /** Shared chrome for settings action / select triggers. */
@@ -316,7 +322,7 @@ export function SettingSwitch({
             onCheckedChange={onChange}
             disabled={disabled}
             aria-label={ariaLabel}
-            aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+            aria-labelledby={resolveFieldLabelledBy(ariaLabel, rowLabels?.titleId)}
             aria-describedby={rowLabels?.descriptionId}
             className="data-[state=checked]:bg-success data-[state=unchecked]:bg-white/20 [[data-theme=light]_&]:data-[state=unchecked]:bg-black/15"
         />
@@ -338,7 +344,7 @@ export const SettingTextarea = React.forwardRef<
         ref,
     ) => {
         const rowLabels = useSettingRowLabels();
-        const resolvedLabelledBy = ariaLabelledBy ?? (!ariaLabel ? rowLabels?.titleId : undefined);
+        const resolvedLabelledBy = ariaLabelledBy ?? resolveFieldLabelledBy(ariaLabel, rowLabels?.titleId);
         const resolvedDescribedBy = ariaDescribedBy ?? rowLabels?.descriptionId;
         return (
             <Textarea

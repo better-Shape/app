@@ -3,9 +3,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const backend = vi.hoisted(() => ({
-    gitCommitFiles: vi.fn<() => Promise<unknown>>(async () => []),
-    gitRemoteUrl: vi.fn(async () => null),
-    openUrlExternal: vi.fn(async () => undefined),
+    gitCommitFiles: vi.fn<() => Promise<unknown>>(() => Promise.resolve([])),
+    gitRemoteUrl: vi.fn(() => Promise.resolve(null)),
+    openUrlExternal: vi.fn(() => Promise.resolve(undefined)),
 }));
 
 vi.mock("@/lib/backend", async (importOriginal) => {
@@ -13,7 +13,7 @@ vi.mock("@/lib/backend", async (importOriginal) => {
     return { ...actual, commands: { ...actual.commands, ...backend } };
 });
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(async () => true) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(() => Promise.resolve(true)) }));
 
 import { GraphCommitRow } from "@/features/git/ui/graph/commit-row";
 import { commitIsHead } from "@/features/git/ui/graph/constants";

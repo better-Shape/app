@@ -8,6 +8,9 @@ export type HoldButtonState = "idle" | "holding" | "armed" | "confirmed";
 
 export type HoldConfirmResult = void | boolean | Promise<void | boolean>;
 
+/** What a confirm handler settles to once any returned promise resolves. */
+type HoldConfirmOutcome = Awaited<HoldConfirmResult>;
+
 type NativeHoldButtonAttributes = Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     "type" | "children" | "onClick"
@@ -156,8 +159,8 @@ const clearAllTimers = (timers: HoldTimers) => {
     clearTimerSlot(timers, "clickGuard");
 };
 
-const isPromiseLike = (value: unknown): value is PromiseLike<void | boolean> =>
-    Boolean(value && typeof (value as PromiseLike<void | boolean>).then === "function");
+const isPromiseLike = (value: unknown): value is PromiseLike<HoldConfirmOutcome> =>
+    Boolean(value && typeof (value as PromiseLike<HoldConfirmOutcome>).then === "function");
 
 /** Registers synchronous Escape, outside-pointerdown, window-blur, and tab-hide listeners. */
 const attachGlobalHoldDismiss = (
@@ -375,7 +378,7 @@ const useHoldState = ({
     }, [isButtonDisabled, writeState]);
 
     const settleSyncConfirm = React.useCallback(
-        (outcome: void | boolean) => {
+        (outcome: HoldConfirmOutcome) => {
             if (outcome === false || isButtonDisabled()) {
                 if (mountedRef.current) writeState("idle");
                 return;
@@ -386,7 +389,7 @@ const useHoldState = ({
     );
 
     const awaitAsyncConfirm = React.useCallback(
-        (promise: PromiseLike<void | boolean>, epoch: number) => {
+        (promise: PromiseLike<HoldConfirmOutcome>, epoch: number) => {
             activeConfirmsRef.current += 1;
             if (confirmEpochRef.current === epoch && !isButtonDisabled()) {
                 pendingRef.current = true;

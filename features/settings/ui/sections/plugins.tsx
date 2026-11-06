@@ -6,7 +6,7 @@ import { ChevronLeft20Regular } from "@fluentui/react-icons/headless/svg/chevron
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
-import { cn } from "@/lib/utils";
+import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search";
 
@@ -460,6 +460,10 @@ function PluginDetail({
         });
     }
 
+    // Composio's action list is provider data: key by slug, numbered on repeats, so a duplicated
+    // slug cannot collide (the workflow editor keys the same list the same way).
+    const toolKey = createOccurrenceKeyer();
+
     return (
         <div className="mx-auto w-full max-w-5xl">
             <Button
@@ -524,9 +528,9 @@ function PluginDetail({
                             Connect and wait a moment, then reopen to load actions.
                         </div>
                     ) : (
-                        tools.map((tool, index) => (
+                        tools.map((tool) => (
                             <SettingRow
-                                key={`${tool.slug}-${index}`}
+                                key={toolKey(tool.slug)}
                                 title={humanizePluginActionName(tool.slug, tool.name)}
                                 description={cleanPluginActionDescription(tool.description)}
                             >
