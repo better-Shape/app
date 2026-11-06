@@ -311,6 +311,8 @@ export function SettingSelect<T extends string>({
                 {actions?.length ? <DropdownMenuSeparator /> : null}
                 {actions?.map((action) => (
                     <DropdownMenuItem key={action.label} onSelect={action.onSelect}>
+                        {/* The checkmark column the choices have, so the action's label lines up with theirs. */}
+                        <span aria-hidden className="w-4 shrink-0" />
                         {action.label}
                     </DropdownMenuItem>
                 ))}

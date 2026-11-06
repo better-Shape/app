@@ -534,6 +534,8 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(choices.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
         const actions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
         expect(actions.map((item) => item.textContent?.trim())).toEqual(["Upload font..."]);
+        // Its label lines up with the choices' labels, past their checkmark column.
+        expect(actions[0]?.firstElementChild?.className).toContain("w-4");
     });
 
     it("closes the font menu after a pick and opens the file picker from Upload font...", () => {
