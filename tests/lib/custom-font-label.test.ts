@@ -32,6 +32,11 @@ describe("customFontLabel", () => {
         expect(customFontLabel("'IBM Plex Mono', 'Cascadia Code', Consolas, monospace")).toBe("IBM Plex Mono");
     });
 
+    it("keeps a comma inside a quoted family", () => {
+        expect(customFontLabel('"Studio, Mono", monospace')).toBe("Studio, Mono");
+        expect(customFontLabel("'BetterShapeCustom-Studio, Mono'")).toBe("Studio, Mono");
+    });
+
     it("keeps a bare family name", () => {
         expect(customFontLabel("Berkeley Mono")).toBe("Berkeley Mono");
         expect(customFontLabel("  Berkeley Mono  ")).toBe("Berkeley Mono");

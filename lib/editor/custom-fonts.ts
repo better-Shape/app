@@ -54,13 +54,20 @@ export async function loadCustomEditorFont(file: File): Promise<string> {
     return `'${family}', monospace`;
 }
 
+/** The first family of a font stack. A quoted name runs to its closing quote, commas included; a bare one ends at the first comma. */
+const firstFamily = (stack: string): string => {
+    const text = stack.trimStart();
+    const quote = text.charAt(0);
+    const end = quote === '"' || quote === "'" ? text.indexOf(quote, 1) : -1;
+    return end > 0 ? text.slice(1, end) : text.split(",")[0];
+};
+
 /**
  * The name to show for a font value that matches no preset. It is the first family without quotes or
  * the upload prefix, so `'BetterShapeCustom-StudioMono', monospace` shows as "StudioMono".
  */
 export const customFontLabel = (value: string): string => {
-    const [first] = value.split(",");
-    const family = first.trim().replace(/^(["'])(.*)\1$/, "$2");
+    const family = firstFamily(value).trim();
     const name = family.startsWith(CUSTOM_FAMILY_PREFIX) ? family.slice(CUSTOM_FAMILY_PREFIX.length) : family;
     return name || value.trim();
 };

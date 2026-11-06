@@ -550,7 +550,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         // The trigger and the line beside Change both show the plain name.
         expect(container.textContent).not.toContain("BetterShapeCustom");
         expect(container.textContent).not.toContain("monospace");
-        expect(findButton("Change").textContent?.trim()).toBe("Change");
+        expect(findButton("Change").previousElementSibling?.textContent).toBe("StudioMono");
     });
 
     it(
