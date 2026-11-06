@@ -29,9 +29,14 @@ export interface CheckmarkProps {
 const isFilled = (checked: boolean | "indeterminate" | undefined): boolean =>
     checked === true || checked === "indeterminate";
 
-/** Fill classes for the filled or empty state. */
+/**
+ * Fill classes for the filled or empty state. A filled box draws its focus ring white, the check's
+ * colour, because `--border-focus` is the fill's own blue and would vanish against it.
+ */
 const fillClass = (isOn: boolean): string =>
-    isOn ? "bg-accent border-accent text-accent-fg" : "hover:border-border hover:bg-[var(--row-hover)]";
+    isOn
+        ? "bg-accent border-accent text-accent-fg focus-visible:ring-accent-fg"
+        : "hover:border-border hover:bg-[var(--row-hover)]";
 
 /** Tab index for the box: disabled or caller-collapsed boxes leave the tab order. */
 const boxTabIndex = (disabled: boolean | undefined, tabIndex: number | undefined): number =>

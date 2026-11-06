@@ -683,7 +683,9 @@ body {
    cannot cut it off. A pointer press does not match :focus-visible, so a click draws nothing.
    The rules sit in the base layer, so a control that styles its own focus with utilities keeps
    that style. The ring is --accent-text because --focus measures 2.87:1 against --surface-2,
-   below the 3:1 a focus indicator needs. */
+   below the 3:1 a focus indicator needs. A control filled with --accent or --danger draws it in
+   its label colour with focus-visible:outline-current, since --accent-text measures 2.9:1 and
+   1.9:1 on those fills (components/ui/button.tsx). */
 @layer base {
   button:focus:not(:focus-visible),
   [role="button"]:focus:not(:focus-visible) {

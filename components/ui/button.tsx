@@ -115,14 +115,29 @@ const LoadingGlyph = ({ size }: { size: ButtonSize }) => {
 const buttonBaseClasses =
     "press-spring relative inline-flex items-center justify-center gap-1.5 font-medium select-none touch-manipulation [-webkit-tap-highlight-color:transparent] [&_svg.bettershape-icon]:pointer-events-none [&_svg.bettershape-icon]:shrink-0";
 
+/** Variants with a solid `--accent` or `--danger` fill. */
+const FILLED_VARIANTS: ReadonlySet<ButtonVariant> = new Set(["default", "confirm", "destructive", "danger"]);
+
+/**
+ * A filled face draws the keyboard focus ring in its label colour. The shared `--accent-text`
+ * ring measures 2.9:1 on `--accent` and 1.9:1 on `--danger`, below the 3:1 a ring at a control's
+ * edge needs against both neighbours. The white label measures 6.0:1 and 3.9:1 on those fills,
+ * and 17:1 against the page.
+ */
+const FILLED_FOCUS_RING = "focus-visible:outline-current";
+
 /**
  * The fill and text color for a variant, plus the tertiary category's override.
  *
  * Tertiary keeps the variant's text color and gives up its fill, which is the whole
- * difference between a toolbar button and a link-shaped one in the same row.
+ * difference between a toolbar button and a link-shaped one in the same row, so it keeps the
+ * shared focus ring as well.
  */
 const variantFaceClasses = (variant: ButtonVariant, category: ButtonCategory): string =>
-    cn(variantClasses[variant], category === "tertiary" && tertiaryOverride[variant]);
+    cn(
+        variantClasses[variant],
+        category === "tertiary" ? tertiaryOverride[variant] : FILLED_VARIANTS.has(variant) && FILLED_FOCUS_RING,
+    );
 
 /**
  * The square correction an icon-only button takes when the caller chose its height.

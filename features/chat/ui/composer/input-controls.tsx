@@ -984,8 +984,9 @@ const resolveSendButtonToneClass = (
   if (canStop && !isPreparing) {
     return "border border-border bg-surface-2 text-text-primary hover:bg-[var(--btn-hover)]";
   }
+  // A filled button draws its focus ring in its label colour, as the shared Button does.
   return sendActive
-    ? "bg-accent text-white hover:opacity-90"
+    ? "bg-accent text-white hover:opacity-90 focus-visible:outline-current"
     : "bg-surface-3 text-text-muted";
 };
 

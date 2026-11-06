@@ -207,7 +207,7 @@ export function CollectionDialog({
                     <button
                         type="button"
                         onClick={() => (step === 2 ? finish() : setStep((value) => value + 1))}
-                        className="h-8 rounded-md bg-accent px-3 text-sm text-accent-fg"
+                        className="h-8 rounded-md bg-accent px-3 text-sm text-accent-fg focus-visible:outline-current"
                     >
                         {step === 2 ? (existing ? "Save" : "Create") : "Next"}
                     </button>

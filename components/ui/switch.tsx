@@ -45,7 +45,9 @@ export const Switch = React.forwardRef<
                 "t-toggle peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-transparent",
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                 "disabled:cursor-not-allowed disabled:opacity-50",
-                "data-[state=checked]:bg-accent data-[state=unchecked]:bg-panel-hover",
+                // On the accent track the focus ring turns white, the thumb's colour: `--border-focus`
+                // is the track's own blue, so it would vanish against it.
+                "data-[state=checked]:bg-accent data-[state=checked]:focus-visible:ring-accent-fg data-[state=unchecked]:bg-panel-hover",
                 init && "is-init",
                 className,
             )}
