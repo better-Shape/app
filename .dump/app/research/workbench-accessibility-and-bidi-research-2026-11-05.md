@@ -8,8 +8,9 @@ from the upstream repositories through the GitHub API or from the installed pack
 `@dnd-kit/core` 6.3.1, `react-markdown` 10.1.0, `remark-gfm` 4.0.1, `mdast-util-to-hast` 13.2.1,
 `@radix-ui/react-menubar` 1.1.16, `@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2,
 `tailwindcss` 4.1.18. The three keyboard focus sources added with finding 7, the three dialog focus
-sources added with finding 8, the button example, the focus fixup step behind finding 9 and the
-Primer mixin behind finding 10 were read on 2026-11-06, the dialog source at
+sources added with finding 8, the button example, the focus fixup step behind finding 9, the
+Primer mixin behind finding 10 and the CSS Fonts `@font-face` descriptor behind the custom font
+label were read on 2026-11-06, the dialog source at
 `@radix-ui/react-dialog` 1.1.15. The 1.4.11 understanding note was read again that day for finding
 10.
 
@@ -112,6 +113,7 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 | [HTML: the `dir` attribute](https://html.spec.whatwg.org/multipage/dom.html#the-dir-attribute) | `auto` resolves from the first strong character and skips descendants with their own `dir` | Nested blocks inherit instead of carrying `dir="auto"` |
 | [HTML rendering: tables](https://html.spec.whatwg.org/multipage/rendering.html#tables-2) | The user agent centres a `th` whose row inherits the initial alignment | Header cells set `text-start` themselves |
 | [HTML: update the rendering, focus fixup](https://github.com/whatwg/html/blob/main/source) | A focused area that is no longer focusable, for example after `hidden` or `disabled`, hands focus to the viewport and usually fires `blur` (`id="focus-fixup-rule"`) | A chat table's scroll box keeps its keyboard stop while it holds focus, so a table that comes to fit does not drop focus |
+| [CSS Fonts 4: the `@font-face` `font-family` descriptor](https://github.com/w3c/csswg-drafts/blob/main/css-fonts-4/Overview.bs) | A family that `@font-face` defines with the name of an installed font hides that font for documents that use the stylesheet | Uploaded fonts keep the `BetterShapeCustom-` prefix, and the settings label strips it only for display |
 
 ## WAI-ARIA Authoring Practices
 
