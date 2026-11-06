@@ -523,13 +523,63 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(trigger).not.toBeNull();
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Berkeley Mono");
 
-        // "Upload Font…" is an action, so a custom font in use does not check it.
+        // The fonts are one radio group, and a custom font in use matches none of them.
+        // "Upload Font…" is an action after them, not a choice that could be checked.
         act(() => {
             trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         });
-        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
-        expect(items.map((item) => item.textContent?.trim())).toEqual(["JetBrains Mono", "Upload Font…"]);
-        expect(items.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
+        const choices = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+        expect(choices.map((item) => item.textContent?.trim())).toEqual(["JetBrains Mono"]);
+        expect(choices.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
+        const actions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+        expect(actions.map((item) => item.textContent?.trim())).toEqual(["Upload Font…"]);
+    });
+
+    it("closes the font menu after a pick and opens the file picker from Upload Font…", () => {
+        const onChange = vi.fn();
+        const pickFile = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+        try {
+            render(
+                <SettingCard>
+                    <SettingRow title="Font Family">
+                        <FontFamilySelect
+                            value="JetBrains Mono"
+                            presets={[
+                                { value: "JetBrains Mono", label: "JetBrains Mono" },
+                                { value: "IBM Plex Mono", label: "IBM Plex Mono" },
+                            ]}
+                            onChange={onChange}
+                        />
+                    </SettingRow>
+                </SettingCard>,
+            );
+            const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+            const openMenu = () =>
+                act(() => {
+                    trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+                });
+            const item = (role: string, label: string) =>
+                Array.from(document.body.querySelectorAll<HTMLElement>(`[role="${role}"]`)).find(
+                    (node) => node.textContent?.trim() === label,
+                );
+
+            openMenu();
+            act(() => {
+                item("menuitemradio", "IBM Plex Mono")?.click();
+            });
+            expect(onChange).toHaveBeenCalledExactlyOnceWith("IBM Plex Mono");
+            expect(document.body.querySelector('[role="menu"]')).toBeNull();
+
+            openMenu();
+            act(() => {
+                item("menuitem", "Upload Font…")?.click();
+            });
+            expect(pickFile).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            expect(document.body.querySelector('[role="menu"]')).toBeNull();
+        } finally {
+            pickFile.mockRestore();
+        }
     });
 
     it("names an uploaded font by its file name instead of its CSS family list", () => {
@@ -547,10 +597,9 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
 
         const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family StudioMono");
-        // The trigger and the line beside Change both show the plain name.
-        expect(container.textContent).not.toContain("BetterShapeCustom");
-        expect(container.textContent).not.toContain("monospace");
-        expect(findButton("Change").previousElementSibling?.textContent).toBe("StudioMono");
+        // The trigger is the one place the name shows; the row has no second line or Change button.
+        expect(container.textContent).toBe("Font FamilyStudioMono");
+        expect(container.querySelectorAll("button")).toHaveLength(1);
     });
 
     it(
@@ -607,8 +656,8 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         act(() => {
             trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         });
-        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
-        expect(items.map((item) => item.textContent?.trim())).toEqual(["Same as editor", "IBM Plex Mono", "Upload Font…"]);
+        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["Same as editor", "IBM Plex Mono"]);
         expect(
             items.filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.textContent?.trim()),
         ).toEqual(["Same as editor"]);
@@ -634,7 +683,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         act(() => {
             trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         });
-        const inherited = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')).find(
+        const inherited = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find(
             (item) => item.textContent?.trim() === "Same as editor",
         );
         expect(inherited?.getAttribute("aria-checked")).toBe("false");

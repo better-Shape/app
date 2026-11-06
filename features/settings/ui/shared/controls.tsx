@@ -14,6 +14,10 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuCheckboxItem,
+    DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 
@@ -239,12 +243,19 @@ export function SettingActionRow({
     return inCard ? row : <div className={settingCardClass}>{row}</div>;
 }
 
-/** Dropdown trigger that composes row or explicit labels with the active option text for AT. */
+/** A command listed after a select's choices. Picking it runs `onSelect` and changes no value. */
+export type SettingSelectAction = { label: string; onSelect: () => void };
+
+/**
+ * Dropdown trigger that composes row or explicit labels with the active option text for AT. The
+ * choices are one radio group, so picking one closes the menu.
+ */
 export function SettingSelect<T extends string>({
     value,
     options,
     onChange,
     displayLabel,
+    actions,
     className,
     disabled,
     "aria-label": ariaLabel,
@@ -253,6 +264,7 @@ export function SettingSelect<T extends string>({
     options: { value: T; label: string }[];
     onChange: (selected: T) => void;
     displayLabel?: string;
+    actions?: readonly SettingSelectAction[];
     className?: string;
     disabled?: boolean;
     "aria-label"?: string;
@@ -289,14 +301,18 @@ export function SettingSelect<T extends string>({
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[180px]">
-                {options.map((opt) => (
-                    <DropdownMenuCheckboxItem
-                        key={opt.value}
-                        checked={value === opt.value}
-                        onCheckedChange={() => onChange(opt.value)}
-                    >
-                        {opt.label}
-                    </DropdownMenuCheckboxItem>
+                <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
+                    {options.map((opt) => (
+                        <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                        </DropdownMenuRadioItem>
+                    ))}
+                </DropdownMenuRadioGroup>
+                {actions?.length ? <DropdownMenuSeparator /> : null}
+                {actions?.map((action) => (
+                    <DropdownMenuItem key={action.label} onSelect={action.onSelect}>
+                        {action.label}
+                    </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>
@@ -425,8 +441,6 @@ export const COMMON_EXCLUDE_PATTERNS = [
     { pattern: "**/coverage", label: "coverage" },
 ] as const;
 
-const CUSTOM_FONT_VALUE = "__custom__";
-
 type FontChoice = { value: string; label: string };
 
 /**
@@ -436,17 +450,13 @@ type FontChoice = { value: string; label: string };
 const emptyFontChoice = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice =>
     emptyLabel ? { value: "", label: emptyLabel } : (presets.at(0) ?? { value: "", label: "Default" });
 
-/** The menu: the inherited choice when there is one, so it can be picked again, the presets, then upload. */
+/** The choices: the inherited one when there is one, so it can be picked again, then the presets. */
 const fontOptions = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice[] => [
     ...(emptyLabel ? [{ value: "", label: emptyLabel }] : []),
     ...presets,
-    { value: CUSTOM_FONT_VALUE, label: "Upload Font…" },
 ];
 
-/**
- * The value the menu checks. A custom font matches no entry, so nothing is checked; mapping it to
- * the upload entry's value would mark "Upload Font…", an action, as the font in use.
- */
+/** The value the menu checks. A custom font matches no choice, so nothing is checked. */
 const resolveFontSelectValue = (value: string, empty: FontChoice): string => (value.trim() ? value : empty.value);
 
 const resolveFontSelectDisplayLabel = (value: string, isCustom: boolean, empty: FontChoice): string | undefined => {
@@ -491,19 +501,14 @@ export function FontFamilySelect({
     };
 
     return (
-        <div className="flex flex-col items-start gap-2">
+        <>
             <SettingSelect
                 value={selectValue}
                 displayLabel={resolveFontSelectDisplayLabel(value, isCustom, empty)}
                 aria-label={ariaLabel}
                 options={options}
-                onChange={(v) => {
-                    if (v === CUSTOM_FONT_VALUE) {
-                        fileInputRef.current?.click();
-                    } else {
-                        onChange(v);
-                    }
-                }}
+                onChange={onChange}
+                actions={[{ label: "Upload Font…", onSelect: () => fileInputRef.current?.click() }]}
             />
             <input
                 ref={fileInputRef}
@@ -516,20 +521,7 @@ export function FontFamilySelect({
                     e.target.value = "";
                 }}
             />
-            {isCustom && (
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-text-muted truncate max-w-[180px]">{customFontLabel(value)}</span>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => fileInputRef.current?.click()}
-                    >
-                        Change
-                    </Button>
-                </div>
-            )}
-        </div>
+        </>
     );
 }
 
