@@ -108,10 +108,12 @@ const LoadingGlyph = ({ size }: { size: ButtonSize }) => {
  * The class list every face starts from.
  *
  * `press-spring` sits on the element the pointer lands on rather than on an inner wrapper,
- * which is what lets the press animation run on the button's own transform.
+ * which is what lets the press animation run on the button's own transform. No focus style
+ * here: keyboard focus draws the shared ring from `app/globals.css`, and a pointer press draws
+ * nothing.
  */
 const buttonBaseClasses =
-    "press-spring relative inline-flex items-center justify-center gap-1.5 font-medium outline-none select-none touch-manipulation [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 [&_svg.bettershape-icon]:pointer-events-none [&_svg.bettershape-icon]:shrink-0";
+    "press-spring relative inline-flex items-center justify-center gap-1.5 font-medium select-none touch-manipulation [-webkit-tap-highlight-color:transparent] [&_svg.bettershape-icon]:pointer-events-none [&_svg.bettershape-icon]:shrink-0";
 
 /**
  * The fill and text color for a variant, plus the tertiary category's override.

@@ -679,11 +679,22 @@ body {
   border: none !important;
 }
 
-button:focus,
-button:focus-visible,
-[role="button"]:focus,
-[role="button"]:focus-visible {
-  outline: none;
+/* Keyboard focus on a button draws a 2px ring inside its edge, so a parent that clips overflow
+   cannot cut it off. A pointer press does not match :focus-visible, so a click draws nothing.
+   The rules sit in the base layer, so a control that styles its own focus with utilities keeps
+   that style. The ring is --accent-text because --focus measures 2.87:1 against --surface-2,
+   below the 3:1 a focus indicator needs. */
+@layer base {
+  button:focus:not(:focus-visible),
+  [role="button"]:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: -2px;
+  }
 }
 
 /* Kill Monaco's inherited vs-dark blue focus outline */
