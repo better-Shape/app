@@ -469,6 +469,8 @@ describe("discoverSkills", () => {
         ).rejects.toThrow("outside root");
     });
 
+    // The backend's side of this contract is `test_ipc_paths_refuse_parent_segments` in
+    // src-tauri/src/agent/security/paths.rs; this test keeps the fixture in step with it.
     it("refuses a requested path with a `..` segment, as the backend's file commands do", async () => {
         serveSkillFs(
             mocks,
