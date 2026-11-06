@@ -22,7 +22,7 @@ test("an uploaded terminal font is registered again after a reload", async ({ pa
     // The fonts are radio choices and none is checked; the upload is an action after them.
     await fontSelect.click();
     await expect(page.getByRole("menuitemradio", { checked: true })).toHaveCount(0);
-    await expect(page.getByRole("menuitem", { name: "Upload Font…" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Upload font..." })).toBeVisible();
     await page.keyboard.press("Escape");
 
     await gotoRoute(page, "/");

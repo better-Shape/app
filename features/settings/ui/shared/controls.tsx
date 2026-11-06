@@ -511,7 +511,7 @@ export function FontFamilySelect({
                 aria-label={ariaLabel}
                 options={options}
                 onChange={onChange}
-                actions={[{ label: "Upload Font…", onSelect: () => fileInputRef.current?.click() }]}
+                actions={[{ label: "Upload font...", onSelect: () => fileInputRef.current?.click() }]}
             />
             <input
                 ref={fileInputRef}

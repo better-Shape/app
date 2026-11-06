@@ -35,7 +35,7 @@ test.describe("workbench keyboard focus", () => {
         );
         const strip = page.getByRole("tablist").filter({ has: page.getByRole("tab", { name: /^PowerShell/ }) });
         await expect(strip.getByRole("tab")).toHaveCount(1, { timeout: 15_000 });
-        await page.getByRole("button", { name: "New Terminal" }).click();
+        await page.getByRole("button", { name: "New terminal" }).click();
         await expect(strip.getByRole("tab")).toHaveCount(2);
 
         const axe = await new AxeBuilder({ page })
@@ -74,7 +74,7 @@ test.describe("workbench keyboard focus", () => {
         );
         const strip = page.getByRole("tablist").filter({ has: page.getByRole("tab", { name: /^PowerShell/ }) });
         await expect(strip.getByRole("tab")).toHaveCount(1, { timeout: 15_000 });
-        await page.getByRole("button", { name: "New Terminal" }).click();
+        await page.getByRole("button", { name: "New terminal" }).click();
         const second = strip.getByRole("tab", { name: /^PowerShell 2/ });
         await expect(second).toHaveAttribute("aria-selected", "true");
 

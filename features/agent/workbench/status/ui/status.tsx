@@ -136,10 +136,10 @@ const EditorStatusItems = ({
                 <SwapText value={editorStatus.eol} />
             </StatusItem>
 
-            <Tooltip content="Format Document">
+            <Tooltip content="Format document">
                 <button
                     type="button"
-                    aria-label="Format Document"
+                    aria-label="Format document"
                     className="hidden @[640px]/status:flex h-full shrink-0 px-1.5 items-center text-text-primary hover:bg-[var(--row-hover)] transition-colors"
                     onClick={() => dispatchEditorAction("format")}
                 >

@@ -1168,8 +1168,8 @@ const PanelHeaderActions = ({
     openRemoteDialog: () => void;
     setIsGitRepo: (value: boolean) => void;}) => (
     <div className="flex shrink-0 items-center gap-0.5">
-    <Tooltip content="Refresh Repository">
-        <Button aria-label="Refresh Repository" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
+    <Tooltip content="Refresh repository">
+        <Button aria-label="Refresh repository" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
             <Icon icon={ArrowSync20Regular} />
         </Button>
     </Tooltip>
@@ -1183,8 +1183,8 @@ const PanelHeaderActions = ({
             <Icon icon={ArrowUp20Regular} />
         </Button>
     </Tooltip>
-    <Tooltip content="Sync Changes">
-        <Button aria-label="Sync Changes" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handleSync}>
+    <Tooltip content="Sync changes">
+        <Button aria-label="Sync changes" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handleSync}>
             <Icon icon={ArrowUpload20Regular} />
         </Button>
     </Tooltip>

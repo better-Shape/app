@@ -1487,13 +1487,13 @@ const Terminal = ({
             )}
             <div className="flex shrink-0 items-center gap-0.5">
                 {group === "left" ? <TabFocusBadge /> : null}
-                <Tooltip content="New Terminal">
+                <Tooltip content="New terminal">
                     <Button
                         variant="ghost"
                         size="icon"
                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
                         onClick={() => addTab(resolveAvailableDefaultShell(), group)}
-                        aria-label="New Terminal"
+                        aria-label="New terminal"
                     >
                         <Icon icon={Add20Regular} />
                     </Button>
@@ -1587,7 +1587,7 @@ const Terminal = ({
                     <div className="flex shrink-0 items-center gap-0.5">
                         {activeView === "terminal" ? (
                             <>
-                                <Tooltip content="Find in Terminal">
+                                <Tooltip content="Find in terminal">
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -1599,9 +1599,9 @@ const Terminal = ({
                                         <Icon icon={Search20Regular} />
                                     </Button>
                                 </Tooltip>
-                                <Tooltip content="Clear Terminal">
+                                <Tooltip content="Clear terminal">
                                     <Button
-                                        aria-label="Clear Terminal"
+                                        aria-label="Clear terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1610,9 +1610,9 @@ const Terminal = ({
                                         <Icon icon={Delete20Filled} />
                                     </Button>
                                 </Tooltip>
-                                <Tooltip content="Split Terminal">
+                                <Tooltip content="Split terminal">
                                     <Button
-                                        aria-label="Split Terminal"
+                                        aria-label="Split terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1623,9 +1623,9 @@ const Terminal = ({
                                 </Tooltip>
                             </>
                         ) : null}
-                        <Tooltip content="Hide Panel">
+                        <Tooltip content="Hide panel">
                             <Button
-                                aria-label="Hide Panel"
+                                aria-label="Hide panel"
                                 onClick={() => onClose?.()}
                                 variant="ghost"
                                 size="icon"

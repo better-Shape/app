@@ -1570,8 +1570,8 @@ export default function Graph({
                             <Icon icon={Target20Regular} />
                         </Button>
                     </Tooltip>
-                    <Tooltip content="Fetch From All Remotes">
-                        <Button aria-label="Fetch From All Remotes" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
+                    <Tooltip content="Fetch from all remotes">
+                        <Button aria-label="Fetch from all remotes" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => {
                             if (!gitRepo) return;
                             startLoading();
                             try {
@@ -1612,8 +1612,8 @@ export default function Graph({
                             <Icon icon={ArrowUpload20Regular} />
                         </Button>
                     </Tooltip>
-                    <Tooltip content="Refresh Graph">
-                        <Button aria-label="Refresh Graph" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => { await refresh(); }}>
+                    <Tooltip content="Refresh graph">
+                        <Button aria-label="Refresh graph" variant="ghost" size="icon" className="text-text-primary hover:bg-[var(--btn-hover)]" onClick={async () => { await refresh(); }}>
                             <Icon icon={ArrowSync20Regular} />
                         </Button>
                     </Tooltip>

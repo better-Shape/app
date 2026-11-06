@@ -525,7 +525,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Berkeley Mono");
 
         // The fonts are one radio group, and a custom font in use matches none of them.
-        // "Upload Font…" is an action after them, not a choice that could be checked.
+        // "Upload font..." is an action after them, not a choice that could be checked.
         act(() => {
             trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         });
@@ -533,10 +533,10 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(choices.map((item) => item.textContent?.trim())).toEqual(["JetBrains Mono"]);
         expect(choices.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
         const actions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
-        expect(actions.map((item) => item.textContent?.trim())).toEqual(["Upload Font…"]);
+        expect(actions.map((item) => item.textContent?.trim())).toEqual(["Upload font..."]);
     });
 
-    it("closes the font menu after a pick and opens the file picker from Upload Font…", () => {
+    it("closes the font menu after a pick and opens the file picker from Upload font...", () => {
         const onChange = vi.fn();
         const pickFile = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
         try {
@@ -574,7 +574,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
 
             openMenu();
             act(() => {
-                item("menuitem", "Upload Font…")?.click();
+                item("menuitem", "Upload font...")?.click();
             });
             expect(pickFile).toHaveBeenCalledTimes(1);
             expect(onChange).toHaveBeenCalledTimes(1);
