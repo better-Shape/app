@@ -38,6 +38,17 @@ describe("preview invoke handler", () => {
         expect(state.active_file).toBe(`${PREVIEW_PROJECT_PATH}/README.md`);
     });
 
+    it("models incognito and codebase indexing with backend parity", () => {
+        const project = createPreviewInvokeHandler("project").handle;
+        expect(project("get_chat_incognito")).toBe(false);
+        // No indexer runs in the preview, so a request is never reported as started.
+        expect(project("index_project", { projectPath: null })).toBe(false);
+
+        const welcome = createPreviewInvokeHandler("welcome").handle;
+        expect(() => welcome("index_project", { projectPath: null })).toThrow("No project path");
+        expect(welcome("index_project", { projectPath: PREVIEW_PROJECT_PATH })).toBe(false);
+    });
+
     it("set_project_path / open_file mutate observable project state", () => {
         const { handle, projectState } = createPreviewInvokeHandler("welcome");
         handle("set_project_path", { path: PREVIEW_PROJECT_PATH });

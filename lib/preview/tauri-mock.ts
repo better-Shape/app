@@ -1039,6 +1039,10 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         },
         get_chat_history: () => [],
         get_chat_title: () => "Preview fixture chat",
+        // Backend parity: the editor publishes diagnostics per path and nothing reads them back here.
+        set_diagnostics: () => null,
+        // Backend parity: incognito starts off, and the preview never turns it on.
+        get_chat_incognito: () => false,
         // Only while the fake project is open: the seeded conversation
         // does not exist in the welcome state (backend calls expect null).
         get_current_conversation_id: () =>
@@ -1223,6 +1227,14 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         search_project_files: () => [],
         search_content: () => [],
         search_codebase: () => [],
+        // There is no indexer in the preview, so a request reports "not started",
+        // which the Settings reindex control already treats as idle. Backend parity:
+        // with no explicit path and no open project the command fails.
+        index_project: (args) => {
+            const requested = typeof args.projectPath === "string" ? args.projectPath : "";
+            if (!requested && !state.projectPath) throw new Error("No project path");
+            return false;
+        },
         browser_tabs: () => ({ tabs: [], activeId: null }),
         browser_history: () => [],
         pty_available_shells: () => [],
