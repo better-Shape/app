@@ -50,7 +50,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
-import { betterShapeEditorChrome } from "../codemirror/theme";
+import { betterShapeEditorChrome, editorContentLabel } from "../codemirror/theme";
 import { indentUnitFor, optionExtensions } from "../codemirror/options";
 import { getEditorOptionsFromSettings, subscribeSettings } from "@/lib/settings";
 
@@ -599,7 +599,11 @@ function wrapSelection(view: EditorView, mark: string, end = mark): boolean {
 
 const TEXT_COLORS = ["#f2f2f2", "#f5c542", "#5ee0a0", "#6eb5ff", "#ff7a7a", "#c084fc"];
 
-function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): Extension[] {
+function liveMarkdownExtensions(
+    onChange: (doc: string) => void,
+    raw: boolean,
+    path: string | undefined,
+): Extension[] {
     return [
         markdown({ base: markdownLanguage }),
         history(),
@@ -619,6 +623,7 @@ function liveMarkdownExtensions(onChange: (doc: string) => void, raw: boolean): 
             { key: "Mod-u", run: (view) => wrapSelection(view, "<u>", "</u>") },
         ]),
         EditorView.contentAttributes.of({ spellcheck: raw ? "false" : "true" }),
+        editorContentLabel(() => path),
         EditorView.updateListener.of((update) => {
             if (update.docChanged) onChange(update.state.doc.toString());
         }),
@@ -676,7 +681,7 @@ export function MarkdownLiveEditor({
                     ...liveMarkdownExtensions((doc) => {
                         lastEmitted.current = doc;
                         onChangeRef.current(doc);
-                    }, raw),
+                    }, raw, path),
                     EditorView.updateListener.of((update) => {
                         if (!update.selectionSet && !update.docChanged && !update.geometryChanged) return;
                         const range = update.view.state.selection.main;

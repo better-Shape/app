@@ -200,7 +200,8 @@ describe("chat tables, display math, breadcrumbs, approval footer, and scoped br
             </Breadcrumb>,
         );
         const listItems = container.querySelectorAll("li");
-        const separatorWrap = container.querySelector("ol > span");
+        // Separators are presentational list items, so the <ol> owns only <li> children.
+        const separatorWrap = container.querySelector('ol > li[aria-hidden="true"]');
 
         expect(listItems[0]?.className).toContain("@[310px]/titlebar:flex");
         expect(separatorWrap?.className).toContain("@[310px]/titlebar:flex");

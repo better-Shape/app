@@ -23,8 +23,9 @@ const itemClasses =
     "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:bg-[var(--row-hover)] focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
     "bettershape-popover-content bettershape-menu-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
+/** `text-secondary`, like the group labels: `text-muted` on the `bg-sidebar` panel is 4.36:1. */
 const shortcutClasses =
-    "ml-auto shrink-0 pr-1 text-sm text-text-muted group-focus:text-text-primary";
+    "ml-auto shrink-0 pr-1 text-sm text-text-secondary group-focus:text-text-primary";
 /** Inset so rows and the panel sit off the edges. */
 const menuInsetClasses = "p-1.5";
 const menuCollisionPadding = 8;
@@ -305,7 +306,7 @@ const DropdownMenuLabel = React.forwardRef<
     <DropdownMenuPrimitive.Label
         ref={ref}
         className={cn(
-            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-muted",
+            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-secondary",
             inset && "pl-7",
             className,
         )}
@@ -562,13 +563,16 @@ const MenubarPortal = MenubarPrimitive.Portal;
 const MenubarSub = MenubarPrimitive.Sub;
 const MenubarRadioGroup = MenubarPrimitive.RadioGroup;
 
+/** The menubar strip's chrome, shared with trails that look like a menubar but open no menu. */
+const menubarClasses = "flex h-[28px] items-center space-x-0.5 rounded-md bg-transparent p-xs";
+
 const Menubar = React.forwardRef<
     React.ElementRef<typeof MenubarPrimitive.Root>,
     React.ComponentPropsWithoutRef<typeof MenubarPrimitive.Root>
 >(({ className, ...props }, ref) => (
     <MenubarPrimitive.Root
         ref={ref}
-        className={cn("flex h-[28px] items-center space-x-0.5 rounded-md bg-transparent p-xs", className)}
+        className={cn(menubarClasses, className)}
         {...props}
     />
 ));
@@ -710,7 +714,7 @@ const MenubarLabel = React.forwardRef<
     <MenubarPrimitive.Label
         ref={ref}
         className={cn(
-            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-muted",
+            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-secondary",
             inset && "pl-7",
             className,
         )}
@@ -794,6 +798,7 @@ export {
     DropdownMenuNestedContent,
     // Menubar Exports
     Menubar,
+    menubarClasses,
     MenubarMenu,
     MenubarTrigger,
     MenubarContent,

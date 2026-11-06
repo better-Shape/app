@@ -67,9 +67,13 @@ export const Breadcrumb = ({
           return (
             <Fragment key={keyFor(String(item.key ?? "crumb"))}>
               {pos > 0 && (
-                <span className={cn("inline-flex shrink-0 items-center", prevCollapse)}>
+                <li
+                  role="presentation"
+                  aria-hidden="true"
+                  className={cn("inline-flex shrink-0 items-center", prevCollapse)}
+                >
                   <Icon icon={ChevronRight20Regular} className="icon-sm shrink-0 text-text-muted/70" />
-                </span>
+                </li>
               )}
               {item}
             </Fragment>

@@ -10,6 +10,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
 import {
     Menubar,
+    menubarClasses,
     MenubarMenu,
     MenubarTrigger,
     MenubarContent,
@@ -275,6 +276,11 @@ function SymbolSubMenu({ symbol, filePath, isSelected }: { symbol: OutlineSymbol
     );
 }
 
+/** `Menubar` chrome without the role, for a trail that opens no menu: an empty menubar is invalid. */
+const PlainCrumbBar = ({ className, children }: { className?: string; children?: React.ReactNode }) => (
+    <div className={cn(menubarClasses, className)}>{children}</div>
+);
+
 function joinProjectFolder(projectPath: string, parts: string[], upToIndex: number): string | null {
     const separator = projectPath.includes("\\") ? "\\" : "/";
     const root = projectPath.replace(/(?<![\\/])[\\/]+$/, "");
@@ -482,14 +488,26 @@ export function Breadcrumbs({ path, projectPath, isDiff, isImage, className, com
         ]
         : parts.map((part, index) => ({ part, index }));
     const crumbCap = compact ? "max-w-[9rem]" : "max-w-[250px]";
+    // A folder crumb opens a sibling menu when it resolves to a folder path, outside compact mode.
+    const folderPathAt = (index: number): string | null =>
+        !compact && projectPath && index >= 0 ? joinProjectFolder(projectPath, parts, index) : null;
+    const folderCrumbs = crumbParts
+        .slice(0, -1)
+        .map((crumb) => ({ ...crumb, folderPath: folderPathAt(crumb.index) }));
+    // The file crumb and each symbol crumb open the outline, also outside compact mode and not for
+    // images. The bar is a menubar only when one of those menus renders: an empty menubar is
+    // invalid ARIA, and a menu trigger outside a menubar throws.
+    const hasFolderMenus = folderCrumbs.some((crumb) => crumb.folderPath !== null);
+    const hasOutlineMenu = !compact && !isImage && (parts.length > 0 || symbolChain.length > 0);
+    const CrumbBar = hasFolderMenus || hasOutlineMenu ? Menubar : PlainCrumbBar;
 
     return (
-        <Menubar className={cn(
+        <CrumbBar className={cn(
             "flex items-center pt-2 h-[28px] text-text-muted text-sm shrink-0 select-none w-full border-none shadow-none font-sans outline-none overflow-visible",
             isImage && "bg-editor",
             className
         )}>
-            {crumbParts.slice(0, -1).map(({ part, index }) => {
+            {folderCrumbs.map(({ part, index, folderPath }) => {
                 if (index < 0) {
                     return (
                         <React.Fragment key="crumb-ellipsis">
@@ -498,13 +516,12 @@ export function Breadcrumbs({ path, projectPath, isDiff, isImage, className, com
                         </React.Fragment>
                     );
                 }
-                const folderPath = projectPath ? joinProjectFolder(projectPath, parts, index) : null;
                 const nextPartName = parts[index + 1];
 
                 return (
                     <React.Fragment key={`dir-${index}`}>
                         <div className="flex items-center">
-                            {folderPath && !compact ? (
+                            {folderPath ? (
                                 <BreadcrumbFolderItem part={part} folderPath={folderPath} nextPartName={nextPartName} gitStatuses={gitStatuses} gitModifiedDirs={gitModifiedDirs} />
                             ) : (
                                 <span className={cn("truncate px-1.5", crumbCap)}>{part}</span>
@@ -548,7 +565,7 @@ export function Breadcrumbs({ path, projectPath, isDiff, isImage, className, com
                     />
                 </React.Fragment>
             ))}
-        </Menubar>
+        </CrumbBar>
     );
 }
 
