@@ -574,13 +574,45 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(trigger?.textContent).not.toContain("IBM Plex Mono");
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Same as editor");
 
-        // The open menu picks no preset, since none is the font the terminal draws with.
+        // The open menu checks the inherited choice, not a preset the terminal is not drawing with.
         act(() => {
             trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
         });
         const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
-        expect(items.map((item) => item.textContent?.trim())).toContain("IBM Plex Mono");
-        expect(items.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["Same as editor", "IBM Plex Mono", "Upload Font…"]);
+        expect(
+            items.filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.textContent?.trim()),
+        ).toEqual(["Same as editor"]);
+    });
+
+    it("lets an inheriting font go back to the inherited choice after a preset was picked", () => {
+        const onChange = vi.fn();
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        value="IBM Plex Mono"
+                        presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
+                        emptyLabel="Same as editor"
+                        onChange={onChange}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("IBM Plex Mono");
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const inherited = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')).find(
+            (item) => item.textContent?.trim() === "Same as editor",
+        );
+        expect(inherited?.getAttribute("aria-checked")).toBe("false");
+        act(() => {
+            inherited?.click();
+        });
+        expect(onChange).toHaveBeenCalledExactlyOnceWith("");
     });
 });
 

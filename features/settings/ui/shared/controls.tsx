@@ -430,11 +430,18 @@ const CUSTOM_FONT_VALUE = "__custom__";
 type FontChoice = { value: string; label: string };
 
 /**
- * What an empty value shows. A setting that inherits another one shows that, with no option
- * picked; any other empty value shows the first preset, which is the default font.
+ * What an empty value shows. A setting that inherits another one shows its inherited choice, which
+ * the menu lists first; any other empty value shows the first preset, which is the default font.
  */
 const emptyFontChoice = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice =>
     emptyLabel ? { value: "", label: emptyLabel } : (presets.at(0) ?? { value: "", label: "Default" });
+
+/** The menu: the inherited choice when there is one, so it can be picked again, the presets, then upload. */
+const fontOptions = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice[] => [
+    ...(emptyLabel ? [{ value: "", label: emptyLabel }] : []),
+    ...presets,
+    { value: CUSTOM_FONT_VALUE, label: "Upload Font…" },
+];
 
 const resolveFontSelectValue = (value: string, isCustom: boolean, empty: FontChoice): string => {
     if (isCustom) return CUSTOM_FONT_VALUE;
@@ -457,7 +464,10 @@ export function FontFamilySelect({
     value: string;
     presets: readonly FontChoice[];
     onChange: (v: string) => void;
-    /** What an empty value inherits, such as "Same as editor". Without it, empty shows the first preset. */
+    /**
+     * The choice an empty value stands for when the setting inherits another one, such as "Same as
+     * editor". The menu offers it first. Without it, an empty value shows the first preset.
+     */
     emptyLabel?: string;
     "aria-label"?: string;
 }) {
@@ -467,10 +477,7 @@ export function FontFamilySelect({
     const selectValue = resolveFontSelectValue(value, isCustom, empty);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const options = [
-        ...presets.map((p) => ({ value: p.value, label: p.label })),
-        { value: CUSTOM_FONT_VALUE, label: "Upload Font…" },
-    ];
+    const options = fontOptions(presets, emptyLabel);
 
     const handleFontFile = async (file: File | undefined) => {
         if (!file) return;
