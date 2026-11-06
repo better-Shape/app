@@ -38,6 +38,7 @@ import { Pin20Filled, Pin20Regular } from "@fluentui/react-icons/headless/svg/pi
 import { Eclipse } from "loading-dev";
 
 import { Icon } from "@/components/ui/icon";
+import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsChatGenerating } from "@/features/chat/lib/generating-chats";
@@ -703,9 +704,7 @@ const ChatRow = ({
                             )}
                         >
                             <span className={cn("size-1.5 shrink-0 rounded-full", nestedDot(card.status))} aria-hidden />
-                            <span className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1.5rem),transparent)]">
-                                {card.title}
-                            </span>
+                            <FadeTruncate className="flex-1">{card.title}</FadeTruncate>
                         </button>
                     ))}
                 </div>

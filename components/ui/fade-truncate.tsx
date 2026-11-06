@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 /**
  * Single-line label that fades at the trailing edge when content overflows.
  * Short labels stay fully opaque; long ones, resize, zoom, and RTL are handled.
+ * `dir="auto"` takes the direction from the label's own text, so a right-to-left title keeps its
+ * start in view and fades at its left edge, through the `rtl:` variant's `:dir(rtl)`.
  */
 export function FadeTruncate({
     children,
@@ -21,6 +23,7 @@ export function FadeTruncate({
     return (
         <span
             ref={ref}
+            dir="auto"
             className={cn(
                 "block min-w-0 overflow-hidden whitespace-nowrap",
                 overflowing &&
