@@ -12,7 +12,7 @@ import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/lay
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import type { TerminalShellProfile } from "@/lib/backend/types";
 import { cn, randomInt, randomSuffix } from "@/lib/utils";
@@ -44,6 +44,7 @@ import TestPanel from "@/features/testing/ui/test-panel";
 import { Button } from "@/components/ui/button";
 import { getSettings, resolveDefaultTerminalShell } from "@/lib/settings";
 import { restoreCustomFonts } from "@/lib/editor/custom-fonts";
+import { terminalKeepsKey } from "@/features/terminal/tab-focus-mode";
 import { setLastDevUrl } from "@/features/preview/store";
 import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
@@ -58,6 +59,7 @@ import {
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
 import { TerminalStripTab } from "./terminal-tab";
+import { TabFocusBadge, TerminalKeyboardHelp } from "./keyboard-help";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import { clipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
 import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
@@ -164,8 +166,11 @@ export function reapOrphanedTerminalSessions() {
  */
 let suppressSelectionClip = false;
 
-/** Renders the TerminalInstance UI component. */
-const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boolean }) => {
+/**
+ * Renders the TerminalInstance UI component. `describedBy` names the element that tells the
+ * terminal input what Tab does and how to leave.
+ */
+const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, isActive: boolean, describedBy: string }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTermType | null>(null);
     const fitAddonRef = useRef<FitAddonType | null>(null);
@@ -257,6 +262,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     if (term.element?.parentNode) term.element.parentNode.removeChild(term.element);
                     if (term.element) terminalRef.current.appendChild(term.element);
                     else term.open(terminalRef.current);
+                    term.textarea?.setAttribute("aria-describedby", describedBy);
 
                     setTimeout(() => {
                         if (fitAddon) fitAddon.fit();
@@ -426,6 +432,10 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             term.loadAddon(fitAddon);
             // The effect resolved the host element into `host` above, after the ref check.
             if (host) term.open(host);
+            // Keys the app needs, such as Ctrl+J, skip the shell, and Tab does too while it
+            // moves focus; the description says how to leave the terminal.
+            term.attachCustomKeyEventHandler(terminalKeepsKey);
+            term.textarea?.setAttribute("aria-describedby", describedBy);
             try { term.loadAddon(new WebglAddon()); } catch { }
 
             fitAddon.fit();
@@ -807,6 +817,7 @@ const Terminal = ({
     terminalOnly?: boolean;
 }) => {
     usePerfRenderCount("terminal");
+    const keyboardHelpId = useId();
     const { project_path } = useProjectState();
     const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>(globalTerminalStore.tabs);
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
@@ -1451,6 +1462,7 @@ const Terminal = ({
                 group === "left" ? tabScrollRef : undefined,
             )}
             <div className="flex shrink-0 items-center gap-0.5">
+                {group === "left" ? <TabFocusBadge /> : null}
                 <Tooltip content="New Terminal">
                     <Button
                         variant="ghost"
@@ -1508,6 +1520,7 @@ const Terminal = ({
                         <TerminalInstance
                             tab={tab}
                             isActive={view === "terminal" && tab.id === activeId}
+                            describedBy={keyboardHelpId}
                         />
                     </div>
                 ))}
@@ -1517,6 +1530,7 @@ const Terminal = ({
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden bg-panel select-none font-sans" data-terminal-root="true">
+            <TerminalKeyboardHelp id={keyboardHelpId} />
             {!terminalOnly ? (
                 <div className="relative z-20 flex h-12 min-w-0 shrink-0 items-center gap-1 px-2">
                     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">

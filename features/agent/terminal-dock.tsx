@@ -112,9 +112,28 @@ const useTerminalAiActionListener = (
     }, [cwdRef, persistOpen]);
 };
 
-/** Checks whether a keyboard target owns editable text input focus. */
-const isEditableKeyTarget = (target: EventTarget | null): boolean =>
-    Boolean((target as HTMLElement | null)?.closest("textarea, input, [contenteditable='true']"));
+/**
+ * Checks whether a keyboard target owns editable text input focus. The terminal's input is a
+ * textarea too, but Ctrl+J has to reach the dock from it, or the terminal would trap focus.
+ */
+const isEditableKeyTarget = (target: EventTarget | null): boolean => {
+    const element = target as HTMLElement | null;
+    return Boolean(element?.closest("textarea, input, [contenteditable='true']") && !element?.closest(".xterm"));
+};
+
+/**
+ * Before the dock hides, moves focus that is inside it to where it came from, else to the title
+ * bar's terminal toggle. A hidden, inert dock would otherwise drop focus to the page body.
+ */
+const moveFocusOutOfDock = (dock: HTMLElement | null, cameFrom: HTMLElement | null) => {
+    if (!dock?.contains(document.activeElement)) return;
+    const toggle = document.querySelector<HTMLElement>('[data-panel-toggle="terminal"]');
+    for (const target of [cameFrom, toggle]) {
+        if (!target?.isConnected || dock.contains(target)) continue;
+        target.focus({ preventScroll: true });
+        if (document.activeElement === target) return;
+    }
+};
 
 /** Checks whether a keyboard event uses bare Ctrl/Cmd without Alt or Shift modifiers. */
 const isBarePrimaryModifier = (e: KeyboardEvent): boolean =>
@@ -301,12 +320,15 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
     useLayoutEffect(() => { heightRef.current = height; }, [height]);
     useEffect(() => { clearBodyResize(); }, []);
     const draggingRef = useRef(false);
+    const dockRef = useRef<HTMLDivElement>(null);
+    const focusCameFromRef = useRef<HTMLElement | null>(null);
     const visibleOpen = open && !suppressed;
 
     useHydratedTerminalDockPrefs(setHeight, setOpen, setMounted);
 
     const persistOpen = useCallback((next: boolean) => {
         if (!next) {
+            moveFocusOutOfDock(dockRef.current, focusCameFromRef.current);
             draggingRef.current = false;
             setResizing(false);
             clearBodyResize();
@@ -349,8 +371,16 @@ export const TerminalDock = ({ suppressed = false }: { suppressed?: boolean } = 
     const chrome = deriveTerminalDockChrome(visibleOpen, height, resizing || suppressed);
     const bodyClass = resizing ? "min-h-0 flex-1 overflow-hidden pointer-events-none" : "min-h-0 flex-1 overflow-hidden";
 
+    /** Remembers the element focus left when it entered the dock, to give it back on hide. */
+    const rememberFocusOrigin = (event: React.FocusEvent<HTMLDivElement>) => {
+        const from = event.relatedTarget;
+        if (from instanceof HTMLElement && !event.currentTarget.contains(from)) focusCameFromRef.current = from;
+    };
+
     return (
         <div
+            ref={dockRef}
+            onFocus={rememberFocusOrigin}
             data-terminal-dock=""
             data-terminal-open={String(visibleOpen)}
             className={cn(
