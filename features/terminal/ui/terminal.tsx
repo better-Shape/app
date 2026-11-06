@@ -43,6 +43,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import TestPanel from "@/features/testing/ui/test-panel";
 import { Button } from "@/components/ui/button";
 import { getSettings, resolveDefaultTerminalShell } from "@/lib/settings";
+import { restoreCustomFonts } from "@/lib/editor/custom-fonts";
 import { setLastDevUrl } from "@/features/preview/store";
 import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
@@ -278,8 +279,12 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             const { listen } = await import("@tauri-apps/api/event");
             if (!isMounted) return;
 
-            const style = getComputedStyle(document.documentElement);
             const termSettings = getSettings().terminal;
+            // xterm measures its cell from the font when it opens, so an uploaded font from an
+            // earlier session is registered first.
+            await restoreCustomFonts([termSettings.fontFamily]);
+            if (!isMounted) return;
+            const style = getComputedStyle(document.documentElement);
             const fg = style.getPropertyValue("--text-secondary").trim() || "#a1a1aa";
             const bg = style.getPropertyValue("--panel").trim() || "#1e1e20";
             const muted = style.getPropertyValue("--text-muted").trim() || "#71717a";
@@ -663,13 +668,19 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
 // Applies font and scrollback in place: the pty keeps its size, so the terminal
         // reflows rather than restarting.
         const applyTerminalSettings = () => {
-            const term = xtermRef.current;
-            if (!term) return;
-            const ts = getSettings().terminal;
-            const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
-            term.options.fontFamily = ts.fontFamily || mono || "monospace";
-            term.options.fontSize = ts.fontSize;
-            term.options.scrollback = ts.scrollback;
+            // A font uploaded in another window is registered before xterm measures it. The
+            // settings are read again afterwards, so the newest change wins.
+            restoreCustomFonts([getSettings().terminal.fontFamily])
+                .then(() => {
+                    const term = xtermRef.current;
+                    if (!term) return;
+                    const ts = getSettings().terminal;
+                    const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
+                    term.options.fontFamily = ts.fontFamily || mono || "monospace";
+                    term.options.fontSize = ts.fontSize;
+                    term.options.scrollback = ts.scrollback;
+                })
+                .catch(() => undefined);
         };
         window.addEventListener("bettershape-settings-changed", applyTerminalSettings);
         return () => window.removeEventListener("bettershape-settings-changed", applyTerminalSettings);

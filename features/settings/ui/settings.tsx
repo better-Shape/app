@@ -338,6 +338,7 @@ function TerminalSettings({ settings }: { settings: BetterShapeSettings }) {
                     presets={TERMINAL_FONT_PRESETS}
                     // An empty terminal font draws with the editor's font, through --font-mono.
                     emptyLabel="Same as editor"
+                    uploadSlot="terminal"
                     onChange={(v) => updateSettingSection("terminal", { fontFamily: v })}
                 />
             </SettingRow>

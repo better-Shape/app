@@ -511,6 +511,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             <SettingCard>
                 <SettingRow title="Font Family">
                     <FontFamilySelect
+                        uploadSlot="terminal"
                         value="Berkeley Mono"
                         presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
                         onChange={() => {}}
@@ -543,6 +544,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
                 <SettingCard>
                     <SettingRow title="Font Family">
                         <FontFamilySelect
+                            uploadSlot="terminal"
                             value="JetBrains Mono"
                             presets={[
                                 { value: "JetBrains Mono", label: "JetBrains Mono" },
@@ -587,6 +589,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             <SettingCard>
                 <SettingRow title="Font Family">
                     <FontFamilySelect
+                        uploadSlot="terminal"
                         value="'BetterShapeCustom-StudioMono', monospace"
                         presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
                         onChange={() => {}}
@@ -613,6 +616,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
                 <SettingCard>
                     <SettingRow title="Font Family">
                         <FontFamilySelect
+                            uploadSlot="terminal"
                             value=""
                             presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
                             onChange={() => {}}
@@ -638,6 +642,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             <SettingCard>
                 <SettingRow title="Font Family">
                     <FontFamilySelect
+                        uploadSlot="terminal"
                         value=""
                         presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
                         emptyLabel="Same as editor"
@@ -669,6 +674,7 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             <SettingCard>
                 <SettingRow title="Font Family">
                     <FontFamilySelect
+                        uploadSlot="terminal"
                         value="IBM Plex Mono"
                         presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
                         emptyLabel="Same as editor"

@@ -469,12 +469,15 @@ export function FontFamilySelect({
     value,
     presets,
     onChange,
+    uploadSlot,
     emptyLabel,
     "aria-label": ariaLabel,
 }: {
     value: string;
     presets: readonly FontChoice[];
     onChange: (v: string) => void;
+    /** Where an uploaded font is kept between sessions, such as "terminal". A new upload replaces it. */
+    uploadSlot: string;
     /**
      * The choice an empty value stands for when the setting inherits another one, such as "Same as
      * editor". The menu offers it first. Without it, an empty value shows the first preset.
@@ -493,7 +496,7 @@ export function FontFamilySelect({
     const handleFontFile = async (file: File | undefined) => {
         if (!file) return;
         try {
-            const family = await loadCustomEditorFont(file);
+            const family = await loadCustomEditorFont(file, uploadSlot);
             onChange(family);
         } catch (err) {
             console.error("Failed to load custom font:", err);
