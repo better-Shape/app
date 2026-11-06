@@ -23,6 +23,27 @@ type TerminalStripTabProps = {
 
 const TERMINAL_TAB_STATE = { closable: true, dragging: false } as const;
 
+/** The other pane's tab strip in a split terminal, or nothing when the terminal is not split. */
+const otherPaneStrip = (tab: HTMLElement): Element | undefined => {
+    const strip = tab.closest('[role="tablist"]');
+    const root = tab.closest("[data-terminal-root]");
+    return root ? Array.from(root.querySelectorAll('[role="tablist"]')).find((candidate) => candidate !== strip) : undefined;
+};
+
+/** The tab a strip hands focus to: its selected tab, else its first. */
+const preferredTab = (strip: Element): HTMLElement | null =>
+    strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? strip.querySelector<HTMLElement>('[role="tab"]');
+
+/**
+ * When the closing tab was the last one in its pane of a split terminal, hands focus to the other
+ * pane's selected tab, so it does not fall to the page with the closed pane.
+ */
+const focusOtherPaneTab = (tab: HTMLElement) => {
+    if (!tab.contains(document.activeElement)) return;
+    const other = otherPaneStrip(tab);
+    if (other) preferredTab(other)?.focus();
+};
+
 /**
  * One tab in a terminal strip. It is the only interactive element inside `role="tab"`, as a
  * workbench tab is: Enter or Space opens it, since the strip has no drag-and-drop to pick a tab
@@ -35,6 +56,7 @@ export const TerminalStripTab = ({ title, active, unread, onActivate, onClose }:
             return;
         }
         focusTabAfterClose(tab);
+        focusOtherPaneTab(tab);
         onClose();
     };
     const activateOnSpace = (event: KeyboardEvent<HTMLElement>) => {

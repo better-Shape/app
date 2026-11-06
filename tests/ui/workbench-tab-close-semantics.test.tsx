@@ -104,7 +104,43 @@ describe("workbench tab close semantics", () => {
         expect(document.activeElement?.getAttribute("aria-label")).toBe("README.md");
     });
 
-    it("leaves Space to drag-and-drop reordering in the workspace strip", () => {
+    it("leaves Space to drag-and-drop reordering in the workspace strip", async () => {
+        const onSelect = vi.fn();
+        const onReorder = vi.fn();
+        act(() =>
+            root.render(
+                <WorkspaceTabs
+                    tabs={[
+                        { id: "readme", kind: "file", title: "README.md", path: "/p/README.md" },
+                        { id: "app", kind: "file", title: "App.tsx", path: "/p/src/App.tsx" },
+                    ]}
+                    activeId="readme"
+                    onSelect={onSelect}
+                    onClose={() => {}}
+                    onNew={() => {}}
+                    onReorder={onReorder}
+                />,
+            ),
+        );
+        const [, app] = tabs();
+        app.focus();
+        // A picked-up tab is raised above its neighbours while it moves.
+        expect(app.style.zIndex).toBe("1");
+        press(app, " ");
+        expect(app.style.zIndex).toBe("20");
+        expect(onSelect).not.toHaveBeenCalled();
+
+        // Mid-drag the arrows belong to the drag, not to focus movement.
+        press(app, "ArrowRight");
+        expect(document.activeElement).toBe(app);
+        // The keyboard sensor starts listening for keys on the next task, then Escape drops the tab.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+        press(app, "Escape");
+        expect(app.style.zIndex).toBe("1");
+        expect(onReorder).not.toHaveBeenCalled();
+    });
+
+    it("moves focus along the workspace strip with the arrows when no tab is picked up", () => {
         const onSelect = vi.fn();
         act(() =>
             root.render(
@@ -121,11 +157,13 @@ describe("workbench tab close semantics", () => {
                 />,
             ),
         );
-        const [, app] = tabs();
-        app.focus();
-        press(app, " ");
+        const [readme, app] = tabs();
+        readme.focus();
+        press(readme, "ArrowRight");
+        expect(document.activeElement).toBe(app);
+        press(app, "ArrowRight");
+        expect(document.activeElement).toBe(readme);
         expect(onSelect).not.toHaveBeenCalled();
-        press(app, "Escape");
     });
 
     it("a lone workspace tab offers no close path", () => {

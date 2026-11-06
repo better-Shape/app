@@ -60,21 +60,53 @@ export type WorkbenchTabCommand = "select" | "close";
 
 /**
  * Keys a focused workbench tab handles itself, after the WAI-ARIA tabs pattern: Enter opens it
- * and Delete closes it. Every other key belongs to drag-and-drop reordering, which picks a tab
- * up with Space and moves it with the arrows.
+ * and Delete closes it, and the arrows, Home and End move focus along the strip. Every other key
+ * belongs to drag-and-drop reordering, which picks a tab up with Space and, once it is held,
+ * moves it with the arrows.
  */
 const WORKBENCH_TAB_KEYS: ReadonlyMap<string, WorkbenchTabCommand> = new Map([
     ["Enter", "select"],
     ["Delete", "close"],
 ]);
 
-/** The command a key press on a focused tab requests: none mid-drag, Delete only when closable. */
+/**
+ * The command a key press on a focused tab requests: none mid-drag, and Delete only when the tab
+ * is closable and the key is not repeating. A held Delete repeats, and focus moves to the next
+ * tab after each close, so acting on repeats would close every tab after it.
+ */
 export const workbenchTabKeyCommand = (
     key: string,
-    state: { closable: boolean; dragging: boolean },
+    state: { closable: boolean; dragging: boolean; repeat?: boolean },
 ): WorkbenchTabCommand | undefined => {
     const command = state.dragging ? undefined : WORKBENCH_TAB_KEYS.get(key);
-    return command === "close" && !state.closable ? undefined : command;
+    return command === "close" && (!state.closable || state.repeat) ? undefined : command;
+};
+
+/** Where an arrow, Home or End key sends focus among `count` tabs from `index`, wrapping at the ends. */
+const tabFocusTarget = (key: string, index: number, count: number): number | undefined => {
+    if (key === "ArrowRight") return (index + 1) % count;
+    if (key === "ArrowLeft") return (index - 1 + count) % count;
+    if (key === "Home") return 0;
+    return key === "End" ? count - 1 : undefined;
+};
+
+/** The tabs of the strip `tab` sits in, in order. */
+const stripTabs = (tab: HTMLElement): HTMLElement[] => {
+    const strip = tab.closest('[role="tablist"]');
+    return strip ? Array.from(strip.querySelectorAll<HTMLElement>('[role="tab"]')) : [];
+};
+
+/** Whether a modifier is held. A modified arrow or Home belongs to shortcuts, not to the strip. */
+const hasModifier = (event: KeyboardEvent<HTMLElement>): boolean =>
+    event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+
+/** Moves focus along the strip for a bare arrow, Home or End key; false for any other key. */
+const moveTabFocus = (event: KeyboardEvent<HTMLElement>): boolean => {
+    const tabs = hasModifier(event) ? [] : stripTabs(event.currentTarget);
+    const target = tabs.length > 0 ? tabFocusTarget(event.key, tabs.indexOf(event.currentTarget), tabs.length) : undefined;
+    if (target === undefined) return false;
+    tabs[target]?.focus();
+    return true;
 };
 
 /** The command a click on a tab requests: close when it lands on a closable tab's glyph. */
@@ -83,9 +115,22 @@ export const workbenchTabClickCommand = (
     closable: boolean,
 ): WorkbenchTabCommand => (closable && isWorkbenchTabCloseTarget(target) ? "close" : "select");
 
+/** Runs the tab's own handling of a key, reporting whether the key was one the tab handles. */
+const runWorkbenchTabKey = (
+    event: KeyboardEvent<HTMLElement>,
+    state: { closable: boolean; dragging: boolean },
+    run: (command: WorkbenchTabCommand, tab: HTMLElement) => void,
+): boolean => {
+    if (!state.dragging && moveTabFocus(event)) return true;
+    const command = workbenchTabKeyCommand(event.key, { ...state, repeat: event.repeat });
+    if (command) run(command, event.currentTarget);
+    return command !== undefined;
+};
+
 /**
- * A key press on a focused tab: the tab's own command runs first, so drag-and-drop never takes
- * Enter or Delete, and every other key goes on to reordering through `forward`.
+ * A key press on a focused tab: the tab's own keys run first, so drag-and-drop never takes Enter,
+ * Delete or an arrow before a tab is picked up, and every other key goes on to reordering through
+ * `forward`.
  */
 export const handleWorkbenchTabKey = (
     event: KeyboardEvent<HTMLElement>,
@@ -94,13 +139,8 @@ export const handleWorkbenchTabKey = (
     forward?: (event: KeyboardEvent<HTMLElement>) => void,
 ): void => {
     if (event.target !== event.currentTarget) return;
-    const command = workbenchTabKeyCommand(event.key, state);
-    if (!command) {
-        forward?.(event);
-        return;
-    }
-    event.preventDefault();
-    run(command, event.currentTarget);
+    if (runWorkbenchTabKey(event, state, run)) event.preventDefault();
+    else forward?.(event);
 };
 
 /**
@@ -110,8 +150,7 @@ export const handleWorkbenchTabKey = (
  */
 export const focusTabAfterClose = (tab: HTMLElement): void => {
     if (!tab.contains(document.activeElement)) return;
-    const strip = tab.closest('[role="tablist"]');
-    const tabs = strip ? Array.from(strip.querySelectorAll<HTMLElement>('[role="tab"]')) : [];
+    const tabs = stripTabs(tab);
     const index = tabs.indexOf(tab);
     (tabs[index + 1] ?? tabs[index - 1])?.focus();
 };

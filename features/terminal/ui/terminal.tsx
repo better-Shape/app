@@ -110,6 +110,13 @@ const createTerminalTab = (
     group: TerminalGroupId = "left",
 ): TerminalTab => ({ id, title, shell, cwd, boundPtyId, group });
 
+/** Names for the terminal tab strips: one strip, or the two panes of a split. */
+const TERMINAL_STRIP_LABELS: Record<TerminalGroupId | "single", string> = {
+    single: "Terminals",
+    left: "Left terminals",
+    right: "Right terminals",
+};
+
 function isLayoutResizing() {
     return document.body.classList.contains("resizing-vertical") || document.body.hasAttribute("data-resizing");
 }
@@ -1390,12 +1397,14 @@ const Terminal = ({
     const renderTerminalTabs = (
         tabs: TerminalTab[],
         activeId: string | null,
+        group: TerminalGroupId,
         onActivate: (id: string) => void,
         scrollRef?: React.RefObject<HTMLDivElement | null>,
     ) => (
         <div
             ref={scrollRef}
             role="tablist"
+            aria-label={TERMINAL_STRIP_LABELS[splitEnabled ? group : "single"]}
             onWheel={handleWheel}
             className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
         >
@@ -1426,6 +1435,7 @@ const Terminal = ({
             {renderTerminalTabs(
                 tabs,
                 activeId,
+                group,
                 onActivate,
                 group === "left" ? tabScrollRef : undefined,
             )}
