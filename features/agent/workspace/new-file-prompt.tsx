@@ -10,6 +10,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 import { normalizePath, resolveProjectFilePath } from "@/lib/path/utils";
 
 const DEFAULT_NAME = "untitled.txt";
@@ -22,6 +23,7 @@ const DEFAULT_NAME = "untitled.txt";
 export function NewFilePromptHost() {
     const { project_path } = useProjectState();
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const [open, setOpen] = useState(false);
     const [value, setValue] = useState(DEFAULT_NAME);
     const [error, setError] = useState<string | null>(null);
@@ -84,6 +86,7 @@ export function NewFilePromptHost() {
                         "absolute left-1/2 top-[14%] z-[201] w-[min(460px,calc(100%-2rem))] -translate-x-1/2 outline-none",
                     )}
                     aria-describedby={undefined}
+                    onCloseAutoFocus={returnFocus}
                 >
                     <Dialog.Title className="sr-only">New file</Dialog.Title>
                     <Dialog.Description className="sr-only">

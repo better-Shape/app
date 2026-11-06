@@ -31,6 +31,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
@@ -280,6 +281,7 @@ function ShortcutBadge({ shortcut }: { shortcut: string }) {
 /** Renders the CommandPalette UI component. */
 export const CommandPalette = () => {
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [actions, setActions] = useState<EditorAction[]>([]);
@@ -866,12 +868,15 @@ export const CommandPalette = () => {
                 <Dialog.Overlay
                     className={cn(BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_INSTANT_OVERLAY_CLASS)}
                 />
-                <Dialog.Content className={cn(
-                    BETTERSHAPE_OVERLAY_CONTENT_CLASS,
-                    BETTERSHAPE_MODAL_PANEL_CLASS,
-                    BETTERSHAPE_INSTANT_PANEL_CLASS,
-                    "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
-                )}>
+                <Dialog.Content
+                    className={cn(
+                        BETTERSHAPE_OVERLAY_CONTENT_CLASS,
+                        BETTERSHAPE_MODAL_PANEL_CLASS,
+                        BETTERSHAPE_INSTANT_PANEL_CLASS,
+                        "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
+                    )}
+                    onCloseAutoFocus={returnFocus}
+                >
                     <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
                     <Dialog.Description className="sr-only">Search agents, files, and actions</Dialog.Description>
                     <div className="px-1">
