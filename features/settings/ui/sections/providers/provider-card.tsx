@@ -763,7 +763,7 @@ const ExtraModelInputRow = ({
                 spellCheck={false}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
-                className="h-7 min-w-0 flex-1 rounded-md border-border-secondary bg-transparent px-2 font-mono text-xs focus-visible:border-accent focus-visible:ring-0"
+                className="h-7 min-w-0 flex-1 rounded-md border-border-secondary bg-transparent px-2 font-mono text-xs focus-visible:border-border-focus focus-visible:ring-0"
             />
             <Button
                 size="xs"
@@ -951,7 +951,7 @@ const ProviderAdvancedSection = ({
                             spellCheck={false}
                             rows={3}
                             onChange={handleHeadersChange}
-                            className="min-h-[68px] rounded-md border-border-secondary bg-transparent px-2 py-1.5 font-mono text-xs focus:border-accent"
+                            className="min-h-[68px] rounded-md border-border-secondary bg-transparent px-2 py-1.5 font-mono text-xs focus:border-border-focus"
                         />
                     </SettingRow>
                     <PresetHeadersHint preset={preset} />

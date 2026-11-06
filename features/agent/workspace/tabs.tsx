@@ -80,7 +80,6 @@ function SortableWorkspaceTab({
                     className={cn(
                         workbenchTabItemClass(isActive, isDragging, compact),
                         compact ? "max-w-28" : "max-w-44",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
                     )}
                 >
                     <div className={cn(WORKBENCH_TAB_CONTENT_CLASS, isActive && WORKBENCH_TAB_CONTENT_ACTIVE_CLASS)}>

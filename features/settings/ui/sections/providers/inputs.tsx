@@ -17,7 +17,7 @@ import {
 } from "./status";
 
 const inputClass =
-    "h-8 min-w-0 flex-1 rounded-md border border-border-secondary bg-transparent px-2 text-sm font-normal text-text-primary placeholder:text-text-disabled outline-none transition-colors duration-fast focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+    "h-8 min-w-0 flex-1 rounded-md border border-border-secondary bg-transparent px-2 text-sm font-normal text-text-primary placeholder:text-text-disabled outline-none transition-colors duration-fast focus:border-border-focus focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 /* ------------------------------------------------------------------------ */
 /* Key field                                                                 */

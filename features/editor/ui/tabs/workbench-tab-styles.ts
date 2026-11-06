@@ -24,9 +24,14 @@ export const WORKBENCH_TAB_FADE_CLASS =
 export const WORKBENCH_TAB_ACTIONS_CLASS =
     "box-border flex h-full shrink-0 items-center gap-0.5 px-1";
 
+/**
+ * A tab's classes. Every strip draws the same keyboard focus ring, the app's 2px `--accent-text`
+ * ring; a tab is not a button, so the base-layer button ring does not reach it.
+ */
 export function workbenchTabItemClass(active: boolean, dragging?: boolean, compact?: boolean) {
     return cn(
         "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center overflow-hidden whitespace-nowrap squircle-lg font-normal press-spring",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
         compact ? "gap-1 px-1.5" : "gap-2 px-2.5",
         active
             ? "is-active min-w-[60px] bg-white/10 text-text-primary"

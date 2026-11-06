@@ -578,7 +578,7 @@ export const GeneratedMediaStep = ({ block }: { block: Chunk }) => {
                     <button
                         type="button"
                         aria-label={`Open ${labelNoun} in the viewer`}
-                        className="cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        className="cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
                         onClick={() =>
                             window.dispatchEvent(
                                 new CustomEvent("bettershape-open-media", {

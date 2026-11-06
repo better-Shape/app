@@ -87,7 +87,8 @@
   --accent-hover: #4365FF;
   --action-label: #ffffff;
   --brand: var(--accent);
-  --focus: var(--accent);
+  /* Focus indicators use --accent-text; --accent measures 2.29:1 to 2.95:1 on the surfaces, below WCAG 1.4.11's 3:1. */
+  --focus: var(--accent-text);
   --accent-fg: var(--action-label);
   --border-focus: var(--focus);
   /* Readable on dark surfaces, never use --accent (too deep) as body text */
@@ -321,7 +322,7 @@
   --color-border-subtle: var(--border-subtle);
   --color-border-secondary: var(--border-secondary);
   --color-border-focus: var(--border-focus);
-  --color-border-focus-ring: var(--accent);
+  --color-border-focus-ring: var(--focus);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);

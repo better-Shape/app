@@ -101,7 +101,7 @@ const ActionCard = ({
                 "group press-spring relative flex flex-col items-start gap-3 rounded-xl bg-surface-3 px-4 py-4 text-left",
                 "text-text-secondary transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                 "hover:bg-surface-4 hover:text-text-primary",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
             )}
         >
             {external ? (

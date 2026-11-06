@@ -78,7 +78,7 @@ export function GenerateStarButton({
                         ? "bottom-1 right-1"
                         : "right-1 top-1/2 -translate-y-1/2",
                     "hover:bg-[var(--btn-hover)] hover:text-text-primary",
-                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                     "disabled:pointer-events-none disabled:opacity-40",
                     "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                     loading && "text-accent",
