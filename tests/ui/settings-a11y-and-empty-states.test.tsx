@@ -522,6 +522,14 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
         expect(trigger).not.toBeNull();
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Berkeley Mono");
+
+        // "Upload Font…" is an action, so a custom font in use does not check it.
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["JetBrains Mono", "Upload Font…"]);
+        expect(items.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
     });
 
     it(

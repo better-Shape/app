@@ -443,10 +443,11 @@ const fontOptions = (presets: readonly FontChoice[], emptyLabel?: string): FontC
     { value: CUSTOM_FONT_VALUE, label: "Upload Font…" },
 ];
 
-const resolveFontSelectValue = (value: string, isCustom: boolean, empty: FontChoice): string => {
-    if (isCustom) return CUSTOM_FONT_VALUE;
-    return value.trim() ? value : empty.value;
-};
+/**
+ * The value the menu checks. A custom font matches no entry, so nothing is checked; mapping it to
+ * the upload entry's value would mark "Upload Font…", an action, as the font in use.
+ */
+const resolveFontSelectValue = (value: string, empty: FontChoice): string => (value.trim() ? value : empty.value);
 
 const resolveFontSelectDisplayLabel = (value: string, isCustom: boolean, empty: FontChoice): string | undefined => {
     if (isCustom) return value;
@@ -474,7 +475,7 @@ export function FontFamilySelect({
     const presetValues = presets.map((p) => p.value);
     const isCustom = value.trim().length > 0 && !presetValues.includes(value);
     const empty = emptyFontChoice(presets, emptyLabel);
-    const selectValue = resolveFontSelectValue(value, isCustom, empty);
+    const selectValue = resolveFontSelectValue(value, empty);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const options = fontOptions(presets, emptyLabel);
