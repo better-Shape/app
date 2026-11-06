@@ -7,6 +7,20 @@ import { providerIcon } from "@/lib/ui/provider-icon";
 import { tableCellModelId } from "@/lib/chat/fence-tables";
 import styles from "./data-table.module.css";
 
+/**
+ * Wide tables scroll sideways inside this box, so it takes keyboard focus: a scroll region with
+ * no focusable content is unreachable without a pointer (WCAG 2.1.1). A named group, not a
+ * region, so every table does not add a landmark.
+ */
+const TABLE_SCROLLER_PROPS = { tabIndex: 0, role: "group", "aria-label": "Scrollable table" } as const;
+/**
+ * The focus ring is an inset outline: the rounded frame around the scroller clips anything drawn
+ * outside it, and an outline paints above the table's cell backgrounds where an inset shadow
+ * would sit beneath them.
+ */
+const TABLE_SCROLLER_CLASS =
+    "custom-scrollbar overflow-x-auto overflow-y-hidden rounded-[inherit] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text";
+
 /** Escape md cell. */
 const escapeMdCell = (cell: string): string => {
     return cell
@@ -114,7 +128,7 @@ export const ChatDataTable = ({
                     />
                 </div>
             ) : null}
-            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>
+            <div {...TABLE_SCROLLER_PROPS} className={cn(styles.scroller, TABLE_SCROLLER_CLASS)}>
                 <table className={styles.table}>
                     {headers.length > 0 ? (
                         <thead>
@@ -183,7 +197,9 @@ export const MarkdownTableShell = ({ children }: { children?: React.ReactNode })
                     boxClassName="bg-surface-3 border border-border-subtle shadow-xs"
                 />
             </div>
-            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>{children}</div>
+            <div {...TABLE_SCROLLER_PROPS} className={cn(styles.scroller, TABLE_SCROLLER_CLASS)}>
+                {children}
+            </div>
         </div>
     );
 };

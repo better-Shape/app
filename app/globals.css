@@ -881,7 +881,8 @@ body[data-resizing] .xterm {
 .prose-compact ol {
   margin-top: 0.7em;
   margin-bottom: 0.7em;
-  padding-left: 1.35em;
+  /* The marker gutter sits on the start side, so right-to-left markers are not clipped. */
+  padding-inline-start: 1.35em;
 }
 
 .prose-compact li {

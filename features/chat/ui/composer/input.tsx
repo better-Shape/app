@@ -1192,6 +1192,7 @@ const ComposerTextareaWithMenu = ({
         onBlur={() => setIsEditorFocused(false)}
         placeholder=""
         aria-label={composerAriaLabel}
+        dir="auto"
         rows={1}
         className={cn(
           "custom-scrollbar relative z-[1] block min-h-[22px] w-full resize-none overflow-x-hidden border-none bg-transparent px-1.5 py-0 text-sm font-medium leading-[22px] text-transparent outline-none placeholder:text-text-muted selection:bg-accent/30 whitespace-pre-wrap",

@@ -924,6 +924,9 @@ const ComposerHighlightMirrorInner = ({
     <div
       ref={overlayRef}
       aria-hidden
+      // Same first-strong-character rule as the transparent textarea it sits under, so the
+      // visible text and the caret stay on the same side for right-to-left input.
+      dir="auto"
       className={cn(
         "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap px-1.5 py-0 text-sm font-medium leading-[22px] text-text-primary",
         composerBreakAll ? "break-all" : "break-words",

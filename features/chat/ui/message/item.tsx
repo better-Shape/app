@@ -567,7 +567,7 @@ const ChatMessageItemInner = ({
                                                     icon={TextQuote20Regular}
                                                     className="mt-0.5 size-3.5 shrink-0 text-text-muted"
                                                 />
-                                                <span className="min-w-0 flex-1 break-words line-clamp-6">
+                                                <span dir="auto" className="min-w-0 flex-1 break-words line-clamp-6">
                                                     {qText}
                                                 </span>
                                             </blockquote>
@@ -576,7 +576,7 @@ const ChatMessageItemInner = ({
                                     </div>
                                 ) : null}
                                 {displayText || userQuotes.length === 0 ? (
-                                    <div className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
+                                    <div dir="auto" className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
                                         <MentionRichText text={displayText} />
                                     </div>
                                 ) : null}

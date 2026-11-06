@@ -319,7 +319,9 @@ const CodeBlock = React.memo(function CodeBlock({
     };
 
     return (
-        <div className="my-1.5 rounded-xl border border-border-subtle bg-surface-3">
+        // Code reads left to right in any reply: in a right-to-left list or quote, an inherited
+        // direction would move trailing punctuation to the wrong end of each line.
+        <div dir="ltr" className="my-1.5 rounded-xl border border-border-subtle bg-surface-3">
             <div
                 data-quote-skip
                 data-find-skip
@@ -607,6 +609,113 @@ const extractDisplayMathFormula = (children: React.ReactNode): string | null => 
     return formula || null;
 };
 
+/**
+ * Text direction in chat markdown. The outermost block (a paragraph, heading, list, quote or
+ * table) takes its direction from its own first strong character with `dir="auto"`, and the
+ * blocks inside a list, quote or table inherit it. A nested `dir="auto"` would break the outer
+ * one: HTML leaves text under a `dir` attribute out of an ancestor's auto direction, so a list
+ * of right-to-left paragraphs would resolve left to right and keep its markers on the left.
+ * Code carries `dir="ltr"`, so it never decides the direction of the prose around it.
+ */
+const InheritedBlockDirection = React.createContext(false);
+
+/** `dir="auto"` for the outermost text block, nothing for a block that inherits one. */
+const useBlockDir = (): "auto" | undefined =>
+    React.useContext(InheritedBlockDirection) ? undefined : "auto";
+
+type BlockProps = { children?: React.ReactNode };
+
+/** A paragraph, or the display-math box a standalone `$$ ... $$` paragraph becomes. */
+const MarkdownParagraph = ({ children }: BlockProps) => {
+    const dir = useBlockDir();
+    const formula = extractDisplayMathFormula(children);
+    if (formula) {
+        return (
+            <div
+                data-math-display="true"
+                dir="ltr"
+                className="custom-scrollbar my-2 max-w-full overflow-x-auto overflow-y-hidden rounded-xl border border-border-subtle bg-surface-2/70 px-4 py-2.5 text-center font-mono text-sm leading-relaxed whitespace-pre text-text-primary"
+            >
+                {formula}
+            </div>
+        );
+    }
+    return (
+        <p dir={dir} className="mb-2 font-sans chat-text font-medium text-text-primary last:mb-0">
+            {linkifyChildren(children)}
+        </p>
+    );
+};
+
+type HeadingLevel = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+
+/** Levels 4 to 6 keep the body text style. */
+const HEADING_CLASS: Partial<Record<HeadingLevel, string>> = {
+    h1: "mb-2 mt-4 font-sans chat-text font-medium text-text-primary",
+    h2: "mb-1.5 mt-3 font-sans chat-text font-medium text-text-primary",
+    h3: "mb-1 mt-2 font-sans chat-text font-medium text-text-primary",
+};
+
+type HeadingProps = BlockProps & { level: HeadingLevel };
+
+/** A heading at the level react-markdown hands over. */
+const MarkdownHeading = ({ level, children }: HeadingProps) => {
+    const dir = useBlockDir();
+    const Heading = level;
+    return (
+        <Heading dir={dir} className={HEADING_CLASS[level]}>
+            {linkifyChildren(children)}
+        </Heading>
+    );
+};
+
+type ListProps = BlockProps & { ordered: boolean; start?: number };
+
+/**
+ * A list. `start` carries the number an ordered list resumes from: steps split by a code block
+ * continue as `2.`, `3.` rather than restarting at `1.`.
+ */
+const MarkdownList = ({ ordered, start, children }: ListProps) => {
+    const dir = useBlockDir();
+    const className = cn(
+        "mb-2 ms-4 list-outside space-y-1 font-sans chat-text",
+        ordered ? "list-decimal" : "list-disc",
+    );
+    const items = (
+        <InheritedBlockDirection.Provider value>{children}</InheritedBlockDirection.Provider>
+    );
+    return ordered ? (
+        <ol dir={dir} start={start} className={className}>{items}</ol>
+    ) : (
+        <ul dir={dir} className={className}>{items}</ul>
+    );
+};
+
+/** A quote; its rule sits on the start side, so it mirrors with the text. */
+const MarkdownQuote = ({ children }: BlockProps) => {
+    const dir = useBlockDir();
+    return (
+        <blockquote
+            dir={dir}
+            className="rounded-e border-s-2 border-base/50 bg-panel/30 ps-3 font-sans chat-text font-normal italic text-text-muted"
+        >
+            <InheritedBlockDirection.Provider value>{children}</InheritedBlockDirection.Provider>
+        </blockquote>
+    );
+};
+
+/** A GFM table; its columns follow the direction of its own first strong character. */
+const MarkdownTable = ({ children }: BlockProps) => {
+    const dir = useBlockDir();
+    return (
+        <MarkdownTableShell>
+            <table dir={dir} className="w-max min-w-full border-collapse text-start">
+                <InheritedBlockDirection.Provider value>{children}</InheritedBlockDirection.Provider>
+            </table>
+        </MarkdownTableShell>
+    );
+};
+
 /** createMarkdownComponents helper. */
 function createMarkdownComponents(options?: { nested?: boolean; streamingFence?: boolean }) {
     const nested = options?.nested;
@@ -657,7 +766,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
 
             if (isBlock) {
                 return (
-                    <pre className="my-1 overflow-x-auto rounded-xl border border-border-subtle bg-surface-3 p-3 chat-text font-mono leading-relaxed">
+                    <pre dir="ltr" className="my-1 overflow-x-auto rounded-xl border border-border-subtle bg-surface-3 p-3 chat-text font-mono leading-relaxed">
                         <code className="block whitespace-pre-wrap text-text-primary" {...rest}>
                             {children}
                         </code>
@@ -683,6 +792,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                     <Tooltip content={fullPath}>
                         <button
                             type="button"
+                            dir="ltr"
                             className="mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-panel-hover px-2 py-0.5 align-middle font-sans chat-text text-text-primary transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)]"
                             onClick={() => {
                                 openProjectFile(fullPath, name).catch(() => undefined);
@@ -697,6 +807,7 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
 
             return (
                 <code
+                    dir="ltr"
                     className="rounded-md bg-panel-hover px-1.5 py-0.5 font-mono chat-text text-accent-text"
                     {...rest}
                 >
@@ -704,42 +815,20 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                 </code>
             );
         },
-        p: ({ children }: { children?: React.ReactNode }) => {
-            const formula = extractDisplayMathFormula(children);
-            if (formula) {
-                return (
-                    <div
-                        data-math-display="true"
-                        className="custom-scrollbar my-2 max-w-full overflow-x-auto overflow-y-hidden rounded-xl border border-border-subtle bg-surface-2/70 px-4 py-2.5 text-center font-mono text-sm leading-relaxed whitespace-pre text-text-primary"
-                    >
-                        {formula}
-                    </div>
-                );
-            }
-            return (
-                <p className="mb-2 font-sans chat-text font-medium text-text-primary last:mb-0">
-                    {linkifyChildren(children)}
-                </p>
-            );
-        },
-        ul: ({ children }: { children?: React.ReactNode }) => (
-            <ul className="mb-2 ml-4 list-outside list-disc space-y-1 font-sans chat-text">{children}</ul>
+        p: MarkdownParagraph,
+        ul: ({ children }: BlockProps) => <MarkdownList ordered={false}>{children}</MarkdownList>,
+        ol: ({ children, start }: BlockProps & { start?: number }) => (
+            <MarkdownList ordered start={start}>{children}</MarkdownList>
         ),
-        ol: ({ children }: { children?: React.ReactNode }) => (
-            <ol className="mb-2 ml-4 list-outside list-decimal space-y-1 font-sans chat-text">{children}</ol>
+        li: ({ children }: BlockProps) => (
+            <li className="ps-0.5 font-sans chat-text font-normal leading-relaxed">{linkifyChildren(children)}</li>
         ),
-        li: ({ children }: { children?: React.ReactNode }) => (
-            <li className="pl-0.5 font-sans chat-text font-normal leading-relaxed">{linkifyChildren(children)}</li>
-        ),
-        h1: ({ children }: { children?: React.ReactNode }) => (
-            <h1 className="mb-2 mt-4 font-sans chat-text font-medium text-text-primary">{linkifyChildren(children)}</h1>
-        ),
-        h2: ({ children }: { children?: React.ReactNode }) => (
-            <h2 className="mb-1.5 mt-3 font-sans chat-text font-medium text-text-primary">{linkifyChildren(children)}</h2>
-        ),
-        h3: ({ children }: { children?: React.ReactNode }) => (
-            <h3 className="mb-1 mt-2 font-sans chat-text font-medium text-text-primary">{linkifyChildren(children)}</h3>
-        ),
+        h1: ({ children }: BlockProps) => <MarkdownHeading level="h1">{children}</MarkdownHeading>,
+        h2: ({ children }: BlockProps) => <MarkdownHeading level="h2">{children}</MarkdownHeading>,
+        h3: ({ children }: BlockProps) => <MarkdownHeading level="h3">{children}</MarkdownHeading>,
+        h4: ({ children }: BlockProps) => <MarkdownHeading level="h4">{children}</MarkdownHeading>,
+        h5: ({ children }: BlockProps) => <MarkdownHeading level="h5">{children}</MarkdownHeading>,
+        h6: ({ children }: BlockProps) => <MarkdownHeading level="h6">{children}</MarkdownHeading>,
         strong: ({ children }: { children?: React.ReactNode }) => (
             <strong className="chat-text font-medium text-text-primary">{children}</strong>
         ),
@@ -751,21 +840,15 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
         a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
             <ChatLinkChip href={href}>{children}</ChatLinkChip>
         ),
-        blockquote: ({ children }: { children?: React.ReactNode }) => (
-            <blockquote className="rounded-r border-l-2 border-base/50 bg-panel/30 pl-3 font-sans chat-text font-normal italic text-text-muted">
-                {children}
-            </blockquote>
-        ),
-        table: ({ children }: { children?: React.ReactNode }) => (
-            <MarkdownTableShell>
-                <table className="w-max min-w-full border-collapse text-left">{children}</table>
-            </MarkdownTableShell>
-        ),
+        blockquote: MarkdownQuote,
+        table: MarkdownTable,
         thead: ({ children }: { children?: React.ReactNode }) => (
             <thead>{children}</thead>
         ),
         th: ({ children }: { children?: React.ReactNode }) => (
-            <th className="whitespace-nowrap px-2.5 py-1.5 font-sans chat-text font-medium text-text-primary">{children}</th>
+            // `text-start` on the cell itself: the UA stylesheet centres a header cell whose row
+            // inherits the initial alignment, which `text-start` on the table is.
+            <th className="whitespace-nowrap px-2.5 py-1.5 text-start font-sans chat-text font-medium text-text-primary">{children}</th>
         ),
         td: ({ children }: { children?: React.ReactNode }) => {
             const text = React.Children.toArray(children)
@@ -791,7 +874,8 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
                 <input
                     {...props}
                     readOnly
-                    className="mr-2 align-middle accent-accent"
+                    aria-label="Task"
+                    className="me-2 align-middle accent-accent"
                 />
             );
         },
