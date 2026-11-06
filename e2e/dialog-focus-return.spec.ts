@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, expectPreviewActive, gotoRoute } from "./fixtures";
-import { readFocusStop } from "./helpers/focus-indicator";
+import { readSettledFocusStop } from "./helpers/focus-indicator";
 
 /**
  * Closing a pop-up that opened without a trigger button, from a shortcut, a menu item or a
@@ -42,7 +42,7 @@ const expectEscapeReturnsFocus = async (page: Page, dialog: Locator, opener: Loc
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(opener).toBeFocused();
-    expect((await readFocusStop(page))?.visible, "the returned focus shows its ring").toBe(true);
+    expect((await readSettledFocusStop(page))?.visible, "the returned focus shows its ring").toBe(true);
 };
 
 test.describe("dialog focus return", () => {
@@ -52,6 +52,12 @@ test.describe("dialog focus return", () => {
         await gotoRoute(page, "/");
         await expectPreviewActive(page, "project");
         await expect(page.getByRole("tab", { name: "README.md" })).toBeVisible({ timeout: 30_000 });
+    });
+
+    // Console errors are not asserted: the palette's framework marks load from a CDN, which an
+    // offline run cannot reach.
+    test.afterEach(({ expectNoPageErrors }) => {
+        expectNoPageErrors();
     });
 
     test("the command palette, opened by its shortcut", async ({ page }) => {

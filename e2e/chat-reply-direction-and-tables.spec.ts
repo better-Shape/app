@@ -14,10 +14,12 @@ test.describe("chat reply direction and tables", () => {
         await expect(page.locator("[data-openui-block]").first()).toBeVisible({ timeout: 30_000 });
     });
 
-    test("a right-to-left reply mirrors its blocks and keeps code left to right", async ({
-        page,
-        expectNoPageErrors,
-    }) => {
+    test.afterEach(({ expectNoPageErrors, expectNoConsoleErrors }) => {
+        expectNoPageErrors();
+        expectNoConsoleErrors();
+    });
+
+    test("a right-to-left reply mirrors its blocks and keeps code left to right", async ({ page }) => {
         await streamAssistantMarkdown(
             page,
             [
@@ -55,12 +57,16 @@ test.describe("chat reply direction and tables", () => {
                 }
                 return Number.NaN;
             };
-            const byText = (selector: string, text: string) =>
-                [...document.querySelectorAll(selector)].find((el) => el.textContent?.includes(text));
-            const inline = byText("code", "fn()")!;
-            const block = byText("pre, code", "const x = foo();")!;
-            const list = byText("ol", "خطوة ثانية")!;
-            const quote = byText("blockquote", "اقتباس")!;
+            /** The first element matching `selector` that contains `text`; the test fails without one. */
+            const byText = (selector: string, text: string): Element => {
+                const match = [...document.querySelectorAll(selector)].find((el) => el.textContent?.includes(text));
+                if (!match) throw new Error(`no ${selector} contains ${text}`);
+                return match;
+            };
+            const inline = byText("code", "fn()");
+            const block = byText("pre, code", "const x = foo();");
+            const list = byText("ol", "خطوة ثانية");
+            const quote = byText("blockquote", "اقتباس");
             return {
                 inlineInOrder: charX(inline, "f") < charX(inline, ")"),
                 blockInOrder: charX(block, "c") < charX(block, ";"),
@@ -79,7 +85,6 @@ test.describe("chat reply direction and tables", () => {
             quoteDirection: "rtl",
             quoteRuleRight: "2px",
         });
-        expectNoPageErrors();
     });
 
     test("numbered steps split by a code block keep counting", async ({ page }) => {

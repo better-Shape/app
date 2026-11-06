@@ -34,8 +34,14 @@ const render = async (props: Parameters<typeof Breadcrumbs>[0]) => {
 };
 
 describe("editor breadcrumb menubar role", () => {
-    it("is a menubar when a folder or outline menu renders", async () => {
-        expect(await render({ path: "/proj/src/app.ts", projectPath: "/proj" })).not.toBeNull();
+    it("is a menubar when only folder menus render", async () => {
+        // An image opens no outline, so the folder crumb alone makes the bar a menubar.
+        expect(await render({ path: "/proj/src/image.png", projectPath: "/proj", isImage: true })).not.toBeNull();
+    });
+
+    it("is a menubar when only the outline menu renders", async () => {
+        // With no project, no folder crumb resolves, so the file's outline alone makes it a menubar.
+        expect(await render({ path: "/app.ts", projectPath: null })).not.toBeNull();
     });
 
     it("drops the role in compact mode, where no crumb opens a menu", async () => {

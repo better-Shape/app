@@ -1,30 +1,31 @@
 import type { Page } from "@playwright/test";
 import { test, expect, expectPreviewActive, gotoRoute, type SeedMode } from "./fixtures";
-import { readFocusStop, type FocusStop } from "./helpers/focus-indicator";
+import { readSettledFocusStop, type FocusStop } from "./helpers/focus-indicator";
 
 /**
  * Every button that keyboard focus reaches must show that it has focus (WCAG 2.4.7). The walk
  * presses Tab through a window and reads the computed style of each focused `button` or
  * `[role="button"]`: an outline, or a ring drawn as a box shadow on the element or on its
- * `::before` layer, as the commit rows draw theirs.
+ * `::before` layer, as the commit rows draw theirs, and not hidden by a transparent ancestor.
  */
+
+/** Records `stop` unless the walk has seen it; true when focus has come back to the first stop. */
+const recordStop = (stops: FocusStop[], stop: FocusStop): boolean => {
+    if (stops.length > 0 && stop.key === stops[0].key) return true;
+    if (!stops.some((seen) => seen.key === stop.key)) stops.push(stop);
+    return false;
+};
 
 /** Tabs forward until focus comes back to the first stop, or `limit` presses. */
 const walkFocus = async (page: Page, limit: number): Promise<FocusStop[]> => {
     const stops: FocusStop[] = [];
-    const seen = new Set<string>();
     for (let press = 0; press < limit; press += 1) {
         await page.keyboard.press("Tab");
-        const stop = await readFocusStop(page);
+        const stop = await readSettledFocusStop(page);
         if (!stop) continue;
-        if (stops.length > 0 && stop.key === stops[0].key) break;
-        if (stop.inEditor) {
-            // An editor keeps Tab for indentation; Escape first hands the next Tab to focus.
-            await page.keyboard.press("Escape");
-        }
-        if (seen.has(stop.key)) continue;
-        seen.add(stop.key);
-        stops.push(stop);
+        if (recordStop(stops, stop)) break;
+        // An editor keeps Tab for indentation; Escape first hands the next Tab to focus.
+        if (stop.inEditor) await page.keyboard.press("Escape");
     }
     return stops;
 };
@@ -77,4 +78,65 @@ test.describe("keyboard focus visibility", () => {
             });
         });
     }
+});
+
+/** The focused element's label colour and focus ring, as computed. */
+const readRing = (page: Page) =>
+    page.evaluate(() => {
+        const element = document.activeElement;
+        if (!(element instanceof HTMLElement)) return null;
+        const style = getComputedStyle(element);
+        return {
+            color: style.color,
+            outlineColor: style.outlineColor,
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            outlineOffset: style.outlineOffset,
+        };
+    });
+
+/** `--accent-text`, the shared ring. */
+const ACCENT_TEXT = "rgb(158, 176, 255)";
+
+/**
+ * A filled button draws its ring in its label colour: the shared `--accent-text` ring measures
+ * 2.9:1 on `--accent` and 1.9:1 on `--danger`, below the 3:1 a ring at a control's edge needs.
+ * The unit test `tests/ui/filled-control-focus-ring.test.tsx` checks the ratios; this checks the
+ * cascade in a real build, where the base-layer ring and the button's utility meet.
+ */
+test.describe("filled button focus ring", () => {
+    test.use({ seedMode: "project" });
+
+    test.beforeEach(async ({ page }) => {
+        await gotoRoute(page, "/");
+        await expectPreviewActive(page, "project");
+        await expect(page.locator("[data-openui-block]").first()).toBeVisible({ timeout: 30_000 });
+    });
+
+    test.afterEach(({ expectNoPageErrors }) => {
+        expectNoPageErrors();
+    });
+
+    test("a filled dialog button rings in its label colour, and the plain one beside it keeps the accent ring", async ({ page }) => {
+        await page.getByRole("button", { name: "Restore to this checkpoint" }).first().click();
+        const dialog = page.getByRole("alertdialog", { name: "Discard all changes up to this checkpoint?" });
+        await expect(dialog).toBeVisible();
+        const cancel = dialog.getByRole("button", { name: /^Cancel/ });
+        const proceed = dialog.getByRole("button", { name: /^Continue/ });
+
+        await cancel.focus();
+        await page.keyboard.press("Tab");
+        await expect(proceed).toBeFocused();
+        const ring = await readRing(page);
+        expect(ring).toMatchObject({ outlineStyle: "solid", outlineWidth: "2px", outlineOffset: "-2px" });
+        expect(ring?.outlineColor, "the ring takes the label colour").toBe(ring?.color);
+        expect(ring?.outlineColor).not.toBe(ACCENT_TEXT);
+
+        await page.keyboard.press("Shift+Tab");
+        await expect(cancel).toBeFocused();
+        expect((await readRing(page))?.outlineColor).toBe(ACCENT_TEXT);
+
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+    });
 });
