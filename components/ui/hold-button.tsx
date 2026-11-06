@@ -39,6 +39,8 @@ const DEFAULT_HOLD_MS = 1100;
 const QUICK_TAP_MAX_MS = 240;
 const CONFIRMED_RESET_MS = 1200;
 const CLICK_GUARD_RESET_MS = 64;
+/** States in which the button is mid-gesture, so a context menu would interrupt it. */
+const GESTURE_STATES: ReadonlySet<HoldButtonState> = new Set(["holding", "armed"]);
 
 const assignForwardedRef = (
     forwardedRef: React.ForwardedRef<HTMLButtonElement>,
@@ -653,9 +655,11 @@ const useHoldState = ({
         [cancelHold, matchesActivePress],
     );
 
+    // A context menu waits only while a gesture is under way: a press, a hold, an armed button, or
+    // the click that ends a press. The 1.2s confirmed feedback is not one, so a right-click then works.
     const shouldSuppressContextMenu = React.useCallback(
         () =>
-            stateRef.current !== "idle" ||
+            GESTURE_STATES.has(stateRef.current) ||
             sourceRef.current !== null ||
             suppressClickRef.current,
         [],

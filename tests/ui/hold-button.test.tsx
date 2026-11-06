@@ -1154,6 +1154,41 @@ describe("HoldButton", () => {
         expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
     });
 
+    it("lets a right-click through during the confirmed feedback once the press is over", () => {
+        const onAncestorContextMenu = vi.fn();
+        render(
+            <div onContextMenu={onAncestorContextMenu}>
+                <HoldButton ariaLabel="Discard" label="Discard" holdMs={600} onConfirm={vi.fn()} />
+            </div>,
+        );
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 7 }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("confirmed");
+
+        // Right after the hold, the click that ends the press is still guarded.
+        const guardedMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerId: 7 }));
+            btn.dispatchEvent(guardedMenuEvent);
+        });
+        expect(guardedMenuEvent.defaultPrevented).toBe(true);
+
+        // Once the guard clears, the success feedback is still showing but nothing is pressed.
+        act(() => {
+            vi.advanceTimersByTime(100);
+        });
+        expect(btn.dataset.state).toBe("confirmed");
+        const feedbackMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(feedbackMenuEvent);
+        });
+        expect(feedbackMenuEvent.defaultPrevented).toBe(false);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
+    });
+
     it(
         "ignores Ctrl+Click and modified shortcuts while releasing active keyboard holds",
         () => {
