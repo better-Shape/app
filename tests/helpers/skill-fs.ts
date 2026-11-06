@@ -92,6 +92,17 @@ const toForwardPath = (raw: string): string => {
     return stripped.startsWith("/") ? stripped : stripped.replaceAll("\\", "/");
 };
 
+/**
+ * Refuses a requested path with a `..` segment before resolving it, as `assert_ipc_sensitive_only`
+ * in `src-tauri/src/agent/security/paths.rs` does for every file command. Collapsing the segment
+ * instead would accept `/project/../project/file`, which the backend rejects.
+ */
+const assertNoParentSegment = (raw: string): void => {
+    if (toForwardPath(raw).split("/").includes("..")) {
+        throw new Error(`Path traversal (..) is not allowed: ${raw}`);
+    }
+};
+
 /** Splits `X:/...` drive-root paths separately from bare `X:...` drive-relative paths. */
 const splitDrivePrefix = (forward: string): { root: string; rest: string } | null => {
     const driveRoot = DRIVE_ROOT_RE.exec(forward);
@@ -291,6 +302,7 @@ export function serveSkillFs(
     };
 
     mocks.lsDir.mockImplementation(async (path: string) => {
+        assertNoParentSegment(path);
         const requestedDir = normalize(path);
         const canonicalDir = canonicalize(requestedDir);
         const dir = directoryKeys.get(pathCompareKey(canonicalDir));
@@ -323,6 +335,7 @@ export function serveSkillFs(
     });
 
     const read = async (path: string) => {
+        assertNoParentSegment(path);
         const body = filesByKey.get(pathCompareKey(canonicalize(path)));
         if (body === undefined) throw new Error(`no such file: ${path}`);
         return body;
@@ -331,6 +344,8 @@ export function serveSkillFs(
     mocks.readFileFromDisk.mockImplementation(read);
 
     const inside = (child: string, parent: string) => {
+        assertNoParentSegment(child);
+        assertNoParentSegment(parent);
         const file = pathCompareKey(canonicalize(child));
         const root = pathCompareKey(canonicalize(parent));
         if (file === root) return true;

@@ -469,6 +469,28 @@ describe("discoverSkills", () => {
         ).rejects.toThrow("outside root");
     });
 
+    it("refuses a requested path with a `..` segment, as the backend's file commands do", async () => {
+        serveSkillFs(
+            mocks,
+            { [`${PROJECT}/.agents/guide.md`]: "body", [`${PROJECT}/.agents/notes..md`]: "dots" },
+            { homeDir: HOME },
+        );
+        const traversal = `${PROJECT}/../demo/.agents/guide.md`;
+        await expect(mocks.readFileFromDisk(traversal)).rejects.toThrow("Path traversal");
+        await expect(mocks.readFileWithin(traversal, PROJECT)).rejects.toThrow("Path traversal");
+        await expect(
+            mocks.readFileWithin(`${PROJECT}/.agents/guide.md`, `${PROJECT}/.agents/..`),
+        ).rejects.toThrow("Path traversal");
+        await expect(mocks.ensurePathWithin(`${PROJECT}/../demo/.agents`, PROJECT)).rejects.toThrow(
+            "Path traversal",
+        );
+        await expect(mocks.lsDir(`${PROJECT}/.agents/..`)).rejects.toThrow("Path traversal");
+
+        // Two dots inside a name are not a parent segment.
+        await expect(mocks.readFileFromDisk(`${PROJECT}/.agents/notes..md`)).resolves.toBe("dots");
+        await expect(mocks.readFileWithin(`${PROJECT}/.agents/guide.md`, PROJECT)).resolves.toBe("body");
+    });
+
     it("survives stored skills without a name", async () => {
         localStorage.setItem(SKILLS_KEY, JSON.stringify([{ id: "legacy", body: "body" }]));
         serve({ [`${PROJECT}/.agents/guide.md`]: "body" });
