@@ -8,9 +8,10 @@ from the upstream repositories through the GitHub API or from the installed pack
 `@dnd-kit/core` 6.3.1, `react-markdown` 10.1.0, `remark-gfm` 4.0.1, `mdast-util-to-hast` 13.2.1,
 `@radix-ui/react-menubar` 1.1.16, `@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2,
 `tailwindcss` 4.1.18. The three keyboard focus sources added with finding 7, the three dialog focus
-sources added with finding 8, the button example and the focus fixup step behind finding 9 were read
-on 2026-11-06, the dialog source at `@radix-ui/react-dialog` 1.1.15. The 1.4.11 understanding note
-was read again that day for finding 10.
+sources added with finding 8, the button example, the focus fixup step behind finding 9 and the
+Primer mixin behind finding 10 were read on 2026-11-06, the dialog source at
+`@radix-ui/react-dialog` 1.1.15. The 1.4.11 understanding note was read again that day for finding
+10.
 
 The audit that used these sources is
 [`../audits/cumulative-acceptance-ledger-2026-11-05.md`](../audits/cumulative-acceptance-ledger-2026-11-05.md).
@@ -76,13 +77,15 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
    read `document.activeElement` as the body. A chat table's scroll box is a keyboard stop only
    while the table overflows, so it keeps the stop while it holds focus, or a table that came to
    fit, say after Ctrl+B hid the sidebar, would throw focus away.
-10. **A ring inside a filled button has to contrast with the fill as well.** The understanding note on
-   1.4.11 sorts indicators by where they sit. One outside the control needs 3:1 against the page;
+10. **A ring inside a filled button has to contrast with the fill as well.** The understanding note
+   on 1.4.11 sorts indicators by where they sit. One outside the control needs 3:1 against the page;
    one at the control's border, inside it and touching the outside, needs 3:1 against both
    neighbours. The shared ring is drawn 2px inside the edge, so on the `--accent` fill it measured
    2.9:1 and on `--danger` 1.9:1. The owner chose the label colour over an outside ring with a gap,
    which containers that hide overflow would clip: white measures 6.0:1 and 3.9:1 on the fills and
-   17:1 on the page.
+   17:1 on the page. GitHub's Primer does the same for its filled emphasis buttons:
+   `focusOutlineOnEmphasis` draws an inner ring in `--fgColor-onEmphasis`, the label colour, inside
+   the 2px focus outline.
 
 ## Standards and techniques
 
@@ -196,6 +199,7 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
 
 | Source | What it settles here |
 | --- | --- |
+| [Primer `focusOutlineOnEmphasis` mixin](https://github.com/primer/react/blob/main/packages/postcss-preset-primer/src/mixins/focusOutlineOnEmphasis.css), used by `ButtonBase.module.css` for primary buttons | A shipped design system draws a filled button's focus indicator with its on-emphasis foreground colour inside the focus outline, the precedent for ringing filled buttons in their label colour |
 | [Tailwind CSS v4 upgrade guide](https://github.com/tailwindlabs/tailwindcss.com/blob/main/src/docs/upgrade-guide.mdx) | `outline-none` now sets `outline-style: none`, and the old invisible outline that showed in forced colours is `outline-hidden`; a control with `outline-none` and no ring of its own has no indicator |
 | `@dnd-kit/core` 6.3.1 `KeyboardSensor` (`node_modules/@dnd-kit/core/dist/core.esm.js`) | Space and Enter start a drag by default, and handled events are skipped, so the strip claims Enter first |
 | `@dnd-kit/core` 6.3.1 default screen reader instructions | They name only the space bar, which matches Space reordering |
