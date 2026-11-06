@@ -573,6 +573,14 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(trigger?.textContent).toContain("Same as editor");
         expect(trigger?.textContent).not.toContain("IBM Plex Mono");
         expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Same as editor");
+
+        // The open menu picks no preset, since none is the font the terminal draws with.
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
+        expect(items.map((item) => item.textContent?.trim())).toContain("IBM Plex Mono");
+        expect(items.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
     });
 });
 
