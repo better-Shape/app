@@ -1,6 +1,4 @@
-/** Resolve GitHub avatar URLs from commit author email / name. Cached in-memory. */
-
-const cache = new Map<string, string | null>();
+/** GitHub avatar URLs for commit authors whose email is a GitHub noreply address. */
 
 function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
@@ -18,40 +16,17 @@ export function githubLoginFromEmail(email: string | null | undefined): string |
     return null;
 }
 
-/** When the display name is already a plausible GitHub login. */
-function loginFromName(name: string | null | undefined): string | null {
-    if (!name) return null;
-    const n = name.trim();
-    if (/^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/.test(n)) return n;
-    return null;
-}
-
 export function githubAvatarUrlForLogin(login: string, size = 64): string {
     return `https://github.com/${encodeURIComponent(login)}.png?size=${size}`;
 }
 
 /**
- * Resolve a GitHub avatar URL from author email / name.
- * Prefers noreply GitHub emails; falls back to name-as-login when it looks like a handle.
+ * Resolve a GitHub avatar URL from a commit author's GitHub noreply email, the one address that
+ * names a GitHub account for certain. A display name is not used: "alex" would draw the picture of
+ * whoever owns the github.com/alex account. Callers draw it only while the user has turned
+ * avatars on, since it loads from github.com.
  */
-export function resolveGithubAvatarUrl(
-    email: string | null | undefined,
-    name?: string | null,
-    size = 64,
-): string | null {
-    const key =
-        (email ? normalizeEmail(email) : "") ||
-        (name ? `name:${name.trim().toLowerCase()}` : "");
-    if (!key) return null;
-    if (cache.has(key)) return cache.get(key) ?? null;
-
-    const login = githubLoginFromEmail(email) ?? loginFromName(name);
-    if (login) {
-        const url = githubAvatarUrlForLogin(login, size);
-        cache.set(key, url);
-        return url;
-    }
-
-    cache.set(key, null);
-    return null;
+export function resolveGithubAvatarUrl(email: string | null | undefined, size = 64): string | null {
+    const login = githubLoginFromEmail(email);
+    return login ? githubAvatarUrlForLogin(login, size) : null;
 }

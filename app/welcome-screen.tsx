@@ -18,29 +18,67 @@ import {
     subscribeRepoHistory,
     type RepoHistoryEntry,
 } from "@/lib/workspace/repo-history";
+import {
+    collapseRootAwareForwardSlashes,
+    stripWindowsVerbatim,
+    trimRootTrailingForwardSlashes,
+} from "@/lib/path/verbatim";
+import { getPlatform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
-const formatWithPathSeparators = (normalizedTarget: string, originalPath: string): string =>
-    originalPath.includes("\\") ? normalizedTarget.replaceAll("/", "\\") : normalizedTarget;
+const DOUBLE_SLASH_PREFIX_RE = /^\/\/(?!\/)/;
+const UNC_SHARE_ROOT_RE = /^\/\/[^/]+\/[^/]+$/;
+const DRIVE_ROOT_PREFIX_RE = /^[A-Za-z]:\//;
+const DRIVE_SPECIFIER_ONLY_RE = /^[A-Za-z]:$/;
+
+const isUncDisplayPath = (stripped: string): boolean =>
+    stripped.startsWith("\\\\") ||
+    (DOUBLE_SLASH_PREFIX_RE.test(stripped) && getPlatform() === "windows");
+
+const isPosixDisplayPath = (stripped: string): boolean =>
+    stripped.startsWith("/") && !isUncDisplayPath(stripped);
+
+const formatWithPathSeparators = (normalizedTarget: string, strippedOriginal: string): string =>
+    !isPosixDisplayPath(strippedOriginal) && strippedOriginal.includes("\\")
+        ? normalizedTarget.replaceAll("/", "\\")
+        : normalizedTarget;
+
+const isSlashOrDriveRoot = (trimmed: string): boolean =>
+    trimmed === "/" ||
+    trimmed === "//" ||
+    (trimmed.length === 3 && DRIVE_ROOT_PREFIX_RE.test(trimmed));
+
+const isFixedDisplayRoot = (trimmed: string, isUnc: boolean): boolean =>
+    isSlashOrDriveRoot(trimmed) || (isUnc && UNC_SHARE_ROOT_RE.test(trimmed));
+
+const resolveLeadingSlashParent = (trimmed: string, lastSlashIdx: number): string | null => {
+    if (lastSlashIdx === 0) return "/";
+    return lastSlashIdx === 1 && trimmed.startsWith("//") ? "//" : null;
+};
+
+const sliceDisplayParent = (trimmed: string, lastSlashIdx: number): string => {
+    const rootSlash = resolveLeadingSlashParent(trimmed, lastSlashIdx);
+    if (rootSlash) return rootSlash;
+    const parent = trimmed.slice(0, lastSlashIdx);
+    return DRIVE_SPECIFIER_ONLY_RE.test(parent) ? `${parent}/` : parent;
+};
+
+const toTrimmedDisplayPath = (stripped: string): string => {
+    const forward = isPosixDisplayPath(stripped) ? stripped : stripped.replaceAll("\\", "/");
+    return trimRootTrailingForwardSlashes(collapseRootAwareForwardSlashes(forward));
+};
 
 /** Parent directory portion of a path, rendered with the path's own separators. */
 export const parentDir = (path: string): string => {
-    const normalized = path.replaceAll("\\", "/");
-    if (normalized === "/" || /^[A-Za-z]:\/+$/.test(normalized)) return path;
-    let end = normalized.length;
-    while (end > 1 && normalized.charCodeAt(end - 1) === 47) end -= 1;
-    const trimmed = normalized.slice(0, end);
-    if (/^\/\/[^/]+\/[^/]+$/.test(trimmed)) {
-        return formatWithPathSeparators(trimmed, path);
+    if (!path) return "";
+    const stripped = stripWindowsVerbatim(path, getPlatform() === "windows");
+    const trimmed = toTrimmedDisplayPath(stripped);
+    if (isFixedDisplayRoot(trimmed, isUncDisplayPath(stripped))) {
+        return formatWithPathSeparators(trimmed, stripped);
     }
     const idx = trimmed.lastIndexOf("/");
-    if (idx < 0) return path;
-    if (idx === 0) return formatWithPathSeparators("/", path);
-    const parent = trimmed.slice(0, idx);
-    if (/^[A-Za-z]:$/.test(parent)) {
-        return formatWithPathSeparators(`${parent}/`, path);
-    }
-    return formatWithPathSeparators(parent, path);
+    if (idx < 0) return stripped;
+    return formatWithPathSeparators(sliceDisplayParent(trimmed, idx), stripped);
 };
 
 /** Single welcome-screen action tile (icon over label, +1 surface step on hover). */
@@ -63,7 +101,7 @@ const ActionCard = ({
                 "group press-spring relative flex flex-col items-start gap-3 rounded-xl bg-surface-3 px-4 py-4 text-left",
                 "text-text-secondary transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                 "hover:bg-surface-4 hover:text-text-primary",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
             )}
         >
             {external ? (

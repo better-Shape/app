@@ -3,9 +3,10 @@
 import { ChevronDown20Regular } from "@fluentui/react-icons/headless/svg/chevron-down";
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
-import { Favicon } from "@/components/ui/favicon";
+import { BrandMark } from "@/components/ui/brand-mark";
+import { siteMark } from "@/lib/brand/site-marks";
 import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { Collapse } from "./collapse";
 import { hostnameOf } from "@/lib/ui/favicon";
@@ -53,22 +54,7 @@ const BRANDS: Brand[] = [
     { id: "hackernews", label: "Hacker News", slug: "ycombinator", color: "FF6600", posts: true, test: /(^|\.)news\.ycombinator\.com|\bhacker news\b/i },
 ];
 
-/**
- * Module-level cache of CDN brand slugs that failed to load (e.g. offline/sandbox),
- * preventing broken `<img>` placeholders and repeated failed network requests.
- */
-const failedBrandSlugs = new Set<string>();
-const failedBrandListeners = new Set<(slug: string) => void>();
 const hostMemo = new Map<string, string>();
-
-/** Mark brand slug failed. */
-const markBrandSlugFailed = (slug: string): void => {
-    if (failedBrandSlugs.has(slug)) return;
-    failedBrandSlugs.add(slug);
-    for (const listener of failedBrandListeners) {
-        listener(slug);
-    }
-};
 
 /** Memoized hostname. */
 const memoizedHostname = (url: string): string => {
@@ -114,47 +100,19 @@ const brandForStep = (query: string, sources: WebSearchResult[]): Brand | null =
     return brandFromText(query);
 };
 
-/** Renders the SiteMark UI component. */
+/**
+ * A source's mark: the brand's own from the bundle when the site is one the step knows, else the
+ * site's generic globe. Nothing is fetched to draw it.
+ */
 const SiteMark = ({ url, brand, size = 14 }: { url?: string; brand?: Brand | null; size?: number }) => {
     const resolved = brand ?? (url ? brandFromText(memoizedHostname(url)) : null);
-    const slug = resolved?.slug ?? null;
-    const [failedSlug, setFailedSlug] = useState<string | null>(() =>
-        slug && failedBrandSlugs.has(slug) ? slug : null,
-    );
-    const failed = Boolean(slug && (failedSlug === slug || failedBrandSlugs.has(slug)));
-
-    useEffect(() => {
-        if (!slug || failed) return undefined;
-        const onSlugFailed = (nextFailedSlug: string) => {
-            if (nextFailedSlug === slug) setFailedSlug(slug);
-        };
-        failedBrandListeners.add(onSlugFailed);
-        return () => {
-            failedBrandListeners.delete(onSlugFailed);
-        };
-    }, [slug, failed]);
-
-    if (resolved && !failed) {
+    if (resolved && siteMark(resolved.slug)) {
         return (
             <span className={cn("inline-flex shrink-0", resolved.invert && "dark:invert")}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                    src={`https://cdn.simpleicons.org/${resolved.slug}/${resolved.color}`}
-                    alt=""
-                    width={size}
-                    height={size}
-                    className="shrink-0 object-contain"
-                    style={{ width: size, height: size }}
-                    draggable={false}
-                    onError={() => {
-                        markBrandSlugFailed(resolved.slug);
-                        setFailedSlug(resolved.slug);
-                    }}
-                />
+                <BrandMark slug={resolved.slug} color={resolved.color} size={size} />
             </span>
         );
     }
-    if (url) return <Favicon url={url} size={size} />;
     return <Icon icon={Globe20Regular} className="shrink-0 text-text-muted" />;
 };
 

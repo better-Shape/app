@@ -101,6 +101,7 @@ export default function Titlebar({ onboarding, settings, focus, title, onBack }:
                         {onBack && (
                             <button
                                 type="button"
+                                aria-label="Back"
                                 onClick={onBack}
                                 className="-ml-2 -mt-0.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-text-muted transition-colors hover:bg-[var(--btn-hover)] hover:text-text-primary"
                             >

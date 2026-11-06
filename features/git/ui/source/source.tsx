@@ -208,7 +208,7 @@ const ChangeRow = ({
             <ContextMenuTrigger>
                 <div
                     className={cn(
-                        "flex items-center px-0.5 py-0.5 rounded-lg group relative h-7 transition-colors",
+                        "flex items-center px-0.5 rounded-lg group relative h-7 min-h-target-min transition-colors",
                         selected ? "bg-[var(--row-selected)] hover:bg-[var(--row-selected-hover)]" : "hover:bg-[var(--row-hover)]",
                     )}
                 >
@@ -221,6 +221,9 @@ const ChangeRow = ({
                         action became a real sibling <button> (a target axe measures
                         against) when the row was given real roles, which is what made
                         this margin start mattering. Matches the icon margin below.
+                        Vertically, `h-7` renders 22.75px under the 13px root, so a run of
+                        rows left each 20px diff button 21.6px from the next. The row keeps
+                        the 24px floor and the button fills it, so it passes on size.
                     */}
                     <div
                         role="presentation"
@@ -237,7 +240,7 @@ const ChangeRow = ({
                     <button
                         type="button"
                         onClick={() => onShowDiff(file.path, file.staged)}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center text-left"
+                        className="flex min-w-0 flex-1 cursor-pointer items-center self-stretch text-left"
                     >
                         <div className="w-4 mr-1.5 flex justify-center shrink-0 pointer-events-none">
                             <FileIcon name={file.path.split(/[/\\]/).pop() || ""} />
@@ -1165,23 +1168,23 @@ const PanelHeaderActions = ({
     openRemoteDialog: () => void;
     setIsGitRepo: (value: boolean) => void;}) => (
     <div className="flex shrink-0 items-center gap-0.5">
-    <Tooltip content="Refresh Repository">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
+    <Tooltip content="Refresh repository">
+        <Button aria-label="Refresh repository" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={() => refresh()}>
             <Icon icon={ArrowSync20Regular} />
         </Button>
     </Tooltip>
     <Tooltip content="Pull">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePull}>
+        <Button aria-label="Pull" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePull}>
             <Icon icon={ArrowDownload20Regular} />
         </Button>
     </Tooltip>
     <Tooltip content="Push">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePush}>
+        <Button aria-label="Push" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handlePush}>
             <Icon icon={ArrowUp20Regular} />
         </Button>
     </Tooltip>
-    <Tooltip content="Sync Changes">
-        <Button variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handleSync}>
+    <Tooltip content="Sync changes">
+        <Button aria-label="Sync changes" variant="ghost" size="icon" className="w-6 h-6 hover:bg-[var(--btn-hover)]" onClick={handleSync}>
             <Icon icon={ArrowUpload20Regular} />
         </Button>
     </Tooltip>
@@ -2155,6 +2158,7 @@ const DiffPaneHeader = ({
     <Tooltip content={sideBySide ? "Inline diff" : "Side by side"}>
         <Button
             type="button"
+            aria-label={sideBySide ? "Inline diff" : "Side by side"}
             variant="ghost"
             size="icon"
             className="h-6 w-6 shrink-0 p-0"
@@ -2175,6 +2179,7 @@ const DiffPaneHeader = ({
         size="icon"
         className="h-6 w-6 shrink-0 p-0"
         onClick={() => setDiffFile(null)}
+        aria-label="Close diff"
     >
         <Icon icon={Dismiss20Regular} />
     </Button>

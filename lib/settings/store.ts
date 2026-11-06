@@ -262,7 +262,8 @@ export const DEFAULT_SETTINGS: BetterShapeSettings = {
         autoFetch: false,
         autoFetchInterval: 300,
         confirmBeforeCommit: false,
-        graphAvatars: true,
+        // Author pictures load from github.com, so they wait for the user to turn them on.
+        graphAvatars: false,
         graphShowAllBranches: true,
         blame: {
             enabled: false,

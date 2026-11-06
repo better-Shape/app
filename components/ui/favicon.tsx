@@ -1,57 +1,39 @@
 "use client";
 
 import { Globe20Regular } from "@fluentui/react-icons/headless/svg/globe";
-
-
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Icon } from "@/components/ui/icon";
-
-import { faviconUrl, hostnameOf } from "@/lib/ui/favicon";
 import { cn } from "@/lib/utils";
 
+/**
+ * A site's icon. Only an icon the page itself published is drawn: the in-app browser passes it as
+ * `src` for a page the user opened. Every other site draws a globe, because asking an icon lookup
+ * service would tell it each link and host the user sees.
+ */
 export function Favicon({
-    url,
     src,
     size = 14,
     className,
 }: {
-    url: string;
     /** Icon address from the page itself, when the site published one. */
     src?: string | null;
     size?: number;
     className?: string;
 }) {
-    const host = hostnameOf(url);
-    const chain = useMemo(() => {
-        const list: string[] = [];
-        if (src && /^(https?:|data:)/i.test(src)) list.push(src);
-        if (host) list.push(`https://icons.duckduckgo.com/ip3/${host}.ico`);
-        const google = faviconUrl(url || host, Math.max(size * 2, 32));
-        if (google) list.push(google);
-        return list;
-    }, [host, size, src, url]);
-    // Start again from the first source whenever the source list changes.
-    const [index, setIndex] = useState(0);
-    const [seenChain, setSeenChain] = useState(chain);
-    if (chain !== seenChain) {
-        setSeenChain(chain);
-        setIndex(0);
-    }
-
-    const current = chain[index];
-    if (!current) {
+    const [failed, setFailed] = useState<string | null>(null);
+    const usable = src && /^(https?:|data:)/i.test(src) && src !== failed ? src : null;
+    if (!usable) {
         return <Icon icon={Globe20Regular} className={cn("shrink-0 text-text-muted", className)} />;
     }
-
     return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-            src={current}
+            src={usable}
             alt=""
             width={size}
             height={size}
             className={cn("shrink-0 rounded-sm object-contain", className)}
-            onError={() => setIndex((i) => i + 1)}
+            onError={() => setFailed(usable)}
         />
     );
 }

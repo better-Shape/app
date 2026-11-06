@@ -34,6 +34,7 @@ import { WorkflowsEditor } from "./workflows";
 import { IndexingProgressBar } from "./index-progress";
 import { notify } from "@/features/notifications";
 
+/** Settings section for editing custom conversation compaction instructions. */
 function CompactionEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
     const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);
@@ -64,6 +65,7 @@ function CompactionEditor({ value }: { value: string }) {
             <SettingCard>
             <Textarea
                 value={draft}
+                aria-label="Compaction instructions"
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="e.g. Always keep the agreed API shape, migration names, and any failing test output."
                 className="min-h-28 rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm"
@@ -216,6 +218,7 @@ function CompactionStatus({ instructions }: { instructions: string }) {
     );
 }
 
+/** Settings section for editing persistent workspace agent instructions. */
 function RulesEditor({ value }: { value: string }) {
     const [draft, setDraft] = React.useState(value);
     const [valueScope, setValueScope] = React.useState<readonly [typeof value] | null>(null);
@@ -245,6 +248,7 @@ function RulesEditor({ value }: { value: string }) {
             <SettingCard>
             <Textarea
                 value={draft}
+                aria-label="Custom instructions"
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Add your custom instructions..."
                 className="min-h-40 rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm"

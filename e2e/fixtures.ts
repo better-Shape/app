@@ -21,11 +21,16 @@ export type SeedMode = "welcome" | "project";
 /** Route table shared by smoke/audit/visual specs. */
 export const ROUTES = [
     { name: "welcome", path: "/" },
+    // The same path with the project seed: the workbench, chat, and file tree.
+    { name: "workbench", path: "/" },
     { name: "settings", path: "/settings" },
     { name: "git", path: "/git" },
     { name: "branch", path: "/branch" },
     { name: "popout", path: "/popout" },
 ] as const;
+
+/** A route's name in `ROUTES`; `welcome` and `workbench` share the `/` path. */
+export type RouteName = (typeof ROUTES)[number]["name"];
 
 /**
  * Console errors that are environmental noise in a mocked browser, not app

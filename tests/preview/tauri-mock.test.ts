@@ -38,6 +38,17 @@ describe("preview invoke handler", () => {
         expect(state.active_file).toBe(`${PREVIEW_PROJECT_PATH}/README.md`);
     });
 
+    it("models incognito and codebase indexing with backend parity", () => {
+        const project = createPreviewInvokeHandler("project").handle;
+        expect(project("get_chat_incognito")).toBe(false);
+        // No indexer runs in the preview, so a request is never reported as started.
+        expect(project("index_project", { projectPath: null })).toBe(false);
+
+        const welcome = createPreviewInvokeHandler("welcome").handle;
+        expect(() => welcome("index_project", { projectPath: null })).toThrow("No project path");
+        expect(welcome("index_project", { projectPath: PREVIEW_PROJECT_PATH })).toBe(false);
+    });
+
     it("set_project_path / open_file mutate observable project state", () => {
         const { handle, projectState } = createPreviewInvokeHandler("welcome");
         handle("set_project_path", { path: PREVIEW_PROJECT_PATH });
@@ -69,6 +80,18 @@ describe("preview invoke handler", () => {
         const status = handle("git_status", { path: PREVIEW_PROJECT_PATH }) as Array<{ status: string }>;
         expect(status.length).toBeGreaterThan(0);
         for (const file of status) expect(file.status).toMatch(/^[MACDUR?!]$/);
+        const logWithCounts = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            hash: string;
+            files_changed: number;
+        }>;
+        for (const entry of logWithCounts) {
+            const commitFiles = handle("git_commit_files", {
+                path: PREVIEW_PROJECT_PATH,
+                hash: entry.hash,
+            }) as Array<{ path: string }>;
+            expect(commitFiles).toHaveLength(entry.files_changed);
+        }
+        expect(handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: "unknown" })).toEqual([]);
     });
 
     it("lists a commit's files, and a list rather than nothing for an unknown hash", () => {
@@ -85,7 +108,9 @@ describe("preview invoke handler", () => {
             expect(typeof file.path).toBe("string");
             expect(file.path.length).toBeGreaterThan(0);
             expect(file.status).toMatch(/^[MACDUR?!]$/);
-            expect(file.staged).toBe(false);
+            // Matches Rust `git_commit_files` (`src-tauri/src/commands/git/mod.rs`),
+            // which marks committed rows `staged: true`.
+            expect(file.staged).toBe(true);
         }
         // An unknown hash still answers with a list: the commit panel stores this
         // straight into state and renders `.length` from it.
@@ -99,10 +124,11 @@ describe("preview invoke handler", () => {
         const log = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{ hash: string }>;
         const files = handle("git_commit_files", { path: PREVIEW_PROJECT_PATH, hash: log[0].hash }) as Array<{
             path: string;
+            staged: boolean;
         }>;
         // The seed list answers src/App.tsx for one file; the panel must show
-        // the file that was staged and committed.
-        expect(files.map((file) => file.path)).toEqual(["README.md"]);
+        // the file that was staged and committed, with `staged: true`.
+        expect(files).toEqual([{ path: "README.md", status: "M", staged: true }]);
     });
 
     it("blames a fixture file with the author the git log shows", () => {
@@ -459,12 +485,27 @@ describe("mock fidelity", () => {
         expect(docs.map((e) => e.name)).toContain("guide.md");
     });
 
-    it("branch create/switch updates branch state", () => {
+    it("branch create/switch and commit preserve HEAD -> <branch> ref decorations", () => {
         const { handle } = createPreviewInvokeHandler("project");
+        const initialLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(initialLog[0].refs).toEqual(["HEAD -> main"]);
+        expect(initialLog[1].refs).toEqual([]);
         handle("git_create_branch", { repoPath: PREVIEW_PROJECT_PATH, branchName: "feature/qa" });
         expect(handle("git_branches")).toContain("feature/qa");
         handle("git_switch_branch", { repoPath: PREVIEW_PROJECT_PATH, branchName: "feature/qa" });
         expect(handle("git_current_branch")).toBe("feature/qa");
+        const switchedLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(switchedLog[0].refs).toEqual(["HEAD -> feature/qa", "main"]);
+        handle("git_commit", { repoPath: PREVIEW_PROJECT_PATH, message: "feat: qa commit" });
+        const committedLog = handle("git_log", { path: PREVIEW_PROJECT_PATH }) as Array<{
+            refs: string[];
+        }>;
+        expect(committedLog[0].refs).toEqual(["HEAD -> feature/qa"]);
+        expect(committedLog[1].refs).toEqual(["main"]);
     });
 
     it("conversations are filtered by requested project; package info honours its contract", () => {
@@ -509,4 +550,52 @@ describe("window and turn-journal preview commands", () => {
         expect(handle("plugin:window|inner_size")).toEqual({ width: 1440, height: 900 });
         expect(handle("plugin:window|scale_factor")).toBe(1);
     });
+
+    it(
+        "assigns distinct hashes on rapid commits and retargets HEAD across diverged branches",
+        () => {
+        const { handle } = createPreviewInvokeHandler("project");
+        handle("git_switch_branch", { branchName: "preview/browser-qa" });
+        handle("git_commit", { message: "feat: first qa commit" });
+        handle("git_commit", { message: "feat: second qa commit" });
+
+        const afterCommits = handle("git_log") as Array<{
+            hash: string;
+            refs: string[];
+            parents: string[];
+        }>;
+        expect(afterCommits[0].hash).not.toBe(afterCommits[1].hash);
+        expect(afterCommits[0].refs).toEqual(["HEAD -> preview/browser-qa"]);
+        expect(afterCommits[2].refs).toEqual(["main"]);
+
+        handle("git_switch_branch", { branchName: "main" });
+        handle("git_create_branch", { branchName: "feat/branched-from-main" });
+        const afterSwitchBack = handle("git_log") as Array<{
+            hash: string;
+            message: string;
+            refs: string[];
+        }>;
+        expect(afterSwitchBack[0].refs).toEqual(["preview/browser-qa"]);
+        expect(afterSwitchBack[2].refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+
+        // Amending on `main` must rewrite `HEAD -> main` (index 2), not `logEntries[0]`.
+        handle("git_stage", { filePath: "src/App.tsx" });
+        handle("git_commit_amend", { message: "chore: amend main tip" });
+        const afterAmend = handle("git_log") as Array<{
+            hash: string;
+            message: string;
+            refs: string[];
+            files_changed: number;
+        }>;
+        expect(afterAmend[0].message).toBe("feat: second qa commit");
+        expect(afterAmend[2].message).toBe("chore: amend main tip");
+        expect(afterAmend[2].refs).toEqual(["HEAD -> main", "feat/branched-from-main"]);
+        const amendedFiles = handle("git_commit_files", { hash: afterAmend[2].hash }) as Array<{
+            path: string;
+            staged: boolean;
+        }>;
+        expect(amendedFiles.every((file) => file.staged)).toBe(true);
+        expect(amendedFiles.map((file) => file.path)).toContain("src/App.tsx");
+    });
 });
+

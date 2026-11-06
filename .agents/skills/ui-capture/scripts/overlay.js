@@ -117,8 +117,12 @@
   const paintCursor = () => {
     cursor.style.transform = `translate(${x}px, ${y}px)`;
   };
+  // The press ring and the ripple sit on the point through `translate`, which composes with the
+  // `transform: scale()` their keyframes animate. Set as `transform`, the position was replaced
+  // while the animation ran, and both marks drew in the window's top-left corner.
   const paintRing = () => {
-    ring.style.transform = `translate(${x}px, ${y}px)`;
+    ring.style.translate = `${x}px ${y}px`;
+    ripple.style.translate = `${x}px ${y}px`;
   };
 
   const flash = (node, cls) => {

@@ -243,7 +243,7 @@ describe("PluginActivityCard pending arg inspection, WebSearchBlock fallback, Re
         expect(allowSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("caches failed CDN brand icons in WebSearchBlock and wires ReviewDebatePanel and SentFileCard cleanly", () => {
+    it("draws WebSearchBlock brand marks from the bundle and wires ReviewDebatePanel and SentFileCard cleanly", () => {
         const el = mount(
             <div data-chat-message-index={1}>
                 <WebSearchBlock
@@ -262,13 +262,10 @@ describe("PluginActivityCard pending arg inspection, WebSearchBlock fallback, Re
         );
 
         expect(el.textContent).toContain("Ensure compact controls meet 24px minimum target size.");
-        const brandImg = el.querySelector<HTMLImageElement>('img[src*="cdn.simpleicons.org"]');
-        if (brandImg) {
-            act(() => {
-                brandImg.dispatchEvent(new Event("error"));
-            });
-            expect(el.querySelector('img[src*="cdn.simpleicons.org"]')).toBeNull();
-        }
+        // The GitHub source draws GitHub's mark from the bundle; no image asks a server.
+        const images = [...el.querySelectorAll<HTMLImageElement>("img")].map((img) => img.getAttribute("src") ?? "");
+        expect(images.length).toBeGreaterThan(0);
+        expect(images.every((src) => src.startsWith("data:image/svg+xml,"))).toBe(true);
 
         // SentFileCard uses single clean Download button without redundant split dropdown.
         const downloadButtons = Array.from(el.querySelectorAll("button")).filter((b) =>

@@ -853,7 +853,7 @@ export const MentionPicker = ({
                                 className="rounded-sm"
                             />
                         ) : item.kind === "browser" && item.path && item.path !== "current" ? (
-                            <Favicon url={item.path} size={14} />
+                            <Favicon size={14} />
                         ) : (
                             <Icon
                                 icon={

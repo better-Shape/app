@@ -38,6 +38,7 @@ import { Pin20Filled, Pin20Regular } from "@fluentui/react-icons/headless/svg/pi
 import { Eclipse } from "loading-dev";
 
 import { Icon } from "@/components/ui/icon";
+import { FadeTruncate } from "@/components/ui/fade-truncate";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsChatGenerating } from "@/features/chat/lib/generating-chats";
@@ -580,7 +581,7 @@ const ChatRow = ({
                                             type="button"
                                             aria-label="Pin"
                                             onClick={() => onTogglePin(true)}
-                                            className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                                            className="flex size-6 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                         >
                                             <Icon icon={Pin20Regular} className="icon-sm" />
                                         </button>
@@ -592,7 +593,7 @@ const ChatRow = ({
                                             <button
                                                 type="button"
                                                 aria-label="Chat actions"
-                                                className="flex size-6 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
+                                                className="flex size-6 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary"
                                             >
                                                 <Icon icon={MoreHorizontal20Regular} className="icon-sm" />
                                             </button>
@@ -703,9 +704,7 @@ const ChatRow = ({
                             )}
                         >
                             <span className={cn("size-1.5 shrink-0 rounded-full", nestedDot(card.status))} aria-hidden />
-                            <span className="block min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1.5rem),transparent)]">
-                                {card.title}
-                            </span>
+                            <FadeTruncate className="flex-1">{card.title}</FadeTruncate>
                         </button>
                     ))}
                 </div>

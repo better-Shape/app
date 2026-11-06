@@ -72,13 +72,13 @@ export function GenerateStarButton({
                 aria-label={label}
                 aria-busy={loading || undefined}
                 className={cn(
-                    "absolute z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-md",
+                    "absolute z-10 inline-flex size-7 min-h-target-min min-w-target-min shrink-0 items-center justify-center rounded-md",
                     "pointer-events-auto text-text-muted",
                     placement === "corner"
                         ? "bottom-1 right-1"
                         : "right-1 top-1/2 -translate-y-1/2",
                     "hover:bg-[var(--btn-hover)] hover:text-text-primary",
-                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus",
                     "disabled:pointer-events-none disabled:opacity-40",
                     "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
                     loading && "text-accent",

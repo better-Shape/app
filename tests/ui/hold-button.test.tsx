@@ -1,7 +1,15 @@
-import { act } from "react";
+import { act, cloneElement, type ReactElement } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HoldButton } from "@/components/ui/hold-button";
+import { HoldButton, type HoldButtonState } from "@/components/ui/hold-button";
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from "@/components/ui/context";
+import { Tooltip } from "@/components/ui/tooltip";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -604,4 +612,753 @@ describe("HoldButton", () => {
         expect(btn.dataset.state).toBe("armed");
         expect(onConfirm).not.toHaveBeenCalled();
     });
+
+    it("releases implicit pointer capture on both target and button and aborts touch drag-away via document pointermove without pointerleave", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard hunk"
+                label="Discard hunk"
+                holdMs={500}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            x: 10,
+            y: 10,
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 40,
+            width: 80,
+            height: 30,
+            toJSON: () => ({}),
+        });
+
+        const innerSpan = btn.querySelector("span") as HTMLSpanElement;
+        const releaseChild = vi.fn();
+        const releaseButton = vi.fn();
+        Object.defineProperty(innerSpan, "hasPointerCapture", { value: () => true, configurable: true });
+        Object.defineProperty(innerSpan, "releasePointerCapture", { value: releaseChild, configurable: true });
+        Object.defineProperty(btn, "hasPointerCapture", { value: () => true, configurable: true });
+        Object.defineProperty(btn, "releasePointerCapture", { value: releaseButton, configurable: true });
+
+        act(() => {
+            innerSpan.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 21,
+                    pointerType: "touch",
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(releaseChild).toHaveBeenCalledWith(21);
+        expect(releaseButton).toHaveBeenCalledWith(21);
+        expect(btn.dataset.state).toBe("holding");
+
+        // After implicit touch capture is released, dragging outside dispatches pointermove on
+        // document.body rather than the button, with zero pointerleave on the button itself.
+        act(() => {
+            vi.advanceTimersByTime(180);
+            document.body.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 21,
+                    pointerType: "touch",
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        act(() => {
+            vi.advanceTimersByTime(600);
+            document.body.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 21,
+                    pointerType: "touch",
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Dragging outside, returning inside before release, and firing synthetic click must NOT arm.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 23,
+                    pointerType: "touch",
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            document.body.dispatchEvent(
+                new PointerEvent("pointermove", {
+                    bubbles: true,
+                    pointerId: 23,
+                    pointerType: "touch",
+                    clientX: 165,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    pointerId: 23,
+                    pointerType: "touch",
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        // Subsequent hold on the button still works (no stuck pointer session).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 22,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(500);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("prevents confirmation when disabled flips synchronously or while an async confirm is resolving", async () => {
+        let resolveAsync: (() => void) | null = null;
+        const onConfirm = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveAsync = resolve;
+                }),
+        );
+
+        render(
+            <HoldButton
+                ariaLabel="Delete branch"
+                label="Delete branch"
+                holdMs={400}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 31 }));
+            vi.advanceTimersByTime(399);
+            // Commit disabled=true synchronously via flushSync and fire the timer immediately
+            // in the same tick before passive useEffects flush.
+            flushSync(() => {
+                root.render(
+                    <HoldButton
+                        ariaLabel="Delete branch"
+                        label="Delete branch"
+                        holdMs={400}
+                        disabled
+                        onConfirm={onConfirm}
+                    />,
+                );
+            });
+            vi.advanceTimersByTime(50);
+        });
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(btn.dataset.state).toBe("idle");
+
+        const renderDeleteHold = (isDisabled: boolean, handler: () => Promise<void>) =>
+            render(
+                <HoldButton
+                    ariaLabel="Delete branch"
+                    label="Delete branch"
+                    holdMs={400}
+                    disabled={isDisabled}
+                    onConfirm={handler}
+                />,
+            );
+
+        // Re-enable, trigger async confirm, then disable while async promise is still in flight.
+        renderDeleteHold(false, onConfirm);
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 32 }));
+            vi.advanceTimersByTime(400);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.getAttribute("aria-busy")).toBe("true");
+
+        renderDeleteHold(true, onConfirm);
+        // Re-enable BEFORE the stale in-flight promise settles; settling afterward must stay idle,
+        // and no second concurrent confirmation may start until the first promise settles.
+        renderDeleteHold(false, onConfirm);
+        expect(btn.getAttribute("aria-busy")).toBeNull();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 39 }));
+            vi.advanceTimersByTime(500);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            resolveAsync?.();
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("idle");
+
+        // Synchronous flushSync disable inside onConfirm before returning a Promise stays aborted.
+        let resolveSyncDisabled: (() => void) | null = null;
+        const onSyncDisableConfirm = vi.fn(() => {
+            flushSync(() => {
+                root.render(
+                    <HoldButton
+                        ariaLabel="Delete branch"
+                        label="Delete branch"
+                        holdMs={400}
+                        disabled
+                        onConfirm={onSyncDisableConfirm}
+                    />,
+                );
+            });
+            return new Promise<void>((resolve) => {
+                resolveSyncDisabled = resolve;
+            });
+        });
+        renderDeleteHold(false, onSyncDisableConfirm);
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 33 }),
+            );
+            vi.advanceTimersByTime(400);
+        });
+        expect(onSyncDisableConfirm).toHaveBeenCalledTimes(1);
+        expect(btn.getAttribute("aria-busy")).toBeNull();
+        renderDeleteHold(false, onSyncDisableConfirm);
+        await act(async () => {
+            resolveSyncDisabled?.();
+            await Promise.resolve();
+        });
+        expect(btn.dataset.state).toBe("idle");
+    });
+
+    it("composes Radix TooltipTrigger Slot props without overwriting data-state and reports onStateChange", () => {
+        const prevResizeObserver = globalThis.ResizeObserver;
+        globalThis.ResizeObserver = class ResizeObserverStub {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        } as unknown as typeof ResizeObserver;
+        try {
+            const onConfirm = vi.fn();
+            const states: HoldButtonState[] = [];
+            render(
+                <Tooltip content="Hold to restore file" delayDuration={0}>
+                    <HoldButton
+                        ariaLabel="Restore file"
+                        label="Restore"
+                        armedLabel="Confirm"
+                        holdMs={500}
+                        onConfirm={onConfirm}
+                        onStateChange={(next) => states.push(next)}
+                    />
+                </Tooltip>,
+            );
+
+            const btn = getButton();
+            expect(btn.dataset.state).toBe("idle");
+
+            act(() => {
+                btn.focus();
+                vi.advanceTimersByTime(50);
+            });
+            expect(document.body.textContent).toContain("Hold to restore file");
+            expect(btn.dataset.state).toBe("idle");
+
+            act(() => {
+                btn.click();
+            });
+            expect(btn.dataset.state).toBe("armed");
+            expect(states).toEqual(["armed"]);
+
+            act(() => {
+                btn.click();
+            });
+            expect(onConfirm).toHaveBeenCalledTimes(1);
+            expect(btn.dataset.state).toBe("confirmed");
+            expect(states).toEqual(["armed", "confirmed"]);
+
+            // Runtime Slot-injected onClick never fires on initial arming click; only on confirm.
+            const slotOnClick = vi.fn();
+            const slottedElement = cloneElement(
+                <HoldButton
+                    ariaLabel="Delete tag"
+                    label="Delete"
+                    armedLabel="Confirm"
+                    holdMs={500}
+                    onConfirm={onConfirm}
+                /> as ReactElement<{ onClick?: () => void }>,
+                { onClick: slotOnClick },
+            );
+            render(slottedElement);
+            const slottedBtn = getButton();
+            act(() => {
+                slottedBtn.click();
+            });
+            expect(slottedBtn.dataset.state).toBe("armed");
+            expect(slotOnClick).not.toHaveBeenCalled();
+            act(() => {
+                slottedBtn.click();
+            });
+            expect(slottedBtn.dataset.state).toBe("confirmed");
+            expect(slotOnClick).toHaveBeenCalledTimes(1);
+        } finally {
+            globalThis.ResizeObserver = prevResizeObserver;
+        }
+    });
+
+    it("disarms unfocused pointer holds on document Escape, suppresses trailing click, and aborts on window blur or visibility hidden", () => {
+        const onConfirm = vi.fn();
+        render(
+            <HoldButton
+                ariaLabel="Discard changes"
+                label="Discard"
+                armedLabel="Confirm"
+                holdMs={600}
+                onConfirm={onConfirm}
+            />,
+        );
+
+        const outside = document.createElement("button");
+        container.append(outside);
+        outside.focus();
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            x: 10,
+            y: 10,
+            left: 10,
+            top: 10,
+            right: 90,
+            bottom: 40,
+            width: 80,
+            height: 30,
+            toJSON: () => ({}),
+        });
+
+        // Start a pointer hold without focusing the HoldButton (WKWebView/Safari behavior).
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 51,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(200);
+        });
+        expect(btn.dataset.state).toBe("holding");
+
+        // Pressing Escape on the unfocused document disarms immediately, and releasing the mouse inside does NOT arm.
+        act(() => {
+            outside.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
+        expect(btn.dataset.state).toBe("idle");
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 51,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Window blur mid-hold cancels before holdMs expires and suppresses release click.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 52,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            vi.advanceTimersByTime(250);
+            window.dispatchEvent(new Event("blur"));
+            vi.advanceTimersByTime(500);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 52,
+                    clientX: 40,
+                    clientY: 20,
+                }),
+            );
+            btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Document visibility hidden mid-hold also cancels cleanly without re-arming on release.
+        const visSpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        try {
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerdown", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 53,
+                        clientX: 40,
+                        clientY: 20,
+                    }),
+                );
+                document.dispatchEvent(new Event("visibilitychange"));
+                vi.advanceTimersByTime(700);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerup", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 53,
+                        clientX: 40,
+                        clientY: 20,
+                    }),
+                );
+                btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+                vi.advanceTimersByTime(600);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+        } finally {
+            visSpy.mockRestore();
+        }
+    });
+
+    it("stops touch/pen pointerdown propagation so ancestor ContextMenuTrigger does not open at 700ms", () => {
+        const onConfirm = vi.fn();
+        const onRowClick = vi.fn();
+        render(
+            <ContextMenu>
+                <ContextMenuTrigger asChild>
+                    <div onClick={onRowClick}>
+                        <HoldButton
+                            ariaLabel="Discard changes"
+                            label="Discard"
+                            holdMs={1200}
+                            onConfirm={onConfirm}
+                        />
+                    </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                    <ContextMenuItem>Reload Window</ContextMenuItem>
+                </ContextMenuContent>
+            </ContextMenu>,
+        );
+
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            right: 80,
+            bottom: 32,
+            width: 80,
+            height: 32,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        } as DOMRect);
+
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    pointerId: 41,
+                    pointerType: "touch",
+                    clientX: 30,
+                    clientY: 16,
+                }),
+            );
+            vi.advanceTimersByTime(800);
+        });
+        expect(document.body.textContent).not.toContain("Reload Window");
+        expect(btn.dataset.state).toBe("holding");
+
+        act(() => {
+            vi.advanceTimersByTime(450);
+        });
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(document.body.textContent).not.toContain("Reload Window");
+
+        act(() => {
+            btn.click();
+        });
+        expect(onRowClick).not.toHaveBeenCalled();
+
+        // Ordinary right-click while idle still bubbles to open the app context menu,
+        // whereas native touch-hold contextmenu during an active hold is suppressed.
+        const onAncestorContextMenu = vi.fn();
+        render(
+            <div onContextMenu={onAncestorContextMenu}>
+                <HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />
+            </div>,
+        );
+        const idleBtn = getButton();
+        const idleMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            idleBtn.dispatchEvent(idleMenuEvent);
+        });
+        expect(idleMenuEvent.defaultPrevented).toBe(false);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
+
+        const holdingMenuEvent = new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+        });
+        act(() => {
+            idleBtn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 42 }),
+            );
+            idleBtn.dispatchEvent(holdingMenuEvent);
+        });
+        expect(holdingMenuEvent.defaultPrevented).toBe(true);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets a right-click through during the confirmed feedback once the press is over", () => {
+        const onAncestorContextMenu = vi.fn();
+        render(
+            <div onContextMenu={onAncestorContextMenu}>
+                <HoldButton ariaLabel="Discard" label="Discard" holdMs={600} onConfirm={vi.fn()} />
+            </div>,
+        );
+        const btn = getButton();
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 7 }));
+            vi.advanceTimersByTime(600);
+        });
+        expect(btn.dataset.state).toBe("confirmed");
+
+        // Right after the hold, the click that ends the press is still guarded.
+        const guardedMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerId: 7 }));
+            btn.dispatchEvent(guardedMenuEvent);
+        });
+        expect(guardedMenuEvent.defaultPrevented).toBe(true);
+
+        // Once the guard clears, the success feedback is still showing but nothing is pressed.
+        act(() => {
+            vi.advanceTimersByTime(100);
+        });
+        expect(btn.dataset.state).toBe("confirmed");
+        const feedbackMenuEvent = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(feedbackMenuEvent);
+        });
+        expect(feedbackMenuEvent.defaultPrevented).toBe(false);
+        expect(onAncestorContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it(
+        "ignores Ctrl+Click and modified shortcuts while releasing active keyboard holds",
+        () => {
+        const onConfirm = vi.fn();
+        const onAncestorKeyDown = vi.fn();
+        const onAncestorKeyUp = vi.fn();
+        render(
+            <div onKeyDown={onAncestorKeyDown} onKeyUp={onAncestorKeyUp}>
+                <HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />
+            </div>,
+        );
+        const btn = getButton();
+
+        // macOS Ctrl+Click reports button === 0 && ctrlKey === true to open context menus.
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    button: 0,
+                    ctrlKey: true,
+                    pointerId: 51,
+                }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+        const ctrlContextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(ctrlContextMenu);
+        });
+        expect(ctrlContextMenu.defaultPrevented).toBe(false);
+
+        // Cmd+Enter / Ctrl+Enter while idle bubble cleanly without arming or starting a hold.
+        const cmdEnterDown = new KeyboardEvent("keydown", {
+            key: "Enter",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        const cmdEnterUp = new KeyboardEvent("keyup", {
+            key: "Enter",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+        });
+        act(() => {
+            btn.dispatchEvent(cmdEnterDown);
+            btn.dispatchEvent(cmdEnterUp);
+        });
+        expect(cmdEnterDown.defaultPrevented).toBe(false);
+        expect(cmdEnterUp.defaultPrevented).toBe(false);
+        expect(onAncestorKeyDown).toHaveBeenCalledTimes(1);
+        expect(onAncestorKeyUp).toHaveBeenCalledTimes(1);
+        expect(btn.dataset.state).toBe("idle");
+
+        // Pressing a modifier mid-hold still allows keyup to release the active keyboard hold.
+        act(() => {
+            btn.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+            vi.advanceTimersByTime(300);
+            btn.dispatchEvent(
+                new KeyboardEvent("keyup", { key: " ", ctrlKey: true, bubbles: true }),
+            );
+        });
+        expect(btn.dataset.state).toBe("idle");
+        expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("stops modified clicks without arming and suppresses Slot onContextMenu when holding", () => {
+        const onConfirm = vi.fn();
+        const onAncestorClick = vi.fn();
+        const onSlotContextMenu = vi.fn();
+        render(
+            <div onClick={onAncestorClick}>
+                <HoldButton
+                    ariaLabel="Discard"
+                    label="Discard"
+                    onConfirm={onConfirm}
+                    onContextMenu={onSlotContextMenu}
+                />
+            </div>,
+        );
+        const btn = getButton();
+
+        // Modified clicks (Ctrl+Click, Cmd+Enter, Alt+Enter) neither bubble nor arm.
+        for (const init of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+            act(() => {
+                btn.dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, cancelable: true, ...init }),
+                );
+            });
+            expect(btn.dataset.state).toBe("idle");
+        }
+        expect(onAncestorClick).not.toHaveBeenCalled();
+        expect(onConfirm).not.toHaveBeenCalled();
+
+        // Idle contextmenu invokes Slot-injected onContextMenu; active hold suppresses it first.
+        act(() => {
+            btn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        });
+        expect(onSlotContextMenu).toHaveBeenCalledTimes(1);
+
+        const heldContextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        act(() => {
+            btn.dispatchEvent(
+                new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 77 }),
+            );
+            btn.dispatchEvent(heldContextMenu);
+        });
+        expect(heldContextMenu.defaultPrevented).toBe(true);
+        expect(onSlotContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it("suppresses release click when disabled toggles mid-pointer-press and re-enables", () => {
+        const onConfirm = vi.fn();
+        render(<HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />);
+        const btn = getButton();
+        vi.spyOn(btn, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 32,
+            width: 100,
+            height: 32,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        for (const holdWhileDisabledMs of [0, 1000]) {
+            act(() => {
+                btn.dispatchEvent(
+                    new PointerEvent("pointerdown", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 88,
+                        clientX: 20,
+                        clientY: 16,
+                    }),
+                );
+            });
+            expect(btn.dataset.state).toBe("holding");
+
+            // Button disables during the press, optionally outlasting the 64ms click-guard fallback,
+            // then re-enables before the finger lifts.
+            render(
+                <HoldButton ariaLabel="Discard" label="Discard" disabled onConfirm={onConfirm} />,
+            );
+            expect(btn.dataset.state).toBe("idle");
+            if (holdWhileDisabledMs > 0) {
+                act(() => {
+                    vi.advanceTimersByTime(holdWhileDisabledMs);
+                });
+            }
+            render(<HoldButton ariaLabel="Discard" label="Discard" onConfirm={onConfirm} />);
+
+            act(() => {
+                document.dispatchEvent(
+                    new PointerEvent("pointerup", {
+                        bubbles: true,
+                        button: 0,
+                        pointerId: 88,
+                        clientX: 20,
+                        clientY: 16,
+                    }),
+                );
+                btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+                vi.advanceTimersByTime(600);
+            });
+            expect(btn.dataset.state).toBe("idle");
+            expect(onConfirm).not.toHaveBeenCalled();
+        }
+    });
 });
+

@@ -217,6 +217,7 @@ export default function PreviewPanel({
                 <Tooltip content="Back">
                     <Button
                         type="button"
+                        aria-label="Back"
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0 text-text-muted hover:text-text-primary"
@@ -232,6 +233,7 @@ export default function PreviewPanel({
                 <Tooltip content="Forward">
                     <Button
                         type="button"
+                        aria-label="Forward"
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0 text-text-muted hover:text-text-primary"
@@ -247,6 +249,7 @@ export default function PreviewPanel({
                 <Tooltip content="Reload">
                     <Button
                         type="button"
+                        aria-label="Reload"
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0 text-text-muted hover:text-text-primary"
@@ -310,6 +313,7 @@ export default function PreviewPanel({
                 <Tooltip content="Open in browser">
                     <Button
                         type="button"
+                        aria-label="Open in browser"
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0 text-text-muted hover:text-text-primary"

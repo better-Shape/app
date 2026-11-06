@@ -132,7 +132,7 @@ export function LocalTags() {
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3">
-                <FadeTruncate className="min-w-0 flex-1 text-sm font-regular" title="Tags">
+                <FadeTruncate className="min-w-0 flex-1 text-sm font-regular">
                     Tags
                 </FadeTruncate>
                 <Button

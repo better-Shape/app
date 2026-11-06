@@ -6,24 +6,51 @@ import { Icon, type IconGlyph } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 
-import { loadCustomEditorFont } from "@/lib/editor/custom-fonts";
+import { customFontLabel, loadCustomEditorFont } from "@/lib/editor/custom-fonts";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuCheckboxItem,
+    DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
 
 const InSettingCard = React.createContext(false);
 
 interface SettingRowLabels {
+    title?: string;
     titleId: string;
     descriptionId?: string;
 }
 
 const SettingRowLabelContext = React.createContext<SettingRowLabels | null>(null);
+
+/** Accessible label and description element IDs supplied by an enclosing `SettingRow`. */
+export const useSettingRowLabels = (): SettingRowLabels | null =>
+    React.useContext(SettingRowLabelContext);
+
+const resolveControlLabelledBy = (
+    explicitLabel: string | undefined,
+    explicitLabelId: string,
+    rowTitleId: string | undefined,
+    valueId: string,
+): string | undefined => {
+    if (explicitLabel) return `${explicitLabelId} ${valueId}`;
+    if (rowTitleId) return `${rowTitleId} ${valueId}`;
+    return undefined;
+};
+
+/** Field controls take the row title as their name unless the caller names them with `aria-label`. */
+const resolveFieldLabelledBy = (
+    explicitLabel: string | undefined,
+    rowTitleId: string | undefined,
+): string | undefined => (explicitLabel ? undefined : rowTitleId);
 
 const settingCardClass = "overflow-hidden squircle-[18px] bg-settings-card";
 
@@ -133,6 +160,7 @@ function SettingRowBody({
     );
 }
 
+/** Labelled settings row that provides accessible title and description IDs to child controls. */
 export function SettingRow({
     title,
     description,
@@ -151,8 +179,8 @@ export function SettingRow({
     const rawDescId = React.useId();
     const descriptionId = description ? rawDescId : undefined;
     const labels = React.useMemo(
-        () => ({ titleId, descriptionId }),
-        [titleId, descriptionId],
+        () => ({ title, titleId, descriptionId }),
+        [title, titleId, descriptionId],
     );
 
     if (stack) {
@@ -215,26 +243,42 @@ export function SettingActionRow({
     return inCard ? row : <div className={settingCardClass}>{row}</div>;
 }
 
+/** A command listed after a select's choices. Picking it runs `onSelect` and changes no value. */
+export type SettingSelectAction = { label: string; onSelect: () => void };
+
+/**
+ * Dropdown trigger that composes row or explicit labels with the active option text for AT. The
+ * choices are one radio group, so picking one closes the menu.
+ */
 export function SettingSelect<T extends string>({
     value,
     options,
     onChange,
+    displayLabel,
+    actions,
     className,
     disabled,
     "aria-label": ariaLabel,
 }: {
     value: T;
     options: { value: T; label: string }[];
-    onChange: (v: T) => void;
+    onChange: (selected: T) => void;
+    displayLabel?: string;
+    actions?: readonly SettingSelectAction[];
     className?: string;
     disabled?: boolean;
     "aria-label"?: string;
 }) {
-    const label = options.find((o) => o.value === value)?.label ?? value;
-    const rowLabels = React.useContext(SettingRowLabelContext);
+    const label = displayLabel ?? options.find((option) => option.value === value)?.label ?? value;
+    const rowLabels = useSettingRowLabels();
+    const explicitLabelId = React.useId();
     const valueId = React.useId();
-    const labelledBy =
-        !ariaLabel && rowLabels?.titleId ? `${rowLabels.titleId} ${valueId}` : undefined;
+    const labelledBy = resolveControlLabelledBy(
+        ariaLabel,
+        explicitLabelId,
+        rowLabels?.titleId,
+        valueId,
+    );
 
     return (
         <DropdownMenu>
@@ -243,30 +287,41 @@ export function SettingSelect<T extends string>({
                     variant="ghost"
                     size="sm"
                     disabled={disabled}
-                    aria-label={ariaLabel}
                     aria-labelledby={labelledBy}
                     aria-describedby={rowLabels?.descriptionId}
                     className={cn(SETTING_CONTROL_BTN, className)}
                 >
+                    {ariaLabel ? (
+                        <span id={explicitLabelId} className="sr-only">
+                            {ariaLabel}
+                        </span>
+                    ) : null}
                     <span id={valueId} className="truncate">{label}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[180px]">
-                {options.map((opt) => (
-                    <DropdownMenuCheckboxItem
-                        key={opt.value}
-                        checked={value === opt.value}
-                        onCheckedChange={() => onChange(opt.value)}
-                    >
-                        {opt.label}
-                    </DropdownMenuCheckboxItem>
+                <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
+                    {options.map((opt) => (
+                        <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                        </DropdownMenuRadioItem>
+                    ))}
+                </DropdownMenuRadioGroup>
+                {actions?.length ? <DropdownMenuSeparator /> : null}
+                {actions?.map((action) => (
+                    <DropdownMenuItem key={action.label} onSelect={action.onSelect}>
+                        {/* The checkmark column the choices have, so the action's label lines up with theirs. */}
+                        <span aria-hidden className="w-4 shrink-0" />
+                        {action.label}
+                    </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>
     );
 }
 
+/** Toggle switch that inherits accessible title and description IDs from `SettingRow`. */
 export function SettingSwitch({
     checked,
     onChange,
@@ -285,23 +340,59 @@ export function SettingSwitch({
             onCheckedChange={onChange}
             disabled={disabled}
             aria-label={ariaLabel}
-            aria-labelledby={!ariaLabel ? rowLabels?.titleId : undefined}
+            aria-labelledby={resolveFieldLabelledBy(ariaLabel, rowLabels?.titleId)}
             aria-describedby={rowLabels?.descriptionId}
             className="data-[state=checked]:bg-success data-[state=unchecked]:bg-white/20 [[data-theme=light]_&]:data-[state=unchecked]:bg-black/15"
         />
     );
 }
 
+/** Multiline settings field inheriting accessible title and description IDs from `SettingRow`. */
+export const SettingTextarea = React.forwardRef<
+    HTMLTextAreaElement,
+    React.ComponentPropsWithoutRef<typeof Textarea>
+>(
+    (
+        {
+            "aria-label": ariaLabel,
+            "aria-labelledby": ariaLabelledBy,
+            "aria-describedby": ariaDescribedBy,
+            ...props
+        },
+        ref,
+    ) => {
+        const rowLabels = useSettingRowLabels();
+        const resolvedLabelledBy = ariaLabelledBy ?? resolveFieldLabelledBy(ariaLabel, rowLabels?.titleId);
+        const resolvedDescribedBy = ariaDescribedBy ?? rowLabels?.descriptionId;
+        return (
+            <Textarea
+                ref={ref}
+                aria-label={ariaLabel}
+                aria-labelledby={resolvedLabelledBy}
+                aria-describedby={resolvedDescribedBy}
+                {...props}
+            />
+        );
+    },
+);
+
+SettingTextarea.displayName = "SettingTextarea";
+
+/** Numeric preset dropdown delegating accessible row labelling to `SettingSelect`. */
 export function SettingNumberSelect({
     value,
     options,
     onChange,
     formatLabel,
+    disabled,
+    "aria-label": ariaLabel,
 }: {
     value: number;
     options: number[];
     onChange: (v: number) => void;
     formatLabel?: (n: number) => string;
+    disabled?: boolean;
+    "aria-label"?: string;
 }) {
     const fmt = formatLabel ?? ((n: number) => String(n));
     const allValues = options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
@@ -311,6 +402,8 @@ export function SettingNumberSelect({
         <SettingSelect
             value={String(value)}
             options={selectOptions}
+            disabled={disabled}
+            aria-label={ariaLabel}
             onChange={(v) => onChange(Number(v))}
         />
     );
@@ -350,31 +443,62 @@ export const COMMON_EXCLUDE_PATTERNS = [
     { pattern: "**/coverage", label: "coverage" },
 ] as const;
 
-const CUSTOM_FONT_VALUE = "__custom__";
+type FontChoice = { value: string; label: string };
 
+/**
+ * What an empty value shows. A setting that inherits another one shows its inherited choice, which
+ * the menu lists first; any other empty value shows the first preset, which is the default font.
+ */
+const emptyFontChoice = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice =>
+    emptyLabel ? { value: "", label: emptyLabel } : (presets.at(0) ?? { value: "", label: "Default" });
+
+/** The choices: the inherited one when there is one, so it can be picked again, then the presets. */
+const fontOptions = (presets: readonly FontChoice[], emptyLabel?: string): FontChoice[] => [
+    ...(emptyLabel ? [{ value: "", label: emptyLabel }] : []),
+    ...presets,
+];
+
+/** The value the menu checks. A custom font matches no choice, so nothing is checked. */
+const resolveFontSelectValue = (value: string, empty: FontChoice): string => (value.trim() ? value : empty.value);
+
+const resolveFontSelectDisplayLabel = (value: string, isCustom: boolean, empty: FontChoice): string | undefined => {
+    if (isCustom) return customFontLabel(value);
+    return value.trim() ? undefined : empty.label;
+};
+
+/** Preset font selector with custom `.ttf`/`.otf`/`.woff`/`.woff2` upload support. */
 export function FontFamilySelect({
     value,
     presets,
     onChange,
+    uploadSlot,
+    emptyLabel,
+    "aria-label": ariaLabel,
 }: {
     value: string;
-    presets: readonly { value: string; label: string }[];
+    presets: readonly FontChoice[];
     onChange: (v: string) => void;
+    /** Where an uploaded font is kept between sessions, such as "terminal". A new upload replaces it. */
+    uploadSlot: string;
+    /**
+     * The choice an empty value stands for when the setting inherits another one, such as "Same as
+     * editor". The menu offers it first. Without it, an empty value shows the first preset.
+     */
+    emptyLabel?: string;
+    "aria-label"?: string;
 }) {
     const presetValues = presets.map((p) => p.value);
-    const isCustom = !presetValues.includes(value);
-    const selectValue = isCustom ? CUSTOM_FONT_VALUE : value;
+    const isCustom = value.trim().length > 0 && !presetValues.includes(value);
+    const empty = emptyFontChoice(presets, emptyLabel);
+    const selectValue = resolveFontSelectValue(value, empty);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const options = [
-        ...presets.map((p) => ({ value: p.value, label: p.label })),
-        { value: CUSTOM_FONT_VALUE, label: "Upload Font…" },
-    ];
+    const options = fontOptions(presets, emptyLabel);
 
     const handleFontFile = async (file: File | undefined) => {
         if (!file) return;
         try {
-            const family = await loadCustomEditorFont(file);
+            const family = await loadCustomEditorFont(file, uploadSlot);
             onChange(family);
         } catch (err) {
             console.error("Failed to load custom font:", err);
@@ -382,21 +506,19 @@ export function FontFamilySelect({
     };
 
     return (
-        <div className="flex flex-col items-start gap-2">
+        <>
             <SettingSelect
                 value={selectValue}
+                displayLabel={resolveFontSelectDisplayLabel(value, isCustom, empty)}
+                aria-label={ariaLabel}
                 options={options}
-                onChange={(v) => {
-                    if (v === CUSTOM_FONT_VALUE) {
-                        fileInputRef.current?.click();
-                    } else {
-                        onChange(v);
-                    }
-                }}
+                onChange={onChange}
+                actions={[{ label: "Upload font...", onSelect: () => fileInputRef.current?.click() }]}
             />
             <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Upload custom font file"
                 accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
                 className="hidden"
                 onChange={(e) => {
@@ -404,44 +526,49 @@ export function FontFamilySelect({
                     e.target.value = "";
                 }}
             />
-            {isCustom && (
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-text-muted truncate max-w-[180px]">{value}</span>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => fileInputRef.current?.click()}
-                    >
-                        Change
-                    </Button>
-                </div>
-            )}
-        </div>
+        </>
     );
 }
 
+const formatMultiSelectSummary = (
+    selectedLabels: readonly string[],
+    placeholder: string,
+): string => {
+    if (selectedLabels.length === 0) return placeholder;
+    if (selectedLabels.length <= 2) return selectedLabels.join(", ");
+    return `${selectedLabels.length} selected`;
+};
+
+/** Multi-choice dropdown that binds enclosing row labels and summarizes active selections. */
 export function SettingMultiSelect({
     value,
     options,
     onChange,
     placeholder = "None selected",
     className,
+    "aria-label": ariaLabel,
 }: {
     value: string[];
     options: { value: string; label: string }[];
     onChange: (values: string[]) => void;
     placeholder?: string;
     className?: string;
+    "aria-label"?: string;
 }) {
     const active = new Set(value);
-    const selectedLabels = options.filter((o) => active.has(o.value)).map((o) => o.label);
-    const summary =
-        selectedLabels.length === 0
-            ? placeholder
-            : selectedLabels.length <= 2
-              ? selectedLabels.join(", ")
-              : `${selectedLabels.length} selected`;
+    const selectedLabels = options
+        .filter((option) => active.has(option.value))
+        .map((option) => option.label);
+    const summary = formatMultiSelectSummary(selectedLabels, placeholder);
+    const rowLabels = useSettingRowLabels();
+    const explicitLabelId = React.useId();
+    const summaryId = React.useId();
+    const labelledBy = resolveControlLabelledBy(
+        ariaLabel,
+        explicitLabelId,
+        rowLabels?.titleId,
+        summaryId,
+    );
 
     return (
         <DropdownMenu>
@@ -449,9 +576,16 @@ export function SettingMultiSelect({
                 <Button
                     variant="secondary"
                     size="sm"
+                    aria-labelledby={labelledBy}
+                    aria-describedby={rowLabels?.descriptionId}
                     className={cn("h-8 min-w-[200px] max-w-[280px] justify-between gap-2 border border-border bg-panel-hover px-3 font-normal text-text-primary hover:bg-white/12 [[data-theme=light]_&]:bg-black/6 [[data-theme=light]_&]:hover:bg-black/10", className)}
                 >
-                    <span className="truncate">{summary}</span>
+                    {ariaLabel ? (
+                        <span id={explicitLabelId} className="sr-only">
+                            {ariaLabel}
+                        </span>
+                    ) : null}
+                    <span id={summaryId} className="truncate">{summary}</span>
                     <Icon icon={ChevronDown20Regular} className="shrink-0 text-text-muted" />
                 </Button>
             </DropdownMenuTrigger>
@@ -475,24 +609,109 @@ export function SettingMultiSelect({
     );
 }
 
+const CUSTOM_EXCLUDE_PATTERNS_KEY = "bettershape-custom-exclude-patterns";
+
+const parseExcludePatterns = (value: string): string[] => {
+    const seen = new Set<string>();
+    const patterns: string[] = [];
+    for (const raw of value.split(",")) {
+        const pattern = raw.trim();
+        if (pattern && !seen.has(pattern)) {
+            seen.add(pattern);
+            patterns.push(pattern);
+        }
+    }
+    return patterns;
+};
+
+const collectMissingCustomPatterns = (
+    candidates: readonly string[],
+    remembered: readonly string[],
+): string[] => {
+    const seen = new Set<string>([
+        ...COMMON_EXCLUDE_PATTERNS.map((entry) => entry.pattern),
+        ...remembered,
+    ]);
+    const added: string[] = [];
+    for (const raw of candidates) {
+        const pattern = raw.trim();
+        if (!pattern || seen.has(pattern)) continue;
+        seen.add(pattern);
+        added.push(pattern);
+    }
+    return added;
+};
+
+const parseJsonArray = (raw: string | null): unknown[] => {
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+};
+
+const readStoredExcludeArray = (): unknown[] => {
+    if (typeof window === "undefined") return [];
+    try {
+        return parseJsonArray(window.localStorage.getItem(CUSTOM_EXCLUDE_PATTERNS_KEY));
+    } catch {
+        return [];
+    }
+};
+
+const loadInitialCustomPatterns = (active: readonly string[]): string[] => {
+    const stored = collectMissingCustomPatterns(
+        readStoredExcludeArray().filter((item): item is string => typeof item === "string"),
+        [],
+    );
+    return [...stored, ...collectMissingCustomPatterns(active, stored)];
+};
+
+const writeStoredCustomExcludePatterns = (patterns: readonly string[]): void => {
+    if (typeof window === "undefined" || patterns.length === 0) return;
+    try {
+        window.localStorage.setItem(CUSTOM_EXCLUDE_PATTERNS_KEY, JSON.stringify(patterns));
+    } catch {
+        // Storage quota or private-mode rejection is non-fatal; in-memory state still works.
+    }
+};
+
+const buildExcludeOptions = (customPatterns: readonly string[]) => {
+    const presets = COMMON_EXCLUDE_PATTERNS.map((entry) => ({
+        value: entry.pattern,
+        label: entry.label,
+    }));
+    const custom = customPatterns.map((pattern) => ({ value: pattern, label: pattern }));
+    return [...presets, ...custom];
+};
+
+/** Multi-select dropdown for workspace search exclude globs, preserving custom entries. */
 export function ExcludePatternsSelect({
     value,
     onChange,
+    "aria-label": ariaLabel,
 }: {
     value: string;
-    onChange: (v: string) => void;
+    onChange: (nextValue: string) => void;
+    "aria-label"?: string;
 }) {
-    const known = new Set<string>(COMMON_EXCLUDE_PATTERNS.map((c) => c.pattern));
-    const active = value
-        .split(",")
-        .map((s) => s.trim())
-        .filter((p) => p && known.has(p));
+    const active = parseExcludePatterns(value);
+    const [customPatterns, setCustomPatterns] = React.useState<string[]>(() =>
+        loadInitialCustomPatterns(active),
+    );
+    const missingCustom = collectMissingCustomPatterns(active, customPatterns);
+    const allCustom =
+        missingCustom.length > 0 ? [...customPatterns, ...missingCustom] : customPatterns;
+    if (missingCustom.length > 0) setCustomPatterns(allCustom);
+
+    React.useLayoutEffect(() => {
+        writeStoredCustomExcludePatterns(customPatterns);
+    }, [customPatterns]);
 
     return (
         <SettingMultiSelect
             value={active}
             placeholder="None excluded"
-            options={COMMON_EXCLUDE_PATTERNS.map((c) => ({ value: c.pattern, label: c.label }))}
+            aria-label={ariaLabel}
+            options={buildExcludeOptions(allCustom)}
             onChange={(next) => onChange(next.join(","))}
         />
     );

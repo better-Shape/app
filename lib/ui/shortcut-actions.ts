@@ -1,6 +1,7 @@
 import { commands } from "@/lib/backend/commands";
 import { requestWorkspaceTab } from "@/lib/window/workspace-intent";
 import { requestTerminalCommand } from "@/features/terminal/commands";
+import { TAB_FOCUS_TOGGLE_LABEL, toggleTabMovesFocus } from "@/features/terminal/tab-focus-mode";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 
 /** `mode` used to be ignored, so Find in Files and Replace in Files both opened the
@@ -72,6 +73,9 @@ export function dispatchShortcutAction(label: string, _key: string): boolean {
             return true;
         case "New Terminal":
             requestTerminalCommand("new");
+            return true;
+        case TAB_FOCUS_TOGGLE_LABEL:
+            toggleTabMovesFocus();
             return true;
         case "Settings":
             void import("@/lib/window/open-settings").then(({ openSettingsWindow }) => openSettingsWindow());

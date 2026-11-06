@@ -596,4 +596,20 @@ mod tests {
         assert!(assert_ipc_path_allowed(&os).is_err());
         let _ = std::fs::remove_dir_all(&b);
     }
+
+    #[test]
+    fn test_ipc_paths_refuse_parent_segments() {
+        // tests/helpers/skill-fs.ts mirrors this refusal for the skill file commands.
+        for path in [
+            "/project/../project/file",
+            "/project/src/..",
+            "../project/file",
+        ] {
+            assert!(
+                assert_ipc_sensitive_only(path).is_err(),
+                "{path} was allowed"
+            );
+        }
+        assert!(assert_ipc_sensitive_only("/project/notes..md").is_ok());
+    }
 }

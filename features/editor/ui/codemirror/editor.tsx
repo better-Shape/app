@@ -68,7 +68,7 @@ import { normalizeEditorAction } from "@/lib/editor/action-contract";
 import { claimEditorSurface, createSurfaceOwner, releaseEditorSurface } from "@/lib/editor/editor-surface";
 import { betterShapeSyntaxLinter } from "./syntax-lint";
 import { BETTERSHAPE_CLIP_CODE, rememberBetterShapeClip } from "@/features/chat/lib/bettershape-clip";
-import { betterShapeEditorChrome } from "./theme";
+import { betterShapeEditorChrome, editorContentLabel } from "./theme";
 import { lintGutter } from "@codemirror/lint";
 import { inlineBlame } from "./inline-blame";
 
@@ -284,6 +284,7 @@ export function CodeMirrorEditor({
             doc: content.replace(/\r\n/g, "\n"),
             extensions: [
                 ...betterShapeEditorChrome(),
+                editorContentLabel(() => pathRef.current),
                 search({ top: false }),
                 lineNumbers(),
                 highlightSpecialChars(),

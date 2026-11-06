@@ -170,10 +170,7 @@ export function ReleasesPage() {
         <div className="workbench-panel flex h-full min-h-0 flex-col overflow-hidden">
             <div className="flex h-9 shrink-0 items-center gap-2 px-3">
                 <Icon icon={Tag20Regular} className="shrink-0 text-text-muted" />
-                <FadeTruncate
-                    className="min-w-0 flex-1 text-sm font-medium"
-                    title={owner && repoName ? `Releases · ${owner}/${repoName}` : "Releases"}
-                >
+                <FadeTruncate className="min-w-0 flex-1 text-sm font-medium">
                     Releases
                     {owner && repoName ? (
                         <span className="font-normal text-text-muted">

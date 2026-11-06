@@ -122,7 +122,11 @@ const withStableAttachmentKeys = (attachments: ParsedUserAttachment[]) => {
     });
 };
 
-/** Renders the MentionRichText UI component. */
+/**
+ * A sent message's text with its mentions, workflow commands, code spans and file paths drawn as
+ * chips. Each of those carries `dir="ltr"`, so the message's automatic direction comes from its
+ * prose rather than from a leading token.
+ */
 const MentionRichText = ({ text }: { text: string }) => {
     const workflows = useSettings().ai.workflows ?? [];
     const mentionRs = mentionRanges(text);
@@ -161,6 +165,7 @@ const MentionRichText = ({ text }: { text: string }) => {
                 out.push(
                     <code
                         key={`${keyPrefix}-c-${m.index}`}
+                        dir="ltr"
                         className="rounded bg-panel px-1 py-0.5 font-mono text-[0.9em] text-accent-text"
                     >
                         {inner}
@@ -173,6 +178,7 @@ const MentionRichText = ({ text }: { text: string }) => {
                     <Tooltip key={`${keyPrefix}-p-${m.index}`} content={path}>
                         <button
                             type="button"
+                            dir="ltr"
                             data-chat-find-text
                             data-quote-allow=""
                             onClick={() => { openProjectFile(path, name).catch(() => undefined); }}
@@ -567,7 +573,7 @@ const ChatMessageItemInner = ({
                                                     icon={TextQuote20Regular}
                                                     className="mt-0.5 size-3.5 shrink-0 text-text-muted"
                                                 />
-                                                <span className="min-w-0 flex-1 break-words line-clamp-6">
+                                                <span dir="auto" className="min-w-0 flex-1 break-words line-clamp-6">
                                                     {qText}
                                                 </span>
                                             </blockquote>
@@ -576,7 +582,7 @@ const ChatMessageItemInner = ({
                                     </div>
                                 ) : null}
                                 {displayText || userQuotes.length === 0 ? (
-                                    <div className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
+                                    <div dir="auto" className={cn(isLong && !expanded && "chat-message-fade-clamp")}>
                                         <MentionRichText text={displayText} />
                                     </div>
                                 ) : null}

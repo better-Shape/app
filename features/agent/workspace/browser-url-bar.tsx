@@ -66,7 +66,7 @@ const SuggestionGlyph = ({ item }: { item: Suggestion }) => {
     if (item.kind === "go") {
         return <Icon icon={Globe20Regular} className="shrink-0 text-text-muted" />;
     }
-    return <Favicon url={item.url} size={14} />;
+    return <Favicon size={14} />;
 };
 
 /** The text of a row, which differs by kind: a phrase, a URL, or a name over a URL. */

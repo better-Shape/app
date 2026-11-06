@@ -24,6 +24,7 @@ import {
 } from "@/lib/mcp/registry";
 import type { McpServerConfig } from "@/lib/settings";
 import { mcpServerBrandCandidates } from "@/lib/plugins/logos";
+import { usePluginMarks } from "@/lib/plugins/use-plugin-marks";
 import { cn } from "@/lib/utils";
 import {
     AlertDialog,
@@ -47,8 +48,9 @@ function statusLabel(status: McpStatusEntry["status"] | undefined): string {
 }
 
 function ServerMark({ name, url }: { name: string; url?: string }) {
+    const marks = usePluginMarks();
     const [failedAt, setFailedAt] = useState(0);
-    const candidates = mcpServerBrandCandidates(name, url, true);
+    const candidates = mcpServerBrandCandidates(name, url, true, marks);
     const src = candidates[Math.min(failedAt, candidates.length - 1)] ?? "/integrations/logos/mcp.svg";
     return (
         // eslint-disable-next-line @next/next/no-img-element
@@ -92,6 +94,7 @@ function ServerCard({
     );
 }
 
+/** Modal dialog for registering a local command or remote HTTP MCP server. */
 function AddMcpDialog({
     open,
     onClose,
@@ -186,6 +189,7 @@ function AddMcpDialog({
                     <div className={cn("flex flex-col gap-3", mode === "registry" && "hidden")}>
                         <Textarea
                             value={paste}
+                            aria-label="MCP server URL or JSON configuration"
                             onChange={(event) => setPaste(event.target.value)}
                             placeholder={'https://example.com/mcp\n\nor\n\n{ "url": "https://example.com/mcp" }'}
                             className="min-h-32 font-mono text-sm"

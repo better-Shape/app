@@ -87,7 +87,8 @@
   --accent-hover: #4365FF;
   --action-label: #ffffff;
   --brand: var(--accent);
-  --focus: var(--accent);
+  /* Focus indicators use --accent-text; --accent measures 2.29:1 to 2.95:1 on the surfaces, below WCAG 1.4.11's 3:1. */
+  --focus: var(--accent-text);
   --accent-fg: var(--action-label);
   --border-focus: var(--focus);
   /* Readable on dark surfaces, never use --accent (too deep) as body text */
@@ -169,6 +170,7 @@
   --icon-md: 16px;
   --icon-lg: 20px;
 
+  --target-size-min: 24px;
   --chrome-height: 30px;
   --titlebar-height: 34px;
   --statusbar-height: 33px;
@@ -294,7 +296,6 @@
   --color-chrome: var(--chrome);
   --color-sidebar: var(--sidebar);
   --color-editor: var(--editor);
-  --color-base: var(--base);
   --color-brand: var(--brand);
   --color-focus: var(--focus);
   --color-warn: var(--warn);
@@ -320,7 +321,7 @@
   --color-border-subtle: var(--border-subtle);
   --color-border-secondary: var(--border-secondary);
   --color-border-focus: var(--border-focus);
-  --color-border-focus-ring: var(--accent);
+  --color-border-focus-ring: var(--focus);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -383,6 +384,7 @@
   /* Do NOT map --spacing-xs/sm/md/lg/xl, that hijacks Tailwind max-w-* to 4–24px.
      Use @utility px-sm / py-xs / etc. below instead. */
 
+  --spacing-target-min: var(--target-size-min);
   --spacing-chrome: var(--chrome-height);
   --spacing-titlebar: var(--titlebar-height);
   --spacing-statusbar: var(--statusbar-height);
@@ -677,11 +679,24 @@ body {
   border: none !important;
 }
 
-button:focus,
-button:focus-visible,
-[role="button"]:focus,
-[role="button"]:focus-visible {
-  outline: none;
+/* Keyboard focus on a button draws a 2px ring inside its edge, so a parent that clips overflow
+   cannot cut it off. A pointer press does not match :focus-visible, so a click draws nothing.
+   The rules sit in the base layer, so a control that styles its own focus with utilities keeps
+   that style. The ring is --accent-text because --focus measures 2.87:1 against --surface-2,
+   below the 3:1 a focus indicator needs. A control filled with --accent or --danger draws it in
+   its label colour with focus-visible:outline-current, since --accent-text measures 2.9:1 and
+   1.9:1 on those fills (components/ui/button.tsx). */
+@layer base {
+  button:focus:not(:focus-visible),
+  [role="button"]:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--accent-text);
+    outline-offset: -2px;
+  }
 }
 
 /* Kill Monaco's inherited vs-dark blue focus outline */
@@ -881,7 +896,8 @@ body[data-resizing] .xterm {
 .prose-compact ol {
   margin-top: 0.7em;
   margin-bottom: 0.7em;
-  padding-left: 1.35em;
+  /* The marker gutter sits on the start side, so right-to-left markers are not clipped. */
+  padding-inline-start: 1.35em;
 }
 
 .prose-compact li {

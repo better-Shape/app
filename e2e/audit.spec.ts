@@ -22,8 +22,9 @@ const a11yBaseline = JSON.parse(
 /**
  * @audit, the agent QA crawl. For every route: load it, scan it with axe
  * (WCAG 2.x AA, checked against e2e/a11y-baseline.json), screenshot it, and inventory
- * console errors, page errors, and IPC usage (including commands the
- * fixture does not mock yet). Produces `browser-audit.json` + one PNG per
+ * console errors, page errors, and IPC usage. A command the preview fixture does not
+ * model fails the route: extend lib/preview/tauri-mock.ts with backend-parity behaviour
+ * rather than letting the call fail silently. Produces `browser-audit.json` + one PNG per
  * route in the test artifacts, so an agent can review UI state from a CI
  * run without opening a browser.
  *
@@ -52,6 +53,10 @@ test.describe("@audit route crawl", () => {
         // manager plays a ~1.65s intro). Wait for route content, not
         // just transport silence, so axe and the screenshot see the
         // real UI instead of a splash.
+        if (route.name === "workbench") {
+            await expect(page.locator("[data-openui-block]")).toBeVisible({ timeout: 30_000 });
+            await waitForIpcQuiet(page);
+        }
         if (route.name === "git" || route.name === "branch") {
             const seeded = route.name === "branch" ? "preview/browser-qa" : "preview: seeded commit history";
             await expect(page.getByText(seeded).first()).toBeVisible({ timeout: 30_000 });
@@ -65,6 +70,7 @@ test.describe("@audit route crawl", () => {
         // Record first, assert second: a baseline failure must not omit
         // the failing route and its violations from the audit JSON.
         audits.push({
+            name: route.name,
             route: route.path,
             title: await page.title(),
             axeViolations: violations.map((v) => ({
@@ -92,19 +98,21 @@ test.describe("@audit route crawl", () => {
         // left is an app defect such as a failing chunk or a handled
         // console.error on mount.
         expect(consoleErrors, `${route.name}: console errors`).toEqual([]);
+        expect(ipc.unknown, `${route.name}: IPC commands without a preview model`).toEqual([]);
     };
 
-    for (const route of ROUTES.filter((r) => r.name !== "git" && r.name !== "branch")) {
+    const projectSeeded = new Set(["workbench", "git", "branch"]);
+    for (const route of ROUTES.filter((r) => !projectSeeded.has(r.name))) {
         test(`audit ${route.name} (${route.path})`, async ({ page, seedMode, pageErrors, consoleErrors }, testInfo) => {
             await auditRoute(route, { page, seedMode, pageErrors, consoleErrors }, testInfo);
         });
     }
 
-    // The Git windows need the seeded repo open; the welcome seed leaves
-    // them on an empty state that is not worth auditing.
+    // The workbench and the Git windows need the seeded repo open; the welcome
+    // seed leaves them on an empty state that is not worth auditing.
     test.describe("seeded repo routes", () => {
         test.use({ seedMode: "project" });
-        for (const route of ROUTES.filter((r) => r.name === "git" || r.name === "branch")) {
+        for (const route of ROUTES.filter((r) => projectSeeded.has(r.name))) {
             test(`audit ${route.name} (${route.path})`, async ({ page, seedMode, pageErrors, consoleErrors }, testInfo) => {
                 await auditRoute(route, { page, seedMode, pageErrors, consoleErrors }, testInfo);
             });

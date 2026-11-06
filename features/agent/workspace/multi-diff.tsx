@@ -24,21 +24,24 @@ import { ALL_CHANGES_FOCUS_EVENT, ALL_CHANGES_FOCUS_KEY, openAllChangesTab } fro
 
 export { openAllChangesTab };
 
+/** Extracts the trailing file name from a slash- or backslash-delimited path. */
 function fileName(path: string) {
     return path.split(/[\\/]/).pop() || path;
 }
 
+/** Extracts the parent directory portion of a relative path. */
 function fileDir(path: string) {
-    const parts = path.replace(/\\/g, "/").split("/");
+    const parts = path.replaceAll("\\", "/").split("/");
     if (parts.length <= 1) return "";
     return parts.slice(0, -1).join("/");
 }
 
+/** Loads original (`HEAD`) and current working-tree text for a changed file. */
 async function loadSides(
     repo: string,
     file: GitFileParams,
 ): Promise<{ original: string; current: string }> {
-    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+    const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replaceAll("\\", "/")}`;
     let current = "";
     try {
         current = await commands.readFile(abs);
@@ -79,11 +82,16 @@ function LazyFileDiff({
     const hostRef = useRef<HTMLDivElement>(null);
     const [visible, setVisible] = useState(focused);
     const [hover, setHover] = useState(false);
+    const [focusWithin, setFocusWithin] = useState(false);
+    const [holdActive, setHoldActive] = useState(false);
     const key = `${file.staged ? "s" : "u"}:${file.path}`;
-    const [diff, setDiff] = useScopedState<FileDiff | null>([visible, repo, key, revision], () => visible && repo ? { file, original: "", current: "", loading: true } : null);
+    const [diff, setDiff] = useScopedState<FileDiff | null>(
+        [visible, repo, key, revision],
+        () => (visible && repo ? { file, original: "", current: "", loading: true } : null),
+    );
     const dir = fileDir(file.path);
     const name = fileName(file.path);
-    const domId = `md-file-${file.path.replace(/[\\/]/g, "-")}`;
+    const domId = `md-file-${file.path.replaceAll("\\", "-").replaceAll("/", "-")}`;
 
     if (focused && !visible) setVisible(true);
 
@@ -106,10 +114,12 @@ function LazyFileDiff({
     useEffect(() => {
         if (!visible || !repo) return;
         let cancelled = false;
-        void loadSides(repo, file).then((sides) => {
-            if (cancelled) return;
-            setDiff({ file, ...sides, loading: false });
-        });
+        loadSides(repo, file)
+            .then((sides) => {
+                if (cancelled) return;
+                setDiff({ file, ...sides, loading: false });
+            })
+            .catch(() => undefined);
         return () => {
             cancelled = true;
         };
@@ -135,8 +145,16 @@ function LazyFileDiff({
         });
 
     const openFile = async () => {
-        const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replace(/\\/g, "/")}`;
+        const abs = `${repo.replace(/(?<![\\/])[\\/]+$/, "")}/${file.path.replaceAll("\\", "/")}`;
         await openProjectFile(abs, name);
+    };
+
+    const showOverlay = hover || focusWithin || holdActive;
+
+    const handleSectionBlurCapture = (event: React.FocusEvent<HTMLElement>) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+        setFocusWithin(false);
     };
 
     return (
@@ -146,6 +164,8 @@ function LazyFileDiff({
             role="presentation"
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
+            onFocusCapture={() => setFocusWithin(true)}
+            onBlurCapture={handleSectionBlurCapture}
         >
             <div className="sticky top-1 z-[1] flex h-9 items-center gap-2 bg-panel pl-3 border-b border-border">
                 <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border-subtle">
@@ -165,13 +185,17 @@ function LazyFileDiff({
                     type="button"
                     variant="ghost"
                     size="xs"
-                    onClick={() => void toggleStage()}
+                    onClick={() => {
+                        toggleStage().catch(() => undefined);
+                    }}
                 >
                     {file.staged ? "Unstage" : "Stage"}
                 </Button>
                 <Button
                     type="button"
-                    onClick={() => void openFile()}
+                    onClick={() => {
+                        openFile().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                     title="Open File"
@@ -189,13 +213,18 @@ function LazyFileDiff({
             </div>
 
             <div className="relative min-h-[120px] max-h-[420px]">
-                {hover ? (
-                    <div className="absolute right-3 top-2 z-[2] flex gap-1">
+                {/* The actions float over the diff text, which takes keyboard focus and so
+                    is a pointer target of its own: each keeps the 24px floor rather than
+                    relying on the space around it. */}
+                {showOverlay ? (
+                    <div data-diff-actions className="absolute right-3 top-2 z-[2] flex gap-1">
                         <Button
                             type="button"
-                            onClick={() => void toggleStage()}
+                            onClick={() => {
+                                toggleStage().catch(() => undefined);
+                            }}
                             variant="ghost"
-                            className="bg-surface-4"
+                            className="bg-surface-4 min-h-target-min"
                             size="xs"
                         >
                             {file.staged ? "Unstage" : "Stage"}
@@ -203,10 +232,11 @@ function LazyFileDiff({
                         <HoldButton
                             size="xs"
                             onConfirm={() => discard()}
+                            onStateChange={(next) => setHoldActive(next !== "idle")}
                             ariaLabel="Restore file"
                             label="Restore"
                             armedLabel="Confirm"
-                            className="bg-surface-4 text-text-primary"
+                            className="bg-surface-4 text-text-primary min-h-target-min"
                         />
                     </div>
                 ) : null}
@@ -233,6 +263,47 @@ function LazyFileDiff({
 /** Shared empty list, so a pending project does not churn dependent memos. */
 const EMPTY_FILES: GitFileParams[] = [];
 
+const EMPTY_STATE_CLASS =
+    "flex flex-1 flex-col items-center justify-center gap-2 px-6 text-sm text-text-muted";
+
+/** Renders the loading, error-with-retry, or clean-tree empty state for `MultiDiffEditor`. */
+function MultiDiffEmptyState({
+    loading,
+    error,
+    busy,
+    onRetry,
+}: {
+    loading: boolean;
+    error: string | null;
+    busy: boolean;
+    onRetry: () => void;
+}) {
+    if (loading) {
+        return <div className={EMPTY_STATE_CLASS}>Loading...</div>;
+    }
+    if (error) {
+        return (
+            <div className={EMPTY_STATE_CLASS}>
+                <span className="text-text-primary">Could not read changes</span>
+                <span className="max-w-[420px] text-center text-xs" title={error}>
+                    {error}
+                </span>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    onClick={onRetry}
+                >
+                    Retry
+                </Button>
+            </div>
+        );
+    }
+    return <div className={EMPTY_STATE_CLASS}>No local changes</div>;
+}
+
+/** Renders a scrollable stacked diff view across all modified repository files. */
 export function MultiDiffEditor({
     projectPath,
     focusPath,
@@ -267,14 +338,16 @@ export function MultiDiffEditor({
     const requestRef = useRef(0);
     const refresh = useCallback(() => {
         const request = ++requestRef.current;
-        return discoverGitRepos(projectPath).then(async repos => {
-            const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
-            const list = await commands.gitStatus(path);
-            if (request !== requestRef.current) return;
-            setLoaded({ project: projectPath, repo: path, files: list, error: null });
-            setRevision((count) => count + 1);
-        }).catch((err) => {
-            if (request === requestRef.current) {
+        return discoverGitRepos(projectPath)
+            .then(async (repos) => {
+                const path = pickDefaultRepo(projectPath, repos) ?? projectPath;
+                const list = await commands.gitStatus(path);
+                if (request !== requestRef.current) return;
+                setLoaded({ project: projectPath, repo: path, files: list, error: null });
+                setRevision((count) => count + 1);
+            })
+            .catch((err) => {
+                if (request !== requestRef.current) return;
                 // Settle the request so the view leaves "Loading...", keeping the
                 // reason: discovery or status can fail for reasons a retry fixes.
                 setLoaded({
@@ -284,20 +357,21 @@ export function MultiDiffEditor({
                     error: err instanceof Error ? err.message : String(err),
                 });
                 setRevision((count) => count + 1);
-            }
-        });
+            });
     }, [projectPath]);
 
     useEffect(() => {
-        void refresh();
-        const on = () => void refresh();
+        refresh().catch(() => undefined);
+        const on = () => {
+            refresh().catch(() => undefined);
+        };
         window.addEventListener("bettershape-git-refresh", on);
         return () => window.removeEventListener("bettershape-git-refresh", on);
     }, [refresh]);
 
     useEffect(() => {
         if (!focusPath) return;
-        const id = `md-file-${focusPath.replace(/[\\/]/g, "-")}`;
+        const id = `md-file-${focusPath.replaceAll("\\", "-").replaceAll("/", "-")}`;
         requestAnimationFrame(() => {
             document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
@@ -357,6 +431,8 @@ export function MultiDiffEditor({
         return [...unstaged, ...staged];
     }, [files]);
 
+    const normalizedFocusPath = focusPath ? focusPath.replaceAll("\\", "/") : null;
+
     return (
         <div className="flex h-full min-h-0 flex-col bg-panel">
             <div className="flex h-9 shrink-0 items-center gap-1 px-3 text-sm bg-panel">
@@ -376,7 +452,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || !files.some((f) => !f.staged)}
-                    onClick={() => void stageAll()}
+                    onClick={() => {
+                        stageAll().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                 >
@@ -385,7 +463,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || !files.some((f) => f.staged)}
-                    onClick={() => void unstageAll()}
+                    onClick={() => {
+                        unstageAll().catch(() => undefined);
+                    }}
                     variant="ghost"
                     size="xs"
                 >
@@ -394,7 +474,9 @@ export function MultiDiffEditor({
                 <Button
                     type="button"
                     disabled={busy || files.length === 0}
-                    onClick={() => void commit()}
+                    onClick={() => {
+                        commit().catch(() => undefined);
+                    }}
                     variant="default"
                     className="bg-success/20 text-success"
                     size="xs"
@@ -404,39 +486,22 @@ export function MultiDiffEditor({
             </div>
 
             {files.length === 0 || !repo ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-sm text-text-muted">
-                    {loading ? (
-                        "Loading..."
-                    ) : current?.error ? (
-                        <>
-                            <span className="text-text-primary">Could not read changes</span>
-                            <span className="max-w-[420px] text-center text-xs" title={current.error}>
-                                {current.error}
-                            </span>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="xs"
-                                disabled={busy}
-                                onClick={() => {
-                                    setBusy(true);
-                                    void refresh().finally(() => setBusy(false));
-                                }}
-                            >
-                                Retry
-                            </Button>
-                        </>
-                    ) : (
-                        "No local changes"
-                    )}
-                </div>
+                <MultiDiffEmptyState
+                    loading={loading}
+                    error={current?.error ?? null}
+                    busy={busy}
+                    onRetry={() => {
+                        setBusy(true);
+                        refresh().finally(() => setBusy(false));
+                    }}
+                />
             ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
                     {ordered.map((file) => {
                         const key = `${file.staged ? "s" : "u"}:${file.path}`;
                         const focused =
-                            Boolean(focusPath) &&
-                            file.path.replace(/\\/g, "/") === focusPath!.replace(/\\/g, "/");
+                            normalizedFocusPath !== null &&
+                            file.path.replaceAll("\\", "/") === normalizedFocusPath;
                         return (
                             <LazyFileDiff
                                 key={key}

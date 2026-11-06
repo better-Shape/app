@@ -14,6 +14,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 
 export type QuickPickItem = {
     id: string;
@@ -344,6 +345,7 @@ export function QuickPick({
     emptyText = "No results",
 }: Props) {
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const itemIds = React.useMemo(() => items.map((item) => item.id), [items]);
     const [selected, setSelected] = usePickSelection({ open, query, ids: itemIds });
     const inputRef = React.useRef<HTMLInputElement>(null);
@@ -377,6 +379,7 @@ export function QuickPick({
                     )}
                     aria-describedby={undefined}
                     onEscapeKeyDown={blockCompositionEscape}
+                    onCloseAutoFocus={returnFocus}
                     onKeyDown={handleKeyDown}
                 >
                     <Dialog.Title className="sr-only">{labels.title}</Dialog.Title>

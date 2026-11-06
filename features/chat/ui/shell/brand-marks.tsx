@@ -5,30 +5,7 @@ import { Folder20Filled } from "@fluentui/react-icons/headless/svg/folder";
 
 
 import { Icon } from "@/components/ui/icon";
-
-
-function SimpleMark({
-    slug,
-    color,
-    size = 16,
-}: {
-    slug: string;
-    color: string;
-    size?: number;
-}) {
-    return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-            src={`https://cdn.simpleicons.org/${slug}/${color}`}
-            alt=""
-            width={size}
-            height={size}
-            className="shrink-0 object-contain"
-            style={{ width: size, height: size }}
-            draggable={false}
-        />
-    );
-}
+import { BrandMark } from "@/components/ui/brand-mark";
 
 export function FrameworkMark({
     slug,
@@ -43,7 +20,7 @@ export function FrameworkMark({
 }) {
     return (
         <span className={invert ? "inline-flex dark:invert" : "inline-flex"}>
-            <SimpleMark slug={slug} color={color} size={size} />
+            <BrandMark slug={slug} color={color} size={size} />
         </span>
     );
 }
@@ -82,15 +59,7 @@ export function ZedMark({ size = 16 }: { size?: number }) {
             className="inline-flex shrink-0 items-center justify-center rounded-[4px] bg-white"
             style={{ width: size, height: size }}
         >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-                src="https://cdn.simpleicons.org/zedindustries/000000"
-                alt=""
-                width={inner}
-                height={inner}
-                className="object-contain"
-                draggable={false}
-            />
+            <BrandMark slug="zedindustries" color="000000" size={inner} />
         </span>
     );
 }
@@ -106,11 +75,11 @@ export function ExplorerMark({ size = 16 }: { size?: number }) {
 }
 
 export function GitHubMark({ size = 16 }: { size?: number }) {
-    return <SimpleMark slug="github" color="FFFFFF" size={size} />;
+    return <BrandMark slug="github" color="FFFFFF" size={size} />;
 }
 
 export function GitLabMark({ size = 16 }: { size?: number }) {
-    return <SimpleMark slug="gitlab" color="FC6D26" size={size} />;
+    return <BrandMark slug="gitlab" color="FC6D26" size={size} />;
 }
 
 export function AzureDevOpsMark({ size = 16 }: { size?: number }) {
@@ -131,9 +100,9 @@ export function AzureDevOpsMark({ size = 16 }: { size?: number }) {
 }
 
 export function BitbucketMark({ size = 16 }: { size?: number }) {
-    return <SimpleMark slug="bitbucket" color="2684FF" size={size} />;
+    return <BrandMark slug="bitbucket" color="2684FF" size={size} />;
 }
 
 export function GitUrlMark({ size = 16 }: { size?: number }) {
-    return <SimpleMark slug="git" color="F05032" size={size} />;
+    return <BrandMark slug="git" color="F05032" size={size} />;
 }

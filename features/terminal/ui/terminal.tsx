@@ -12,7 +12,7 @@ import { LayoutColumnTwo20Regular } from "@fluentui/react-icons/headless/svg/lay
 import { Search20Regular } from "@fluentui/react-icons/headless/svg/search";
 
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { commands, useProjectState } from "@/lib/backend";
 import type { TerminalShellProfile } from "@/lib/backend/types";
 import { cn, randomInt, randomSuffix } from "@/lib/utils";
@@ -43,12 +43,14 @@ import { Tooltip } from "@/components/ui/tooltip";
 import TestPanel from "@/features/testing/ui/test-panel";
 import { Button } from "@/components/ui/button";
 import { getSettings, resolveDefaultTerminalShell } from "@/lib/settings";
+import { restoreCustomFonts } from "@/lib/editor/custom-fonts";
+import { terminalKeepsKey } from "@/features/terminal/tab-focus-mode";
+import { holdStripFocusFor, takeStripFocusHold } from "@/features/terminal/strip-focus";
 import { setLastDevUrl } from "@/features/preview/store";
 import {
+    isTabStop,
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_BAR_CLASS,
-    WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
-    workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
 import {
     lookupByProjectPath,
@@ -58,6 +60,8 @@ import {
 } from "@/features/terminal/session";
 import { attachTerminalCommandHost } from "@/features/terminal/commands";
 import { findTerminalMatches, nextMatchIndex, toCellSelection, type TerminalMatch } from "./search";
+import { TerminalStripTab } from "./terminal-tab";
+import { TabFocusBadge, TerminalKeyboardHelp } from "./keyboard-help";
 import { usePerfRenderCount } from "@/lib/dev/perf-hud-hooks";
 import { clipboardQueue, isNewestCopyRequest, nextCopyRequest } from "@/lib/ui/clipboard-queue";
 import { copyWithHiddenTextarea } from "@/lib/ui/legacy-copy";
@@ -111,6 +115,13 @@ const createTerminalTab = (
     group: TerminalGroupId = "left",
 ): TerminalTab => ({ id, title, shell, cwd, boundPtyId, group });
 
+/** Names for the terminal tab strips: one strip, or the two panes of a split. */
+const TERMINAL_STRIP_LABELS: Record<TerminalGroupId | "single", string> = {
+    single: "Terminals",
+    left: "Left terminals",
+    right: "Right terminals",
+};
+
 function isLayoutResizing() {
     return document.body.classList.contains("resizing-vertical") || document.body.hasAttribute("data-resizing");
 }
@@ -157,8 +168,11 @@ export function reapOrphanedTerminalSessions() {
  */
 let suppressSelectionClip = false;
 
-/** Renders the TerminalInstance UI component. */
-const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boolean }) => {
+/**
+ * Renders the TerminalInstance UI component. `describedBy` names the element that tells the
+ * terminal input what Tab does and how to leave.
+ */
+const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, isActive: boolean, describedBy: string }) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTermType | null>(null);
     const fitAddonRef = useRef<FitAddonType | null>(null);
@@ -250,6 +264,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     if (term.element?.parentNode) term.element.parentNode.removeChild(term.element);
                     if (term.element) terminalRef.current.appendChild(term.element);
                     else term.open(terminalRef.current);
+                    term.textarea?.setAttribute("aria-describedby", describedBy);
 
                     setTimeout(() => {
                         if (fitAddon) fitAddon.fit();
@@ -272,8 +287,12 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             const { listen } = await import("@tauri-apps/api/event");
             if (!isMounted) return;
 
-            const style = getComputedStyle(document.documentElement);
             const termSettings = getSettings().terminal;
+            // xterm measures its cell from the font when it opens, so an uploaded font from an
+            // earlier session is registered first.
+            await restoreCustomFonts([termSettings.fontFamily]);
+            if (!isMounted) return;
+            const style = getComputedStyle(document.documentElement);
             const fg = style.getPropertyValue("--text-secondary").trim() || "#a1a1aa";
             const bg = style.getPropertyValue("--panel").trim() || "#1e1e20";
             const muted = style.getPropertyValue("--text-muted").trim() || "#71717a";
@@ -415,6 +434,10 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
             term.loadAddon(fitAddon);
             // The effect resolved the host element into `host` above, after the ref check.
             if (host) term.open(host);
+            // Keys the app needs, such as Ctrl+J, skip the shell, and Tab does too while it
+            // moves focus; the description says how to leave the terminal.
+            term.attachCustomKeyEventHandler(terminalKeepsKey);
+            term.textarea?.setAttribute("aria-describedby", describedBy);
             try { term.loadAddon(new WebglAddon()); } catch { }
 
             fitAddon.fit();
@@ -459,7 +482,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
                 if (isActive) {
-                    term.focus();
+                    if (!takeStripFocusHold(tab.id)) term.focus();
                     term.scrollToBottom();
                 }
                 return;
@@ -592,7 +615,7 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                     }, 60);
                 }
                 if (isActive) {
-                    term.focus();
+                    if (!takeStripFocusHold(tab.id)) term.focus();
                     term.scrollToBottom();
                 }
             } catch (e) {
@@ -657,13 +680,19 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
 // Applies font and scrollback in place: the pty keeps its size, so the terminal
         // reflows rather than restarting.
         const applyTerminalSettings = () => {
-            const term = xtermRef.current;
-            if (!term) return;
-            const ts = getSettings().terminal;
-            const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
-            term.options.fontFamily = ts.fontFamily || mono || "monospace";
-            term.options.fontSize = ts.fontSize;
-            term.options.scrollback = ts.scrollback;
+            // A font uploaded in another window is registered before xterm measures it. The
+            // settings are read again afterwards, so the newest change wins.
+            restoreCustomFonts([getSettings().terminal.fontFamily])
+                .then(() => {
+                    const term = xtermRef.current;
+                    if (!term) return;
+                    const ts = getSettings().terminal;
+                    const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
+                    term.options.fontFamily = ts.fontFamily || mono || "monospace";
+                    term.options.fontSize = ts.fontSize;
+                    term.options.scrollback = ts.scrollback;
+                })
+                .catch(() => undefined);
         };
         window.addEventListener("bettershape-settings-changed", applyTerminalSettings);
         return () => window.removeEventListener("bettershape-settings-changed", applyTerminalSettings);
@@ -675,13 +704,13 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
                 if (isLayoutResizing()) return;
                 if (fitAddonRef.current && xtermRef.current) {
                     fitAddonRef.current.fit();
-                    xtermRef.current.focus();
+                    if (!takeStripFocusHold(tab.id)) xtermRef.current.focus();
                     xtermRef.current.scrollToBottom();
                 }
             });
             return () => cancelAnimationFrame(raf);
         }
-    }, [isActive]);
+    }, [isActive, tab.id]);
 
 // Button path for the same copy as the key handler; the clipboard promise is
     // settled either way because the history entry is already written.
@@ -779,6 +808,16 @@ const TerminalInstance = ({ tab, isActive }: { tab: TerminalTab, isActive: boole
 };
 
 /** Renders the Terminal UI component. */
+/**
+ * The tab that takes a closed tab's place in its group: the one after it, else the one before,
+ * which is where the strip moves focus too.
+ */
+const tabAfterClose = (groupBefore: TerminalTab[], closedId: string): TerminalTab | undefined => {
+    const index = groupBefore.findIndex((t) => t.id === closedId);
+    const remaining = groupBefore.filter((t) => t.id !== closedId);
+    return index < remaining.length ? remaining[index] : remaining[index - 1];
+};
+
 const Terminal = ({
     onClose,
     isOpen,
@@ -790,6 +829,7 @@ const Terminal = ({
     terminalOnly?: boolean;
 }) => {
     usePerfRenderCount("terminal");
+    const keyboardHelpId = useId();
     const { project_path } = useProjectState();
     const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>(globalTerminalStore.tabs);
     const [projectActiveTabs, setProjectActiveTabs] = useState<Record<string, string | null>>(globalTerminalStore.activeProjectTabs);
@@ -946,13 +986,21 @@ const Terminal = ({
         return availableShells[0]?.id ?? preferred;
     }, [availableShells]);
 
-    const closeTab = useCallback((id: string) => {
+    const closeTab = useCallback((id: string, keepStripFocus = false) => {
         globalTerminalStore.setTabs(prev => {
             const closing = prev.find((t) => t.id === id);
             const next = prev.filter(t => t.id !== id);
             const projectTabs = next.filter((t) => sameProjectPath(t.cwd, safeCwd));
             const left = projectTabs.filter((t) => (t.group ?? "left") === "left");
             const right = projectTabs.filter((t) => t.group === "right");
+            const groupBefore = prev.filter(
+                (t) => sameProjectPath(t.cwd, safeCwd) && (t.group ?? "left") === (closing?.group ?? "left"),
+            );
+            // Activates the closed tab's neighbour and, when the strip had focus, leaves it there.
+            const activate = (tab: TerminalTab, setActive: (tabId: string) => void) => {
+                if (keepStripFocus) holdStripFocusFor(tab.id);
+                setTimeout(() => setActive(tab.id), 0);
+            };
             const inst = globalTerminalStore.instances.get(id);
             const killId = inst && inst.ptyId >= 0 ? inst.ptyId : closing?.boundPtyId;
             if (typeof killId === "number" && killId >= 0) {
@@ -979,11 +1027,11 @@ const Terminal = ({
                     if (right.length === 0) {
                         setTimeout(() => setSecondaryTerminalId(null), 0);
                     } else if (secondaryTerminalId === id) {
-                        setTimeout(() => setSecondaryTerminalId(right[right.length - 1].id), 0);
+                        activate(tabAfterClose(groupBefore, id) ?? right[right.length - 1], setSecondaryTerminalId);
                     }
                 } else if (activeTerminalId === id || !left.some(t => t.id === activeTerminalId)) {
-                    const fallback = left[left.length - 1] ?? projectTabs[projectTabs.length - 1];
-                    setTimeout(() => setActiveTerminalId(fallback.id), 0);
+                    const neighbour = activeTerminalId === id ? tabAfterClose(groupBefore, id) : undefined;
+                    activate(neighbour ?? left[left.length - 1] ?? projectTabs[projectTabs.length - 1], setActiveTerminalId);
                 }
             }
             return next;
@@ -1349,6 +1397,7 @@ const Terminal = ({
                     size="icon"
                     className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
                     title="Terminal profiles"
+                    aria-label="Terminal profiles"
                 >
                     <Icon icon={ChevronDown20Regular} />
                 </Button>
@@ -1390,64 +1439,36 @@ const Terminal = ({
     const renderTerminalTabs = (
         tabs: TerminalTab[],
         activeId: string | null,
+        group: TerminalGroupId,
         onActivate: (id: string) => void,
         scrollRef?: React.RefObject<HTMLDivElement | null>,
-    ) => (
-        <div
-            ref={scrollRef}
-            onWheel={handleWheel}
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
-        >
-            {tabs.map((tab) => {
-                const isActive = activeId === tab.id;
-                const unread = !isActive && unreadTabs.has(tab.id);
-                return (
-                    <div
-                        key={tab.id}
-                        role="tab"
-                        aria-selected={isActive}
-                        tabIndex={0}
-                        onClick={() => onActivate(tab.id)}
-                        onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            onActivate(tab.id);
-                        }}
-                        className={workbenchTabItemClass(isActive)}
-                    >
-                        <span className="max-w-[160px] truncate text-sm">{tab.title}</span>
-                        {unread ? <span className="sr-only">New output</span> : null}
-                        {/* One 16px slot, two occupants: the unread dot hands it to
-                            the close button under the pointer, at the same beat the
-                            file tabs use, so no state change shifts the title. */}
-                        <div className="relative flex h-4 w-4 shrink-0 items-center justify-center">
-                            <span className="t-tab-dot absolute" data-on={unread ? "true" : "false"} aria-hidden />
-                            <button
-                                type="button"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    closeTab(tab.id);
-                                }}
-                                className={cn(
-                                    WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
-                                    "absolute transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)]",
-                                    isActive
-                                        ? "opacity-100"
-                                        // An inactive tab keeps its close button in the
-                                        // tab order, so it has to become visible when the
-                                        // keyboard reaches it; pointer users get it on hover.
-                                        : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                                )}
-                                aria-label={`Close ${tab.title}`}
-                            >
-                                <Icon icon={Dismiss20Regular} />
-                            </button>
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
+    ) => {
+        const stripHasSelection = tabs.some((t) => t.id === activeId);
+        return (
+            <div
+                ref={scrollRef}
+                role="tablist"
+                aria-label={TERMINAL_STRIP_LABELS[splitEnabled ? group : "single"]}
+                onWheel={handleWheel}
+                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
+            >
+                {tabs.map((tab, index) => {
+                    const isActive = activeId === tab.id;
+                    return (
+                        <TerminalStripTab
+                            key={tab.id}
+                            title={tab.title}
+                            active={isActive}
+                            tabStop={isTabStop(isActive, index, stripHasSelection)}
+                            unread={!isActive && unreadTabs.has(tab.id)}
+                            onActivate={() => onActivate(tab.id)}
+                            onClose={(keepFocus) => closeTab(tab.id, keepFocus)}
+                        />
+                    );
+                })}
+            </div>
+        );
+    };
 
     const renderGroupChrome = (
         tabs: TerminalTab[],
@@ -1460,16 +1481,19 @@ const Terminal = ({
             {renderTerminalTabs(
                 tabs,
                 activeId,
+                group,
                 onActivate,
                 group === "left" ? tabScrollRef : undefined,
             )}
             <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip content="New Terminal">
+                {group === "left" ? <TabFocusBadge /> : null}
+                <Tooltip content="New terminal">
                     <Button
                         variant="ghost"
                         size="icon"
                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
                         onClick={() => addTab(resolveAvailableDefaultShell(), group)}
+                        aria-label="New terminal"
                     >
                         <Icon icon={Add20Regular} />
                     </Button>
@@ -1520,6 +1544,7 @@ const Terminal = ({
                         <TerminalInstance
                             tab={tab}
                             isActive={view === "terminal" && tab.id === activeId}
+                            describedBy={keyboardHelpId}
                         />
                     </div>
                 ))}
@@ -1529,6 +1554,7 @@ const Terminal = ({
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden bg-panel select-none font-sans" data-terminal-root="true">
+            <TerminalKeyboardHelp id={keyboardHelpId} />
             {!terminalOnly ? (
                 <div className="relative z-20 flex h-12 min-w-0 shrink-0 items-center gap-1 px-2">
                     <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
@@ -1561,7 +1587,7 @@ const Terminal = ({
                     <div className="flex shrink-0 items-center gap-0.5">
                         {activeView === "terminal" ? (
                             <>
-                                <Tooltip content="Find in Terminal">
+                                <Tooltip content="Find in terminal">
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -1573,8 +1599,9 @@ const Terminal = ({
                                         <Icon icon={Search20Regular} />
                                     </Button>
                                 </Tooltip>
-                                <Tooltip content="Clear Terminal">
+                                <Tooltip content="Clear terminal">
                                     <Button
+                                        aria-label="Clear terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1583,8 +1610,9 @@ const Terminal = ({
                                         <Icon icon={Delete20Filled} />
                                     </Button>
                                 </Tooltip>
-                                <Tooltip content="Split Terminal">
+                                <Tooltip content="Split terminal">
                                     <Button
+                                        aria-label="Split terminal"
                                         variant="ghost"
                                         size="icon"
                                         className={cn(WORKBENCH_TAB_ACTION_BUTTON_CLASS, "h-7 w-7")}
@@ -1595,8 +1623,9 @@ const Terminal = ({
                                 </Tooltip>
                             </>
                         ) : null}
-                        <Tooltip content="Hide Panel">
+                        <Tooltip content="Hide panel">
                             <Button
+                                aria-label="Hide panel"
                                 onClick={() => onClose?.()}
                                 variant="ghost"
                                 size="icon"
@@ -1606,6 +1635,7 @@ const Terminal = ({
                             </Button>
                         </Tooltip>
                         <Button
+                            aria-label="Close panel"
                             onClick={() => onClose?.()}
                             variant="ghost"
                             size="icon"

@@ -75,3 +75,19 @@ it("keeps HTML previews sandboxed and removes the Escape listener while closed",
     expect(close).toHaveBeenCalledTimes(1);
     expect(host.querySelector("[role=dialog]")).toBeNull();
 });
+
+it("gives each pager dot a 24px target whose focus ring sits on the backdrop, not on the white dot", async () => {
+    await act(async () => root.render(<Harness />));
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Show "]')];
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) {
+        // The button is the 24px target and carries the ring; the 8px dot inside is drawing only.
+        expect(button.className).toContain("size-6");
+        const dots = button.querySelectorAll("span");
+        expect(dots).toHaveLength(1);
+        expect(dots[0]?.getAttribute("aria-hidden")).toBe("true");
+        expect(dots[0]?.className).toContain("size-2");
+    }
+    expect(buttons[0]?.querySelector("span")?.className).toContain("bg-white");
+    expect(buttons[1]?.querySelector("span")?.className).toContain("bg-white/35");
+});

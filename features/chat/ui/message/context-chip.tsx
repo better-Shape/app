@@ -15,7 +15,10 @@ import { mentionDisplayLabel, type ChatMention } from "@/lib/chat/mentions";
 import type { AgentWorkflow } from "@/lib/chat/workflows";
 import { cn } from "@/lib/utils";
 
-/** Shared @ / slash chip — same size in the composer and in sent messages. */
+/**
+ * The shared @ and slash chip, the same size in the composer and in sent messages. A chip is a
+ * token, so it is left to right and never decides the direction of the text around it.
+ */
 export const ContextChip = ({
     icon,
     children,
@@ -45,6 +48,7 @@ export const ContextChip = ({
         return (
             <button
                 type="button"
+                dir="ltr"
                 data-chat-find-text
                 onClick={onClick}
                 className={classes}
@@ -53,7 +57,11 @@ export const ContextChip = ({
             </button>
         );
     }
-    return <span className={classes}>{body}</span>;
+    return (
+        <span dir="ltr" className={classes}>
+            {body}
+        </span>
+    );
 };
 
 export function MentionChipIcon({ mention }: { mention: ChatMention }) {
@@ -72,7 +80,7 @@ export function MentionChipIcon({ mention }: { mention: ChatMention }) {
         );
     }
     if (mention.kind === "browser") {
-        return <Favicon url={mention.path || label} size={12} />;
+        return <Favicon size={12} />;
     }
     if (mention.kind === "element") {
         return <Icon icon={Target20Regular} className="text-accent-text" />;

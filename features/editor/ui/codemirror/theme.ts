@@ -146,6 +146,13 @@ function chromeTheme(dark: boolean) {
             "&.cm-focused .cm-content": {
                 outline: "none",
             },
+            // A read-only surface (the diff view) draws no caret, so keyboard focus gets a ring.
+            // It frames the editor, gutters included, the way CodeMirror's own focus outline does;
+            // that one is a dotted line too dark to see on these surfaces.
+            "&.cm-focused:has(.cm-content[contenteditable='false']:focus-visible)": {
+                outline: "2px solid var(--color-accent-text)",
+                outlineOffset: "-2px",
+            },
             ".cm-line": {
                 padding: "0 16px 0 6px",
                 borderBottom: "none",
@@ -300,6 +307,18 @@ function isLightTheme(): boolean {
     if (typeof document === "undefined") return false;
     return document.documentElement.getAttribute("data-theme") === "light";
 }
+
+/**
+ * Names an editor's text surface after the file it edits, so assistive technology announces
+ * which document has focus. `tabindex` makes the surface the scroller's focusable content: an
+ * editable surface is already a tab stop, and a read-only one (the diff view) becomes focusable
+ * so keyboard users can scroll and select in it.
+ */
+export const editorContentLabel = (getPath: () => string | undefined, role = "editor"): Extension =>
+    EditorView.contentAttributes.of(() => {
+        const name = getPath()?.split(/[\\/]/).filter(Boolean).pop();
+        return { "aria-label": name ? `${name} ${role}` : `Text ${role}`, tabindex: "0" };
+    });
 
 /** Shared look for the main editor and merge/diff views. */
 export function betterShapeEditorChrome(): Extension[] {

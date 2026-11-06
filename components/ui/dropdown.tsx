@@ -2,7 +2,6 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
-import { Circle20Regular } from "@fluentui/react-icons/headless/svg/circle";
 
 
 import * as React from "react";
@@ -23,8 +22,9 @@ const itemClasses =
     "group relative flex cursor-default select-none items-center gap-2 squircle-2xl px-4! py-1.5 text-sm outline-none transition-[background-color,color,transform] duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] focus:bg-[var(--row-hover)] focus:text-text-primary data-disabled:pointer-events-none data-disabled:opacity-50";
 const containerClasses =
     "bettershape-popover-content bettershape-menu-content z-dropdown overflow-hidden squircle-2xl border border-border-secondary bg-sidebar text-text-primary shadow-md";
+/** `text-secondary`, like the group labels: `text-muted` on the `bg-sidebar` panel is 4.36:1. */
 const shortcutClasses =
-    "ml-auto shrink-0 pr-1 text-sm text-text-muted group-focus:text-text-primary";
+    "ml-auto shrink-0 pr-1 text-sm text-text-secondary group-focus:text-text-primary";
 /** Inset so rows and the panel sit off the edges. */
 const menuInsetClasses = "p-1.5";
 const menuCollisionPadding = 8;
@@ -249,6 +249,10 @@ const DropdownMenuItem = React.forwardRef<
 ));
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
+/**
+ * A checkbox item toggles one option among several, so the menu stays open for the next toggle.
+ * A single choice belongs in a `DropdownMenuRadioGroup`, whose items close the menu.
+ */
 const DropdownMenuCheckboxItem = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem>
@@ -273,22 +277,18 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 ));
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
+/**
+ * A radio item makes the single choice of its group, so picking it closes the menu, as a native
+ * select does. It shows the same checkmark as a checkbox item.
+ */
 const DropdownMenuRadioItem = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
->(({ className, children, onSelect, ...props }, ref) => (
-    <DropdownMenuPrimitive.RadioItem
-        ref={ref}
-        className={cn(itemClasses, "pr-1", className)}
-        onSelect={(e) => {
-            onSelect?.(e);
-            e.preventDefault();
-        }}
-        {...props}
-    >
+>(({ className, children, ...props }, ref) => (
+    <DropdownMenuPrimitive.RadioItem ref={ref} className={cn(itemClasses, "pr-1", className)} {...props}>
         <span className="flex w-4 shrink-0 items-center justify-center">
             <DropdownMenuPrimitive.ItemIndicator>
-                <Icon icon={Circle20Regular}  className="size-[8px]"  />
+                <Icon icon={Checkmark20Regular} />
             </DropdownMenuPrimitive.ItemIndicator>
         </span>
         {children}
@@ -305,7 +305,7 @@ const DropdownMenuLabel = React.forwardRef<
     <DropdownMenuPrimitive.Label
         ref={ref}
         className={cn(
-            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-muted",
+            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-secondary",
             inset && "pl-7",
             className,
         )}
@@ -562,13 +562,16 @@ const MenubarPortal = MenubarPrimitive.Portal;
 const MenubarSub = MenubarPrimitive.Sub;
 const MenubarRadioGroup = MenubarPrimitive.RadioGroup;
 
+/** The menubar strip's chrome, shared with trails that look like a menubar but open no menu. */
+const menubarClasses = "flex h-[28px] items-center space-x-0.5 rounded-md bg-transparent p-xs";
+
 const Menubar = React.forwardRef<
     React.ElementRef<typeof MenubarPrimitive.Root>,
     React.ComponentPropsWithoutRef<typeof MenubarPrimitive.Root>
 >(({ className, ...props }, ref) => (
     <MenubarPrimitive.Root
         ref={ref}
-        className={cn("flex h-[28px] items-center space-x-0.5 rounded-md bg-transparent p-xs", className)}
+        className={cn(menubarClasses, className)}
         {...props}
     />
 ));
@@ -678,22 +681,15 @@ const MenubarCheckboxItem = React.forwardRef<
 ));
 MenubarCheckboxItem.displayName = MenubarPrimitive.CheckboxItem.displayName;
 
+/** Picking a radio item closes the menu, like `DropdownMenuRadioItem`. */
 const MenubarRadioItem = React.forwardRef<
     React.ElementRef<typeof MenubarPrimitive.RadioItem>,
     React.ComponentPropsWithoutRef<typeof MenubarPrimitive.RadioItem>
->(({ className, children, onSelect, ...props }, ref) => (
-    <MenubarPrimitive.RadioItem
-        ref={ref}
-        className={cn(itemClasses, "pr-1", className)}
-        onSelect={(e) => {
-            onSelect?.(e);
-            e.preventDefault();
-        }}
-        {...props}
-    >
+>(({ className, children, ...props }, ref) => (
+    <MenubarPrimitive.RadioItem ref={ref} className={cn(itemClasses, "pr-1", className)} {...props}>
         <span className="flex w-4 shrink-0 items-center justify-center">
             <MenubarPrimitive.ItemIndicator>
-                <Icon icon={Circle20Regular}  className="size-[8px]"  />
+                <Icon icon={Checkmark20Regular} />
             </MenubarPrimitive.ItemIndicator>
         </span>
         {children}
@@ -710,7 +706,7 @@ const MenubarLabel = React.forwardRef<
     <MenubarPrimitive.Label
         ref={ref}
         className={cn(
-            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-muted",
+            "mx-0.5 px-2 py-1.5 text-xs font-medium text-text-secondary",
             inset && "pl-7",
             className,
         )}
@@ -794,6 +790,7 @@ export {
     DropdownMenuNestedContent,
     // Menubar Exports
     Menubar,
+    menubarClasses,
     MenubarMenu,
     MenubarTrigger,
     MenubarContent,

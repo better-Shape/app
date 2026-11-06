@@ -60,6 +60,16 @@ test.describe("settings", () => {
         expectNoPageErrors();
     });
 
+    test("a select closes once an option is picked", async ({ page, expectNoPageErrors }) => {
+        await page.locator("#bettershape-settings nav").getByRole("button", { name: "Terminal" }).click();
+        const shell = page.locator("#settings-terminal").getByRole("button", { name: /^Default Shell/ });
+        await shell.click();
+        await page.getByRole("menuitemradio", { name: "Command Prompt" }).click();
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(shell).toHaveAccessibleName("Default Shell Command Prompt");
+        expectNoPageErrors();
+    });
+
     test("a switch control toggles", async ({ page, expectNoPageErrors }) => {
         await page
             .locator("#bettershape-settings nav")

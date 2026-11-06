@@ -924,6 +924,9 @@ const ComposerHighlightMirrorInner = ({
     <div
       ref={overlayRef}
       aria-hidden
+      // Same first-strong-character rule as the transparent textarea it sits under, so the
+      // visible text and the caret stay on the same side for right-to-left input.
+      dir="auto"
       className={cn(
         "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap px-1.5 py-0 text-sm font-medium leading-[22px] text-text-primary",
         composerBreakAll ? "break-all" : "break-words",
@@ -981,8 +984,9 @@ const resolveSendButtonToneClass = (
   if (canStop && !isPreparing) {
     return "border border-border bg-surface-2 text-text-primary hover:bg-[var(--btn-hover)]";
   }
+  // A filled button draws its focus ring in its label colour, as the shared Button does.
   return sendActive
-    ? "bg-accent text-white hover:opacity-90"
+    ? "bg-accent text-white hover:opacity-90 focus-visible:outline-current"
     : "bg-surface-3 text-text-muted";
 };
 

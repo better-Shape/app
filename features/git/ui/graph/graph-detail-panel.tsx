@@ -15,6 +15,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { cn } from "@/lib/utils";
 import { commands, type GitFileParams, type GitLogEntry } from "@/lib/backend";
 import { resolveGithubAvatarUrl } from "@/lib/git/github-avatar";
+import { useSettings } from "@/lib/settings";
 import { renderCommitMessage, getRelativeTime } from "./utils";
 import { ManagerDiffEditor } from "@/features/git/ui/shared/manager-diff";
 import { notify } from "@/features/notifications";
@@ -44,8 +45,10 @@ function countDiffLines(original: string, modified: string): { added: number; re
     };
 }
 
+/** The author's GitHub picture, while the user has turned avatars on; it loads from github.com. */
 function AuthorAvatar({ log, size = 20 }: { log: GitLogEntry; size?: number }) {
-    const url = resolveGithubAvatarUrl(log.author_email, log.author, size * 2);
+    const enabled = useSettings().git.graphAvatars;
+    const url = enabled ? resolveGithubAvatarUrl(log.author_email, size * 2) : null;
     if (!url) return null;
     return (
         // eslint-disable-next-line @next/next/no-img-element
@@ -60,6 +63,7 @@ function AuthorAvatar({ log, size = 20 }: { log: GitLogEntry; size?: number }) {
     );
 }
 
+/** Displays commit metadata, changed files, or per-file diff inspection for the graph pane. */
 export function GraphDetailPanel({
     selection,
     repoPath,
@@ -181,6 +185,7 @@ export function GraphDetailPanel({
                     <Tooltip content="Back to commit">
                         <Button
                             type="button"
+                            aria-label="Back to commit"
                             variant="ghost"
                             size="icon"
                             className="shrink-0"
@@ -207,6 +212,7 @@ export function GraphDetailPanel({
                         <Tooltip content={sideBySide ? "Inline diff" : "Side by side"}>
                             <Button
                                 type="button"
+                                aria-label={sideBySide ? "Inline diff" : "Side by side"}
                                 variant="ghost"
                                 size="icon"
                                 className="shrink-0"
@@ -231,6 +237,7 @@ export function GraphDetailPanel({
                     size="icon"
                     className="shrink-0"
                     onClick={onClose}
+                    aria-label="Close commit details"
                 >
                     <Icon icon={Dismiss20Regular} />
                 </Button>

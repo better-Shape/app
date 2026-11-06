@@ -6,13 +6,15 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
 import { bracketMatching } from "@codemirror/language";
 import { languageForPath } from "@/features/editor/ui/codemirror/lang";
-import { betterShapeEditorChrome } from "@/features/editor/ui/codemirror/theme";
+import { betterShapeEditorChrome, editorContentLabel } from "@/features/editor/ui/codemirror/theme";
 import { cn } from "@/lib/utils";
 
-function baseExtensions(path: string) {
+/** `role` names the surface for assistive technology: the unified diff, or one side of a split. */
+function baseExtensions(path: string, role: string) {
     const lang = languageForPath(path);
     return [
         ...betterShapeEditorChrome(),
+        editorContentLabel(() => path, role),
         lineNumbers(),
         bracketMatching(),
         EditorView.editable.of(false),
@@ -58,14 +60,14 @@ export function DiffView({
                 highlightChanges: true,
                 gutter: true,
                 collapseUnchanged: { margin: 2, minSize: 4 },
-                a: { doc: original, extensions: baseExtensions(path) },
-                b: { doc: current, extensions: baseExtensions(path) },
+                a: { doc: original, extensions: baseExtensions(path, "original") },
+                b: { doc: current, extensions: baseExtensions(path, "modified") },
             });
         } else {
             const state = EditorState.create({
                 doc: current,
                 extensions: [
-                    ...baseExtensions(path),
+                    ...baseExtensions(path, "diff"),
                     unifiedMergeView({
                         original,
                         mergeControls: false,

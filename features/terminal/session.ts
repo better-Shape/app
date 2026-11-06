@@ -1,5 +1,10 @@
 import { randomSuffix } from "@/lib/utils";
 import { stripShellPromptPrefix } from "@/lib/chat/prompt-history";
+import {
+    collapseRootAwareForwardSlashes,
+    stripWindowsVerbatim,
+    trimRootTrailingForwardSlashes,
+} from "@/lib/path/verbatim";
 import { getPlatform } from "@/lib/platform";
 
 /**
@@ -39,18 +44,26 @@ function createTabId() {
         : randomSuffix(9);
 }
 
-const isWindowsProjectPath = (raw: string): boolean => {
-    if (raw.includes("\\") || /^[A-Za-z]:/.test(raw)) return true;
-    return raw.startsWith("//") && getPlatform() === "windows";
+const POSIX_DOUBLE_SLASH_RE = /^\/\/(?!\/)/;
+
+const isPosixProjectPath = (stripped: string): boolean => {
+    if (!stripped.startsWith("/")) return false;
+    return !POSIX_DOUBLE_SLASH_RE.test(stripped) || getPlatform() !== "windows";
+};
+
+const isWindowsProjectPath = (stripped: string): boolean => {
+    if (isPosixProjectPath(stripped)) return false;
+    if (stripped.includes("\\") || /^[A-Za-z]:/.test(stripped)) return true;
+    return POSIX_DOUBLE_SLASH_RE.test(stripped);
 };
 
 /** Exported so the Terminal UI and session store agree on project path identity. */
 export const projectPathKey = (raw: string): string => {
-    const isWindows = isWindowsProjectPath(raw);
-    const forward = raw.replaceAll("\\", "/");
-    let end = forward.length;
-    while (end > 1 && forward.charCodeAt(end - 1) === 47) end -= 1;
-    const trimmed = forward.slice(0, end);
+    if (!raw) return "";
+    const stripped = stripWindowsVerbatim(raw, getPlatform() === "windows");
+    const isWindows = isWindowsProjectPath(stripped);
+    const forward = isPosixProjectPath(stripped) ? stripped : stripped.replaceAll("\\", "/");
+    const trimmed = trimRootTrailingForwardSlashes(collapseRootAwareForwardSlashes(forward));
     return isWindows ? trimmed.toLowerCase() : trimmed;
 };
 

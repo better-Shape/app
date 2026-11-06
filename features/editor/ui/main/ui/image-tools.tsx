@@ -211,6 +211,7 @@ export function ImageToolsCard({
                         className="h-7 w-7"
                         onClick={resetAdjustments}
                         title="Reset adjustments"
+                        aria-label="Reset adjustments"
                     >
                         <Icon icon={ArrowSync20Regular} />
                     </Button>
@@ -221,6 +222,7 @@ export function ImageToolsCard({
                         disabled={!session.canUndo}
                         onClick={() => session.undo()}
                         title="Undo"
+                        aria-label="Undo"
                     >
                         <Icon icon={ArrowUndo20Regular} />
                     </Button>
@@ -231,6 +233,7 @@ export function ImageToolsCard({
                         disabled={!session.canRedo}
                         onClick={() => session.redo()}
                         title="Redo"
+                        aria-label="Redo"
                     >
                         <Icon icon={ArrowRedo20Regular} />
                     </Button>
@@ -241,6 +244,7 @@ export function ImageToolsCard({
                         disabled={!session.isDirty}
                         onClick={() => session.discard()}
                         title="Discard changes"
+                        aria-label="Discard changes"
                     >
                         <Icon icon={Dismiss20Regular} />
                     </Button>

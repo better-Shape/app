@@ -17,9 +17,10 @@ import { planSlugFromPath } from "@/lib/plan/file";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
-    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
@@ -141,20 +142,13 @@ export const PlanEditorHeader = ({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-[160px]">
                             {onRawChange ? (
-                                <>
-                                    <DropdownMenuCheckboxItem
-                                        checked={!raw}
-                                        onCheckedChange={() => onRawChange(false)}
-                                    >
-                                        Markdown
-                                    </DropdownMenuCheckboxItem>
-                                    <DropdownMenuCheckboxItem
-                                        checked={raw}
-                                        onCheckedChange={() => onRawChange(true)}
-                                    >
-                                        Raw
-                                    </DropdownMenuCheckboxItem>
-                                </>
+                                <DropdownMenuRadioGroup
+                                    value={raw ? "raw" : "markdown"}
+                                    onValueChange={(next) => onRawChange(next === "raw")}
+                                >
+                                    <DropdownMenuRadioItem value="markdown">Markdown</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="raw">Raw</DropdownMenuRadioItem>
+                                </DropdownMenuRadioGroup>
                             ) : null}
                             {onRawChange && onSaveToWorkspace ? <DropdownMenuSeparator /> : null}
                             {onSaveToWorkspace ? (

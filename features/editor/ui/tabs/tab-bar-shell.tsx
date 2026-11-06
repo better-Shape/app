@@ -28,10 +28,15 @@ import {
 } from "./workbench-tab-styles";
 
 interface TabBarShellProps {
+    /** The tab list's accessible name, such as "Workspace" or "Chats". */
+    label: string;
     itemIds: string[];
     onDragEnd: (event: DragEndEvent) => void;
     children: ReactNode;
-    /** Rendered after the tab list, still in the scroll row (before the flex trail). */
+    /**
+     * Rendered after the tab list, still in the scroll row (before the flex trail). It sits
+     * outside the `tablist`, which may hold only tabs.
+     */
     listEnd?: ReactNode;
     actions?: ReactNode;
     dndId?: string;
@@ -41,6 +46,7 @@ interface TabBarShellProps {
 }
 
 export function TabBarShell({
+    label,
     itemIds,
     onDragEnd,
     children,
@@ -81,12 +87,12 @@ export function TabBarShell({
                             modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
                         >
                             <div className={WORKBENCH_TAB_ROW_CLASS}>
-                                <div role="tablist" className={WORKBENCH_TAB_LIST_CLASS}>
+                                <div role="tablist" aria-label={label} className={WORKBENCH_TAB_LIST_CLASS}>
                                     <SortableContext items={itemIds} strategy={horizontalListSortingStrategy}>
                                         {children}
                                     </SortableContext>
-                                    {listEnd}
                                 </div>
+                                {listEnd}
                                 <div className={WORKBENCH_TAB_TRAIL_CLASS} aria-hidden />
                             </div>
                         </DndContext>

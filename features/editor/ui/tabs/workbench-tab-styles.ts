@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 
 export const WORKBENCH_TAB_HEIGHT = 36;
@@ -23,9 +24,14 @@ export const WORKBENCH_TAB_FADE_CLASS =
 export const WORKBENCH_TAB_ACTIONS_CLASS =
     "box-border flex h-full shrink-0 items-center gap-0.5 px-1";
 
+/**
+ * A tab's classes. Every strip draws the same keyboard focus ring, the app's 2px `--accent-text`
+ * ring; a tab is not a button, so the base-layer button ring does not reach it.
+ */
 export function workbenchTabItemClass(active: boolean, dragging?: boolean, compact?: boolean) {
     return cn(
         "workbench-tab-item group relative box-border flex h-7 shrink-0 cursor-pointer select-none items-center overflow-hidden whitespace-nowrap squircle-lg font-normal press-spring",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-text",
         compact ? "gap-1 px-1.5" : "gap-2 px-2.5",
         active
             ? "is-active min-w-[60px] bg-white/10 text-text-primary"
@@ -46,3 +52,127 @@ export const WORKBENCH_TAB_CONTENT_ACTIVE_CLASS = "workbench-tab-content is-acti
 
 export const WORKBENCH_TAB_ACTION_BUTTON_CLASS =
     "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-[var(--row-hover)] hover:text-text-primary";
+
+/**
+ * The close glyph inside a workbench tab is decoration the tab itself acts on: a focusable
+ * button nested in `role="tab"` is invalid (nested interactive control), so the tab closes on
+ * Delete, on a click that lands on the glyph, and from its context menu.
+ */
+export const isWorkbenchTabCloseTarget = (target: EventTarget | null): boolean =>
+    target instanceof Element && target.closest("[data-tab-close]") !== null;
+
+export type WorkbenchTabCommand = "select" | "close";
+
+/**
+ * The keys that close a focused tab, for `aria-keyshortcuts`: Delete, and Cmd+Backspace for
+ * macOS laptop keyboards, which have no Delete key, as VS Code's terminal tabs take it.
+ */
+export const WORKBENCH_TAB_CLOSE_KEYS = "Delete Meta+Backspace";
+
+/** The key fields a tab's key handling reads. */
+type TabKey = { key: string; metaKey?: boolean };
+
+/**
+ * Keys a focused workbench tab handles itself, after the WAI-ARIA tabs pattern: Enter opens it,
+ * Delete or Cmd+Backspace closes it, and the arrows, Home and End move focus along the strip.
+ * Every other key belongs to drag-and-drop reordering, which picks a tab up with Space and, once
+ * it is held, moves it with the arrows.
+ */
+const tabKeyCommand = ({ key, metaKey }: TabKey): WorkbenchTabCommand | undefined => {
+    if (key === "Enter") return "select";
+    return key === "Delete" || (key === "Backspace" && metaKey) ? "close" : undefined;
+};
+
+/**
+ * The command a key press on a focused tab requests: none mid-drag, and a close only when the tab
+ * is closable and the key is not repeating. A held Delete repeats, and focus moves to the next
+ * tab after each close, so acting on repeats would close every tab after it.
+ */
+export const workbenchTabKeyCommand = (
+    pressed: TabKey,
+    state: { closable: boolean; dragging: boolean; repeat?: boolean },
+): WorkbenchTabCommand | undefined => {
+    const command = state.dragging ? undefined : tabKeyCommand(pressed);
+    return command === "close" && (!state.closable || state.repeat) ? undefined : command;
+};
+
+/**
+ * Whether a tab is its strip's one stop in the Tab order, as the WAI-ARIA tabs pattern asks: the
+ * selected tab, or the first tab when none is selected, so the strip stays reachable. The arrow
+ * keys move focus to the others.
+ */
+export const isTabStop = (selected: boolean, index: number, stripHasSelection: boolean): boolean =>
+    selected || (!stripHasSelection && index === 0);
+
+/** Where an arrow, Home or End key sends focus among `count` tabs from `index`, wrapping at the ends. */
+const tabFocusTarget = (key: string, index: number, count: number): number | undefined => {
+    if (key === "ArrowRight") return (index + 1) % count;
+    if (key === "ArrowLeft") return (index - 1 + count) % count;
+    if (key === "Home") return 0;
+    return key === "End" ? count - 1 : undefined;
+};
+
+/** The tabs of the strip `tab` sits in, in order. */
+const stripTabs = (tab: HTMLElement): HTMLElement[] => {
+    const strip = tab.closest('[role="tablist"]');
+    return strip ? Array.from(strip.querySelectorAll<HTMLElement>('[role="tab"]')) : [];
+};
+
+/** Whether a modifier is held. A modified arrow or Home belongs to shortcuts, not to the strip. */
+const hasModifier = (event: KeyboardEvent<HTMLElement>): boolean =>
+    event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+
+/** Moves focus along the strip for a bare arrow, Home or End key; false for any other key. */
+const moveTabFocus = (event: KeyboardEvent<HTMLElement>): boolean => {
+    const tabs = hasModifier(event) ? [] : stripTabs(event.currentTarget);
+    const target = tabs.length > 0 ? tabFocusTarget(event.key, tabs.indexOf(event.currentTarget), tabs.length) : undefined;
+    if (target === undefined) return false;
+    tabs[target]?.focus();
+    return true;
+};
+
+/** The command a click on a tab requests: close when it lands on a closable tab's glyph. */
+export const workbenchTabClickCommand = (
+    target: EventTarget | null,
+    closable: boolean,
+): WorkbenchTabCommand => (closable && isWorkbenchTabCloseTarget(target) ? "close" : "select");
+
+/** Runs the tab's own handling of a key, reporting whether the key was one the tab handles. */
+const runWorkbenchTabKey = (
+    event: KeyboardEvent<HTMLElement>,
+    state: { closable: boolean; dragging: boolean },
+    run: (command: WorkbenchTabCommand, tab: HTMLElement) => void,
+): boolean => {
+    if (!state.dragging && moveTabFocus(event)) return true;
+    const command = workbenchTabKeyCommand(event, { ...state, repeat: event.repeat });
+    if (command) run(command, event.currentTarget);
+    return command !== undefined;
+};
+
+/**
+ * A key press on a focused tab: the tab's own keys run first, so drag-and-drop never takes Enter,
+ * Delete or an arrow before a tab is picked up, and every other key goes on to reordering through
+ * `forward`.
+ */
+export const handleWorkbenchTabKey = (
+    event: KeyboardEvent<HTMLElement>,
+    state: { closable: boolean; dragging: boolean },
+    run: (command: WorkbenchTabCommand, tab: HTMLElement) => void,
+    forward?: (event: KeyboardEvent<HTMLElement>) => void,
+): void => {
+    if (event.target !== event.currentTarget) return;
+    if (runWorkbenchTabKey(event, state, run)) event.preventDefault();
+    else forward?.(event);
+};
+
+/**
+ * Before a focused tab closes, moves focus to the tab after it, or to the one before it when it
+ * is last, as the WAI-ARIA tabs pattern describes for Delete. Otherwise focus would fall to the
+ * document body with the removed tab. Does nothing when focus is not on the tab.
+ */
+export const focusTabAfterClose = (tab: HTMLElement): void => {
+    if (!tab.contains(document.activeElement)) return;
+    const tabs = stripTabs(tab);
+    const index = tabs.indexOf(tab);
+    (tabs[index + 1] ?? tabs[index - 1])?.focus();
+};

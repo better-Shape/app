@@ -30,7 +30,7 @@ export const Slider = React.forwardRef<
                 )}
             />
         </SliderPrimitive.Track>
-        <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full bg-base transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:pointer-events-none disabled:opacity-50" />
+        <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full bg-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:pointer-events-none disabled:opacity-50" />
     </SliderPrimitive.Root>
 ));
 Slider.displayName = SliderPrimitive.Root.displayName;

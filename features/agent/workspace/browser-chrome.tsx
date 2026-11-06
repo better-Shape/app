@@ -23,6 +23,8 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
@@ -105,28 +107,17 @@ const PickerButton = ({ state, actions }: { state: BrowserState; actions: Browse
 
 /** The scheme rows, which are three mutually exclusive choices in one menu. */
 const SchemeItems = ({ state, actions }: { state: BrowserState; actions: BrowserActions }) => (
-    <>
-        <DropdownMenuCheckboxItem
-            checked={state.scheme === "system"}
-            onCheckedChange={() => actions.chooseScheme("system")}
-        >
-            System theme
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-            checked={state.scheme === "light"}
-            onCheckedChange={() => actions.chooseScheme("light")}
-        >
+    <DropdownMenuRadioGroup value={state.scheme} onValueChange={(next) => actions.chooseScheme(next as ColorScheme)}>
+        <DropdownMenuRadioItem value="system">System theme</DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="light">
             <Icon icon={WeatherSunny20Regular} />
             Light
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-            checked={state.scheme === "dark"}
-            onCheckedChange={() => actions.chooseScheme("dark")}
-        >
+        </DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="dark">
             <Icon icon={WeatherMoon20Regular} />
             Dark
-        </DropdownMenuCheckboxItem>
-    </>
+        </DropdownMenuRadioItem>
+    </DropdownMenuRadioGroup>
 );
 
 /** The three clears, which are the only items here that destroy something. */
@@ -260,7 +251,7 @@ export const BookmarkBar = ({
                     onClick={() => onOpen(bookmark.url)}
                     className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
-                    <Favicon url={bookmark.url} size={12} />
+                    <Favicon size={12} />
                     <span className="truncate">{bookmark.title || hostnameOf(bookmark.url)}</span>
                 </button>
             ))

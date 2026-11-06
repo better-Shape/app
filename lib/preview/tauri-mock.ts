@@ -236,14 +236,120 @@ const previewHistoryEntries = (now: number) =>
         };
     });
 
-/** Files the seeded commits touch, sliced to each commit's change count. */
-const previewCommitFiles = (filesChanged: number) =>
+type PreviewCommitFile = { path: string; status: string; staged: boolean };
+
+/**
+ * Files the seeded commits touch, sliced to each commit's change count.
+ * Matches `src-tauri/src/commands/git/mod.rs` (`git_commit_files`), where
+ * committed rows carry `staged: true`.
+ */
+const previewCommitFiles = (filesChanged: number): PreviewCommitFile[] =>
     [
-        { path: "src/App.tsx", status: "M", staged: false },
-        { path: "README.md", status: "M", staged: false },
-        { path: "src/main.ts", status: "A", staged: false },
+        { path: "src/App.tsx", status: "M", staged: true },
+        { path: "README.md", status: "M", staged: true },
+        { path: "src/main.ts", status: "A", staged: true },
     ].slice(0, Math.max(0, filesChanged));
 
+/** Merges newly staged files into a commit's recorded file list during `git_commit_amend`. */
+const mergeAmendedCommitFiles = (
+    existing: PreviewCommitFile[],
+    staged: PreviewCommitFile[],
+): PreviewCommitFile[] => {
+    const byPath = new Map<string, PreviewCommitFile>();
+    for (const file of existing) byPath.set(file.path, { ...file, staged: true });
+    for (const file of staged) byPath.set(file.path, { ...file, staged: true });
+    return [...byPath.values()];
+};
+
+/** Clones a preview git log entry so callers cannot mutate shared fixture arrays. */
+const clonePreviewLogEntry = <T extends { refs: string[]; parents: string[] }>(entry: T): T => ({
+    ...entry,
+    refs: [...entry.refs],
+    parents: [...entry.parents],
+});
+
+/** Builds a unique 40-char preview commit hash even across same-millisecond commits. */
+const buildPreviewCommitHash = (seq: number): string => {
+    const prefix = `preview${seq.toString(16).padStart(4, "0")}${Date.now().toString(16)}`;
+    return prefix.padEnd(40, "0").slice(0, 40);
+};
+
+/** Locates the commit entry carrying `HEAD -> <branch>`, falling back to index `0`. */
+const findPreviewHeadIndex = <T extends { refs: string[] }>(
+    entries: T[],
+    branch: string,
+): number => {
+    const headRef = `HEAD -> ${branch}`;
+    const idx = entries.findIndex((entry) => entry.refs.includes(headRef));
+    return idx >= 0 ? idx : 0;
+};
+
+/** Strips `branch` and `HEAD -> branch` from existing commit decorations before prepending. */
+const stripBranchRefs = <T extends { refs: string[] }>(entries: T[], branch: string): T[] => {
+    const headRef = `HEAD -> ${branch}`;
+    return entries.map((entry) => ({
+        ...entry,
+        refs: entry.refs.filter((ref) => ref !== branch && ref !== headRef),
+    }));
+};
+
+/** Demotes `HEAD -> prevBranch` back to `prevBranch` and returns its commit index. */
+const demotePreviewHead = <T extends { refs: string[] }>(
+    entries: T[],
+    prevBranch: string,
+): { entries: T[]; headIndex: number } => {
+    const prevHead = `HEAD -> ${prevBranch}`;
+    let headIndex = 0;
+    const next = entries.map((entry, idx) => {
+        if (!entry.refs.includes(prevHead)) return entry;
+        headIndex = idx;
+        return {
+            ...entry,
+            refs: entry.refs.map((ref) => (ref === prevHead ? prevBranch : ref)),
+        };
+    });
+    return { entries: next, headIndex };
+};
+
+/** Promotes `nextBranch` to `HEAD -> nextBranch` on the target commit index. */
+const promotePreviewBranchHead = <T extends { refs: string[] }>(
+    entries: T[],
+    targetIndex: number,
+    nextBranch: string,
+): T[] => {
+    const nextHead = `HEAD -> ${nextBranch}`;
+    return entries.map((entry, idx) => {
+        if (idx !== targetIndex) return entry;
+        const rest = entry.refs.filter((ref) => ref !== nextBranch && ref !== nextHead);
+        return { ...entry, refs: [nextHead, ...rest] };
+    });
+};
+
+/** Retargets `HEAD -> <branch>` across `entries`, following diverged branch tips when present. */
+const switchPreviewBranchEntries = <T extends { refs: string[] }>(
+    entries: T[],
+    prevBranch: string,
+    nextBranch: string,
+): T[] => {
+    if (entries.length === 0 || prevBranch === nextBranch) return entries;
+    const { entries: demoted, headIndex } = demotePreviewHead(entries, prevBranch);
+    const existingIdx = demoted.findIndex((entry) => entry.refs.includes(nextBranch));
+    const targetIdx = existingIdx >= 0 ? existingIdx : headIndex;
+    return promotePreviewBranchHead(demoted, targetIdx, nextBranch);
+};
+
+/** Attaches a newly created branch decoration onto the current `HEAD` commit. */
+const attachPreviewBranchAtHead = <T extends { refs: string[] }>(
+    entries: T[],
+    currentBranch: string,
+    newBranch: string,
+): T[] => {
+    if (entries.some((entry) => entry.refs.includes(newBranch))) return entries;
+    const targetIdx = findPreviewHeadIndex(entries, currentBranch);
+    return entries.map((entry, idx) =>
+        idx === targetIdx ? { ...entry, refs: [...entry.refs, newBranch] } : entry,
+    );
+};
 /** Seeded Git history, newest first, in the backend's wire shape. */
 const previewLogEntries = () => {
     const now = Date.now();
@@ -258,7 +364,7 @@ const previewLogEntries = () => {
         files_changed: n,
         insertions: n * 12,
         deletions: n * 3,
-        refs: n === 3 ? ["main"] : [],
+        refs: n === 3 ? ["HEAD -> main"] : [],
         parent_count: n === 1 ? 0 : 1,
         parents: n === 1 ? [] : [`preview000${n - 1}00000000000000000000000000`],
     }));
@@ -326,6 +432,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
     // id; unlisten arrives with the latter. Map between them.
     const subscriptionCallbacks = new Map<number, number>();
     let nextEventId = 1;
+    let nextCommitSeq = 0;
 
     /** Current project state in the backend's event payload shape. */
     const projectState = () => ({
@@ -520,10 +627,12 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         const committed = state.gitChanges.filter((c) => c.staged);
         const stagedCount = committed.length;
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
-        const [first, ...rest] = state.logEntries;
-        const parents = first ? [first.hash] : [];
+        const headRef = `HEAD -> ${state.branch}`;
+        const headEntry = state.logEntries[findPreviewHeadIndex(state.logEntries, state.branch)];
+        const parents = headEntry ? [headEntry.hash] : [];
+        nextCommitSeq += 1;
         const entry = {
-            hash: `preview${Date.now().toString(16)}0000000000000000000`.slice(0, 40),
+            hash: buildPreviewCommitHash(nextCommitSeq),
             message: message.trim() || "preview: commit",
             author: "Preview Fixture",
             author_email: "preview@example.invalid",
@@ -531,20 +640,35 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             files_changed: stagedCount,
             insertions: 0,
             deletions: 0,
-            refs: [state.branch],
+            refs: [headRef],
             parent_count: parents.length,
             parents,
         };
-        state.commitFiles.set(entry.hash, committed.map((change) => ({ ...change, staged: false })));
-        state.logEntries = first ? [entry, { ...first, refs: [] }, ...rest] : [entry];
+        state.commitFiles.set(
+            entry.hash,
+            committed.map((change) => ({ ...change, staged: true })),
+        );
+        state.logEntries = [entry, ...stripBranchRefs(state.logEntries, state.branch)];
     };
 
-    /** Rewrite the HEAD entry's message, like a real amend. */
+    /** Rewrite the checked-out `HEAD -> <branch>` commit's message and staged file list. */
     const recordAmend = (message: string) => {
+        if (state.logEntries.length === 0) return;
+        const staged = state.gitChanges.filter((c) => c.staged);
         state.gitChanges = state.gitChanges.filter((c) => !c.staged);
-        const [first, ...rest] = state.logEntries;
-        if (!first) return;
-        state.logEntries = [{ ...first, message: message.trim() || first.message }, ...rest];
+        const targetIdx = findPreviewHeadIndex(state.logEntries, state.branch);
+        const target = state.logEntries[targetIdx];
+        const priorFiles =
+            state.commitFiles.get(target.hash) ?? previewCommitFiles(target.files_changed);
+        const nextFiles =
+            staged.length > 0 ? mergeAmendedCommitFiles(priorFiles, staged) : priorFiles;
+        state.commitFiles.set(target.hash, nextFiles);
+        const nextMessage = message.trim() || target.message;
+        state.logEntries = state.logEntries.map((entry, idx) =>
+            idx === targetIdx
+                ? { ...entry, message: nextMessage, files_changed: nextFiles.length }
+                : entry,
+        );
     };
 
     /** Body stored under a fake-tree key, or empty when absent. */
@@ -731,7 +855,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         reveal_path: () => null,
         open_in_app: () => null,
         open_url_external: () => null,
-        ensure_path_within: (args) => (typeof args?.path === "string" ? args.path : null),
+        ensure_path_within: (args) => (typeof args.path === "string" ? args.path : null),
         get_rust_deps: () => [],
 
         // ── design mode ──────────────────────────────────────────────────
@@ -804,13 +928,17 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_current_branch: () => state.branch,
         git_create_branch: (args) => {
             const name = String(args.branchName ?? "");
-            if (name && !state.branches.includes(name)) state.branches.push(name);
+            if (name && !state.branches.includes(name)) {
+                state.branches.push(name);
+                state.logEntries = attachPreviewBranchAtHead(state.logEntries, state.branch, name);
+            }
             return null;
         },
         git_switch_branch: (args) => {
             const name = String(args.branchName ?? "");
             if (name) {
                 if (!state.branches.includes(name)) state.branches.push(name);
+                state.logEntries = switchPreviewBranchEntries(state.logEntries, state.branch, name);
                 state.branch = name;
             }
             return null;
@@ -828,7 +956,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         git_has_remote: () => false,
         git_remote_url: () => null,
         git_sync_status: () => ({ ahead: 0, behind: 0 }),
-        git_log: () => state.logEntries.map((e) => ({ ...e, refs: [...e.refs] })),
+        git_log: () => state.logEntries.map(clonePreviewLogEntry),
         // Local history: the editor's picker lists these and restores one into
         // the buffer. The real backend keeps 50 versions per file on save and
         // answers with the text of the version it restored; the fixture holds one
@@ -839,7 +967,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         // The commit detail panel lists these. Without a handler the fallback
         // answered `null`, which the panel put in state and then crashed on.
         git_commit_files: (args) => {
-            const hash = String(args.hash ?? "");
+            const hash = typeof args.hash === "string" ? args.hash : "";
             const recorded = state.commitFiles.get(hash);
             if (recorded) return recorded.map((file) => ({ ...file }));
             const entry = state.logEntries.find((candidate) => candidate.hash === hash);
@@ -858,7 +986,7 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
             const entries = state.logEntries;
             const limit = typeof args.limit === "number" ? args.limit : entries.length;
             const offset = state.logStreamOffsets.get(key) ?? 0;
-            const page = entries.slice(offset, offset + limit);
+            const page = entries.slice(offset, offset + limit).map(clonePreviewLogEntry);
             state.logStreamOffsets.set(key, offset + page.length);
             return page;
         },
@@ -911,6 +1039,10 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         },
         get_chat_history: () => [],
         get_chat_title: () => "Preview fixture chat",
+        // Backend parity: the editor publishes diagnostics per path and nothing reads them back here.
+        set_diagnostics: () => null,
+        // Backend parity: incognito starts off, and the preview never turns it on.
+        get_chat_incognito: () => false,
         // Only while the fake project is open: the seeded conversation
         // does not exist in the welcome state (backend calls expect null).
         get_current_conversation_id: () =>
@@ -1095,6 +1227,14 @@ export const createPreviewInvokeHandler = (seed: PreviewSeedMode) => {
         search_project_files: () => [],
         search_content: () => [],
         search_codebase: () => [],
+        // There is no indexer in the preview, so a request reports "not started",
+        // which the Settings reindex control already treats as idle. Backend parity:
+        // with no explicit path and no open project the command fails.
+        index_project: (args) => {
+            const requested = typeof args.projectPath === "string" ? args.projectPath : "";
+            if (!requested && !state.projectPath) throw new Error("No project path");
+            return false;
+        },
         browser_tabs: () => ({ tabs: [], activeId: null }),
         browser_history: () => [],
         pty_available_shells: () => [],

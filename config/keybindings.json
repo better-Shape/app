@@ -225,6 +225,14 @@
             "category": "View"
         },
         {
+            "id": "view.toggleTabFocusMode",
+            "label": "Toggle Tab Key Moves Focus",
+            "key": "Ctrl+M",
+            "when": "global",
+            "category": "View",
+            "description": "Make Tab leave the terminal instead of reaching the shell."
+        },
+        {
             "id": "view.zenMode",
             "label": "Zen Mode",
             "key": "Ctrl+K Z",

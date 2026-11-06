@@ -5,8 +5,7 @@ import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
 import { useCallback } from "react";
-import { arrayMove, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { arrayMove } from "@dnd-kit/sortable";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { Icon } from "@/components/ui/icon";
 
@@ -18,8 +17,10 @@ import {
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
     WORKBENCH_TAB_CONTENT_ACTIVE_CLASS,
     WORKBENCH_TAB_CONTENT_CLASS,
+    isTabStop,
     workbenchTabItemClass,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
+import { useSortableTab } from "@/features/editor/ui/tabs/use-sortable-tab";
 import { cn } from "@/lib/utils";
 import { ModelAvatarStack, WorkingDots } from "../message/bubble";
 import { useIsChatGenerating } from "../../lib/generating-chats";
@@ -52,6 +53,7 @@ export function isEphemeralChatTabId(id: string): boolean {
 const SortableChatTab = ({
     tab,
     isActive,
+    tabStop,
     canClose,
     onSelect,
     onClose,
@@ -61,6 +63,7 @@ const SortableChatTab = ({
 }: {
     tab: ChatTab;
     isActive: boolean;
+    tabStop: boolean;
     canClose: boolean;
     onSelect: (id: string) => void;
     onClose?: (id: string) => void;
@@ -68,54 +71,27 @@ const SortableChatTab = ({
     onCloseToRight?: (id: string) => void;
     onCloseAll?: () => void;
 }) => {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging,
-    } = useSortable({ id: tab.id });
     const generating = useIsChatGenerating(tab.id);
-
-    const style = {
-        transform: transform
-            ? CSS.Translate.toString({
-                  x: transform.x,
-                  y: 0,
-                  scaleX: 1,
-                  scaleY: 1,
-              })
-            : undefined,
-        transition,
-        zIndex: isDragging ? 20 : 1,
-    };
+    const closable = Boolean(canClose && onClose);
+    const { tabProps, isDragging } = useSortableTab({
+        id: tab.id,
+        selected: isActive,
+        tabStop,
+        closable,
+        onSelect: () => onSelect(tab.id),
+        onClose: () => onClose?.(tab.id),
+    });
 
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
                 <div
-                    ref={setNodeRef}
-                    style={style}
-                    {...attributes}
-                    {...listeners}
-                    role="tab"
-                    aria-selected={isActive}
-                    tabIndex={0}
+                    {...tabProps}
                     onPointerEnter={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
                     }}
                     onFocus={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
-                    }}
-                    onClick={() => onSelect(tab.id)}
-                    onKeyDown={(e) => {
-                        listeners?.onKeyDown?.(e);
-                        if (e.defaultPrevented || isDragging || e.target !== e.currentTarget) return;
-                        if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onSelect(tab.id);
-                        }
                     }}
                     className={workbenchTabItemClass(isActive, isDragging)}
                 >
@@ -155,24 +131,17 @@ const SortableChatTab = ({
                             <ModelAvatarStack models={tab.models} size={14} />
                         ) : null}
                         <div className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-1">
-                            <FadeTruncate
-                                title={tab.title}
-                                className="min-w-0 max-w-[140px] text-sm"
-                            >
+                            <FadeTruncate className="min-w-0 max-w-[140px] text-sm">
                                 {tab.title || "New Chat"}
                             </FadeTruncate>
                         </div>
                     </div>
-                    {canClose && onClose ? (
-                        <button
-                            type="button"
-                            aria-label={`Close ${tab.title}`}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onClose(tab.id);
-                            }}
+                    {closable ? (
+                        <span
+                            data-tab-close
+                            aria-hidden="true"
                             className={cn(
-                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 focus-visible:opacity-100",
+                                "absolute inset-y-0 right-0 z-[2] flex w-7 items-center justify-end pr-1 opacity-0 transition-opacity duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] group-hover:opacity-100 group-focus-visible:opacity-100",
                                 "bg-linear-to-l to-transparent from-50%",
                                 isActive ? "from-surface-3" : "from-panel-hover",
                             )}
@@ -180,7 +149,7 @@ const SortableChatTab = ({
                             <span className={WORKBENCH_TAB_CLOSE_BUTTON_CLASS}>
                                 <Icon icon={Dismiss20Regular} />
                             </span>
-                        </button>
+                        </span>
                     ) : null}
                 </div>
             </ContextMenuTrigger>
@@ -278,8 +247,11 @@ export function ChatTabBar({
         [onCloseTab, tabs],
     );
 
+    const stripHasSelection = list.some((t) => t.id === active);
+
     return (
         <TabBarShell
+            label="Chats"
             dndId="agent-chat-tabs"
             itemIds={list.map((t) => t.id)}
             onDragEnd={handleDragEnd}
@@ -298,11 +270,12 @@ export function ChatTabBar({
                 </>
             }
         >
-            {list.map((tab) => (
+            {list.map((tab, index) => (
                 <SortableChatTab
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === active}
+                    tabStop={isTabStop(tab.id === active, index, stripHasSelection)}
                     canClose={Boolean(onCloseTab) && list.length > 1}
                     onSelect={(id) => onSelectTab?.(id)}
                     onClose={onCloseTab}

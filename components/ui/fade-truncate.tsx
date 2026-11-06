@@ -1,44 +1,29 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useRef } from "react";
+import { useHorizontalOverflow } from "@/lib/ui/use-horizontal-overflow";
 import { cn } from "@/lib/utils";
 
 /**
  * Single-line label that fades at the trailing edge when content overflows.
  * Short labels stay fully opaque; long ones, resize, zoom, and RTL are handled.
+ * `dir="auto"` takes the direction from the label's own text, so a right-to-left title keeps its
+ * start in view and fades at its left edge, through the `rtl:` variant's `:dir(rtl)`.
  */
 export function FadeTruncate({
     children,
     className,
-    title,
 }: {
     children: React.ReactNode;
     className?: string;
-    title?: string;
 }) {
     const ref = useRef<HTMLSpanElement>(null);
-    const [overflowing, setOverflowing] = useState(false);
-
-    const measure = useCallback(() => {
-        const el = ref.current;
-        if (!el) return;
-        // 1px slack avoids flicker from subpixel rounding
-        setOverflowing(el.scrollWidth > el.clientWidth + 1);
-    }, []);
-
-    useLayoutEffect(() => {
-        measure();
-        const el = ref.current;
-        if (!el || typeof ResizeObserver === "undefined") return;
-        const ro = new ResizeObserver(() => measure());
-        ro.observe(el);
-        if (el.parentElement) ro.observe(el.parentElement);
-        return () => ro.disconnect();
-    }, [measure, children, title]);
+    const overflowing = useHorizontalOverflow(ref, children);
 
     return (
         <span
             ref={ref}
+            dir="auto"
             className={cn(
                 "block min-w-0 overflow-hidden whitespace-nowrap",
                 overflowing &&

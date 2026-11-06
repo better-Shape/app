@@ -31,6 +31,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 import { cn } from "@/lib/utils";
 import { isPopoutPath } from "@/lib/window/tauri-window";
 import { getFileExtension, isImageExtension } from "@/features/editor/lib/image-types";
@@ -52,6 +53,45 @@ import {
     ContextMenuTrigger,
 } from "@/components/ui/context";
 
+/** A palette row acts on its delete glyph itself, so the glyph is not a control nested in the row. */
+const isPaletteDeleteTarget = (target: EventTarget) =>
+    target instanceof Element && target.closest("[data-palette-delete]") !== null;
+
+/**
+ * Whether a key event runs a palette row: Enter on key down, and Space on key up when the same
+ * row took the key down. A native button works the same way, so moving focus before releasing
+ * Space abandons the press.
+ */
+const runsPaletteRow = (
+    event: React.KeyboardEvent<HTMLElement>,
+    spacePress: React.RefObject<EventTarget | null>,
+): boolean => {
+    if (event.key === "Enter") return event.type === "keydown";
+    if (event.key !== " ") return false;
+    const pressedHere = spacePress.current === event.currentTarget;
+    spacePress.current = event.type === "keydown" ? event.currentTarget : null;
+    return event.type === "keyup" && pressedHere;
+};
+
+/**
+ * Enter and Space run a focused palette row, as on any `role="button"`. Deleting stays a
+ * deliberate pointer or context-menu action, since it cannot be undone. A focused row also
+ * takes the selection, so the highlight and the focus ring mark the same row.
+ */
+const handlePaletteRowKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    action: EditorAction,
+    runAction: (action: EditorAction) => void,
+    spacePress: React.RefObject<EventTarget | null>,
+) => {
+    if (event.target !== event.currentTarget) return;
+    // Space would scroll the list.
+    if (event.key === " ") event.preventDefault();
+    if (!runsPaletteRow(event, spacePress)) return;
+    event.preventDefault();
+    runAction(action);
+};
+
 interface EditorAction {
     id: string;
     label: string;
@@ -66,7 +106,7 @@ interface EditorAction {
     meta?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     run: () => any;
-    delete?: (e: React.MouseEvent) => void;
+    delete?: (e: React.SyntheticEvent) => void;
     /** Reddit-style nested subagent under a parent agent row. */
     reply?: boolean;
     model?: string;
@@ -260,6 +300,7 @@ function ShortcutBadge({ shortcut }: { shortcut: string }) {
 /** Renders the CommandPalette UI component. */
 export const CommandPalette = () => {
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [actions, setActions] = useState<EditorAction[]>([]);
@@ -273,6 +314,7 @@ export const CommandPalette = () => {
     const [activeFileBias, setActiveFileBias] = useState<string | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const spacePressRef = useRef<EventTarget | null>(null);
 
     // The Current File section needs the file the editor has open. Callers used
     // to have to pass it in `detail.activeFile`, and none did, so the section
@@ -400,7 +442,7 @@ export const CommandPalette = () => {
                             }).catch(() => undefined);
                         },
                         run: () => openAgentConversation(conv.id),
-                        delete: (e: React.MouseEvent) => {
+                        delete: (e: React.SyntheticEvent) => {
                             e.stopPropagation();
                             e.preventDefault();
                             commands.deleteConversation(conv.id).then(() => {
@@ -846,12 +888,15 @@ export const CommandPalette = () => {
                 <Dialog.Overlay
                     className={cn(BETTERSHAPE_OVERLAY_CLASS, BETTERSHAPE_INSTANT_OVERLAY_CLASS)}
                 />
-                <Dialog.Content className={cn(
-                    BETTERSHAPE_OVERLAY_CONTENT_CLASS,
-                    BETTERSHAPE_MODAL_PANEL_CLASS,
-                    BETTERSHAPE_INSTANT_PANEL_CLASS,
-                    "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
-                )}>
+                <Dialog.Content
+                    className={cn(
+                        BETTERSHAPE_OVERLAY_CONTENT_CLASS,
+                        BETTERSHAPE_MODAL_PANEL_CLASS,
+                        BETTERSHAPE_INSTANT_PANEL_CLASS,
+                        "absolute top-[12%] left-1/2 z-50 -translate-x-1/2 flex squircle-2xl! w-[min(600px,calc(100%-2rem))] flex-col overflow-hidden focus:outline-none",
+                    )}
+                    onCloseAutoFocus={returnFocus}
+                >
                     <Dialog.Title className="sr-only">Command Palette</Dialog.Title>
                     <Dialog.Description className="sr-only">Search agents, files, and actions</Dialog.Description>
                     <div className="px-1">
@@ -940,7 +985,13 @@ export const CommandPalette = () => {
                                                 }
                                             }
                                         }}
-                                        onClick={() => runAction(action)}
+                                        onFocus={() => setSelectedIndex(idx)}
+                                        onClick={(event) => {
+                                            if (action.delete && isPaletteDeleteTarget(event.target)) action.delete(event);
+                                            else runAction(action);
+                                        }}
+                                        onKeyDown={(event) => handlePaletteRowKey(event, action, runAction, spacePressRef)}
+                                        onKeyUp={(event) => handlePaletteRowKey(event, action, runAction, spacePressRef)}
                                     >
                                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                                             {action.reply ? (
@@ -981,14 +1032,13 @@ export const CommandPalette = () => {
                                                 <ShortcutBadge shortcut={action.shortcut} />
                                             )}
                                             {action.delete ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={action.delete}
+                                                <span
+                                                    data-palette-delete
+                                                    aria-hidden="true"
                                                     className="ml-2 shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-error/10 hover:text-error"
-                                                    title="Delete"
                                                 >
                                                     <Icon icon={Delete20Filled} />
-                                                </button>
+                                                </span>
                                             ) : null}
                                         </div>
                                     </div>
@@ -1015,7 +1065,7 @@ export const CommandPalette = () => {
                                         {action.delete ? (
                                             <ContextMenuItem
                                                 className="text-error"
-                                                onClick={(e) => action.delete?.(e as unknown as React.MouseEvent)}
+                                                onClick={(e) => action.delete?.(e)}
                                             >
                                                 <Icon icon={Delete20Filled} />
                                                 Delete

@@ -130,7 +130,7 @@ function HeaderIconBtn({
                 aria-pressed={active}
                 onClick={onClick}
                 className={cn(
-                    "flex size-7 items-center justify-center rounded-md text-text-muted",
+                    "flex size-7 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted",
                     "transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary",
                     active && "bg-[var(--btn-open)] hover:bg-[var(--btn-open-hover)] text-text-primary",
                 )}
@@ -409,7 +409,7 @@ const SessionsFilterDropdown = ({
                 <button
                     type="button"
                     aria-label="Filter"
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                    className="flex size-7 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                 >
                     <Icon icon={Filter20Regular} />
                 </button>
@@ -453,7 +453,7 @@ const SessionsActionsDropdown = ({
                 <button
                     type="button"
                     aria-label="Sessions actions"
-                    className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
+                    className="flex size-7 min-h-target-min min-w-target-min items-center justify-center rounded-md text-text-muted transition-colors duration-[var(--spring-tap-dur)] ease-[var(--spring-tap)] hover:bg-[var(--btn-hover)] hover:text-text-primary data-[state=open]:bg-[var(--btn-open)] data-[state=open]:hover:bg-[var(--btn-open-hover)] data-[state=open]:text-text-primary"
                 >
                     <Icon icon={MoreHorizontal20Regular} />
                 </button>

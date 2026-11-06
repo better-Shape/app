@@ -5,7 +5,49 @@ import { cn, createOccurrenceKeyer } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { providerIcon } from "@/lib/ui/provider-icon";
 import { tableCellModelId } from "@/lib/chat/fence-tables";
+import { useHorizontalOverflow } from "@/lib/ui/use-horizontal-overflow";
 import styles from "./data-table.module.css";
+
+/**
+ * A table wider than its box scrolls sideways, so the box takes keyboard focus: a scroll region
+ * with no focusable content is unreachable without a pointer (WCAG 2.1.1). A named group, not a
+ * region, so every table does not add a landmark. A table that fits adds no stop and no name.
+ */
+const TABLE_SCROLLER_PROPS = { tabIndex: 0, role: "group", "aria-label": "Scrollable table" } as const;
+/**
+ * The focus ring is an inset outline: the rounded frame around the scroller clips anything drawn
+ * outside it, and an outline paints above the table's cell backgrounds where an inset shadow
+ * would sit beneath them.
+ */
+const TABLE_SCROLLER_CLASS =
+    "custom-scrollbar overflow-x-auto overflow-y-hidden rounded-[inherit] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-text";
+
+/** A focus or blur handler that records focus on the box itself, not on a link inside the table. */
+const trackOwnFocus = (setFocused: (focused: boolean) => void, focused: boolean) => (event: React.FocusEvent) => {
+    if (event.target === event.currentTarget) setFocused(focused);
+};
+
+/**
+ * The sideways scroll box around a table. It is a keyboard stop while the table overflows it, and
+ * stays one while it holds focus, so a table that comes to fit, say after the sidebar closes, does
+ * not drop focus to the page.
+ */
+const TableScroller = ({ children }: { children?: React.ReactNode }) => {
+    const ref = React.useRef<HTMLDivElement>(null);
+    const overflowing = useHorizontalOverflow(ref, children);
+    const [focused, setFocused] = React.useState(false);
+    return (
+        <div
+            ref={ref}
+            {...(overflowing || focused ? TABLE_SCROLLER_PROPS : undefined)}
+            onFocus={trackOwnFocus(setFocused, true)}
+            onBlur={trackOwnFocus(setFocused, false)}
+            className={cn(styles.scroller, TABLE_SCROLLER_CLASS)}
+        >
+            {children}
+        </div>
+    );
+};
 
 /** Escape md cell. */
 const escapeMdCell = (cell: string): string => {
@@ -114,7 +156,7 @@ export const ChatDataTable = ({
                     />
                 </div>
             ) : null}
-            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>
+            <TableScroller>
                 <table className={styles.table}>
                     {headers.length > 0 ? (
                         <thead>
@@ -129,7 +171,7 @@ export const ChatDataTable = ({
                     ) : null}
                     <ChatDataTableBody rows={rows} />
                 </table>
-            </div>
+            </TableScroller>
         </div>
     );
 };
@@ -183,7 +225,7 @@ export const MarkdownTableShell = ({ children }: { children?: React.ReactNode })
                     boxClassName="bg-surface-3 border border-border-subtle shadow-xs"
                 />
             </div>
-            <div className={cn(styles.scroller, "custom-scrollbar overflow-x-auto overflow-y-hidden")}>{children}</div>
+            <TableScroller>{children}</TableScroller>
         </div>
     );
 };

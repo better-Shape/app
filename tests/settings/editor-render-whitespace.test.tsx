@@ -49,7 +49,7 @@ async function pick(trigger: HTMLButtonElement, label: string) {
     });
     const menu = document.querySelector('[role="menu"]');
     expect(menu, `menu for "${label}" did not open`).not.toBeNull();
-    const item = [...menu!.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find(
+    const item = [...menu!.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="menuitem"]')].find(
         (node) => node.textContent === label,
     );
     expect(item, `option "${label}" is missing`).toBeDefined();

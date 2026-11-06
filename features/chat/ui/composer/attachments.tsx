@@ -28,6 +28,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 import { FileIcon } from "@/components/ui/file-icon";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn, createOccurrenceKeyer, randomSuffix } from "@/lib/utils";
@@ -395,6 +396,7 @@ export const ComposerAttachments = ({
     onInsertInline?: (id: string, text: string) => void;
 }) => {
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const previewReqIdRef = React.useRef(0);
     const [previewing, setPreviewing] = React.useState<{
         id: string;
@@ -456,6 +458,7 @@ export const ComposerAttachments = ({
                             BETTERSHAPE_MODAL_PANEL_CLASS,
                             "fixed top-[14%] left-1/2 z-50 flex w-[min(640px,calc(100%-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl focus:outline-none",
                         )}
+                        onCloseAutoFocus={returnFocus}
                     >
                         {previewing ? (
                             <>

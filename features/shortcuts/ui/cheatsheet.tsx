@@ -12,6 +12,7 @@ import {
     BETTERSHAPE_OVERLAY_CONTENT_CLASS,
 } from "@/lib/ui/modal-overlay";
 import { useOverlayRoot } from "@/lib/ui/overlay-root";
+import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 import { loadKeybindings, onKeybindingsChanged, splitKeyChord, type KeyBinding } from "@/lib/ui/shortcuts";
 import { countBoundShortcuts, groupShortcuts } from "@/features/shortcuts/lib/group-shortcuts";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
  */
 export function KeyboardShortcutsCheatsheet() {
     const overlayRoot = useOverlayRoot();
+    const returnFocus = useDialogFocusReturn();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [bindings, setBindings] = useState<KeyBinding[]>(() => loadKeybindings());
@@ -60,6 +62,7 @@ export function KeyboardShortcutsCheatsheet() {
                         BETTERSHAPE_MODAL_PANEL_CLASS,
                         "absolute top-[10%] left-1/2 z-50 flex max-h-[76%] w-[min(760px,calc(100%-2rem))] -translate-x-1/2 flex-col overflow-hidden focus:outline-none",
                     )}
+                    onCloseAutoFocus={returnFocus}
                 >
                     <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-2">
                         <Dialog.Title className="text-sm font-medium text-text-primary">

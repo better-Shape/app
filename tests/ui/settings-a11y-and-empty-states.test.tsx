@@ -1,16 +1,27 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SettingCard, SettingRow, SettingSelect, SettingSwitch } from "@/features/settings/ui/shared/controls";
+import { SearchInput } from "@/components/ui/search";
+import {
+    ExcludePatternsSelect,
+    FontFamilySelect,
+    SettingCard,
+    SettingRow,
+    SettingSelect,
+    SettingSwitch,
+} from "@/features/settings/ui/shared/controls";
+import { KeyInput, TextInput } from "@/features/settings/ui/sections/providers/inputs";
+import { ProviderCard } from "@/features/settings/ui/sections/providers/provider-card";
 import { AiSettingsPanel } from "@/features/settings/ui/sections/ai";
+import { WorkflowsEditor } from "@/features/settings/ui/sections/workflows";
 import { WelcomeScreen, parentDir } from "@/app/welcome-screen";
 import { PanelStateMessage, openWorkspaceFilesTab } from "@/components/ui/state-message";
 import { getSettings, updateSettingSection } from "@/lib/settings";
 import { defaultProvidersSettings } from "@/lib/ai/providers";
 
 vi.mock("@tauri-apps/api/event", () => ({
-    listen: vi.fn(async () => () => {}),
+    listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("@/lib/catalog/store", () => ({
@@ -57,6 +68,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+    localStorage.clear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -78,6 +90,16 @@ const findButton = (text: string): HTMLButtonElement => {
     if (!match) throw new Error(`Expected button containing "${text}"`);
     return match;
 };
+
+/** IDs listed in an IDREF attribute such as `aria-labelledby`, in list order. */
+const referencedIds = (element: Element | null, attribute: string): string[] =>
+    (element?.getAttribute(attribute) ?? "").split(/\s+/).filter(Boolean);
+
+/** Name or description text composed from an IDREF attribute, as assistive technology reads it. */
+const referencedText = (element: Element | null, attribute: string): string =>
+    referencedIds(element, attribute)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+        .join(" ");
 
 describe("Settings row accessible labelling", () => {
     it("wires SettingRow title, description, and selected value IDs onto SettingSwitch and SettingSelect", () => {
@@ -103,24 +125,182 @@ describe("Settings row accessible labelling", () => {
         if (!(switchEl instanceof HTMLButtonElement)) {
             throw new Error("Expected switch button");
         }
-        const labelledBy = switchEl.getAttribute("aria-labelledby") ?? "";
-        const describedBy = switchEl.getAttribute("aria-describedby") ?? "";
-        expect(labelledBy.length).toBeGreaterThan(0);
-        expect(describedBy.length).toBeGreaterThan(0);
-        expect(document.getElementById(labelledBy)?.textContent).toBe("Minimap");
-        expect(document.getElementById(describedBy)?.textContent).toBe(
+        expect(referencedIds(switchEl, "aria-labelledby")).toHaveLength(1);
+        expect(referencedText(switchEl, "aria-labelledby")).toBe("Minimap");
+        expect(referencedIds(switchEl, "aria-describedby")).toHaveLength(1);
+        expect(referencedText(switchEl, "aria-describedby")).toBe(
             "Show a miniature overview beside the editor.",
         );
 
         const selectTrigger = findButton("On");
-        const selectLabelIds = (selectTrigger.getAttribute("aria-labelledby") ?? "")
-            .split(/\s+/)
-            .filter(Boolean);
-        expect(selectLabelIds).toHaveLength(2);
-        const announced = selectLabelIds
-            .map((id) => document.getElementById(id)?.textContent)
-            .join(" ");
-        expect(announced).toBe("Word wrap On");
+        expect(referencedIds(selectTrigger, "aria-labelledby")).toHaveLength(2);
+        expect(referencedText(selectTrigger, "aria-labelledby")).toBe("Word wrap On");
+    });
+
+    it("preserves selected value announcement when SettingSelect receives an explicit aria-label and wires SettingRow labels onto ExcludePatternsSelect, KeyInput, and TextInput", () => {
+        render(
+            <SettingCard>
+                <SettingSelect
+                    aria-label="Line endings"
+                    value="lf"
+                    options={[
+                        { value: "lf", label: "LF" },
+                        { value: "crlf", label: "CRLF" },
+                    ]}
+                    onChange={() => {}}
+                />
+                <SettingRow title="Exclude" description="Folders left out of workspace search.">
+                    <ExcludePatternsSelect value="**/node_modules,**/.git" onChange={() => {}} />
+                </SettingRow>
+                <SettingRow title="API key" description="Stored in OS keychain." stack>
+                    <KeyInput value="" placeholder="sk-..." onChange={() => {}} />
+                </SettingRow>
+                <SettingRow title="Base URL" description="OpenAI-compatible endpoint." stack>
+                    <TextInput value="https://api.example.com" placeholder="https://..." onChange={() => {}} />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const explicitSelect = findButton("LF");
+        expect(explicitSelect.getAttribute("aria-label")).toBeNull();
+        expect(referencedText(explicitSelect, "aria-labelledby")).toBe("Line endings LF");
+
+        const excludeTrigger = findButton("node_modules, .git");
+        expect(referencedText(excludeTrigger, "aria-labelledby")).toBe("Exclude node_modules, .git");
+        expect(referencedText(excludeTrigger, "aria-describedby")).toBe(
+            "Folders left out of workspace search.",
+        );
+
+        const passwordInput = container.querySelector('input[type="password"]');
+        if (!(passwordInput instanceof HTMLInputElement)) {
+            throw new Error("Expected password input");
+        }
+        expect(referencedText(passwordInput, "aria-labelledby")).toBe("API key");
+        expect(referencedText(passwordInput, "aria-describedby")).toBe("Stored in OS keychain.");
+
+        const textInput = container.querySelector('input[type="text"]');
+        if (!(textInput instanceof HTMLInputElement)) {
+            throw new Error("Expected text input");
+        }
+        expect(referencedText(textInput, "aria-labelledby")).toBe("Base URL");
+        expect(referencedText(textInput, "aria-describedby")).toBe("OpenAI-compatible endpoint.");
+    });
+
+    it("appends an API key role suffix when KeyInput shares a SettingRow whose title omits key", () => {
+        render(
+            <SettingCard>
+                <SettingRow
+                    title="Web search"
+                    description="Uses your own search account."
+                >
+                    <div>
+                        <SettingSelect
+                            value="tavily"
+                            options={[
+                                { value: "none", label: "Disabled" },
+                                { value: "tavily", label: "Tavily" },
+                            ]}
+                            onChange={() => {}}
+                        />
+                        <KeyInput value="" placeholder="tvly-..." onChange={() => {}} />
+                    </div>
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const passwordInput = container.querySelector('input[type="password"]');
+        if (!(passwordInput instanceof HTMLInputElement)) {
+            throw new Error("Expected password input inside shared SettingRow");
+        }
+        const labelIds = referencedIds(passwordInput, "aria-labelledby");
+        expect(labelIds.map((id) => document.getElementById(id)?.textContent)).toEqual([
+            "Web search",
+            "API key",
+        ]);
+    });
+
+    it("exposes explicit provider-scoped aria-label attributes on standalone ProviderCard API key and base URL inputs", () => {
+        const providers = defaultProvidersSettings();
+        providers.connections.openai = {
+            ...providers.connections.openai,
+            enabled: true,
+            apiKey: "placeholder-credential-for-unit-test",
+            baseUrl: "https://api.openai.example/v1",
+        };
+
+        render(<ProviderCard id="openai" providers={providers} defaultExpanded />);
+
+        const apiKeyInput = container.querySelector('input[aria-label="OpenAI API key"]');
+        const baseUrlInput = container.querySelector('input[aria-label="OpenAI base URL"]');
+        if (!(apiKeyInput instanceof HTMLInputElement) || !(baseUrlInput instanceof HTMLInputElement)) {
+            throw new Error("Expected standalone ProviderCard API key and base URL inputs");
+        }
+        expect(apiKeyInput.type).toBe("password");
+        expect(baseUrlInput.value).toBe("https://api.openai.example/v1");
+    });
+
+    it("retains custom globs across preset toggles, unmounts, and re-check cycles", () => {
+        const changes: string[] = [];
+        const Harness = ({ initial }: { initial: string }) => {
+            const [val, setVal] = useState(initial);
+            return (
+                <SettingCard>
+                    <SettingRow title="Exclude">
+                        <ExcludePatternsSelect
+                            value={val}
+                            onChange={(next) => {
+                                changes.push(next);
+                                setVal(next);
+                            }}
+                        />
+                    </SettingRow>
+                </SettingCard>
+            );
+        };
+        render(<Harness initial="**/node_modules, **/vendor/**" />);
+
+        const findMenuCheckbox = (label: string): HTMLElement | undefined =>
+            Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'))
+                .find((el) => el.textContent?.trim() === label);
+
+        const openMenuAndFind = (label: string): HTMLElement => {
+            const existing = findMenuCheckbox(label);
+            if (existing) return existing;
+            const trigger = container.querySelector<HTMLButtonElement>(
+                'button[aria-haspopup="menu"]',
+            );
+            act(() => {
+                trigger?.dispatchEvent(
+                    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+                );
+            });
+            const found = findMenuCheckbox(label);
+            if (!found) throw new Error(`Missing ${label} option in ExcludePatternsSelect menu`);
+            return found;
+        };
+
+        const distOption = openMenuAndFind("dist");
+        act(() => {
+            distOption.click();
+        });
+        expect(changes).toEqual(["**/node_modules,**/vendor/**,**/dist"]);
+
+        // Unchecking custom **/vendor/** and unmounting still keeps it listed on remount.
+        const activeCustom = openMenuAndFind("**/vendor/**");
+        act(() => {
+            activeCustom.click();
+        });
+        expect(changes.at(-1)).toBe("**/node_modules,**/dist");
+
+        render(<div />);
+        render(<Harness initial="**/node_modules,**/dist" />);
+
+        const uncheckedCustom = openMenuAndFind("**/vendor/**");
+        expect(uncheckedCustom.getAttribute("aria-checked")).toBe("false");
+        act(() => {
+            uncheckedCustom.click();
+        });
+        expect(changes.at(-1)).toBe("**/node_modules,**/dist,**/vendor/**");
     });
 
     it("locks the last enabled concrete model so disabling models cannot reset all models back on", () => {
@@ -158,6 +338,80 @@ describe("Settings row accessible labelling", () => {
         expect(getModelSwitch("GPT-4o").getAttribute("aria-checked")).toBe("true");
         expect(getModelSwitch("GPT-4o").disabled).toBe(true);
     });
+
+    it("labels expanded ProviderCard disclosures and AI Rules textareas programmatically", () => {
+        const providers = defaultProvidersSettings();
+        render(
+            <>
+                <ProviderCard
+                    id="custom"
+                    providers={providers}
+                    query=""
+                    defaultExpanded
+                    onReset={() => {}}
+                />
+                <AiSettingsPanel settings={getSettings()} page="rules" />
+            </>,
+        );
+
+        const modelsDisclosure = Array.from(container.querySelectorAll("button")).find((btn) =>
+            btn.textContent?.trim().startsWith("Models"),
+        );
+        const advancedDisclosure = Array.from(container.querySelectorAll("button")).find((btn) =>
+            btn.textContent?.includes("Request headers & auth"),
+        );
+        if (!modelsDisclosure || !advancedDisclosure) {
+            throw new Error("Expected Models and Request headers & auth disclosures on ProviderCard");
+        }
+        act(() => {
+            modelsDisclosure.click();
+            advancedDisclosure.click();
+        });
+
+        expect(container.querySelector('input[aria-label="Add model ID"]')).not.toBeNull();
+        const extraHeaders = container.querySelector<HTMLTextAreaElement>(
+            'textarea[placeholder*="HTTP-Referer"]',
+        );
+        if (!extraHeaders) throw new Error("Expected Extra headers textarea");
+        expect(referencedText(extraHeaders, "aria-labelledby")).toBe("Extra headers");
+
+        expect(
+            container.querySelector('textarea[aria-label="Compaction instructions"]'),
+        ).not.toBeNull();
+        expect(
+            container.querySelector('textarea[aria-label="Custom instructions"]'),
+        ).not.toBeNull();
+    });
+
+    it("labels WorkflowDialog fields with htmlFor/group/aria-labelledby without wrapping button groups in <label>", async () => {
+        render(<WorkflowsEditor value={[]} />);
+
+        const addBtn = findButton("Add workflow");
+        await act(async () => {
+            addBtn.click();
+            await Promise.resolve();
+        });
+
+        const dialog = document.body.querySelector('[role="alertdialog"]');
+        if (!dialog) throw new Error("Expected New workflow dialog to open");
+
+        for (const label of Array.from(dialog.querySelectorAll("label"))) {
+            expect(label.querySelectorAll("button")).toHaveLength(0);
+        }
+
+        const groups = Array.from(dialog.querySelectorAll('[role="group"]'));
+        expect(groups.length).toBeGreaterThanOrEqual(2);
+
+        const slashOnlyBtn = Array.from(dialog.querySelectorAll("button")).find(
+            (btn) => btn.textContent?.trim() === "Slash only",
+        );
+        if (!slashOnlyBtn) throw new Error("Expected Slash only pill button");
+        expect(slashOnlyBtn.getAttribute("aria-pressed")).toBe("false");
+        act(() => {
+            slashOnlyBtn.click();
+        });
+        expect(slashOnlyBtn.getAttribute("aria-pressed")).toBe("true");
+    });
 });
 
 describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects Collapse", () => {
@@ -165,11 +419,20 @@ describe("WelcomeScreen surface polish, parentDir formatting, and RecentProjects
         expect(parentDir("C:\\repo")).toBe("C:\\");
         expect(parentDir("C:/repo")).toBe("C:/");
         expect(parentDir("C:\\Users\\ada\\repo\\")).toBe("C:\\Users\\ada");
+        expect(parentDir("C:\\Users\\\\ada\\repo")).toBe("C:\\Users\\ada");
+        expect(parentDir("\\\\?\\C:\\Users\\ada\\repo")).toBe("C:\\Users\\ada");
+        expect(parentDir("\\\\?\\UNC\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share\\")).toBe("\\\\server\\share");
         expect(parentDir("\\\\server\\share\\repo")).toBe("\\\\server\\share");
         expect(parentDir("/repo")).toBe("/");
         expect(parentDir("/Users/ada/repo/")).toBe("/Users/ada");
+        expect(parentDir("/Users/ada//repo")).toBe("/Users/ada");
+        expect(parentDir("/Users/ada/my\\work/repo")).toBe("/Users/ada/my\\work");
+        expect(parentDir("///Users/ada/my\\work/repo")).toBe("/Users/ada/my\\work");
+        expect(parentDir("//")).toBe("//");
+        expect(parentDir("//opt")).toBe("//");
+        expect(parentDir("//opt/repo")).toBe("//opt");
     });
 
     it("uses +1 surface step hover without light-fill inversion and reveals overflow projects via Collapse", () => {
@@ -242,4 +505,200 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
             window.removeEventListener("bettershape-set-active-tab", onTab);
         }
     });
+
+    it("announces the uploaded custom font name instead of Upload Font on FontFamilySelect", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        uploadSlot="terminal"
+                        value="Berkeley Mono"
+                        presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger).not.toBeNull();
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Berkeley Mono");
+
+        // The fonts are one radio group, and a custom font in use matches none of them.
+        // "Upload font..." is an action after them, not a choice that could be checked.
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const choices = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+        expect(choices.map((item) => item.textContent?.trim())).toEqual(["JetBrains Mono"]);
+        expect(choices.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
+        const actions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+        expect(actions.map((item) => item.textContent?.trim())).toEqual(["Upload font..."]);
+        // Its label lines up with the choices' labels, past their checkmark column.
+        expect(actions[0]?.firstElementChild?.className).toContain("w-4");
+    });
+
+    it("closes the font menu after a pick and opens the file picker from Upload font...", () => {
+        const onChange = vi.fn();
+        const pickFile = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+        try {
+            render(
+                <SettingCard>
+                    <SettingRow title="Font Family">
+                        <FontFamilySelect
+                            uploadSlot="terminal"
+                            value="JetBrains Mono"
+                            presets={[
+                                { value: "JetBrains Mono", label: "JetBrains Mono" },
+                                { value: "IBM Plex Mono", label: "IBM Plex Mono" },
+                            ]}
+                            onChange={onChange}
+                        />
+                    </SettingRow>
+                </SettingCard>,
+            );
+            const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+            const openMenu = () =>
+                act(() => {
+                    trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+                });
+            const item = (role: string, label: string) =>
+                Array.from(document.body.querySelectorAll<HTMLElement>(`[role="${role}"]`)).find(
+                    (node) => node.textContent?.trim() === label,
+                );
+
+            openMenu();
+            act(() => {
+                item("menuitemradio", "IBM Plex Mono")?.click();
+            });
+            expect(onChange).toHaveBeenCalledExactlyOnceWith("IBM Plex Mono");
+            expect(document.body.querySelector('[role="menu"]')).toBeNull();
+
+            openMenu();
+            act(() => {
+                item("menuitem", "Upload font...")?.click();
+            });
+            expect(pickFile).toHaveBeenCalledTimes(1);
+            expect(onChange).toHaveBeenCalledTimes(1);
+            expect(document.body.querySelector('[role="menu"]')).toBeNull();
+        } finally {
+            pickFile.mockRestore();
+        }
+    });
+
+    it("names an uploaded font by its file name instead of its CSS family list", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        uploadSlot="terminal"
+                        value="'BetterShapeCustom-StudioMono', monospace"
+                        presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family StudioMono");
+        // The trigger is the one place the name shows; the row has no second line or Change button.
+        expect(container.textContent).toBe("Font FamilyStudioMono");
+        expect(container.querySelectorAll("button")).toHaveLength(1);
+    });
+
+    it(
+        "falls back on empty FontFamilySelect value and omits redundant SearchInput aria-label",
+        () => {
+        render(
+            <div>
+                <span id="ext-search-label">Filter files</span>
+                <SearchInput aria-labelledby="ext-search-label" placeholder="Type to filter" />
+                <SearchInput placeholder="   " />
+                <SettingCard>
+                    <SettingRow title="Font Family">
+                        <FontFamilySelect
+                            uploadSlot="terminal"
+                            value=""
+                            presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                            onChange={() => {}}
+                        />
+                    </SettingRow>
+                </SettingCard>
+            </div>,
+        );
+
+        const inputs = Array.from(container.querySelectorAll("input[type='search']"));
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0].getAttribute("aria-labelledby")).toBe("ext-search-label");
+        expect(inputs[0].getAttribute("aria-label")).toBeNull();
+        expect(inputs[1].getAttribute("aria-label")).toBe("Search");
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("JetBrains Mono");
+        expect(container.textContent).not.toContain("Change");
+    });
+
+    it("shows what an empty inheriting font follows instead of the first preset", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        uploadSlot="terminal"
+                        value=""
+                        presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
+                        emptyLabel="Same as editor"
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("Same as editor");
+        expect(trigger?.textContent).not.toContain("IBM Plex Mono");
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family Same as editor");
+
+        // The open menu checks the inherited choice, not a preset the terminal is not drawing with.
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const items = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["Same as editor", "IBM Plex Mono"]);
+        expect(
+            items.filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.textContent?.trim()),
+        ).toEqual(["Same as editor"]);
+    });
+
+    it("lets an inheriting font go back to the inherited choice after a preset was picked", () => {
+        const onChange = vi.fn();
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        uploadSlot="terminal"
+                        value="IBM Plex Mono"
+                        presets={[{ value: "IBM Plex Mono", label: "IBM Plex Mono" }]}
+                        emptyLabel="Same as editor"
+                        onChange={onChange}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(trigger?.textContent).toContain("IBM Plex Mono");
+        act(() => {
+            trigger?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        });
+        const inherited = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')).find(
+            (item) => item.textContent?.trim() === "Same as editor",
+        );
+        expect(inherited?.getAttribute("aria-checked")).toBe("false");
+        act(() => {
+            inherited?.click();
+        });
+        expect(onChange).toHaveBeenCalledExactlyOnceWith("");
+    });
 });
+

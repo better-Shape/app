@@ -18,6 +18,8 @@ export interface A11yViolationReport {
 }
 
 export interface RouteAudit {
+    /** Route name from `ROUTES`; `welcome` and `workbench` share the `/` path. */
+    name: string;
     route: string;
     title: string;
     axeViolations: A11yViolationReport[];

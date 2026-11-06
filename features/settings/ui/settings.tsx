@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
     useSettings,
     updateSettingSection,
@@ -43,7 +43,6 @@ import { McpSettingsView } from "./sections/mcp";
 import { SkillsSettings } from "./sections/skills";
 import { MicrophoneSettings } from "./sections/microphone";
 import { UpdatesSettings } from "./sections/updates";
-import { useRouter } from "next/navigation";
 import { useRuntimeFlag } from "@/lib/runtime/store";
 import {
     AlertDialog,
@@ -337,6 +336,9 @@ function TerminalSettings({ settings }: { settings: BetterShapeSettings }) {
                 <FontFamilySelect
                     value={t.fontFamily}
                     presets={TERMINAL_FONT_PRESETS}
+                    // An empty terminal font draws with the editor's font, through --font-mono.
+                    emptyLabel="Same as editor"
+                    uploadSlot="terminal"
                     onChange={(v) => updateSettingSection("terminal", { fontFamily: v })}
                 />
             </SettingRow>
@@ -382,7 +384,7 @@ function GitSettings({ settings }: { settings: BetterShapeSettings }) {
             <SettingRow title="Confirm Before Commit">
                 <SettingSwitch checked={g.confirmBeforeCommit} onChange={(v) => updateSettingSection("git", { confirmBeforeCommit: v })} />
             </SettingRow>
-            <SettingRow title="Graph Branch Avatars">
+            <SettingRow title="Graph Branch Avatars" description="Show commit authors' GitHub pictures, which load from github.com.">
                 <SettingSwitch checked={g.graphAvatars} onChange={(v) => updateSettingSection("git", { graphAvatars: v })} />
             </SettingRow>
             <SettingRow title="Graph Show All Branches">
@@ -530,14 +532,14 @@ function PrivacySettings({ settings, part }: { settings: BetterShapeSettings; pa
                 <div className="px-3.5 py-2 text-sm">
                     <button
                         type="button"
-                        className="block text-text-muted hover:text-text-primary transition-colors"
+                        className="flex min-h-target-min items-center text-text-muted hover:text-text-primary transition-colors"
                         onClick={() => void commands.openUrlExternal(HELP_LINKS.license)}
                     >
                         Terms of Service
                     </button>
                     <button
                         type="button"
-                        className="block text-text-muted hover:text-text-primary transition-colors"
+                        className="flex min-h-target-min items-center text-text-muted hover:text-text-primary transition-colors"
                         onClick={() => void commands.openUrlExternal(HELP_LINKS.privacy)}
                     >
                         Privacy Policy
@@ -566,6 +568,7 @@ function TrustedWorkspacesSection() {
     );
 }
 
+/** Settings section and dialog for submitting bug reports and product feedback. */
 function FeedbackSection() {
     const { project_path } = useProjectState();
     const [open, setOpen] = useState(false);
@@ -680,6 +683,7 @@ function FeedbackSection() {
                                 </select>
                                 <Textarea
                                     value={message}
+                                    aria-label="Problem description"
                                     onChange={(e) => setMessage(e.target.value)}
                                     placeholder="What were you doing?"
                                     className="min-h-32"

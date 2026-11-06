@@ -129,19 +129,26 @@ export function MediaLightbox({
             ) : null}
 
             {designs && designs.length > 1 ? (
-                <div role="presentation" className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
+                <div role="presentation" className="flex items-center" onClick={(e) => e.stopPropagation()}>
                     {designs.map((item, i) => (
+                        // A 24px button around the 8px dot: the target meets WCAG 2.5.8, and the
+                        // focus ring at its edge sits on the dark backdrop, not on a white dot.
                         <button
                             key={item.id}
                             type="button"
                             aria-label={`Show ${item.name}`}
                             aria-current={i === index}
-                            className={cn(
-                                "size-2 rounded-full transition-colors",
-                                i === index ? "bg-white" : "bg-white/35 hover:bg-white/55",
-                            )}
+                            className="group flex size-6 items-center justify-center rounded-full"
                             onClick={() => setIndex(i)}
-                        />
+                        >
+                            <span
+                                aria-hidden
+                                className={cn(
+                                    "size-2 rounded-full transition-colors",
+                                    i === index ? "bg-white" : "bg-white/35 group-hover:bg-white/55",
+                                )}
+                            />
+                        </button>
                     ))}
                 </div>
             ) : null}

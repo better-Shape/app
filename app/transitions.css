@@ -900,7 +900,7 @@
 }
 
 /* ── Terminal tab activity ─────────────────────────────────
-   Shared slot with the close button: the dot grows in where the X will be, so
+   Shared slot with the close glyph: the dot grows in where the X will be, so
    neither state moves the title. It starts just under full size rather than at
    zero, a 6px circle scaling up from nothing reads as a blink. */
 .t-tab-dot {

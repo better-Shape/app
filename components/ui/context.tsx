@@ -2,7 +2,6 @@
 
 import { Checkmark20Regular } from "@fluentui/react-icons/headless/svg/checkmark";
 import { ChevronRight20Regular } from "@fluentui/react-icons/headless/svg/chevron-right";
-import { Circle20Regular } from "@fluentui/react-icons/headless/svg/circle";
 
 
 import * as React from "react";
@@ -134,7 +133,7 @@ const ContextMenuRadioItem = React.forwardRef<
     <ContextMenuPrimitive.RadioItem ref={ref} className={cn(itemClasses, "pr-1", className)} {...props}>
         <span className="flex w-4 shrink-0 items-center justify-center">
             <ContextMenuPrimitive.ItemIndicator>
-                <Icon icon={Circle20Regular} className="size-[8px]" />
+                <Icon icon={Checkmark20Regular} />
             </ContextMenuPrimitive.ItemIndicator>
         </span>
         {children}
