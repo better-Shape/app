@@ -7,7 +7,7 @@ test.use({ seedMode: "project" });
  * cdn.simpleicons.org, thesvg.org and Google's and DuckDuckGo's favicon services on render, which
  * told those hosts what the user had open. AGENTS.md rules out remote fetches on a load path.
  */
-test("drawing the palette's framework marks, the chat and the plugin catalog asks no other host", async ({
+test("drawing the palette's framework marks, the chat, the plugin catalog and the graph asks no other host", async ({
     page,
     expectNoPageErrors,
 }) => {
@@ -38,6 +38,11 @@ test("drawing the palette's framework marks, the chat and the plugin catalog ask
 
     await gotoRoute(page, "/settings?category=plugins");
     await expect(page.locator("#bettershape-settings")).toBeVisible({ timeout: 30_000 });
+
+    // The commit graph draws no author pictures from github.com until the user turns them on.
+    await gotoRoute(page, "/git?section=graph");
+    await expect(page.getByLabel("Loading Git Manager")).toBeHidden({ timeout: 30_000 });
+    await expect(page.getByRole("group", { name: "Commit graph" })).toBeVisible({ timeout: 30_000 });
 
     expect([...hosts]).toEqual([]);
     expectNoPageErrors();

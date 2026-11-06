@@ -41,6 +41,7 @@ import { useGitRepos } from "@/lib/git/repos";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { QuickPick } from "@/components/ui/quick-pick";
 import { resolveGithubAvatarUrl } from "@/lib/git/github-avatar";
+import { useSettings } from "@/lib/settings";
 import { Panel } from "@/features/panels";
 
 async function notifyGitRefresh() {
@@ -66,15 +67,15 @@ type BranchItem = {
 };
 
 function Avatar({
-    name,
     email,
     size = 22,
 }: {
-    name?: string;
     email?: string;
     size?: number;
 }) {
-    const url = resolveGithubAvatarUrl(email, name, size * 2);
+    // A GitHub picture loads from github.com, so it waits for the user to turn avatars on.
+    const enabled = useSettings().git.graphAvatars;
+    const url = enabled ? resolveGithubAvatarUrl(email, size * 2) : null;
     if (!url) return null;
     return (
         // eslint-disable-next-line @next/next/no-img-element
@@ -798,7 +799,7 @@ export function BranchWindow({ active = true }: { active?: boolean }) {
 
                     <div className="space-y-3 px-3 py-3">
                         <div className="flex items-center gap-2">
-                            <Avatar name={selectedItem.author} email={selectedItem.authorEmail} />
+                            <Avatar email={selectedItem.authorEmail} />
                             <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm text-text-primary">
                                     {selectedItem.author || "Unknown author"}

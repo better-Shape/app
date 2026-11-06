@@ -1126,7 +1126,7 @@ export default function Graph({
 
         const assign = (log: GitLogEntry) => {
             if (map.has(log.hash)) return;
-            const url = resolveGithubAvatarUrl(log.author_email, log.author, 32);
+            const url = resolveGithubAvatarUrl(log.author_email, 32);
             if (url) map.set(log.hash, url);
         };
 

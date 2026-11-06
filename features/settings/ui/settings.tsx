@@ -384,7 +384,7 @@ function GitSettings({ settings }: { settings: BetterShapeSettings }) {
             <SettingRow title="Confirm Before Commit">
                 <SettingSwitch checked={g.confirmBeforeCommit} onChange={(v) => updateSettingSection("git", { confirmBeforeCommit: v })} />
             </SettingRow>
-            <SettingRow title="Graph Branch Avatars">
+            <SettingRow title="Graph Branch Avatars" description="Show commit authors' GitHub pictures, which load from github.com.">
                 <SettingSwitch checked={g.graphAvatars} onChange={(v) => updateSettingSection("git", { graphAvatars: v })} />
             </SettingRow>
             <SettingRow title="Graph Show All Branches">
