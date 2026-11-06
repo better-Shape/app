@@ -2,7 +2,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Breadcrumb, BreadcrumbItem } from "@/components/ui/breadcrumb";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChatMarkdown } from "@/features/chat/ui/md/view";
+import { ChatMessageItem } from "@/features/chat/ui/message/item";
 
 vi.mock("mermaid", () => ({ default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: "" })) } }));
 
@@ -97,14 +99,40 @@ describe("chat markdown text direction", () => {
         expect(lists[1]?.textContent).toContain("Run");
     });
 
-    it("names read-only task checkboxes", async () => {
+    it("names each read-only task checkbox after its own task", async () => {
         await act(async () => {
             root.render(<ChatMarkdown content={"- [x] done\n- [ ] open"} />);
         });
         const boxes = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
         expect(boxes).toHaveLength(2);
-        expect(boxes.map((box) => box.getAttribute("aria-label"))).toEqual(["Task", "Task"]);
+        expect(boxes.map((box) => box.getAttribute("aria-label"))).toEqual(["done", "open"]);
         expect(boxes.map((box) => box.checked)).toEqual([true, false]);
+    });
+
+    it("names task checkboxes in loose and nested lists without borrowing nested text", async () => {
+        await act(async () => {
+            root.render(<ChatMarkdown content={"- [x] write the plan\n\n- [ ] ship it\n  - [ ] nested step"} />);
+        });
+        const boxes = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+        expect(boxes.map((box) => box.getAttribute("aria-label"))).toEqual(["write the plan", "ship it", "nested step"]);
+    });
+});
+
+describe("sent message text direction", () => {
+    it("keeps code, paths and mention chips out of the message's automatic direction", async () => {
+        await act(async () => {
+            root.render(
+                <TooltipProvider>
+                    <ChatMessageItem role="user" content={"`foo()` @app.tsx src/main.ts مرحبا"} timestamp={1700000000000} />
+                </TooltipProvider>,
+            );
+        });
+        // `dir="auto"` skips descendants with their own `dir`, so the Arabic prose decides it.
+        expect(host.querySelector("code")?.closest("[dir]")?.getAttribute("dir")).toBe("ltr");
+        expect(host.querySelector("code")?.parentElement?.closest('[dir="auto"]')).not.toBeNull();
+        const tokens = [...host.querySelectorAll("button[data-chat-find-text]")];
+        expect(tokens.map((token) => token.textContent)).toEqual(["@app.tsx", "src/main.ts"]);
+        expect(tokens.map((token) => token.getAttribute("dir"))).toEqual(["ltr", "ltr"]);
     });
 });
 

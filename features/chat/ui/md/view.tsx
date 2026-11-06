@@ -30,8 +30,10 @@ import { ChatKeyedRowsTable, MarkdownTableShell } from "./data-table";
 import { parseKeyedRows, tableCellModelId } from "@/lib/chat/fence-tables";
 import { hasUnclosedMarkdownFence, splitStreamingMarkdownBlocks } from "@/lib/chat/markdown-blocks";
 import { providerIcon } from "@/lib/ui/provider-icon";
+import { rehypeTaskLabels } from "./task-labels";
 
 const REMARK_PLUGINS = [remarkGfm];
+const REHYPE_PLUGINS = [rehypeTaskLabels];
 
 const PATH_IN_PROSE =
     /(?:^|(?<=\s))((?:\.{1,2}[\\/])?(?:[\w.-]+[\\/])+[\w.-]+\.[A-Za-z0-9]{1,12})(?=$|[\s,;:)\]"'`])/g;
@@ -492,7 +494,7 @@ const MarkdownSegment = React.memo(function MarkdownSegment({
 }) {
     if (!content) return null;
     return (
-        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
             {content}
         </ReactMarkdown>
     );
@@ -870,11 +872,12 @@ function createMarkdownComponents(options?: { nested?: boolean; streamingFence?:
         },
         input: (props: React.InputHTMLAttributes<HTMLInputElement>) => {
             if (props.type !== "checkbox") return <input {...props} />;
+            // `rehypeTaskLabels` names the box after its task; "Task" covers an item with no text.
             return (
                 <input
                     {...props}
                     readOnly
-                    aria-label="Task"
+                    aria-label={props["aria-label"] ?? "Task"}
                     className="me-2 align-middle accent-accent"
                 />
             );
