@@ -1,6 +1,8 @@
 "use client";
 
 const STYLE_ID = "bettershape-custom-editor-fonts";
+/** Uploaded families carry this prefix, because an `@font-face` family hides an installed font of the same name. */
+const CUSTOM_FAMILY_PREFIX = "BetterShapeCustom-";
 const loadedFamilies = new Set<string>();
 
 function ensureStyleSheet(): HTMLStyleElement {
@@ -29,7 +31,7 @@ export async function loadCustomEditorFont(file: File): Promise<string> {
         throw new Error("Supported font formats: .ttf, .otf, .woff, .woff2");
     }
 
-    const family = `BetterShapeCustom-${file.name.replace(/\.[^.]+$/, "").replace(/\W+/g, "") || "Font"}`;
+    const family = `${CUSTOM_FAMILY_PREFIX}${file.name.replace(/\.[^.]+$/, "").replaceAll(/\W+/g, "") || "Font"}`;
     if (loadedFamilies.has(family)) {
         return `'${family}', monospace`;
     }
@@ -51,3 +53,14 @@ export async function loadCustomEditorFont(file: File): Promise<string> {
 
     return `'${family}', monospace`;
 }
+
+/**
+ * The name to show for a font value that matches no preset. It is the first family without quotes or
+ * the upload prefix, so `'BetterShapeCustom-StudioMono', monospace` shows as "StudioMono".
+ */
+export const customFontLabel = (value: string): string => {
+    const [first] = value.split(",");
+    const family = first.trim().replace(/^(["'])(.*)\1$/, "$2");
+    const name = family.startsWith(CUSTOM_FAMILY_PREFIX) ? family.slice(CUSTOM_FAMILY_PREFIX.length) : family;
+    return name || value.trim();
+};

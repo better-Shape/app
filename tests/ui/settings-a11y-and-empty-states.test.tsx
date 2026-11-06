@@ -532,6 +532,27 @@ describe("PanelStateMessage recovery affordance and error semantics", () => {
         expect(items.filter((item) => item.getAttribute("aria-checked") === "true")).toEqual([]);
     });
 
+    it("names an uploaded font by its file name instead of its CSS family list", () => {
+        render(
+            <SettingCard>
+                <SettingRow title="Font Family">
+                    <FontFamilySelect
+                        value="'BetterShapeCustom-StudioMono', monospace"
+                        presets={[{ value: "JetBrains Mono", label: "JetBrains Mono" }]}
+                        onChange={() => {}}
+                    />
+                </SettingRow>
+            </SettingCard>,
+        );
+
+        const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        expect(referencedText(trigger, "aria-labelledby")).toBe("Font Family StudioMono");
+        // The trigger and the line beside Change both show the plain name.
+        expect(container.textContent).not.toContain("BetterShapeCustom");
+        expect(container.textContent).not.toContain("monospace");
+        expect(findButton("Change").textContent?.trim()).toBe("Change");
+    });
+
     it(
         "falls back on empty FontFamilySelect value and omits redundant SearchInput aria-label",
         () => {

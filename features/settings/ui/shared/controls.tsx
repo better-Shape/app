@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 
-import { loadCustomEditorFont } from "@/lib/editor/custom-fonts";
+import { customFontLabel, loadCustomEditorFont } from "@/lib/editor/custom-fonts";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -450,7 +450,7 @@ const fontOptions = (presets: readonly FontChoice[], emptyLabel?: string): FontC
 const resolveFontSelectValue = (value: string, empty: FontChoice): string => (value.trim() ? value : empty.value);
 
 const resolveFontSelectDisplayLabel = (value: string, isCustom: boolean, empty: FontChoice): string | undefined => {
-    if (isCustom) return value;
+    if (isCustom) return customFontLabel(value);
     return value.trim() ? undefined : empty.label;
 };
 
@@ -518,7 +518,7 @@ export function FontFamilySelect({
             />
             {isCustom && (
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-text-muted truncate max-w-[180px]">{value}</span>
+                    <span className="text-xs text-text-muted truncate max-w-[180px]">{customFontLabel(value)}</span>
                     <Button
                         variant="secondary"
                         size="sm"
