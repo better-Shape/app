@@ -2,8 +2,14 @@
 
 import { useLayoutEffect } from "react";
 
-/** Enough entries to step back past a closed menu, a closed dialog and the rows inside them. */
+/** Enough entries to step back past a closed menu and a closed dialog to the page behind them. */
 const HISTORY_LIMIT = 16;
+
+/**
+ * Containers that keep one history entry each: moving through a dialog's rows or a menu's items
+ * replaces that container's entry, so it never pushes out the control that opened it.
+ */
+const FOCUS_SCOPE_SELECTOR = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
 
 /** Elements that have held focus, most recent last. */
 const focusHistory: HTMLElement[] = [];
@@ -11,9 +17,15 @@ const focusHistory: HTMLElement[] = [];
 /** Dialog hosts that are mounted; the focus listener runs while there is at least one. */
 const mountedHosts = new Set<symbol>();
 
-/** Moves `element` to the end of the history and drops elements that left the page. */
+/**
+ * Moves `element` to the end of the history. Drops elements that left the page, and earlier
+ * entries from the same dialog or menu.
+ */
 const remember = (element: HTMLElement) => {
-    const kept = focusHistory.filter((entry) => entry !== element && entry.isConnected);
+    const scope = element.closest(FOCUS_SCOPE_SELECTOR);
+    const kept = focusHistory.filter(
+        (entry) => entry !== element && entry.isConnected && !scope?.contains(entry),
+    );
     kept.push(element);
     focusHistory.splice(0, focusHistory.length, ...kept.slice(-HISTORY_LIMIT));
 };

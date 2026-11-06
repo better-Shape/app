@@ -7,6 +7,9 @@ import { useDialogFocusReturn } from "@/lib/ui/use-dialog-focus-return";
 let host: HTMLDivElement;
 let root: Root;
 
+/** More rows than the focus history holds, as a long palette list has. */
+const ROWS = Array.from({ length: 24 }, (_, index) => `Row ${index + 1}`);
+
 /** A dialog opened from state, as a shortcut or menu event opens one: there is no `Dialog.Trigger`. */
 const TriggerlessDialog = ({ open }: { open: boolean }) => {
     const returnFocus = useDialogFocusReturn();
@@ -19,6 +22,11 @@ const TriggerlessDialog = ({ open }: { open: boolean }) => {
                     <Dialog.Content aria-describedby={undefined} onCloseAutoFocus={returnFocus}>
                         <Dialog.Title>Picker</Dialog.Title>
                         <input aria-label="Filter" />
+                        {ROWS.map((row) => (
+                            <button key={row} type="button">
+                                {row}
+                            </button>
+                        ))}
                     </Dialog.Content>
                 </Dialog.Portal>
             </Dialog.Root>
@@ -73,6 +81,16 @@ describe("dialog focus return", () => {
         item.focus();
         await openDialog();
         item.remove();
+
+        await closeDialog();
+        await settle();
+        expect(document.activeElement).toBe(button("Opener"));
+    });
+
+    it("keeps the opener however many rows inside the dialog took focus", async () => {
+        button("Opener").focus();
+        await openDialog();
+        for (const row of document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')) row.focus();
 
         await closeDialog();
         await settle();
