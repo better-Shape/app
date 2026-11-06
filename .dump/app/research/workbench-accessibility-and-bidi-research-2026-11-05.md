@@ -2,14 +2,15 @@
 
 Sources behind the accessibility, right-to-left and pointer-target work on PR #57 (branch
 `arena/0de22628-app`, base `mega/absorb-all`). Conclusions first, then every source with what it
-settles here. Everything was read on 2026-11-05, from the upstream repositories through the GitHub
-API or from the installed packages under `node_modules`. Library versions are the ones in
-`package-lock.json` at the time: `axe-core` 4.13.0, `@dnd-kit/core` 6.3.1, `react-markdown` 10.1.0,
-`remark-gfm` 4.0.1, `mdast-util-to-hast` 13.2.1, `@radix-ui/react-menubar` 1.1.16,
-`@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2, `tailwindcss` 4.1.18. The three keyboard focus
-sources added with finding 7, the three dialog focus sources added with finding 8, the button
-example and the focus fixup step behind finding 9 were read on 2026-11-06, the dialog source at
-`@radix-ui/react-dialog` 1.1.15.
+settles here. Each source was read on 2026-11-05 unless the end of this paragraph dates it later,
+from the upstream repositories through the GitHub API or from the installed packages under
+`node_modules`. Library versions are the ones in `package-lock.json` at the time: `axe-core` 4.13.0,
+`@dnd-kit/core` 6.3.1, `react-markdown` 10.1.0, `remark-gfm` 4.0.1, `mdast-util-to-hast` 13.2.1,
+`@radix-ui/react-menubar` 1.1.16, `@codemirror/view` 6.43.9, `@codemirror/merge` 6.12.2,
+`tailwindcss` 4.1.18. The three keyboard focus sources added with finding 7, the three dialog focus
+sources added with finding 8, the button example and the focus fixup step behind finding 9 were read
+on 2026-11-06, the dialog source at `@radix-ui/react-dialog` 1.1.15. The 1.4.11 understanding note
+was read again that day for finding 10.
 
 The audit that used these sources is
 [`../audits/cumulative-acceptance-ledger-2026-11-05.md`](../audits/cumulative-acceptance-ledger-2026-11-05.md).
@@ -70,10 +71,11 @@ The visual campaign is `engineering/visual-stress-and-upstream-issue-verificatio
    that case and the element a dialog's action moved focus to in another.
 9. **An element that stops being focusable while it has focus drops focus to the page.** The HTML
    rendering update runs the focus fixup step: when the focused area is no longer focusable, focus
-   moves to the viewport and a `blur` event fires. Chromium 156 does it at once: a probe that removed
-   `tabindex` from a focused `div` read `document.activeElement` as the body on the next line. A chat
-   table's scroll box is a keyboard stop only while the table overflows, so it keeps the stop while it
-   holds focus, or a table that came to fit, say after Ctrl+B hid the sidebar, would throw focus away.
+   moves to the viewport, which the standard says will usually fire `blur`. Chromium 156 moves it at
+   once and fired `blur` in the probe: after removing `tabindex` from a focused `div`, the next line
+   read `document.activeElement` as the body. A chat table's scroll box is a keyboard stop only
+   while the table overflows, so it keeps the stop while it holds focus, or a table that came to
+   fit, say after Ctrl+B hid the sidebar, would throw focus away.
 10. **A ring inside a filled button has to contrast with the fill as well.** The understanding note on
    1.4.11 sorts indicators by where they sit. One outside the control needs 3:1 against the page;
    one at the control's border, inside it and touching the outside, needs 3:1 against both
