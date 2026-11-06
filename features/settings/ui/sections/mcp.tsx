@@ -24,6 +24,7 @@ import {
 } from "@/lib/mcp/registry";
 import type { McpServerConfig } from "@/lib/settings";
 import { mcpServerBrandCandidates } from "@/lib/plugins/logos";
+import { usePluginMarks } from "@/lib/plugins/use-plugin-marks";
 import { cn } from "@/lib/utils";
 import {
     AlertDialog,
@@ -47,8 +48,9 @@ function statusLabel(status: McpStatusEntry["status"] | undefined): string {
 }
 
 function ServerMark({ name, url }: { name: string; url?: string }) {
+    const marks = usePluginMarks();
     const [failedAt, setFailedAt] = useState(0);
-    const candidates = mcpServerBrandCandidates(name, url, true);
+    const candidates = mcpServerBrandCandidates(name, url, true, marks);
     const src = candidates[Math.min(failedAt, candidates.length - 1)] ?? "/integrations/logos/mcp.svg";
     return (
         // eslint-disable-next-line @next/next/no-img-element

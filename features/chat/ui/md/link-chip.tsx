@@ -72,7 +72,7 @@ export const ChatLinkChip = ({
         >
             {isHttp ? (
                 <span className="chat-link-favicon">
-                    <Favicon url={target.href} size={12} />
+                    <Favicon size={12} />
                 </span>
             ) : null}
             <span className="truncate">{children}</span>

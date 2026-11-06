@@ -198,7 +198,7 @@ export const ActionLine = ({
                             key={url}
                             className="inline-flex size-4 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-panel"
                         >
-                            <Favicon url={url} size={12} />
+                            <Favicon size={12} />
                         </span>
                     ))}
                 </span>

@@ -95,7 +95,7 @@ const RecentTile = ({
     onOpen: (url: string) => void;
 }) => (
     <button type="button" onClick={() => onOpen(entry.url)} className={cn(tileClass, "flex-col items-start gap-1 px-2.5 py-2")}>
-        <Favicon url={entry.url} size={14} />
+        <Favicon size={14} />
         <span className="w-full truncate text-xs text-text-primary">
             {entry.title || hostnameOf(entry.url)}
         </span>

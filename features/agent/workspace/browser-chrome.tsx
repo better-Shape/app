@@ -251,7 +251,7 @@ export const BookmarkBar = ({
                     onClick={() => onOpen(bookmark.url)}
                     className="flex h-6 max-w-40 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-text-secondary hover:bg-[var(--btn-hover)] hover:text-text-primary"
                 >
-                    <Favicon url={bookmark.url} size={12} />
+                    <Favicon size={12} />
                     <span className="truncate">{bookmark.title || hostnameOf(bookmark.url)}</span>
                 </button>
             ))

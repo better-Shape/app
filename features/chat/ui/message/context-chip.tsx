@@ -80,7 +80,7 @@ export function MentionChipIcon({ mention }: { mention: ChatMention }) {
         );
     }
     if (mention.kind === "browser") {
-        return <Favicon url={mention.path || label} size={12} />;
+        return <Favicon size={12} />;
     }
     if (mention.kind === "element") {
         return <Icon icon={Target20Regular} className="text-accent-text" />;

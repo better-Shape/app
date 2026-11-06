@@ -22,8 +22,3 @@ export function pageLabel(title: string, url: string): string {
     if (!trimmed || /^https?:\/\//i.test(trimmed)) return host || "New tab";
     return trimmed;
 }
-export function faviconUrl(urlOrHost: string, size = 32): string | null {
-    const host = hostnameOf(urlOrHost);
-    if (!host) return null;
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
-}

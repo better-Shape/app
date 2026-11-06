@@ -93,7 +93,7 @@ function SortableWorkspaceTab({
                             )}
                         >
                             {tab.kind === "browser" && tab.url ? (
-                                <Favicon url={tab.url} src={tab.favicon} size={16} />
+                                <Favicon src={tab.favicon} size={16} />
                             ) : tab.kind === "file" || tab.kind === "diff" ? (
                                 <FileIcon name={tab.title} className="size-4" />
                             ) : (
