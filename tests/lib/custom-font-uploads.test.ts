@@ -186,3 +186,24 @@ describe("customFontLabel", () => {
         expect(customFontLabel("'Odd\", monospace")).toBe("'Odd\"");
     });
 });
+
+describe("restoring with a store that never answers", () => {
+    it("lets the terminal open after a short wait instead of hanging", async () => {
+        vi.useFakeTimers();
+        try {
+            const { restoreCustomFonts } = await freshModule();
+            const never: CustomFontStore = { put: vi.fn(), all: () => new Promise<StoredFont[]>(() => {}) };
+            let settled = false;
+            const restoring = restoreCustomFonts(["'BetterShapeCustom-Studio-0000abcd', monospace"], never).then(() => {
+                settled = true;
+            });
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(settled).toBe(false);
+            await vi.advanceTimersByTimeAsync(600);
+            await restoring;
+            expect(settled).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

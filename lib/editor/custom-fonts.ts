@@ -126,9 +126,13 @@ export async function loadCustomEditorFont(
     return `'${family}', monospace`;
 }
 
+/** How long the terminal waits for a stored font before it opens with the rest of the stack. */
+const RESTORE_WAIT_MS = 1500;
+
 /**
  * Registers the uploads that these font settings name, from the store. Resolves once they can draw,
- * and never rejects: a font that cannot be restored falls back to the rest of its stack.
+ * or after `RESTORE_WAIT_MS` if the store does not answer, and never rejects: a font that cannot be
+ * restored falls back to the rest of its stack, and the terminal is never kept waiting.
  */
 export async function restoreCustomFonts(
     values: readonly string[],
@@ -136,12 +140,17 @@ export async function restoreCustomFonts(
 ): Promise<void> {
     const wanted = new Set(values.flatMap(customFamiliesIn));
     if (wanted.size === 0 || !store || typeof FontFace === "undefined") return;
-    const uploads = await store.all().catch(() => []);
-    await Promise.all(
-        uploads
-            .filter((font) => wanted.has(font.family))
-            .map((font) => registerFace(font.family, font.data).catch(() => undefined)),
-    );
+    const restore = store
+        .all()
+        .then((uploads) =>
+            Promise.all(
+                uploads
+                    .filter((font) => wanted.has(font.family))
+                    .map((font) => registerFace(font.family, font.data).catch(() => undefined)),
+            ),
+        )
+        .catch(() => undefined);
+    await Promise.race([restore, new Promise((resolve) => setTimeout(resolve, RESTORE_WAIT_MS))]);
 }
 
 /**
