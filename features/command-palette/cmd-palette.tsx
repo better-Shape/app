@@ -58,6 +58,22 @@ const isPaletteDeleteTarget = (target: EventTarget) =>
     target instanceof Element && target.closest("[data-palette-delete]") !== null;
 
 /**
+ * Whether a key event runs a palette row: Enter on key down, and Space on key up when the same
+ * row took the key down. A native button works the same way, so moving focus before releasing
+ * Space abandons the press.
+ */
+const runsPaletteRow = (
+    event: React.KeyboardEvent<HTMLElement>,
+    spacePress: React.RefObject<EventTarget | null>,
+): boolean => {
+    if (event.key === "Enter") return event.type === "keydown";
+    if (event.key !== " ") return false;
+    const pressedHere = spacePress.current === event.currentTarget;
+    spacePress.current = event.type === "keydown" ? event.currentTarget : null;
+    return event.type === "keyup" && pressedHere;
+};
+
+/**
  * Enter and Space run a focused palette row, as on any `role="button"`. Deleting stays a
  * deliberate pointer or context-menu action, since it cannot be undone. A focused row also
  * takes the selection, so the highlight and the focus ring mark the same row.
@@ -66,9 +82,12 @@ const handlePaletteRowKey = (
     event: React.KeyboardEvent<HTMLElement>,
     action: EditorAction,
     runAction: (action: EditorAction) => void,
+    spacePress: React.RefObject<EventTarget | null>,
 ) => {
     if (event.target !== event.currentTarget) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
+    // Space would scroll the list.
+    if (event.key === " ") event.preventDefault();
+    if (!runsPaletteRow(event, spacePress)) return;
     event.preventDefault();
     runAction(action);
 };
@@ -295,6 +314,7 @@ export const CommandPalette = () => {
     const [activeFileBias, setActiveFileBias] = useState<string | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const spacePressRef = useRef<EventTarget | null>(null);
 
     // The Current File section needs the file the editor has open. Callers used
     // to have to pass it in `detail.activeFile`, and none did, so the section
@@ -970,7 +990,8 @@ export const CommandPalette = () => {
                                             if (action.delete && isPaletteDeleteTarget(event.target)) action.delete(event);
                                             else runAction(action);
                                         }}
-                                        onKeyDown={(event) => handlePaletteRowKey(event, action, runAction)}
+                                        onKeyDown={(event) => handlePaletteRowKey(event, action, runAction, spacePressRef)}
+                                        onKeyUp={(event) => handlePaletteRowKey(event, action, runAction, spacePressRef)}
                                     >
                                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                                             {action.reply ? (

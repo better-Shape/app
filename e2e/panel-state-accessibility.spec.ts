@@ -50,6 +50,30 @@ test.describe("panel state accessibility", () => {
         await expect(page.getByRole("button", { name: "Preview fixture chat" }).first()).toBeVisible();
     });
 
+    test("Space runs a palette row on release, and moving focus first abandons the press", async ({ page }) => {
+        await gotoRoute(page, "/");
+        await expectPreviewActive(page, "project");
+        const palette = page.getByRole("dialog", { name: "Command Palette" });
+        await expect(async () => {
+            await page.keyboard.press("Control+Shift+P");
+            await expect(palette).toBeVisible({ timeout: 2_000 });
+        }).toPass({ timeout: 20_000 });
+        const rows = page.locator("[data-palette-index]");
+        const placeholder = await page.getByRole("dialog").locator("input").getAttribute("placeholder");
+
+        await rows.nth(0).focus();
+        await page.keyboard.down("Space");
+        await page.keyboard.press("Tab");
+        await page.keyboard.up("Space");
+        await expect(rows.nth(1)).toBeFocused();
+        await expect(palette).toBeVisible();
+        await expect(page.getByRole("dialog").locator("input")).toHaveAttribute("placeholder", placeholder ?? "");
+
+        await rows.nth(0).focus();
+        await page.keyboard.press("Space");
+        await expect(palette).toBeHidden();
+    });
+
     test("the diff a Git change row opens names its icon buttons", async ({ page }) => {
         await gotoRoute(page, "/git");
         await expectPreviewActive(page, "project");
