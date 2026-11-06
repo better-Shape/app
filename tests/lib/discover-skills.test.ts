@@ -487,6 +487,9 @@ describe("discoverSkills", () => {
             "Path traversal",
         );
         await expect(mocks.lsDir(`${PROJECT}/.agents/..`)).rejects.toThrow("Path traversal");
+        // Windows reads a drive prefix as a component of its own, so `C:..` holds a parent segment.
+        await expect(mocks.readFileFromDisk("C:../demo/.agents/guide.md")).rejects.toThrow("Path traversal");
+        await expect(mocks.lsDir("C:..\\demo")).rejects.toThrow("Path traversal");
 
         // Two dots inside a name are not a parent segment.
         await expect(mocks.readFileFromDisk(`${PROJECT}/.agents/notes..md`)).resolves.toBe("dots");

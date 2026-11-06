@@ -92,23 +92,26 @@ const toForwardPath = (raw: string): string => {
     return stripped.startsWith("/") ? stripped : stripped.replaceAll("\\", "/");
 };
 
-/**
- * Refuses a requested path with a `..` segment before resolving it, as `assert_ipc_sensitive_only`
- * in `src-tauri/src/agent/security/paths.rs` does for every file command. Collapsing the segment
- * instead would accept `/project/../project/file`, which the backend rejects.
- */
-const assertNoParentSegment = (raw: string): void => {
-    if (toForwardPath(raw).split("/").includes("..")) {
-        throw new Error(`Path traversal (..) is not allowed: ${raw}`);
-    }
-};
-
 /** Splits `X:/...` drive-root paths separately from bare `X:...` drive-relative paths. */
 const splitDrivePrefix = (forward: string): { root: string; rest: string } | null => {
     const driveRoot = DRIVE_ROOT_RE.exec(forward);
     if (driveRoot) return { root: driveRoot[0], rest: forward.slice(3) };
     const driveRelative = DRIVE_PREFIX_RE.exec(forward);
     return driveRelative ? { root: driveRelative[0], rest: forward.slice(2) } : null;
+};
+
+/**
+ * Refuses a requested path with a `..` segment before resolving it, as `assert_ipc_sensitive_only`
+ * in `src-tauri/src/agent/security/paths.rs` does for every file command. Collapsing the segment
+ * instead would accept `/project/../project/file`, which the backend rejects. A drive prefix is a
+ * component of its own on Windows, so `C:../file` has a `..` segment too.
+ */
+const assertNoParentSegment = (raw: string): void => {
+    const forward = toForwardPath(raw);
+    const segments = (splitDrivePrefix(forward)?.rest ?? forward).split("/");
+    if (segments.includes("..")) {
+        throw new Error(`Path traversal (..) is not allowed: ${raw}`);
+    }
 };
 
 /** Splits non-UNC slash-rooted or relative paths while keeping POSIX `//` distinct from `/`. */
