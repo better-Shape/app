@@ -4,9 +4,8 @@ import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
-import { useCallback, type KeyboardEvent } from "react";
-import { arrayMove, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useCallback } from "react";
+import { arrayMove } from "@dnd-kit/sortable";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { Icon } from "@/components/ui/icon";
 
@@ -18,13 +17,10 @@ import {
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
     WORKBENCH_TAB_CONTENT_ACTIVE_CLASS,
     WORKBENCH_TAB_CONTENT_CLASS,
-    focusTabAfterClose,
-    handleWorkbenchTabKey,
-    isWorkbenchTabCloseTarget,
-    workbenchTabClickCommand,
+    isTabStop,
     workbenchTabItemClass,
-    type WorkbenchTabCommand,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
+import { useSortableTab } from "@/features/editor/ui/tabs/use-sortable-tab";
 import { cn } from "@/lib/utils";
 import { ModelAvatarStack, WorkingDots } from "../message/bubble";
 import { useIsChatGenerating } from "../../lib/generating-chats";
@@ -57,6 +53,7 @@ export function isEphemeralChatTabId(id: string): boolean {
 const SortableChatTab = ({
     tab,
     isActive,
+    tabStop,
     canClose,
     onSelect,
     onClose,
@@ -66,6 +63,7 @@ const SortableChatTab = ({
 }: {
     tab: ChatTab;
     isActive: boolean;
+    tabStop: boolean;
     canClose: boolean;
     onSelect: (id: string) => void;
     onClose?: (id: string) => void;
@@ -73,72 +71,28 @@ const SortableChatTab = ({
     onCloseToRight?: (id: string) => void;
     onCloseAll?: () => void;
 }) => {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging,
-    } = useSortable({ id: tab.id });
     const generating = useIsChatGenerating(tab.id);
     const closable = Boolean(canClose && onClose);
-    const forwardSortableKey = (event: KeyboardEvent<HTMLElement>) => listeners?.onKeyDown?.(event);
-    const forwardSortablePointer = listeners?.onPointerDown;
-    const runCommand = (command: WorkbenchTabCommand, tabElement: HTMLElement) => {
-        if (command === "select") {
-            onSelect(tab.id);
-            return;
-        }
-        focusTabAfterClose(tabElement);
-        onClose?.(tab.id);
-    };
-
-    const style = {
-        transform: transform
-            ? CSS.Translate.toString({
-                  x: transform.x,
-                  y: 0,
-                  scaleX: 1,
-                  scaleY: 1,
-              })
-            : undefined,
-        transition,
-        zIndex: isDragging ? 20 : 1,
-    };
+    const { tabProps, isDragging } = useSortableTab({
+        id: tab.id,
+        selected: isActive,
+        tabStop,
+        closable,
+        onSelect: () => onSelect(tab.id),
+        onClose: () => onClose?.(tab.id),
+    });
 
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
                 <div
-                    ref={setNodeRef}
-                    style={style}
-                    {...attributes}
-                    {...listeners}
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-keyshortcuts={closable ? "Delete" : undefined}
-                    tabIndex={0}
+                    {...tabProps}
                     onPointerEnter={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
                     }}
                     onFocus={() => {
                         if (!isActive) prefetchChatConversation(tab.id);
                     }}
-                    onPointerDown={(e) => {
-                        // Pressing the close glyph must not start a drag.
-                        if (isWorkbenchTabCloseTarget(e.target)) return;
-                        forwardSortablePointer?.(e);
-                    }}
-                    onClick={(e) => runCommand(workbenchTabClickCommand(e.target, closable), e.currentTarget)}
-                    onKeyDown={(e) =>
-                        handleWorkbenchTabKey(
-                            e,
-                            { closable, dragging: isDragging },
-                            runCommand,
-                            forwardSortableKey,
-                        )
-                    }
                     className={workbenchTabItemClass(isActive, isDragging)}
                 >
                     <div
@@ -293,8 +247,11 @@ export function ChatTabBar({
         [onCloseTab, tabs],
     );
 
+    const stripHasSelection = list.some((t) => t.id === active);
+
     return (
         <TabBarShell
+            label="Chats"
             dndId="agent-chat-tabs"
             itemIds={list.map((t) => t.id)}
             onDragEnd={handleDragEnd}
@@ -313,11 +270,12 @@ export function ChatTabBar({
                 </>
             }
         >
-            {list.map((tab) => (
+            {list.map((tab, index) => (
                 <SortableChatTab
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === active}
+                    tabStop={isTabStop(tab.id === active, index, stripHasSelection)}
                     canClose={Boolean(onCloseTab) && list.length > 1}
                     onSelect={(id) => onSelectTab?.(id)}
                     onClose={onCloseTab}

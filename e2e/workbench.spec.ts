@@ -87,7 +87,7 @@ test.describe("workbench (seeded project)", () => {
 
         const workspaceTabOrder = () =>
             page
-                .locator("#bettershape-workbench [aria-roledescription='sortable'][aria-label]")
+                .locator("#bettershape-workbench [role='tablist'][aria-label='Workspace'] [role='tab'][aria-label]")
                 .evaluateAll((elements) =>
                     elements
                         .map((element) => element.getAttribute("aria-label"))
@@ -96,10 +96,10 @@ test.describe("workbench (seeded project)", () => {
         const originalTabOrder = await workspaceTabOrder();
         expect(originalTabOrder).toEqual(["Graph", "Files"]);
         const graphTab = page.locator(
-            "#bettershape-workbench [aria-roledescription='sortable'][aria-label='Graph']",
+            "#bettershape-workbench [role='tablist'][aria-label='Workspace'] [role='tab'][aria-label='Graph']",
         );
         const filesSortableTab = page.locator(
-            "#bettershape-workbench [aria-roledescription='sortable'][aria-label='Files']",
+            "#bettershape-workbench [role='tablist'][aria-label='Workspace'] [role='tab'][aria-label='Files']",
         );
         const parseTranslateX = (element: Element): number => {
             const offset = /translate3d\((-?[\d.]+)px/.exec(

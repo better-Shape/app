@@ -24,10 +24,10 @@ const focusableInside = (tab: HTMLElement) =>
     tab.querySelectorAll("button, a[href], input, select, textarea, [tabindex]").length;
 /** `code` as a browser sends it: dnd-kit's keyboard sensor starts a drag on the Space and Enter codes. */
 const KEY_CODES: Record<string, string> = { Enter: "Enter", " ": "Space", Delete: "Delete" };
-const press = (el: HTMLElement, key: string) =>
+const press = (el: HTMLElement, key: string, init: KeyboardEventInit = {}) =>
     act(() => {
         el.dispatchEvent(
-            new KeyboardEvent("keydown", { key, code: KEY_CODES[key] ?? key, bubbles: true, cancelable: true }),
+            new KeyboardEvent("keydown", { key, code: KEY_CODES[key] ?? key, bubbles: true, cancelable: true, ...init }),
         );
     });
 const click = (el: Element) =>
@@ -56,7 +56,7 @@ describe("workbench tab close semantics", () => {
         );
         const [readme, app] = tabs();
         expect(tabs().map(focusableInside)).toEqual([0, 0]);
-        expect(readme.getAttribute("aria-keyshortcuts")).toBe("Delete");
+        expect(readme.getAttribute("aria-keyshortcuts")).toBe("Delete Meta+Backspace");
 
         press(readme, "Delete");
         expect(onClose).toHaveBeenLastCalledWith("readme");
@@ -164,6 +164,81 @@ describe("workbench tab close semantics", () => {
         press(app, "ArrowRight");
         expect(document.activeElement).toBe(readme);
         expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("names each strip and takes one Tab stop in it, the selected tab", () => {
+        const workspace = (activeId: string) =>
+            act(() =>
+                root.render(
+                    <WorkspaceTabs
+                        tabs={[
+                            { id: "readme", kind: "file", title: "README.md", path: "/p/README.md" },
+                            { id: "app", kind: "file", title: "App.tsx", path: "/p/src/App.tsx" },
+                            { id: "lib", kind: "file", title: "lib.ts", path: "/p/src/lib.ts" },
+                        ]}
+                        activeId={activeId}
+                        onSelect={() => {}}
+                        onClose={() => {}}
+                        onNew={() => {}}
+                        onReorder={() => {}}
+                    />,
+                ),
+            );
+        workspace("app");
+        expect(host.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Workspace");
+        expect(tabs().map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
+        // A screen reader says "tab", not dnd-kit's "sortable".
+        expect(tabs().map((tab) => tab.getAttribute("aria-roledescription"))).toEqual([null, null, null]);
+        // With no tab selected, the first keeps the strip reachable.
+        workspace("missing");
+        expect(tabs().map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
+
+        act(() =>
+            root.render(
+                <ChatTabBar
+                    title="Chats"
+                    onNewChat={() => {}}
+                    tabs={[
+                        { id: "first", title: "First chat" },
+                        { id: "second", title: "Second chat" },
+                    ]}
+                    activeTabId="second"
+                    onSelectTab={() => {}}
+                    onCloseTab={() => {}}
+                />,
+            ),
+        );
+        const strip = host.querySelector('[role="tablist"]');
+        expect(strip?.getAttribute("aria-label")).toBe("Chats");
+        expect(tabs().map((tab) => tab.tabIndex)).toEqual([-1, 0]);
+        expect(tabs().map((tab) => tab.getAttribute("aria-roledescription"))).toEqual([null, null]);
+        // The strip holds only tabs; the New chat button sits after it.
+        expect([...(strip?.children ?? [])].every((child) => child.getAttribute("role") === "tab")).toBe(true);
+        expect(host.querySelector('button[aria-label="New chat"]')?.closest('[role="tablist"]')).toBeNull();
+    });
+
+    it("closes a workspace tab on Cmd+Backspace, for keyboards without a Delete key", () => {
+        const onClose = vi.fn();
+        act(() =>
+            root.render(
+                <WorkspaceTabs
+                    tabs={[
+                        { id: "readme", kind: "file", title: "README.md", path: "/p/README.md" },
+                        { id: "app", kind: "file", title: "App.tsx", path: "/p/src/App.tsx" },
+                    ]}
+                    activeId="readme"
+                    onSelect={() => {}}
+                    onClose={onClose}
+                    onNew={() => {}}
+                    onReorder={() => {}}
+                />,
+            ),
+        );
+        const [, app] = tabs();
+        press(app, "Backspace");
+        expect(onClose).not.toHaveBeenCalled();
+        press(app, "Backspace", { metaKey: true });
+        expect(onClose).toHaveBeenCalledExactlyOnceWith("app");
     });
 
     it("a lone workspace tab offers no close path", () => {

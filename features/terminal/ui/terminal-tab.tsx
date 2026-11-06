@@ -1,10 +1,11 @@
 "use client";
 
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Icon } from "@/components/ui/icon";
 import {
     WORKBENCH_TAB_CLOSE_BUTTON_CLASS,
+    WORKBENCH_TAB_CLOSE_KEYS,
     focusTabAfterClose,
     handleWorkbenchTabKey,
     workbenchTabClickCommand,
@@ -16,9 +17,12 @@ import { cn } from "@/lib/utils";
 type TerminalStripTabProps = {
     title: string;
     active: boolean;
+    /** Whether this tab is its strip's stop in the Tab order; see `isTabStop`. */
+    tabStop: boolean;
     unread: boolean;
     onActivate: () => void;
-    onClose: () => void;
+    /** `keepFocus` is true when the tab had focus, which then stays on the strip. */
+    onClose: (keepFocus: boolean) => void;
 };
 
 const TERMINAL_TAB_STATE = { closable: true, dragging: false } as const;
@@ -49,15 +53,21 @@ const focusOtherPaneTab = (tab: HTMLElement) => {
  * workbench tab is: Enter or Space opens it, since the strip has no drag-and-drop to pick a tab
  * up with Space, and Delete or a click on the close glyph closes it.
  */
-export const TerminalStripTab = ({ title, active, unread, onActivate, onClose }: TerminalStripTabProps) => {
+export const TerminalStripTab = ({ title, active, tabStop, unread, onActivate, onClose }: TerminalStripTabProps) => {
+    const tabRef = useRef<HTMLDivElement>(null);
+    // A new terminal opens active at the end of the strip, which may be past its visible edge.
+    useEffect(() => {
+        if (active) tabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, [active]);
     const runCommand = (command: WorkbenchTabCommand, tab: HTMLElement) => {
         if (command === "select") {
             onActivate();
             return;
         }
+        const hadFocus = tab.contains(document.activeElement);
         focusTabAfterClose(tab);
         focusOtherPaneTab(tab);
-        onClose();
+        onClose(hadFocus);
     };
     const activateOnSpace = (event: KeyboardEvent<HTMLElement>) => {
         if (event.key !== " ") return;
@@ -67,10 +77,11 @@ export const TerminalStripTab = ({ title, active, unread, onActivate, onClose }:
 
     return (
         <div
+            ref={tabRef}
             role="tab"
             aria-selected={active}
-            aria-keyshortcuts="Delete"
-            tabIndex={0}
+            aria-keyshortcuts={WORKBENCH_TAB_CLOSE_KEYS}
+            tabIndex={tabStop ? 0 : -1}
             onClick={(event) => runCommand(workbenchTabClickCommand(event.target, true), event.currentTarget)}
             onKeyDown={(event) => handleWorkbenchTabKey(event, TERMINAL_TAB_STATE, runCommand, activateOnSpace)}
             className={workbenchTabItemClass(active)}

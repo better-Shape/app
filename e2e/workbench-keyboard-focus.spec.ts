@@ -50,6 +50,44 @@ test.describe("workbench keyboard focus", () => {
         await expect(strip.getByRole("tab", { name: /^PowerShell 2/ })).toBeFocused();
     });
 
+    test("closing the open tab opens the tab focus moves to", async ({ page }) => {
+        // The strip reads Graph, Files, README.md. Closing Graph, the first, hands focus to Files,
+        // which must open too, not README.md at the end.
+        const graph = page.getByRole("tab", { name: "Graph", exact: true });
+        await graph.click();
+        await expect(graph).toHaveAttribute("aria-selected", "true");
+        await page.keyboard.press("Delete");
+        const files = page.getByRole("tab", { name: "Files", exact: true });
+        await expect(files).toBeFocused();
+        await expect(files).toHaveAttribute("aria-selected", "true");
+        // The strip is one Tab stop, the open tab.
+        await expect(page.getByRole("tablist", { name: "Workspace" }).getByRole("tab")).toHaveCount(2);
+        await expect(files).toHaveAttribute("tabindex", "0");
+        await expect(page.getByRole("tab", { name: "README.md", exact: true })).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("closing the open terminal from its strip keeps focus on the strip", async ({ page }) => {
+        await page.evaluate(() =>
+            window.dispatchEvent(
+                new CustomEvent("bettershape-layout-toggle", { detail: { id: "terminal", value: true } }),
+            ),
+        );
+        const strip = page.getByRole("tablist").filter({ has: page.getByRole("tab", { name: /^PowerShell/ }) });
+        await expect(strip.getByRole("tab")).toHaveCount(1, { timeout: 15_000 });
+        await page.getByRole("button", { name: "New Terminal" }).click();
+        const second = strip.getByRole("tab", { name: /^PowerShell 2/ });
+        await expect(second).toHaveAttribute("aria-selected", "true");
+
+        await second.focus();
+        await page.keyboard.press("Delete");
+        const first = strip.getByRole("tab", { name: /^PowerShell 1/ });
+        await expect(first).toHaveAttribute("aria-selected", "true");
+        await expect(first).toBeFocused();
+        // Activating a terminal focuses it, but not when its strip closed the tab before it.
+        await page.waitForTimeout(300);
+        await expect(first).toBeFocused();
+    });
+
     test("a read-only diff shows a focus ring while its text has keyboard focus", async ({ page }) => {
         await page.evaluate(() =>
             window.dispatchEvent(

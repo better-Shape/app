@@ -412,8 +412,12 @@ export const AgentWorkspace = ({
     const closeTab = useCallback((id: string) => {
         const prev = tabsRef.current;
         if (prev.length <= 1) return;
+        const index = prev.findIndex((tab) => tab.id === id);
+        if (index < 0) return;
         const next = prev.filter((tab) => tab.id !== id);
-        const activate = activeIdRef.current === id ? next[next.length - 1].id : activeIdRef.current;
+        // Closing the open tab opens the one after it, else the one before, where focus goes too.
+        const neighbour = index < next.length ? next[index] : next[index - 1];
+        const activate = activeIdRef.current === id ? neighbour.id : activeIdRef.current;
         commitTabs(next, activate);
     }, [commitTabs]);
 

@@ -4,9 +4,8 @@ import { Add20Regular } from "@fluentui/react-icons/headless/svg/add";
 import { Dismiss20Regular } from "@fluentui/react-icons/headless/svg/dismiss";
 
 
-import { useCallback, useMemo, type KeyboardEvent } from "react";
-import { arrayMove, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useCallback, useMemo } from "react";
+import { arrayMove } from "@dnd-kit/sortable";
 import type { DragEndEvent } from "@dnd-kit/core";
 import {
     DropdownMenu,
@@ -31,13 +30,10 @@ import {
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_CONTENT_ACTIVE_CLASS,
     WORKBENCH_TAB_CONTENT_CLASS,
-    focusTabAfterClose,
-    handleWorkbenchTabKey,
-    isWorkbenchTabCloseTarget,
-    workbenchTabClickCommand,
+    isTabStop,
     workbenchTabItemClass,
-    type WorkbenchTabCommand,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
+import { useSortableTab } from "@/features/editor/ui/tabs/use-sortable-tab";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/lib/settings";
 import type { TabKind, WorkspaceTab } from "./model";
@@ -46,6 +42,7 @@ import { iconFor } from "./model";
 function SortableWorkspaceTab({
     tab,
     isActive,
+    tabStop,
     compact,
     canClose,
     onSelect,
@@ -55,6 +52,7 @@ function SortableWorkspaceTab({
 }: {
     tab: WorkspaceTab;
     isActive: boolean;
+    tabStop: boolean;
     compact: boolean;
     canClose: boolean;
     onSelect: (id: string) => void;
@@ -64,67 +62,21 @@ function SortableWorkspaceTab({
 }) {
     /** The path this tab points at, absent for browser and terminal tabs. */
     const tabPath = tab.path;
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging,
-    } = useSortable({ id: tab.id });
-    const forwardSortableKey = (event: KeyboardEvent<HTMLElement>) => listeners?.onKeyDown?.(event);
-    const forwardSortablePointer = listeners?.onPointerDown;
-    const runCommand = (command: WorkbenchTabCommand, tabElement: HTMLElement) => {
-        if (command === "select") {
-            onSelect(tab.id);
-            return;
-        }
-        focusTabAfterClose(tabElement);
-        onClose(tab.id);
-    };
-
-    const style = {
-        transform: transform
-            ? CSS.Translate.toString({
-                  x: transform.x,
-                  y: 0,
-                  scaleX: 1,
-                  scaleY: 1,
-              })
-            : undefined,
-        transition,
-        zIndex: isDragging ? 20 : 1,
-    };
+    const { tabProps, isDragging } = useSortableTab({
+        id: tab.id,
+        selected: isActive,
+        tabStop,
+        closable: canClose,
+        onSelect: () => onSelect(tab.id),
+        onClose: () => onClose(tab.id),
+    });
 
     return (
         <ContextMenu>
             <ContextMenuTrigger asChild>
                 <div
-                    ref={setNodeRef}
-                    style={style}
-                    {...attributes}
-                    {...listeners}
-                    role="tab"
+                    {...tabProps}
                     aria-label={tab.title}
-                    aria-selected={isActive}
-                    aria-keyshortcuts={canClose ? "Delete" : undefined}
-                    tabIndex={0}
-                    onPointerDown={(event) => {
-                        // Pressing the close glyph must not start a drag.
-                        if (isWorkbenchTabCloseTarget(event.target)) return;
-                        forwardSortablePointer?.(event);
-                    }}
-                    onClick={(event) =>
-                        runCommand(workbenchTabClickCommand(event.target, canClose), event.currentTarget)
-                    }
-                    onKeyDown={(event) =>
-                        handleWorkbenchTabKey(
-                            event,
-                            { closable: canClose, dragging: isDragging },
-                            runCommand,
-                            forwardSortableKey,
-                        )
-                    }
                     className={cn(
                         workbenchTabItemClass(isActive, isDragging, compact),
                         compact ? "max-w-28" : "max-w-44",
@@ -283,8 +235,11 @@ export function WorkspaceTabs({
         </DropdownMenu>
     );
 
+    const stripHasSelection = uniqueTabs.some((t) => t.id === activeId);
+
     return (
         <TabBarShell
+            label="Workspace"
             dndId="agent-workspace-tabs"
             itemIds={uniqueTabs.map((t) => t.id)}
             onDragEnd={handleDragEnd}
@@ -292,11 +247,12 @@ export function WorkspaceTabs({
             fade={fade}
             className={cn("h-titlebar bg-panel px-1", className)}
         >
-            {uniqueTabs.map((tab) => (
+            {uniqueTabs.map((tab, index) => (
                 <SortableWorkspaceTab
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === activeId}
+                    tabStop={isTabStop(tab.id === activeId, index, stripHasSelection)}
                     compact={compact}
                     canClose={uniqueTabs.length > 1}
                     onSelect={onSelect}

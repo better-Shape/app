@@ -59,28 +59,45 @@ export const isWorkbenchTabCloseTarget = (target: EventTarget | null): boolean =
 export type WorkbenchTabCommand = "select" | "close";
 
 /**
- * Keys a focused workbench tab handles itself, after the WAI-ARIA tabs pattern: Enter opens it
- * and Delete closes it, and the arrows, Home and End move focus along the strip. Every other key
- * belongs to drag-and-drop reordering, which picks a tab up with Space and, once it is held,
- * moves it with the arrows.
+ * The keys that close a focused tab, for `aria-keyshortcuts`: Delete, and Cmd+Backspace for
+ * macOS laptop keyboards, which have no Delete key, as VS Code's terminal tabs take it.
  */
-const WORKBENCH_TAB_KEYS: ReadonlyMap<string, WorkbenchTabCommand> = new Map([
-    ["Enter", "select"],
-    ["Delete", "close"],
-]);
+export const WORKBENCH_TAB_CLOSE_KEYS = "Delete Meta+Backspace";
+
+/** The key fields a tab's key handling reads. */
+type TabKey = { key: string; metaKey?: boolean };
 
 /**
- * The command a key press on a focused tab requests: none mid-drag, and Delete only when the tab
+ * Keys a focused workbench tab handles itself, after the WAI-ARIA tabs pattern: Enter opens it,
+ * Delete or Cmd+Backspace closes it, and the arrows, Home and End move focus along the strip.
+ * Every other key belongs to drag-and-drop reordering, which picks a tab up with Space and, once
+ * it is held, moves it with the arrows.
+ */
+const tabKeyCommand = ({ key, metaKey }: TabKey): WorkbenchTabCommand | undefined => {
+    if (key === "Enter") return "select";
+    return key === "Delete" || (key === "Backspace" && metaKey) ? "close" : undefined;
+};
+
+/**
+ * The command a key press on a focused tab requests: none mid-drag, and a close only when the tab
  * is closable and the key is not repeating. A held Delete repeats, and focus moves to the next
  * tab after each close, so acting on repeats would close every tab after it.
  */
 export const workbenchTabKeyCommand = (
-    key: string,
+    pressed: TabKey,
     state: { closable: boolean; dragging: boolean; repeat?: boolean },
 ): WorkbenchTabCommand | undefined => {
-    const command = state.dragging ? undefined : WORKBENCH_TAB_KEYS.get(key);
+    const command = state.dragging ? undefined : tabKeyCommand(pressed);
     return command === "close" && (!state.closable || state.repeat) ? undefined : command;
 };
+
+/**
+ * Whether a tab is its strip's one stop in the Tab order, as the WAI-ARIA tabs pattern asks: the
+ * selected tab, or the first tab when none is selected, so the strip stays reachable. The arrow
+ * keys move focus to the others.
+ */
+export const isTabStop = (selected: boolean, index: number, stripHasSelection: boolean): boolean =>
+    selected || (!stripHasSelection && index === 0);
 
 /** Where an arrow, Home or End key sends focus among `count` tabs from `index`, wrapping at the ends. */
 const tabFocusTarget = (key: string, index: number, count: number): number | undefined => {
@@ -122,7 +139,7 @@ const runWorkbenchTabKey = (
     run: (command: WorkbenchTabCommand, tab: HTMLElement) => void,
 ): boolean => {
     if (!state.dragging && moveTabFocus(event)) return true;
-    const command = workbenchTabKeyCommand(event.key, { ...state, repeat: event.repeat });
+    const command = workbenchTabKeyCommand(event, { ...state, repeat: event.repeat });
     if (command) run(command, event.currentTarget);
     return command !== undefined;
 };

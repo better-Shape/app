@@ -45,8 +45,10 @@ import { Button } from "@/components/ui/button";
 import { getSettings, resolveDefaultTerminalShell } from "@/lib/settings";
 import { restoreCustomFonts } from "@/lib/editor/custom-fonts";
 import { terminalKeepsKey } from "@/features/terminal/tab-focus-mode";
+import { holdStripFocusFor, takeStripFocusHold } from "@/features/terminal/strip-focus";
 import { setLastDevUrl } from "@/features/preview/store";
 import {
+    isTabStop,
     WORKBENCH_TAB_ACTION_BUTTON_CLASS,
     WORKBENCH_TAB_BAR_CLASS,
 } from "@/features/editor/ui/tabs/workbench-tab-styles";
@@ -480,7 +482,7 @@ const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, is
                 xtermRef.current = term;
                 fitAddonRef.current = fitAddon;
                 if (isActive) {
-                    term.focus();
+                    if (!takeStripFocusHold(tab.id)) term.focus();
                     term.scrollToBottom();
                 }
                 return;
@@ -613,7 +615,7 @@ const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, is
                     }, 60);
                 }
                 if (isActive) {
-                    term.focus();
+                    if (!takeStripFocusHold(tab.id)) term.focus();
                     term.scrollToBottom();
                 }
             } catch (e) {
@@ -702,13 +704,13 @@ const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, is
                 if (isLayoutResizing()) return;
                 if (fitAddonRef.current && xtermRef.current) {
                     fitAddonRef.current.fit();
-                    xtermRef.current.focus();
+                    if (!takeStripFocusHold(tab.id)) xtermRef.current.focus();
                     xtermRef.current.scrollToBottom();
                 }
             });
             return () => cancelAnimationFrame(raf);
         }
-    }, [isActive]);
+    }, [isActive, tab.id]);
 
 // Button path for the same copy as the key handler; the clipboard promise is
     // settled either way because the history entry is already written.
@@ -806,6 +808,16 @@ const TerminalInstance = ({ tab, isActive, describedBy }: { tab: TerminalTab, is
 };
 
 /** Renders the Terminal UI component. */
+/**
+ * The tab that takes a closed tab's place in its group: the one after it, else the one before,
+ * which is where the strip moves focus too.
+ */
+const tabAfterClose = (groupBefore: TerminalTab[], closedId: string): TerminalTab | undefined => {
+    const index = groupBefore.findIndex((t) => t.id === closedId);
+    const remaining = groupBefore.filter((t) => t.id !== closedId);
+    return index < remaining.length ? remaining[index] : remaining[index - 1];
+};
+
 const Terminal = ({
     onClose,
     isOpen,
@@ -974,13 +986,21 @@ const Terminal = ({
         return availableShells[0]?.id ?? preferred;
     }, [availableShells]);
 
-    const closeTab = useCallback((id: string) => {
+    const closeTab = useCallback((id: string, keepStripFocus = false) => {
         globalTerminalStore.setTabs(prev => {
             const closing = prev.find((t) => t.id === id);
             const next = prev.filter(t => t.id !== id);
             const projectTabs = next.filter((t) => sameProjectPath(t.cwd, safeCwd));
             const left = projectTabs.filter((t) => (t.group ?? "left") === "left");
             const right = projectTabs.filter((t) => t.group === "right");
+            const groupBefore = prev.filter(
+                (t) => sameProjectPath(t.cwd, safeCwd) && (t.group ?? "left") === (closing?.group ?? "left"),
+            );
+            // Activates the closed tab's neighbour and, when the strip had focus, leaves it there.
+            const activate = (tab: TerminalTab, setActive: (tabId: string) => void) => {
+                if (keepStripFocus) holdStripFocusFor(tab.id);
+                setTimeout(() => setActive(tab.id), 0);
+            };
             const inst = globalTerminalStore.instances.get(id);
             const killId = inst && inst.ptyId >= 0 ? inst.ptyId : closing?.boundPtyId;
             if (typeof killId === "number" && killId >= 0) {
@@ -1007,11 +1027,11 @@ const Terminal = ({
                     if (right.length === 0) {
                         setTimeout(() => setSecondaryTerminalId(null), 0);
                     } else if (secondaryTerminalId === id) {
-                        setTimeout(() => setSecondaryTerminalId(right[right.length - 1].id), 0);
+                        activate(tabAfterClose(groupBefore, id) ?? right[right.length - 1], setSecondaryTerminalId);
                     }
                 } else if (activeTerminalId === id || !left.some(t => t.id === activeTerminalId)) {
-                    const fallback = left[left.length - 1] ?? projectTabs[projectTabs.length - 1];
-                    setTimeout(() => setActiveTerminalId(fallback.id), 0);
+                    const neighbour = activeTerminalId === id ? tabAfterClose(groupBefore, id) : undefined;
+                    activate(neighbour ?? left[left.length - 1] ?? projectTabs[projectTabs.length - 1], setActiveTerminalId);
                 }
             }
             return next;
@@ -1422,29 +1442,33 @@ const Terminal = ({
         group: TerminalGroupId,
         onActivate: (id: string) => void,
         scrollRef?: React.RefObject<HTMLDivElement | null>,
-    ) => (
-        <div
-            ref={scrollRef}
-            role="tablist"
-            aria-label={TERMINAL_STRIP_LABELS[splitEnabled ? group : "single"]}
-            onWheel={handleWheel}
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
-        >
-            {tabs.map((tab) => {
-                const isActive = activeId === tab.id;
-                return (
-                    <TerminalStripTab
-                        key={tab.id}
-                        title={tab.title}
-                        active={isActive}
-                        unread={!isActive && unreadTabs.has(tab.id)}
-                        onActivate={() => onActivate(tab.id)}
-                        onClose={() => closeTab(tab.id)}
-                    />
-                );
-            })}
-        </div>
-    );
+    ) => {
+        const stripHasSelection = tabs.some((t) => t.id === activeId);
+        return (
+            <div
+                ref={scrollRef}
+                role="tablist"
+                aria-label={TERMINAL_STRIP_LABELS[splitEnabled ? group : "single"]}
+                onWheel={handleWheel}
+                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
+            >
+                {tabs.map((tab, index) => {
+                    const isActive = activeId === tab.id;
+                    return (
+                        <TerminalStripTab
+                            key={tab.id}
+                            title={tab.title}
+                            active={isActive}
+                            tabStop={isTabStop(isActive, index, stripHasSelection)}
+                            unread={!isActive && unreadTabs.has(tab.id)}
+                            onActivate={() => onActivate(tab.id)}
+                            onClose={(keepFocus) => closeTab(tab.id, keepFocus)}
+                        />
+                    );
+                })}
+            </div>
+        );
+    };
 
     const renderGroupChrome = (
         tabs: TerminalTab[],
